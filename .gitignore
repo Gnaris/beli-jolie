@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# uploads (fichiers utilisateurs)
+/private/uploads/
+/public/uploads/
+
+# fichiers sensibles
+admin.txt
+.claude/

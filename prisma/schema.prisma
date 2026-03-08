@@ -1,0 +1,147 @@
+// Prisma Schema — Beli & Jolie
+// Base de données MySQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Rôles utilisateur
+// ─────────────────────────────────────────────
+enum Role {
+  ADMIN
+  CLIENT
+}
+
+enum UserStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  password  String
+  firstName String
+  lastName  String
+  company   String
+  phone     String
+  siret     String     @unique
+  kbisPath  String
+  role      Role       @default(CLIENT)
+  status    UserStatus @default(PENDING)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Catalogue produits
+// ─────────────────────────────────────────────
+
+enum SaleType {
+  UNIT // Vendu à l'unité
+  PACK // Vendu par paquet de X unités
+}
+
+enum DiscountType {
+  PERCENT // Remise en %
+  AMOUNT  // Remise en €
+}
+
+// Catégorie principale (ex: Colliers, Bracelets)
+model Category {
+  id            String        @id @default(cuid())
+  name          String        @unique
+  slug          String        @unique
+  subCategories SubCategory[]
+  products      Product[]
+  createdAt     DateTime      @default(now())
+}
+
+// Sous-catégorie (ex: Sautoir, Jonc)
+model SubCategory {
+  id         String    @id @default(cuid())
+  name       String
+  slug       String
+  categoryId String
+  category   Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  products   Product[]
+  createdAt  DateTime  @default(now())
+
+  @@unique([name, categoryId])
+}
+
+// Bibliothèque de couleurs réutilisables entre produits
+model Color {
+  id            String         @id @default(cuid())
+  name          String         @unique
+  hex           String?
+  createdAt     DateTime       @default(now())
+  productColors ProductColor[]
+}
+
+// Produit principal
+model Product {
+  id            String         @id @default(cuid())
+  reference     String         @unique
+  name          String
+  description   String         @db.Text
+  composition   String         @db.Text
+  categoryId    String
+  category      Category       @relation(fields: [categoryId], references: [id])
+  subCategoryId String?
+  subCategory   SubCategory?   @relation(fields: [subCategoryId], references: [id])
+  colors        ProductColor[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+// Variante couleur d'un produit — prix unitaire et poids partagés entre UNIT et PACK
+model ProductColor {
+  id          String         @id @default(cuid())
+  productId   String
+  product     Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorId     String
+  color       Color          @relation(fields: [colorId], references: [id])
+  unitPrice   Float          // Prix par unité HT — partagé entre UNIT et PACK
+  weight      Float          // Poids en kg (ex: 0.008)
+  isPrimary   Boolean        @default(false)
+  saleOptions SaleOption[]
+  images      ProductImage[] // Max 5 images — partagées entre UNIT et PACK
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([productId, colorId])
+}
+
+// Option de vente pour une couleur (unité ou paquet)
+model SaleOption {
+  id            String        @id @default(cuid())
+  colorId       String
+  productColor  ProductColor  @relation(fields: [colorId], references: [id], onDelete: Cascade)
+  saleType      SaleType      // UNIT ou PACK
+  packQuantity  Int?          // Quantité par paquet (null si UNIT)
+  stock         Int           @default(0)
+  discountType  DiscountType? // Type de remise (null = pas de remise)
+  discountValue Float?        // Valeur de la remise
+  // totalPrice calculé : UNIT → unitPrice | PACK → unitPrice × packQuantity
+  // finalPrice calculé : totalPrice - remise
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+// Image d'une variante couleur
+model ProductImage {
+  id        String       @id @default(cuid())
+  colorId   String
+  color     ProductColor @relation(fields: [colorId], references: [id], onDelete: Cascade)
+  path      String       // Chemin relatif depuis /public
+  order     Int          @default(0)
+  createdAt DateTime     @default(now())
+}

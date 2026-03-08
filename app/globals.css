@@ -1,26 +1,151 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/* ─────────────────────────────────────────────
+   Palette Beli & Jolie — inspirée du site de référence
+   Tons crème, beige, or olive, brun charbon
+───────────────────────────────────────────── */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Fonds */
+  --color-cream:      #F7F3EC;
+  --color-beige:      #EDE8DF;
+  --color-white-warm: #FDFAF6;
+
+  /* Textes */
+  --color-brown-dark:   #2C2418;
+  --color-brown-medium: #6B5B45;
+
+  /* Accents / CTA */
+  --color-gold:       #8B7355;
+  --color-gold-dark:  #6B5640;
+  --color-gold-light: #B8A48A;
+
+  /* Bordures */
+  --color-border: #D4CCBE;
+
+  /* Fonts */
+  --font-heading: var(--font-poppins);
+  --font-body:    var(--font-roboto);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ─────────────────────────────────────────────
+   Reset & base
+───────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: #F7F3EC;
+  color: #2C2418;
+  font-family: var(--font-roboto), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-poppins), system-ui, sans-serif;
+}
+
+/* ─────────────────────────────────────────────
+   Utilitaires globaux
+───────────────────────────────────────────── */
+
+/* Conteneur centré réutilisable */
+.container-site {
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+
+@media (min-width: 640px)  { .container-site { padding-inline: 1.5rem; } }
+@media (min-width: 1024px) { .container-site { padding-inline: 2rem; } }
+
+/* Bouton CTA principal */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #8B7355;
+  color: #FDFAF6;
+  font-family: var(--font-roboto), sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.75rem 1.75rem;
+  border: 1px solid transparent;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.btn-primary:hover {
+  background-color: #6B5640;
+}
+
+/* Bouton CTA outline */
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: transparent;
+  color: #8B7355;
+  font-family: var(--font-roboto), sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.75rem 1.75rem;
+  border: 1px solid #8B7355;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.btn-outline:hover {
+  background-color: #8B7355;
+  color: #FDFAF6;
+}
+
+/* Trait décoratif doré sous les titres de section */
+.section-title::after {
+  content: '';
+  display: block;
+  width: 3rem;
+  height: 2px;
+  background-color: #8B7355;
+  margin-top: 0.75rem;
+}
+
+.section-title-center::after {
+  content: '';
+  display: block;
+  width: 3rem;
+  height: 2px;
+  background-color: #8B7355;
+  margin: 0.75rem auto 0;
+}
+
+/* Champ de saisie admin réutilisable */
+.field-input {
+  width: 100%;
+  border: 1px solid #D4CCBE;
+  background-color: #fff;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  font-family: var(--font-roboto), sans-serif;
+  color: #2C2418;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.field-input:focus {
+  border-color: #8B7355;
+}
+
+.field-input:disabled {
+  background-color: #F7F3EC;
+  color: #B8A48A;
+  cursor: not-allowed;
 }
