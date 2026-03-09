@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import type { Metadata } from "next";
+import LogoutButton from "@/components/admin/LogoutModal";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -25,16 +26,16 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F3EC] flex">
+    <div className="min-h-screen bg-[#FFFFFF] flex">
 
       {/* Sidebar admin */}
-      <aside className="w-64 shrink-0 bg-[#2C2418] min-h-screen hidden lg:flex flex-col">
+      <aside className="w-64 shrink-0 bg-[#0F172A] min-h-screen hidden lg:flex flex-col">
         {/* Logo */}
-        <div className="px-6 py-6 border-b border-[#6B5B45]/40">
-          <Link href="/" className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#FDFAF6] tracking-wide">
-            Beli <span className="text-[#B8A48A]">&</span> Jolie
+        <div className="px-6 py-6 border-b border-[#475569]/40">
+          <Link href="/" className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#FFFFFF] tracking-wide">
+            Beli <span className="text-[#94A3B8]">&</span> Jolie
           </Link>
-          <p className="text-xs text-[#6B5B45] mt-1 font-[family-name:var(--font-roboto)]">
+          <p className="text-xs text-[#475569] mt-1 font-[family-name:var(--font-roboto)]">
             Panel Administrateur
           </p>
         </div>
@@ -45,44 +46,36 @@ export default async function AdminLayout({
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center gap-3 px-3 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#D4CCBE] hover:text-[#FDFAF6] hover:bg-[#3D3020] rounded-sm transition-colors"
+              className="flex items-center gap-3 px-3 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#E2E8F0] hover:text-[#FFFFFF] hover:bg-[#1E3A5F] rounded-sm transition-colors"
             >
-              <span className="text-[#B8A48A]" aria-hidden="true">{item.icon}</span>
+              <span className="text-[#94A3B8]" aria-hidden="true">{item.icon}</span>
               {item.label}
             </Link>
           ))}
         </nav>
 
         {/* Footer sidebar */}
-        <div className="px-4 py-4 border-t border-[#6B5B45]/40">
+        <div className="px-4 py-4 border-t border-[#475569]/40">
           <div className="px-3 py-2">
-            <p className="text-xs font-[family-name:var(--font-roboto)] text-[#B8A48A]">
+            <p className="text-xs font-[family-name:var(--font-roboto)] text-[#94A3B8]">
               Connecté en tant que
             </p>
-            <p className="text-sm font-[family-name:var(--font-roboto)] font-medium text-[#FDFAF6] truncate">
+            <p className="text-sm font-[family-name:var(--font-roboto)] font-medium text-[#FFFFFF] truncate">
               {session.user.name}
             </p>
           </div>
-          <Link
-            href="/api/auth/signout"
-            className="mt-2 flex items-center gap-2 px-3 py-2 text-sm text-[#D4CCBE] hover:text-red-400 transition-colors font-[family-name:var(--font-roboto)]"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
-            </svg>
-            Déconnexion
-          </Link>
+          <LogoutButton />
         </div>
       </aside>
 
       {/* Contenu principal */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header admin mobile */}
-        <header className="lg:hidden bg-[#2C2418] px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#FDFAF6]">
-            Beli <span className="text-[#B8A48A]">&</span> Jolie
+        <header className="lg:hidden bg-[#0F172A] px-4 py-4 flex items-center justify-between">
+          <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#FFFFFF]">
+            Beli <span className="text-[#94A3B8]">&</span> Jolie
           </Link>
-          <span className="text-xs text-[#B8A48A] font-[family-name:var(--font-roboto)]">Admin</span>
+          <span className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)]">Admin</span>
         </header>
 
         <main className="flex-1 p-6 md:p-8">
@@ -139,6 +132,15 @@ const ADMIN_NAV = [
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4.098 19.902a3.75 3.75 0 005.304 0l6.401-6.402M6.75 21A3.75 3.75 0 013 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 003.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l2.88-2.88c.438-.439 1.15-.439 1.59 0l3.712 3.713c.44.44.44 1.152 0 1.59l-2.879 2.88M6.75 17.25h.008v.008H6.75v-.008z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Compositions",
+    href: "/admin/compositions",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
       </svg>
     ),
   },

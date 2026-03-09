@@ -49,7 +49,7 @@ const BADGES = [
 
 export default function TrustBadges() {
   return (
-    <section className="bg-[#FDFAF6] border-y border-[#D4CCBE]" aria-label="Nos garanties">
+    <section className="bg-[#FFFFFF] border-y border-[#E2E8F0]" aria-label="Nos garanties">
       <div className="container-site py-10 md:py-12">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
           {BADGES.map((badge) => (
@@ -58,17 +58,17 @@ export default function TrustBadges() {
               className="flex flex-col items-center text-center gap-3 p-4"
             >
               {/* Icône */}
-              <div className="text-[#8B7355]">
+              <div className="text-[#0F3460]">
                 {badge.icon}
               </div>
 
               {/* Titre */}
-              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#2C2418]">
+              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A]">
                 {badge.title}
               </h3>
 
               {/* Description */}
-              <p className="font-[family-name:var(--font-roboto)] text-sm text-[#6B5B45] leading-relaxed hidden sm:block">
+              <p className="font-[family-name:var(--font-roboto)] text-sm text-[#475569] leading-relaxed hidden sm:block">
                 {badge.description}
               </p>
             </div>

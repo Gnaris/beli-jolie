@@ -44,9 +44,9 @@ export default async function AdminDashboardPage() {
     ]);
 
   const stats = [
-    { label: "Clients actifs", value: approvedCount, color: "text-[#8B7355]", bg: "bg-[#EDE8DF]" },
+    { label: "Clients actifs", value: approvedCount, color: "text-[#0F3460]", bg: "bg-[#F1F5F9]" },
     { label: "En attente", value: pendingCount, color: "text-amber-600", bg: "bg-amber-50", alert: pendingCount > 0 },
-    { label: "Total inscrits", value: totalClients, color: "text-[#2C2418]", bg: "bg-[#FDFAF6]" },
+    { label: "Total inscrits", value: totalClients, color: "text-[#0F172A]", bg: "bg-[#FFFFFF]" },
     { label: "Refusés", value: rejectedCount, color: "text-red-600", bg: "bg-red-50" },
   ];
 
@@ -55,10 +55,10 @@ export default async function AdminDashboardPage() {
 
       {/* En-tête */}
       <div>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-[#2C2418]">
+        <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-[#0F172A]">
           Bonjour, {session.user.name.split(" ")[0]}
         </h1>
-        <p className="mt-1 font-[family-name:var(--font-roboto)] text-sm text-[#6B5B45]">
+        <p className="mt-1 font-[family-name:var(--font-roboto)] text-sm text-[#475569]">
           Tableau de bord — Beli & Jolie Administration
         </p>
       </div>
@@ -68,12 +68,12 @@ export default async function AdminDashboardPage() {
         {stats.map((stat) => (
           <div
             key={stat.label}
-            className={`${stat.bg} border border-[#D4CCBE] p-5 ${stat.alert ? "ring-2 ring-amber-400 ring-offset-1" : ""}`}
+            className={`${stat.bg} border border-[#E2E8F0] p-5 ${stat.alert ? "ring-2 ring-amber-400 ring-offset-1" : ""}`}
           >
             <p className={`font-[family-name:var(--font-poppins)] text-3xl font-semibold ${stat.color}`}>
               {stat.value}
             </p>
-            <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45] mt-1">
+            <p className="text-sm font-[family-name:var(--font-roboto)] text-[#475569] mt-1">
               {stat.label}
             </p>
             {stat.alert && (
@@ -88,13 +88,13 @@ export default async function AdminDashboardPage() {
       {/* Comptes en attente */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#2C2418]">
+          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#0F172A]">
             Demandes en attente
           </h2>
           {pendingCount > 5 && (
             <Link
               href="/admin/utilisateurs?status=PENDING"
-              className="text-sm text-[#8B7355] hover:text-[#6B5640] font-[family-name:var(--font-roboto)] font-medium transition-colors"
+              className="text-sm text-[#0F3460] hover:text-[#0A2540] font-[family-name:var(--font-roboto)] font-medium transition-colors"
             >
               Voir tout ({pendingCount})
             </Link>
@@ -102,20 +102,20 @@ export default async function AdminDashboardPage() {
         </div>
 
         {latestPending.length === 0 ? (
-          <div className="bg-[#FDFAF6] border border-[#D4CCBE] p-8 text-center">
-            <svg className="w-10 h-10 text-[#D4CCBE] mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <div className="bg-[#FFFFFF] border border-[#E2E8F0] p-8 text-center">
+            <svg className="w-10 h-10 text-[#E2E8F0] mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p className="font-[family-name:var(--font-roboto)] text-[#6B5B45] text-sm">
+            <p className="font-[family-name:var(--font-roboto)] text-[#475569] text-sm">
               Aucune demande en attente. Tout est à jour !
             </p>
           </div>
         ) : (
-          <div className="bg-[#FDFAF6] border border-[#D4CCBE] overflow-hidden">
+          <div className="bg-[#FFFFFF] border border-[#E2E8F0] overflow-hidden">
             {/* En-tête tableau */}
-            <div className="hidden md:grid grid-cols-[1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-[#D4CCBE] bg-[#EDE8DF]">
+            <div className="hidden md:grid grid-cols-[1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-[#E2E8F0] bg-[#F1F5F9]">
               {["Nom / Société", "Email", "SIRET", "Actions"].map((h) => (
-                <span key={h} className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#6B5B45] uppercase tracking-wider">
+                <span key={h} className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider">
                   {h}
                 </span>
               ))}
@@ -125,26 +125,26 @@ export default async function AdminDashboardPage() {
             {latestPending.map((user) => (
               <div
                 key={user.id}
-                className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-3 md:gap-4 px-5 py-4 border-b border-[#EDE8DF] last:border-0 items-center"
+                className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-3 md:gap-4 px-5 py-4 border-b border-[#F1F5F9] last:border-0 items-center"
               >
                 <div>
-                  <p className="font-[family-name:var(--font-roboto)] font-medium text-[#2C2418] text-sm">
+                  <p className="font-[family-name:var(--font-roboto)] font-medium text-[#0F172A] text-sm">
                     {user.firstName} {user.lastName}
                   </p>
-                  <p className="text-xs text-[#6B5B45] font-[family-name:var(--font-roboto)]">
+                  <p className="text-xs text-[#475569] font-[family-name:var(--font-roboto)]">
                     {user.company}
                   </p>
                 </div>
-                <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45] truncate">
+                <p className="text-sm font-[family-name:var(--font-roboto)] text-[#475569] truncate">
                   {user.email}
                 </p>
-                <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45] font-mono">
+                <p className="text-sm font-[family-name:var(--font-roboto)] text-[#475569] font-mono">
                   {user.siret}
                 </p>
                 <div className="flex gap-2">
                   <Link
                     href={`/admin/utilisateurs/${user.id}`}
-                    className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#8B7355] border border-[#8B7355] px-3 py-1.5 hover:bg-[#8B7355] hover:text-[#FDFAF6] transition-colors"
+                    className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#0F3460] border border-[#0F3460] px-3 py-1.5 hover:bg-[#0F3460] hover:text-[#FFFFFF] transition-colors"
                   >
                     Examiner
                   </Link>
@@ -165,12 +165,12 @@ export default async function AdminDashboardPage() {
           <Link
             key={link.href}
             href={link.href}
-            className="bg-[#FDFAF6] border border-[#D4CCBE] p-5 hover:border-[#8B7355] transition-colors group"
+            className="bg-[#FFFFFF] border border-[#E2E8F0] p-5 hover:border-[#0F3460] transition-colors group"
           >
-            <p className="font-[family-name:var(--font-roboto)] font-semibold text-[#2C2418] text-sm group-hover:text-[#8B7355] transition-colors">
+            <p className="font-[family-name:var(--font-roboto)] font-semibold text-[#0F172A] text-sm group-hover:text-[#0F3460] transition-colors">
               {link.label} →
             </p>
-            <p className="text-xs text-[#6B5B45] mt-1 font-[family-name:var(--font-roboto)]">
+            <p className="text-xs text-[#475569] mt-1 font-[family-name:var(--font-roboto)]">
               {link.desc}
             </p>
           </Link>

@@ -86,20 +86,66 @@ model Color {
   productColors ProductColor[]
 }
 
+// Bibliothèque de compositions (matériaux)
+model Composition {
+  id        String               @id @default(cuid())
+  name      String               @unique
+  createdAt DateTime             @default(now())
+  products  ProductComposition[]
+}
+
+// Liaison produit ↔ composition avec pourcentage
+model ProductComposition {
+  id            String      @id @default(cuid())
+  productId     String
+  compositionId String
+  percentage    Float       // ex: 85.5 pour 85.5%
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  composition   Composition @relation(fields: [compositionId], references: [id])
+
+  @@unique([productId, compositionId])
+}
+
 // Produit principal
 model Product {
-  id            String         @id @default(cuid())
-  reference     String         @unique
+  id            String               @id @default(cuid())
+  reference     String               @unique
   name          String
-  description   String         @db.Text
-  composition   String         @db.Text
+  description   String               @db.Text
   categoryId    String
-  category      Category       @relation(fields: [categoryId], references: [id])
+  category      Category             @relation(fields: [categoryId], references: [id])
   subCategoryId String?
-  subCategory   SubCategory?   @relation(fields: [subCategoryId], references: [id])
+  subCategory   SubCategory?         @relation(fields: [subCategoryId], references: [id])
   colors        ProductColor[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  compositions  ProductComposition[]
+  // Produits similaires (M2M self)
+  similarProducts ProductSimilar[]   @relation("PSim_A")
+  similarTo       ProductSimilar[]   @relation("PSim_B")
+  // Références associées — parures, ensembles (M2M self)
+  productRefs  ProductReference[]    @relation("PRef_A")
+  referencedBy ProductReference[]   @relation("PRef_B")
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+}
+
+// Produits similaires (M2M self-relation)
+model ProductSimilar {
+  productId String
+  similarId String
+  product   Product @relation("PSim_A", fields: [productId], references: [id], onDelete: Cascade)
+  similar   Product @relation("PSim_B", fields: [similarId], references: [id], onDelete: Cascade)
+
+  @@id([productId, similarId])
+}
+
+// Références associées — parures (M2M self-relation)
+model ProductReference {
+  productId   String
+  referenceId String
+  product     Product @relation("PRef_A", fields: [productId], references: [id], onDelete: Cascade)
+  reference   Product @relation("PRef_B", fields: [referenceId], references: [id], onDelete: Cascade)
+
+  @@id([productId, referenceId])
 }
 
 // Variante couleur d'un produit — prix unitaire et poids partagés entre UNIT et PACK
@@ -111,6 +157,7 @@ model ProductColor {
   color       Color          @relation(fields: [colorId], references: [id])
   unitPrice   Float          // Prix par unité HT — partagé entre UNIT et PACK
   weight      Float          // Poids en kg (ex: 0.008)
+  stock       Int            @default(0) // Stock commun à toutes les options de vente de cette couleur
   isPrimary   Boolean        @default(false)
   saleOptions SaleOption[]
   images      ProductImage[] // Max 5 images — partagées entre UNIT et PACK
@@ -127,11 +174,8 @@ model SaleOption {
   productColor  ProductColor  @relation(fields: [colorId], references: [id], onDelete: Cascade)
   saleType      SaleType      // UNIT ou PACK
   packQuantity  Int?          // Quantité par paquet (null si UNIT)
-  stock         Int           @default(0)
   discountType  DiscountType? // Type de remise (null = pas de remise)
   discountValue Float?        // Valeur de la remise
-  // totalPrice calculé : UNIT → unitPrice | PACK → unitPrice × packQuantity
-  // finalPrice calculé : totalPrice - remise
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 }

@@ -20,7 +20,6 @@ async function requireAdmin() {
 export interface SaleOptionInput {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  stock: number;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
 }
@@ -29,19 +28,27 @@ export interface ColorInput {
   colorId: string;
   unitPrice: number;
   weight: number;
+  stock: number;        // stock partagé entre toutes les options de vente de cette couleur
   isPrimary: boolean;
   saleOptions: SaleOptionInput[];
   imagePaths: string[];
+}
+
+export interface CompositionInput {
+  compositionId: string;
+  percentage: number;
 }
 
 export interface ProductInput {
   reference: string;
   name: string;
   description: string;
-  composition: string;
   categoryId: string;
   subCategoryId: string | null;
   colors: ColorInput[];
+  compositions: CompositionInput[];
+  similarProductIds: string[];
+  referenceIds: string[];
 }
 
 // ─────────────────────────────────────────────
@@ -59,20 +66,19 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       reference:     input.reference.trim().toUpperCase(),
       name:          input.name.trim(),
       description:   input.description.trim(),
-      composition:   input.composition.trim(),
       categoryId:    input.categoryId,
       subCategoryId: input.subCategoryId || null,
       colors: {
         create: input.colors.map((color, idx) => ({
-          colorId:    color.colorId,
-          unitPrice:  color.unitPrice,
-          weight:     color.weight,
-          isPrimary:  color.isPrimary || idx === 0,
+          colorId:   color.colorId,
+          unitPrice: color.unitPrice,
+          weight:    color.weight,
+          stock:     color.stock,           // stock sur ProductColor
+          isPrimary: color.isPrimary || idx === 0,
           saleOptions: {
             create: color.saleOptions.map((opt) => ({
               saleType:      opt.saleType,
               packQuantity:  opt.packQuantity,
-              stock:         opt.stock,
               discountType:  opt.discountType,
               discountValue: opt.discountValue,
             })),
@@ -82,8 +88,36 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
           },
         })),
       },
+      compositions: {
+        create: input.compositions.map((c) => ({
+          compositionId: c.compositionId,
+          percentage:    c.percentage,
+        })),
+      },
     },
   });
+
+  // Produits similaires — bidirectionnel (A→B et B→A)
+  if (input.similarProductIds.length > 0) {
+    await prisma.productSimilar.createMany({
+      data: [
+        ...input.similarProductIds.map((similarId) => ({ productId: product.id, similarId })),
+        ...input.similarProductIds.map((similarId) => ({ productId: similarId, similarId: product.id })),
+      ],
+      skipDuplicates: true,
+    });
+  }
+
+  // Références associées — bidirectionnel (A→B et B→A)
+  if (input.referenceIds.length > 0) {
+    await prisma.productReference.createMany({
+      data: [
+        ...input.referenceIds.map((referenceId) => ({ productId: product.id, referenceId })),
+        ...input.referenceIds.map((referenceId) => ({ productId: referenceId, referenceId: product.id })),
+      ],
+      skipDuplicates: true,
+    });
+  }
 
   revalidatePath("/admin/produits");
   return { id: product.id };
@@ -96,7 +130,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 export async function updateProduct(id: string, input: ProductInput): Promise<void> {
   await requireAdmin();
 
-  // Vérifier unicité référence (hors ce produit)
   const dup = await prisma.product.findFirst({
     where: { reference: input.reference.trim().toUpperCase(), NOT: { id } },
   });
@@ -110,10 +143,19 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         reference:     input.reference.trim().toUpperCase(),
         name:          input.name.trim(),
         description:   input.description.trim(),
-        composition:   input.composition.trim(),
         categoryId:    input.categoryId,
         subCategoryId: input.subCategoryId || null,
       },
+    });
+
+    // Compositions — reconstruction complète
+    await tx.productComposition.deleteMany({ where: { productId: id } });
+    await tx.productComposition.createMany({
+      data: input.compositions.map((c) => ({
+        productId:     id,
+        compositionId: c.compositionId,
+        percentage:    c.percentage,
+      })),
     });
 
     // Couleurs existantes
@@ -124,7 +166,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
 
     const newColorIds = input.colors.map((c) => c.colorId);
 
-    // Supprimer les couleurs retirées (cascade supprime options + images)
+    // Supprimer couleurs retirées (cascade supprime options + images)
     const toDelete = existingColors.filter((ec) => !newColorIds.includes(ec.colorId));
     for (const del of toDelete) {
       await tx.productColor.delete({ where: { id: del.id } });
@@ -135,44 +177,42 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       const existing = existingColors.find((ec) => ec.colorId === colorInput.colorId);
 
       if (existing) {
-        // Mise à jour unitPrice + weight + isPrimary
         await tx.productColor.update({
           where: { id: existing.id },
-          data: { unitPrice: colorInput.unitPrice, weight: colorInput.weight, isPrimary: colorInput.isPrimary },
+          data: {
+            unitPrice: colorInput.unitPrice,
+            weight:    colorInput.weight,
+            stock:     colorInput.stock,    // stock sur ProductColor
+            isPrimary: colorInput.isPrimary,
+          },
         });
-        // Reconstruction des options de vente
         await tx.saleOption.deleteMany({ where: { colorId: existing.id } });
         await tx.saleOption.createMany({
           data: colorInput.saleOptions.map((opt) => ({
             colorId:       existing.id,
             saleType:      opt.saleType,
             packQuantity:  opt.packQuantity,
-            stock:         opt.stock,
             discountType:  opt.discountType,
             discountValue: opt.discountValue,
           })),
         });
-        // Reconstruction des images (gère le réordonnancement)
         await tx.productImage.deleteMany({ where: { colorId: existing.id } });
         await tx.productImage.createMany({
-          data: colorInput.imagePaths.map((path, order) => ({
-            colorId: existing.id, path, order,
-          })),
+          data: colorInput.imagePaths.map((path, order) => ({ colorId: existing.id, path, order })),
         });
       } else {
-        // Nouvelle couleur ajoutée
         await tx.productColor.create({
           data: {
             productId: id,
             colorId:   colorInput.colorId,
             unitPrice: colorInput.unitPrice,
             weight:    colorInput.weight,
+            stock:     colorInput.stock,    // stock sur ProductColor
             isPrimary: colorInput.isPrimary,
             saleOptions: {
               create: colorInput.saleOptions.map((opt) => ({
                 saleType:      opt.saleType,
                 packQuantity:  opt.packQuantity,
-                stock:         opt.stock,
                 discountType:  opt.discountType,
                 discountValue: opt.discountValue,
               })),
@@ -184,10 +224,39 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         });
       }
     }
+
+    // Produits similaires — bidirectionnel, reconstruction complète
+    await tx.productSimilar.deleteMany({
+      where: { OR: [{ productId: id }, { similarId: id }] },
+    });
+    if (input.similarProductIds.length > 0) {
+      await tx.productSimilar.createMany({
+        data: [
+          ...input.similarProductIds.map((sid) => ({ productId: id, similarId: sid })),
+          ...input.similarProductIds.map((sid) => ({ productId: sid, similarId: id })),
+        ],
+        skipDuplicates: true,
+      });
+    }
+
+    // Références associées — bidirectionnel, reconstruction complète
+    await tx.productReference.deleteMany({
+      where: { OR: [{ productId: id }, { referenceId: id }] },
+    });
+    if (input.referenceIds.length > 0) {
+      await tx.productReference.createMany({
+        data: [
+          ...input.referenceIds.map((rid) => ({ productId: id, referenceId: rid })),
+          ...input.referenceIds.map((rid) => ({ productId: rid, referenceId: id })),
+        ],
+        skipDuplicates: true,
+      });
+    }
   });
 
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${id}/modifier`);
+  revalidatePath(`/produits/${id}`);
 }
 
 // ─────────────────────────────────────────────

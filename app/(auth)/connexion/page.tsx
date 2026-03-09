@@ -13,7 +13,7 @@ export const metadata: Metadata = {
  */
 export default function ConnexionPage() {
   return (
-    <Suspense fallback={<div className="w-full max-w-md h-64 bg-[#FDFAF6] border border-[#D4CCBE] animate-pulse" />}>
+    <Suspense fallback={<div className="w-full max-w-md h-64 bg-[#FFFFFF] border border-[#E2E8F0] animate-pulse" />}>
       <LoginForm />
     </Suspense>
   );

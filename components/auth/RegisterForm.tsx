@@ -117,16 +117,16 @@ export default function RegisterForm() {
   if (successMessage) {
     return (
       <div className="w-full max-w-lg text-center">
-        <div className="bg-[#FDFAF6] border border-[#D4CCBE] p-10">
-          <div className="w-16 h-16 bg-[#EDE8DF] rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg className="w-8 h-8 text-[#8B7355]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <div className="bg-[#FFFFFF] border border-[#E2E8F0] p-10">
+          <div className="w-16 h-16 bg-[#F1F5F9] rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg className="w-8 h-8 text-[#0F3460]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#2C2418] mb-3">
+          <h2 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A] mb-3">
             Demande envoyée !
           </h2>
-          <p className="font-[family-name:var(--font-roboto)] text-[#6B5B45] text-sm leading-relaxed mb-8">
+          <p className="font-[family-name:var(--font-roboto)] text-[#475569] text-sm leading-relaxed mb-8">
             {successMessage}
           </p>
           <Link href="/" className="btn-primary">
@@ -141,15 +141,15 @@ export default function RegisterForm() {
     <div className="w-full max-w-2xl">
       {/* Titre */}
       <div className="text-center mb-8">
-        <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-[#2C2418]">
+        <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-[#0F172A]">
           Demande d'accès Pro
         </h1>
-        <p className="mt-2 font-[family-name:var(--font-roboto)] text-sm text-[#6B5B45]">
+        <p className="mt-2 font-[family-name:var(--font-roboto)] text-sm text-[#475569]">
           Remplissez le formulaire — notre équipe examinera votre dossier sous 48h.
         </p>
       </div>
 
-      <div className="bg-[#FDFAF6] border border-[#D4CCBE] p-6 md:p-8">
+      <div className="bg-[#FFFFFF] border border-[#E2E8F0] p-6 md:p-8">
         <form onSubmit={handleSubmit} noValidate encType="multipart/form-data">
 
           {/* Erreur globale */}
@@ -216,13 +216,13 @@ export default function RegisterForm() {
             <div>
               <label
                 htmlFor="kbis"
-                className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#2C2418] mb-1.5"
+                className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#0F172A] mb-1.5"
               >
                 Extrait Kbis
-                <span className="text-[#8B7355] ml-1">*</span>
+                <span className="text-[#0F3460] ml-1">*</span>
               </label>
               <div
-                className={`border-2 border-dashed ${kbisError ? "border-red-400" : kbisFile ? "border-[#8B7355]" : "border-[#D4CCBE]"} bg-white p-5 text-center cursor-pointer hover:border-[#8B7355] transition-colors`}
+                className={`border-2 border-dashed ${kbisError ? "border-red-400" : kbisFile ? "border-[#0F3460]" : "border-[#E2E8F0]"} bg-white p-5 text-center cursor-pointer hover:border-[#0F3460] transition-colors`}
                 onClick={() => fileInputRef.current?.click()}
                 onKeyDown={(e) => e.key === "Enter" && fileInputRef.current?.click()}
                 role="button"
@@ -238,7 +238,7 @@ export default function RegisterForm() {
                   className="sr-only"
                 />
                 {kbisFile ? (
-                  <div className="flex items-center justify-center gap-2 text-[#8B7355]">
+                  <div className="flex items-center justify-center gap-2 text-[#0F3460]">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
@@ -248,13 +248,13 @@ export default function RegisterForm() {
                   </div>
                 ) : (
                   <>
-                    <svg className="w-8 h-8 text-[#B8A48A] mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <svg className="w-8 h-8 text-[#94A3B8] mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                     </svg>
-                    <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45]">
+                    <p className="text-sm font-[family-name:var(--font-roboto)] text-[#475569]">
                       Cliquez pour sélectionner votre Kbis
                     </p>
-                    <p className="text-xs text-[#B8A48A] mt-1">PDF, JPG, PNG — max 5 Mo</p>
+                    <p className="text-xs text-[#94A3B8] mt-1">PDF, JPG, PNG — max 5 Mo</p>
                   </>
                 )}
               </div>
@@ -266,8 +266,8 @@ export default function RegisterForm() {
             </div>
 
             {/* ── Séparateur ── */}
-            <div className="border-t border-[#EDE8DF] pt-2">
-              <p className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#6B5B45] uppercase tracking-wider mb-4">
+            <div className="border-t border-[#F1F5F9] pt-2">
+              <p className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#475569] uppercase tracking-wider mb-4">
                 Sécurité du compte
               </p>
             </div>
@@ -275,8 +275,8 @@ export default function RegisterForm() {
             {/* ── Mot de passe + confirmation ── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="password" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#2C2418] mb-1.5">
-                  Mot de passe <span className="text-[#8B7355]">*</span>
+                <label htmlFor="password" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#0F172A] mb-1.5">
+                  Mot de passe <span className="text-[#0F3460]">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -286,10 +286,10 @@ export default function RegisterForm() {
                     onChange={(e) => handleChange("password", e.target.value)}
                     placeholder="••••••••"
                     autoComplete="new-password"
-                    className={`w-full bg-white border ${fieldErrors.password ? "border-red-400" : "border-[#D4CCBE]"} px-4 py-3 pr-12 text-sm font-[family-name:var(--font-roboto)] text-[#2C2418] placeholder:text-[#B8A48A] focus:outline-none focus:border-[#8B7355] transition-colors`}
+                    className={`w-full bg-white border ${fieldErrors.password ? "border-red-400" : "border-[#E2E8F0]"} px-4 py-3 pr-12 text-sm font-[family-name:var(--font-roboto)] text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#0F3460] transition-colors`}
                   />
                   <button type="button" onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#B8A48A] hover:text-[#6B5B45]"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#475569]"
                     aria-label={showPassword ? "Masquer" : "Afficher"}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={showPassword
@@ -299,7 +299,7 @@ export default function RegisterForm() {
                   </button>
                 </div>
                 {fieldErrors.password && <p className="text-xs text-red-600 mt-1 font-[family-name:var(--font-roboto)]">{fieldErrors.password}</p>}
-                <p className="text-xs text-[#B8A48A] mt-1 font-[family-name:var(--font-roboto)]">8 caractères min, 1 majuscule, 1 chiffre</p>
+                <p className="text-xs text-[#94A3B8] mt-1 font-[family-name:var(--font-roboto)]">8 caractères min, 1 majuscule, 1 chiffre</p>
               </div>
 
               <FormField
@@ -332,9 +332,9 @@ export default function RegisterForm() {
         </form>
 
         {/* Lien connexion */}
-        <p className="mt-6 text-center text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45]">
+        <p className="mt-6 text-center text-sm font-[family-name:var(--font-roboto)] text-[#475569]">
           Déjà un compte ?{" "}
-          <Link href="/connexion" className="text-[#8B7355] font-medium hover:text-[#6B5640] transition-colors">
+          <Link href="/connexion" className="text-[#0F3460] font-medium hover:text-[#0A2540] transition-colors">
             Se connecter
           </Link>
         </p>
@@ -361,8 +361,8 @@ function FormField({
 }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#2C2418] mb-1.5">
-        {label} <span className="text-[#8B7355]">*</span>
+      <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#0F172A] mb-1.5">
+        {label} <span className="text-[#0F3460]">*</span>
       </label>
       <input
         id={id}
@@ -373,7 +373,7 @@ function FormField({
         autoComplete={autoComplete}
         maxLength={maxLength}
         required
-        className={`w-full bg-white border ${error ? "border-red-400" : "border-[#D4CCBE]"} px-4 py-3 text-sm font-[family-name:var(--font-roboto)] text-[#2C2418] placeholder:text-[#B8A48A] focus:outline-none focus:border-[#8B7355] transition-colors`}
+        className={`w-full bg-white border ${error ? "border-red-400" : "border-[#E2E8F0]"} px-4 py-3 text-sm font-[family-name:var(--font-roboto)] text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#0F3460] transition-colors`}
         aria-describedby={error ? `${id}-error` : undefined}
         aria-invalid={!!error}
       />

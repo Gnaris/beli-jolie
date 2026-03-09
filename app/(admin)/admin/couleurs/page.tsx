@@ -15,22 +15,22 @@ export default async function CouleursPage() {
   return (
     <div className="max-w-2xl mx-auto space-y-8">
       <div>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#2C2418]">
+        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
           Bibliothèque de couleurs
         </h1>
-        <p className="text-sm text-[#B8A48A] font-[family-name:var(--font-roboto)] mt-0.5">
+        <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] mt-0.5">
           Créez les couleurs ici, puis assignez-les à vos produits.
         </p>
       </div>
 
       {/* Formulaire création */}
-      <section className="bg-white border border-[#D4CCBE] p-6 space-y-4">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#6B5B45] uppercase tracking-wider">
+      <section className="bg-white border border-[#E2E8F0] p-6 space-y-4">
+        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#475569] uppercase tracking-wider">
           Nouvelle couleur
         </h2>
         <form action={createColor} className="flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#6B5B45] uppercase tracking-wider mb-1.5">
+            <label className="block text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider mb-1.5">
               Nom *
             </label>
             <input
@@ -42,19 +42,19 @@ export default async function CouleursPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#6B5B45] uppercase tracking-wider mb-1.5">
+            <label className="block text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider mb-1.5">
               Couleur hex
             </label>
             <input
               type="color"
               name="hex"
-              defaultValue="#B8A48A"
-              className="h-[38px] w-16 border border-[#D4CCBE] p-0.5 cursor-pointer"
+              defaultValue="#94A3B8"
+              className="h-[38px] w-16 border border-[#E2E8F0] p-0.5 cursor-pointer"
             />
           </div>
           <button
             type="submit"
-            className="px-5 py-2.5 bg-[#8B7355] text-white text-sm font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#6B5640] transition-colors whitespace-nowrap"
+            className="px-5 py-2.5 bg-[#0F3460] text-white text-sm font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#0A2540] transition-colors whitespace-nowrap"
           >
             Ajouter
           </button>
@@ -63,12 +63,12 @@ export default async function CouleursPage() {
 
       {/* Liste */}
       <section className="space-y-2">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#6B5B45] uppercase tracking-wider border-b border-[#D4CCBE] pb-2">
+        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#475569] uppercase tracking-wider border-b border-[#E2E8F0] pb-2">
           Couleurs ({colors.length})
         </h2>
 
         {colors.length === 0 ? (
-          <p className="text-sm text-[#B8A48A] font-[family-name:var(--font-roboto)] py-6 text-center border border-dashed border-[#D4CCBE]">
+          <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] py-6 text-center border border-dashed border-[#E2E8F0]">
             Aucune couleur créée
           </p>
         ) : (
@@ -76,18 +76,18 @@ export default async function CouleursPage() {
             {colors.map((color) => (
               <li
                 key={color.id}
-                className="flex items-center justify-between bg-white border border-[#D4CCBE] px-4 py-3"
+                className="flex items-center justify-between bg-white border border-[#E2E8F0] px-4 py-3"
               >
                 <div className="flex items-center gap-3">
                   <span
-                    className="w-8 h-8 rounded border border-[#D4CCBE] shrink-0"
-                    style={{ backgroundColor: color.hex ?? "#B8A48A" }}
+                    className="w-8 h-8 rounded border border-[#E2E8F0] shrink-0"
+                    style={{ backgroundColor: color.hex ?? "#94A3B8" }}
                   />
                   <div>
-                    <p className="text-sm font-medium text-[#2C2418] font-[family-name:var(--font-roboto)]">
+                    <p className="text-sm font-medium text-[#0F172A] font-[family-name:var(--font-roboto)]">
                       {color.name}
                     </p>
-                    <p className="text-xs text-[#B8A48A]">
+                    <p className="text-xs text-[#94A3B8]">
                       {color.hex ?? "Pas de couleur hex"} · utilisée dans{" "}
                       {color._count.productColors} produit{color._count.productColors > 1 ? "s" : ""}
                     </p>
@@ -96,7 +96,7 @@ export default async function CouleursPage() {
                 <div className="flex items-center gap-1">
                   <Link
                     href={`/admin/couleurs/${color.id}/modifier`}
-                    className="p-1.5 text-[#B8A48A] hover:text-[#8B7355] transition-colors"
+                    className="p-1.5 text-[#94A3B8] hover:text-[#0F3460] transition-colors"
                     title="Modifier"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

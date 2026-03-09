@@ -97,7 +97,7 @@ export default function ImageDropzone({
                 onDragEnd={handleImgDragEnd}
                 className={`relative group w-20 h-20 cursor-grab active:cursor-grabbing transition-all ${
                   draggedIdx === imgIdx  ? "opacity-30 scale-95" : ""
-                } ${dragOverIdx === imgIdx ? "ring-2 ring-[#8B7355] ring-offset-1" : ""}`}
+                } ${dragOverIdx === imgIdx ? "ring-2 ring-[#0F3460] ring-offset-1" : ""}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -105,7 +105,7 @@ export default function ImageDropzone({
                   alt={`Image ${imgIdx + 1}`}
                   draggable={false}
                   onClick={() => setZoomedSrc(src)}
-                  className="w-full h-full object-cover border border-[#D4CCBE] cursor-zoom-in"
+                  className="w-full h-full object-cover border border-[#E2E8F0] cursor-zoom-in"
                 />
                 {/* Supprimer */}
                 <button
@@ -117,7 +117,7 @@ export default function ImageDropzone({
                   ×
                 </button>
                 {/* Badge ordre */}
-                <span className="absolute bottom-0 left-0 bg-[#2C2418]/60 text-white text-[9px] px-1 select-none">
+                <span className="absolute bottom-0 left-0 bg-[#0F172A]/60 text-white text-[9px] px-1 select-none">
                   {imgIdx + 1}
                 </span>
                 {/* Icône drag */}
@@ -140,8 +140,8 @@ export default function ImageDropzone({
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed p-4 text-center cursor-pointer transition-colors ${
               dropZoneDragging
-                ? "border-[#8B7355] bg-[#F7F3EC]"
-                : "border-[#D4CCBE] hover:border-[#8B7355] bg-[#FDFAF6]"
+                ? "border-[#0F3460] bg-[#FFFFFF]"
+                : "border-[#E2E8F0] hover:border-[#0F3460] bg-[#FFFFFF]"
             } ${uploading ? "opacity-60 pointer-events-none" : ""}`}
             role="button"
             tabIndex={0}
@@ -157,7 +157,7 @@ export default function ImageDropzone({
               id={`images-color-${colorIndex}`}
             />
             {uploading ? (
-              <div className="flex items-center justify-center gap-2 text-[#8B7355]">
+              <div className="flex items-center justify-center gap-2 text-[#0F3460]">
                 <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
@@ -166,13 +166,13 @@ export default function ImageDropzone({
               </div>
             ) : (
               <>
-                <svg className="w-6 h-6 text-[#B8A48A] mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6 text-[#94A3B8] mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                 </svg>
-                <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B5B45]">
+                <p className="text-xs font-[family-name:var(--font-roboto)] text-[#475569]">
                   Glissez ou cliquez pour ajouter
                 </p>
-                <p className="text-[10px] text-[#B8A48A] mt-0.5">
+                <p className="text-[10px] text-[#94A3B8] mt-0.5">
                   JPG, PNG, WEBP · max 3 Mo · {previews.length}/{MAX_IMAGES} — glissez les images pour réordonner
                 </p>
               </>
@@ -181,7 +181,7 @@ export default function ImageDropzone({
         )}
 
         {previews.length >= MAX_IMAGES && (
-          <p className="text-xs text-[#B8A48A] font-[family-name:var(--font-roboto)]">
+          <p className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)]">
             Maximum de {MAX_IMAGES} images atteint.
           </p>
         )}

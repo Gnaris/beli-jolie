@@ -6,23 +6,28 @@ import ProductForm from "@/components/admin/products/ProductForm";
 export const metadata: Metadata = { title: "Nouveau produit" };
 
 export default async function NouveauProduitPage() {
-  const [categories, colors] = await Promise.all([
+  const [categories, colors, compositions, allProducts] = await Promise.all([
     prisma.category.findMany({
       orderBy: { name: "asc" },
       include: { subCategories: { orderBy: { name: "asc" } } },
     }),
     prisma.color.findMany({ orderBy: { name: "asc" } }),
+    prisma.composition.findMany({ orderBy: { name: "asc" } }),
+    prisma.product.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, reference: true },
+    }),
   ]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
-        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#B8A48A] mb-1">
-          <Link href="/admin/produits" className="hover:text-[#8B7355] transition-colors">Produits</Link>
+        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8] mb-1">
+          <Link href="/admin/produits" className="hover:text-[#0F3460] transition-colors">Produits</Link>
           <span>/</span>
-          <span className="text-[#6B5B45]">Nouveau</span>
+          <span className="text-[#475569]">Nouveau</span>
         </div>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#2C2418]">
+        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
           Créer un produit
         </h1>
       </div>
@@ -44,6 +49,8 @@ export default async function NouveauProduitPage() {
       <ProductForm
         categories={categories}
         availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex }))}
+        availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
+        allProducts={allProducts}
       />
     </div>
   );

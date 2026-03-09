@@ -31,16 +31,16 @@ export default async function ProduitsPage() {
       {/* En-tête */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#2C2418]">
+          <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
             Produits
           </h1>
-          <p className="text-sm text-[#B8A48A] font-[family-name:var(--font-roboto)] mt-0.5">
+          <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] mt-0.5">
             {products.length} produit{products.length > 1 ? "s" : ""} au catalogue
           </p>
         </div>
         <Link
           href="/admin/produits/nouveau"
-          className="flex items-center gap-2 px-4 py-2.5 bg-[#8B7355] text-white text-sm font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#6B5640] transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 bg-[#0F3460] text-white text-sm font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#0A2540] transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
@@ -51,56 +51,56 @@ export default async function ProduitsPage() {
 
       {/* Tableau */}
       {products.length === 0 ? (
-        <div className="bg-white border border-[#D4CCBE] p-12 text-center">
-          <div className="w-12 h-12 bg-[#EDE8DF] flex items-center justify-center mx-auto mb-4">
-            <svg className="w-6 h-6 text-[#B8A48A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="bg-white border border-[#E2E8F0] p-12 text-center">
+          <div className="w-12 h-12 bg-[#F1F5F9] flex items-center justify-center mx-auto mb-4">
+            <svg className="w-6 h-6 text-[#94A3B8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
             </svg>
           </div>
-          <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#2C2418] mb-1">
+          <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#0F172A] mb-1">
             Aucun produit
           </p>
-          <p className="text-sm text-[#B8A48A] font-[family-name:var(--font-roboto)] mb-4">
+          <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] mb-4">
             Commencez par créer votre premier produit.
           </p>
           <Link
             href="/admin/produits/nouveau"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#8B7355] text-white text-sm font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#6B5640] transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0F3460] text-white text-sm font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#0A2540] transition-colors"
           >
             Créer un produit
           </Link>
         </div>
       ) : (
-        <div className="bg-white border border-[#D4CCBE] overflow-hidden">
+        <div className="bg-white border border-[#E2E8F0] overflow-hidden">
           <table className="w-full text-sm font-[family-name:var(--font-roboto)]">
             <thead>
-              <tr className="border-b border-[#EDE8DF] bg-[#FDFAF6]">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-[#6B5B45] uppercase tracking-wider">Photo</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-[#6B5B45] uppercase tracking-wider">Référence</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-[#6B5B45] uppercase tracking-wider">Nom</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-[#6B5B45] uppercase tracking-wider hidden md:table-cell">Catégorie</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-[#6B5B45] uppercase tracking-wider hidden lg:table-cell">Couleurs</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-[#6B5B45] uppercase tracking-wider">Actions</th>
+              <tr className="border-b border-[#F1F5F9] bg-[#FFFFFF]">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wider">Photo</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wider">Référence</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wider">Nom</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wider hidden md:table-cell">Catégorie</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wider hidden lg:table-cell">Couleurs</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-[#475569] uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#EDE8DF]">
+            <tbody className="divide-y divide-[#F1F5F9]">
               {products.map((product) => {
                 const firstImage = product.colors[0]?.images[0]?.path;
                 const minPrice   = Math.min(...product.colors.map((c) => c.unitPrice));
 
                 return (
-                  <tr key={product.id} className="hover:bg-[#FDFAF6] transition-colors">
+                  <tr key={product.id} className="hover:bg-[#FFFFFF] transition-colors">
                     {/* Photo */}
                     <td className="px-4 py-3">
                       {firstImage ? (
                         <img
                           src={firstImage}
                           alt={product.name}
-                          className="w-12 h-12 object-cover border border-[#EDE8DF]"
+                          className="w-12 h-12 object-cover border border-[#F1F5F9]"
                         />
                       ) : (
-                        <div className="w-12 h-12 bg-[#EDE8DF] flex items-center justify-center border border-[#D4CCBE]">
-                          <svg className="w-5 h-5 text-[#B8A48A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="w-12 h-12 bg-[#F1F5F9] flex items-center justify-center border border-[#E2E8F0]">
+                          <svg className="w-5 h-5 text-[#94A3B8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M13.5 12h.008v.008H13.5V12zm0 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 9V7.5a2.25 2.25 0 012.25-2.25h15A2.25 2.25 0 0121 7.5v9a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 21z" />
                           </svg>
                         </div>
@@ -109,16 +109,16 @@ export default async function ProduitsPage() {
 
                     {/* Référence */}
                     <td className="px-4 py-3">
-                      <span className="font-mono text-xs bg-[#EDE8DF] px-2 py-0.5 text-[#6B5B45]">
+                      <span className="font-mono text-xs bg-[#F1F5F9] px-2 py-0.5 text-[#475569]">
                         {product.reference}
                       </span>
                     </td>
 
                     {/* Nom + prix */}
                     <td className="px-4 py-3">
-                      <p className="font-medium text-[#2C2418]">{product.name}</p>
+                      <p className="font-medium text-[#0F172A]">{product.name}</p>
                       {!isNaN(minPrice) && (
-                        <p className="text-xs text-[#B8A48A]">
+                        <p className="text-xs text-[#94A3B8]">
                           à partir de {minPrice.toFixed(2)} €
                         </p>
                       )}
@@ -126,9 +126,9 @@ export default async function ProduitsPage() {
 
                     {/* Catégorie */}
                     <td className="px-4 py-3 hidden md:table-cell">
-                      <span className="text-[#6B5B45]">{product.category.name}</span>
+                      <span className="text-[#475569]">{product.category.name}</span>
                       {product.subCategory && (
-                        <span className="text-[#B8A48A]"> / {product.subCategory.name}</span>
+                        <span className="text-[#94A3B8]"> / {product.subCategory.name}</span>
                       )}
                     </td>
 
@@ -139,11 +139,11 @@ export default async function ProduitsPage() {
                           <span
                             key={c.id}
                             title={c.color.name}
-                            className="inline-block w-5 h-5 rounded-full border border-[#D4CCBE]"
-                            style={{ backgroundColor: c.color.hex ?? "#B8A48A" }}
+                            className="inline-block w-5 h-5 rounded-full border border-[#E2E8F0]"
+                            style={{ backgroundColor: c.color.hex ?? "#94A3B8" }}
                           />
                         ))}
-                        <span className="text-xs text-[#B8A48A] ml-1">
+                        <span className="text-xs text-[#94A3B8] ml-1">
                           {product.colors.length} couleur{product.colors.length > 1 ? "s" : ""}
                         </span>
                       </div>
@@ -154,7 +154,7 @@ export default async function ProduitsPage() {
                       <div className="flex items-center gap-2 justify-end">
                         <Link
                           href={`/admin/produits/${product.id}/modifier`}
-                          className="p-1.5 text-[#B8A48A] hover:text-[#8B7355] transition-colors"
+                          className="p-1.5 text-[#94A3B8] hover:text-[#0F3460] transition-colors"
                           aria-label="Modifier"
                           title="Modifier"
                         >

@@ -69,21 +69,21 @@ export default async function ClientDetailPage({
     <div className="space-y-6 max-w-5xl">
 
       {/* Fil d'Ariane */}
-      <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45]" aria-label="Fil d'Ariane">
-        <Link href="/admin" className="hover:text-[#8B7355] transition-colors">Dashboard</Link>
+      <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#475569]" aria-label="Fil d'Ariane">
+        <Link href="/admin" className="hover:text-[#0F3460] transition-colors">Dashboard</Link>
         <span>/</span>
-        <Link href="/admin/utilisateurs" className="hover:text-[#8B7355] transition-colors">Clients</Link>
+        <Link href="/admin/utilisateurs" className="hover:text-[#0F3460] transition-colors">Clients</Link>
         <span>/</span>
-        <span className="text-[#2C2418] font-medium">{user.firstName} {user.lastName}</span>
+        <span className="text-[#0F172A] font-medium">{user.firstName} {user.lastName}</span>
       </nav>
 
       {/* En-tête */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-[#2C2418]">
+          <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-[#0F172A]">
             {user.firstName} {user.lastName}
           </h1>
-          <p className="mt-1 text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45]">
+          <p className="mt-1 text-sm font-[family-name:var(--font-roboto)] text-[#475569]">
             {user.company} — Inscrit le {formattedDate}
           </p>
         </div>
@@ -98,9 +98,9 @@ export default async function ClientDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* ── Informations du client ── */}
-        <div className="bg-[#FDFAF6] border border-[#D4CCBE] overflow-hidden">
-          <div className="px-5 py-4 border-b border-[#D4CCBE] bg-[#EDE8DF]">
-            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#2C2418]">
+        <div className="bg-[#FFFFFF] border border-[#E2E8F0] overflow-hidden">
+          <div className="px-5 py-4 border-b border-[#E2E8F0] bg-[#F1F5F9]">
+            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A]">
               Informations personnelles & professionnelles
             </h2>
           </div>
@@ -115,10 +115,10 @@ export default async function ClientDetailPage({
               { label: "Rôle",      value: user.role },
             ].map(({ label, value, mono }) => (
               <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
-                <span className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#6B5B45] uppercase tracking-wider w-28 shrink-0">
+                <span className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider w-28 shrink-0">
                   {label}
                 </span>
-                <span className={`text-sm text-[#2C2418] ${mono ? "font-mono" : "font-[family-name:var(--font-roboto)]"}`}>
+                <span className={`text-sm text-[#0F172A] ${mono ? "font-mono" : "font-[family-name:var(--font-roboto)]"}`}>
                   {value}
                 </span>
               </div>
@@ -127,16 +127,16 @@ export default async function ClientDetailPage({
         </div>
 
         {/* ── Kbis ── */}
-        <div className="bg-[#FDFAF6] border border-[#D4CCBE] overflow-hidden flex flex-col">
-          <div className="px-5 py-4 border-b border-[#D4CCBE] bg-[#EDE8DF] flex items-center justify-between">
-            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#2C2418]">
+        <div className="bg-[#FFFFFF] border border-[#E2E8F0] overflow-hidden flex flex-col">
+          <div className="px-5 py-4 border-b border-[#E2E8F0] bg-[#F1F5F9] flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A]">
               Extrait Kbis
             </h2>
             {/* Bouton téléchargement */}
             <a
               href={kbisApiUrl}
               download={kbisFilename}
-              className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#8B7355] hover:text-[#6B5640] flex items-center gap-1 transition-colors"
+              className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#0F3460] hover:text-[#0A2540] flex items-center gap-1 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -205,8 +205,8 @@ export default async function ClientDetailPage({
 
       {/* Si déjà traité — possibilité de changer d'avis */}
       {user.status !== "PENDING" && (
-        <div className="bg-[#FDFAF6] border border-[#D4CCBE] p-5">
-          <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45] mb-4">
+        <div className="bg-[#FFFFFF] border border-[#E2E8F0] p-5">
+          <p className="text-sm font-[family-name:var(--font-roboto)] text-[#475569] mb-4">
             Ce dossier a déjà été traité. Vous pouvez modifier la décision si nécessaire.
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
@@ -232,7 +232,7 @@ export default async function ClientDetailPage({
             )}
             <Link
               href="/admin/utilisateurs"
-              className="flex items-center gap-1 text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45] hover:text-[#8B7355] transition-colors px-5 py-2"
+              className="flex items-center gap-1 text-sm font-[family-name:var(--font-roboto)] text-[#475569] hover:text-[#0F3460] transition-colors px-5 py-2"
             >
               ← Retour à la liste
             </Link>

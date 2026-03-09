@@ -87,13 +87,13 @@ export default async function EspaceProPage() {
       {/* En-tête de bienvenue */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-[#8B7355] mb-2">
+          <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-[#0F3460] mb-2">
             Tableau de bord
           </p>
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-[#2C2418]">
+          <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-[#0F172A]">
             Bonjour, {user.firstName} 👋
           </h1>
-          <p className="mt-1 text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45]">
+          <p className="mt-1 text-sm font-[family-name:var(--font-roboto)] text-[#475569]">
             {user.company} — Membre depuis le {formattedDate}
           </p>
         </div>
@@ -148,7 +148,7 @@ export default async function EspaceProPage() {
               value={
                 <a
                   href="#kbis"
-                  className="text-[#8B7355] hover:text-[#6B5640] underline underline-offset-2 text-sm font-[family-name:var(--font-roboto)] transition-colors"
+                  className="text-[#0F3460] hover:text-[#0A2540] underline underline-offset-2 text-sm font-[family-name:var(--font-roboto)] transition-colors"
                 >
                   Voir le document joint ↓
                 </a>
@@ -162,7 +162,7 @@ export default async function EspaceProPage() {
             <InfoRow
               label="Rôle"
               value={
-                <span className="text-xs font-[family-name:var(--font-roboto)] font-semibold bg-[#EDE8DF] text-[#8B7355] px-2.5 py-1 rounded-full">
+                <span className="text-xs font-[family-name:var(--font-roboto)] font-semibold bg-[#F1F5F9] text-[#0F3460] px-2.5 py-1 rounded-full">
                   Professionnel BtoB
                 </span>
               }
@@ -176,8 +176,8 @@ export default async function EspaceProPage() {
 
           {/* Accès boutique si compte approuvé */}
           {user.status === "APPROVED" ? (
-            <div className="bg-[#FDFAF6] border border-[#D4CCBE] p-5 space-y-3">
-              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#2C2418]">
+            <div className="bg-[#FFFFFF] border border-[#E2E8F0] p-5 space-y-3">
+              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A]">
                 Accès rapide
               </h3>
               <Link
@@ -198,11 +198,11 @@ export default async function EspaceProPage() {
               </Link>
             </div>
           ) : (
-            <div className="bg-[#FDFAF6] border border-[#D4CCBE] p-5">
-              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#2C2418] mb-2">
+            <div className="bg-[#FFFFFF] border border-[#E2E8F0] p-5">
+              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A] mb-2">
                 Boutique
               </h3>
-              <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45]">
+              <p className="text-sm font-[family-name:var(--font-roboto)] text-[#475569]">
                 {user.status === "PENDING"
                   ? "L'accès à la boutique sera disponible une fois votre compte validé."
                   : "Votre accès à la boutique a été suspendu. Contactez-nous."}
@@ -211,16 +211,16 @@ export default async function EspaceProPage() {
           )}
 
           {/* Bloc contact */}
-          <div className="bg-[#FDFAF6] border border-[#D4CCBE] p-5">
-            <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#2C2418] mb-2">
+          <div className="bg-[#FFFFFF] border border-[#E2E8F0] p-5">
+            <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A] mb-2">
               Besoin d'aide ?
             </h3>
-            <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45] mb-3">
+            <p className="text-sm font-[family-name:var(--font-roboto)] text-[#475569] mb-3">
               Notre équipe est disponible du lundi au vendredi, 9h–18h.
             </p>
             <Link
               href="/contact"
-              className="text-sm font-[family-name:var(--font-roboto)] font-medium text-[#8B7355] hover:text-[#6B5640] flex items-center gap-1 transition-colors"
+              className="text-sm font-[family-name:var(--font-roboto)] font-medium text-[#0F3460] hover:text-[#0A2540] flex items-center gap-1 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -233,25 +233,25 @@ export default async function EspaceProPage() {
       </div>
 
       {/* ── Section Kbis ── */}
-      <div id="kbis" className="bg-[#FDFAF6] border border-[#D4CCBE] overflow-hidden">
-        <div className="px-5 py-4 border-b border-[#D4CCBE] bg-[#EDE8DF] flex items-center justify-between">
-          <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#2C2418]">
+      <div id="kbis" className="bg-[#FFFFFF] border border-[#E2E8F0] overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#E2E8F0] bg-[#F1F5F9] flex items-center justify-between">
+          <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A]">
             Document Kbis fourni à l'inscription
           </h2>
-          <span className="text-xs font-[family-name:var(--font-roboto)] text-[#6B5B45]">
+          <span className="text-xs font-[family-name:var(--font-roboto)] text-[#475569]">
             Lecture seule — contactez-nous pour modifier
           </span>
         </div>
         <div className="p-5">
-          <div className="bg-[#EDE8DF] border border-dashed border-[#D4CCBE] p-8 text-center">
-            <svg className="w-10 h-10 text-[#B8A48A] mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <div className="bg-[#F1F5F9] border border-dashed border-[#E2E8F0] p-8 text-center">
+            <svg className="w-10 h-10 text-[#94A3B8] mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
             </svg>
-            <p className="text-sm font-[family-name:var(--font-roboto)] font-medium text-[#6B5B45] mb-1">
+            <p className="text-sm font-[family-name:var(--font-roboto)] font-medium text-[#475569] mb-1">
               Kbis déposé lors de votre inscription
             </p>
-            <p className="text-xs font-[family-name:var(--font-roboto)] text-[#B8A48A]">
+            <p className="text-xs font-[family-name:var(--font-roboto)] text-[#94A3B8]">
               Le document est conservé de manière sécurisée et accessible uniquement à notre équipe.
             </p>
           </div>
@@ -275,13 +275,13 @@ function InfoCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-[#FDFAF6] border border-[#D4CCBE] overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-[#D4CCBE] bg-[#EDE8DF]">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#2C2418] uppercase tracking-wide">
+    <div className="bg-[#FFFFFF] border border-[#E2E8F0] overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-[#E2E8F0] bg-[#F1F5F9]">
+        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#0F172A] uppercase tracking-wide">
           {title}
         </h2>
       </div>
-      <div className="divide-y divide-[#EDE8DF]">
+      <div className="divide-y divide-[#F1F5F9]">
         {children}
       </div>
     </div>
@@ -302,13 +302,13 @@ function InfoRow({
 }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3.5">
-      <span className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#6B5B45] uppercase tracking-wider w-32 shrink-0">
+      <span className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider w-32 shrink-0">
         {label}
       </span>
       <span
-        className={`text-[#2C2418] ${
+        className={`text-[#0F172A] ${
           mono ? "font-mono text-sm" : "font-[family-name:var(--font-roboto)]"
-        } ${small ? "text-xs text-[#6B5B45] break-all" : "text-sm"}`}
+        } ${small ? "text-xs text-[#475569] break-all" : "text-sm"}`}
       >
         {value}
       </span>

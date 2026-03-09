@@ -27,7 +27,7 @@ export default async function ClientLayout({
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-[#F7F3EC]">
+      <main className="min-h-screen bg-[#FFFFFF]">
         {children}
       </main>
       <Footer />

@@ -65,21 +65,21 @@ const CATEGORIES = [
 
 export default function CategoriesSection() {
   return (
-    <section className="bg-[#F7F3EC] py-14 md:py-20" aria-labelledby="categories-title">
+    <section className="bg-[#FFFFFF] py-14 md:py-20" aria-labelledby="categories-title">
       <div className="container-site">
 
         {/* En-tête de section */}
         <div className="text-center mb-10 md:mb-12">
-          <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-[#8B7355] mb-3">
+          <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-[#0F3460] mb-3">
             Notre catalogue
           </p>
           <h2
             id="categories-title"
-            className="font-[family-name:var(--font-poppins)] text-3xl md:text-4xl font-semibold text-[#2C2418] section-title-center"
+            className="font-[family-name:var(--font-poppins)] text-3xl md:text-4xl font-semibold text-[#0F172A] section-title-center"
           >
             Nos Collections
           </h2>
-          <p className="mt-5 text-[#6B5B45] font-[family-name:var(--font-roboto)] text-base max-w-lg mx-auto">
+          <p className="mt-5 text-[#475569] font-[family-name:var(--font-roboto)] text-base max-w-lg mx-auto">
             Explorez notre sélection de bijoux acier inoxydable — tendance, durables et abordables pour votre clientèle.
           </p>
         </div>
@@ -90,25 +90,25 @@ export default function CategoriesSection() {
             <Link
               key={category.slug}
               href={`/collections/${category.slug}`}
-              className="group flex flex-col items-center text-center gap-4 bg-[#FDFAF6] border border-[#D4CCBE] p-6 md:p-8 hover:border-[#8B7355] hover:shadow-md transition-all duration-200"
+              className="group flex flex-col items-center text-center gap-4 bg-[#FFFFFF] border border-[#E2E8F0] p-6 md:p-8 hover:border-[#0F3460] hover:shadow-md transition-all duration-200"
             >
               {/* Icône dans un cercle */}
-              <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#EDE8DF] flex items-center justify-center text-[#8B7355] group-hover:bg-[#8B7355] group-hover:text-[#FDFAF6] transition-all duration-200">
+              <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#F1F5F9] flex items-center justify-center text-[#0F3460] group-hover:bg-[#0F3460] group-hover:text-[#FFFFFF] transition-all duration-200">
                 {category.icon}
               </div>
 
               {/* Nom de la catégorie */}
               <div>
-                <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#2C2418] group-hover:text-[#8B7355] transition-colors">
+                <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A] group-hover:text-[#0F3460] transition-colors">
                   {category.label}
                 </p>
-                <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B5B45] mt-1">
+                <p className="text-xs font-[family-name:var(--font-roboto)] text-[#475569] mt-1">
                   {category.count} références
                 </p>
               </div>
 
               {/* Flèche "Explorer" */}
-              <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#8B7355] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#0F3460] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 Explorer
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />

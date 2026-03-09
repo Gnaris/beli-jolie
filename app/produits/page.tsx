@@ -49,15 +49,15 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-[#F7F3EC]">
+      <main className="min-h-screen bg-[#FFFFFF]">
         <div className="container-site py-10 space-y-8">
 
           {/* En-tête */}
           <div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-[#2C2418]">
+            <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-[#0F172A]">
               Notre catalogue
             </h1>
-            <p className="text-sm text-[#B8A48A] font-[family-name:var(--font-roboto)] mt-1">
+            <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] mt-1">
               Bijoux en acier inoxydable — tarifs professionnels
             </p>
           </div>
@@ -73,10 +73,10 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
           {/* Grille */}
           {products.length === 0 ? (
             <div className="text-center py-20">
-              <p className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#2C2418] mb-2">
+              <p className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#0F172A] mb-2">
                 Aucun produit trouvé
               </p>
-              <p className="text-sm text-[#B8A48A] font-[family-name:var(--font-roboto)]">
+              <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)]">
                 Essayez de modifier vos critères de recherche.
               </p>
             </div>

@@ -71,16 +71,16 @@ export default function LoginForm() {
     <div className="w-full max-w-md">
       {/* Titre */}
       <div className="text-center mb-8">
-        <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-[#2C2418]">
+        <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-[#0F172A]">
           Espace Professionnel
         </h1>
-        <p className="mt-2 font-[family-name:var(--font-roboto)] text-sm text-[#6B5B45]">
+        <p className="mt-2 font-[family-name:var(--font-roboto)] text-sm text-[#475569]">
           Connectez-vous à votre compte BtoB
         </p>
       </div>
 
       {/* Carte formulaire */}
-      <div className="bg-[#FDFAF6] border border-[#D4CCBE] p-8">
+      <div className="bg-[#FFFFFF] border border-[#E2E8F0] p-8">
         <form onSubmit={handleSubmit} noValidate className="space-y-5">
 
           {/* Message d'erreur global */}
@@ -97,7 +97,7 @@ export default function LoginForm() {
           <div>
             <label
               htmlFor="email"
-              className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#2C2418] mb-1.5"
+              className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#0F172A] mb-1.5"
             >
               Adresse email
             </label>
@@ -109,7 +109,7 @@ export default function LoginForm() {
               placeholder="votre@email.com"
               autoComplete="email"
               required
-              className="w-full bg-white border border-[#D4CCBE] px-4 py-3 text-sm font-[family-name:var(--font-roboto)] text-[#2C2418] placeholder:text-[#B8A48A] focus:outline-none focus:border-[#8B7355] transition-colors"
+              className="w-full bg-white border border-[#E2E8F0] px-4 py-3 text-sm font-[family-name:var(--font-roboto)] text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#0F3460] transition-colors"
             />
           </div>
 
@@ -118,13 +118,13 @@ export default function LoginForm() {
             <div className="flex items-center justify-between mb-1.5">
               <label
                 htmlFor="password"
-                className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#2C2418]"
+                className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#0F172A]"
               >
                 Mot de passe
               </label>
               <Link
                 href="/mot-de-passe-oublie"
-                className="text-xs font-[family-name:var(--font-roboto)] text-[#8B7355] hover:text-[#6B5640] transition-colors"
+                className="text-xs font-[family-name:var(--font-roboto)] text-[#0F3460] hover:text-[#0A2540] transition-colors"
               >
                 Mot de passe oublié ?
               </Link>
@@ -138,12 +138,12 @@ export default function LoginForm() {
                 placeholder="••••••••"
                 autoComplete="current-password"
                 required
-                className="w-full bg-white border border-[#D4CCBE] px-4 py-3 pr-12 text-sm font-[family-name:var(--font-roboto)] text-[#2C2418] placeholder:text-[#B8A48A] focus:outline-none focus:border-[#8B7355] transition-colors"
+                className="w-full bg-white border border-[#E2E8F0] px-4 py-3 pr-12 text-sm font-[family-name:var(--font-roboto)] text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#0F3460] transition-colors"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#B8A48A] hover:text-[#6B5B45] transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#475569] transition-colors"
                 aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
               >
                 {showPassword ? (
@@ -180,9 +180,9 @@ export default function LoginForm() {
         </form>
 
         {/* Lien inscription */}
-        <p className="mt-6 text-center text-sm font-[family-name:var(--font-roboto)] text-[#6B5B45]">
+        <p className="mt-6 text-center text-sm font-[family-name:var(--font-roboto)] text-[#475569]">
           Pas encore de compte ?{" "}
-          <Link href="/inscription" className="text-[#8B7355] font-medium hover:text-[#6B5640] transition-colors">
+          <Link href="/inscription" className="text-[#0F3460] font-medium hover:text-[#0A2540] transition-colors">
             Faire une demande d'accès
           </Link>
         </p>

@@ -71,7 +71,7 @@ All mutations go through Server Actions in `app/actions/admin/`. Each action cal
 
 ### Styling Conventions
 - **Tailwind CSS v4** — no `tailwind.config.js`; theme tokens are defined in `app/globals.css` inside `@theme inline {}`
-- Color palette: `#2C2418` (dark brown text), `#8B7355` (gold CTA), `#B8A48A` (muted gold), `#F7F3EC` (cream bg), `#EDE8DF` (beige), `#D4CCBE` (borders)
+- Color palette: `#0F172A` (text), `#0F3460` (navy CTA), `#94A3B8` (muted), `#FFFFFF` (bg), `#F1F5F9` (surface-alt), `#E2E8F0` (borders)
 - Fonts via CSS variables: `var(--font-poppins)` for headings, `var(--font-roboto)` for body — reference them as `font-[family-name:var(--font-poppins)]` in Tailwind classes
 - Reusable CSS utilities: `.btn-primary`, `.btn-outline`, `.field-input`, `.container-site`, `.section-title`
 

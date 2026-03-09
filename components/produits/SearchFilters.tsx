@@ -39,7 +39,7 @@ export default function SearchFilters({ categories, totalCount }: SearchFiltersP
       {/* Barre de recherche */}
       <div className="relative flex-1 max-w-sm">
         <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#B8A48A]"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94A3B8]"
           fill="none" stroke="currentColor" viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -50,7 +50,7 @@ export default function SearchFilters({ categories, totalCount }: SearchFiltersP
           defaultValue={q}
           onChange={(e) => update("q", e.target.value)}
           placeholder="Rechercher un produit…"
-          className="w-full pl-9 pr-3 py-2 border border-[#D4CCBE] bg-white text-sm font-[family-name:var(--font-roboto)] text-[#2C2418] focus:outline-none focus:border-[#8B7355]"
+          className="w-full pl-9 pr-3 py-2 border border-[#E2E8F0] bg-white text-sm font-[family-name:var(--font-roboto)] text-[#0F172A] focus:outline-none focus:border-[#0F3460]"
         />
       </div>
 
@@ -58,7 +58,7 @@ export default function SearchFilters({ categories, totalCount }: SearchFiltersP
       <select
         value={cat}
         onChange={(e) => update("cat", e.target.value)}
-        className="border border-[#D4CCBE] bg-white px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-[#2C2418] focus:outline-none focus:border-[#8B7355]"
+        className="border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-[#0F172A] focus:outline-none focus:border-[#0F3460]"
       >
         <option value="">Toutes les catégories</option>
         {categories.map((c) => (
@@ -67,7 +67,7 @@ export default function SearchFilters({ categories, totalCount }: SearchFiltersP
       </select>
 
       {/* Compteur */}
-      <span className="text-sm text-[#B8A48A] font-[family-name:var(--font-roboto)] shrink-0">
+      <span className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] shrink-0">
         {totalCount} produit{totalCount > 1 ? "s" : ""}
       </span>
 
@@ -76,7 +76,7 @@ export default function SearchFilters({ categories, totalCount }: SearchFiltersP
         <button
           type="button"
           onClick={() => router.push("/produits")}
-          className="text-xs text-[#8B7355] hover:text-[#6B5640] font-[family-name:var(--font-roboto)] underline shrink-0"
+          className="text-xs text-[#0F3460] hover:text-[#0A2540] font-[family-name:var(--font-roboto)] underline shrink-0"
         >
           Réinitialiser
         </button>
