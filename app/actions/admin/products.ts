@@ -20,6 +20,7 @@ async function requireAdmin() {
 export interface SaleOptionInput {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
+  size: string | null;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
 }
@@ -28,7 +29,7 @@ export interface ColorInput {
   colorId: string;
   unitPrice: number;
   weight: number;
-  stock: number;        // stock partagé entre toutes les options de vente de cette couleur
+  stock: number;
   isPrimary: boolean;
   saleOptions: SaleOptionInput[];
   imagePaths: string[];
@@ -44,11 +45,15 @@ export interface ProductInput {
   name: string;
   description: string;
   categoryId: string;
-  subCategoryId: string | null;
+  subCategoryIds: string[];
   colors: ColorInput[];
   compositions: CompositionInput[];
   similarProductIds: string[];
-  referenceIds: string[];
+  dimensionLength: number | null;
+  dimensionWidth: number | null;
+  dimensionHeight: number | null;
+  dimensionDiameter: number | null;
+  dimensionCircumference: number | null;
 }
 
 // ─────────────────────────────────────────────
@@ -63,22 +68,28 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 
   const product = await prisma.product.create({
     data: {
-      reference:     input.reference.trim().toUpperCase(),
-      name:          input.name.trim(),
-      description:   input.description.trim(),
+      reference:             input.reference.trim().toUpperCase(),
+      name:                  input.name.trim(),
+      description:           input.description.trim(),
       categoryId:    input.categoryId,
-      subCategoryId: input.subCategoryId || null,
+      subCategories: { connect: input.subCategoryIds.map((id) => ({ id })) },
+      dimensionLength:       input.dimensionLength,
+      dimensionWidth:        input.dimensionWidth,
+      dimensionHeight:       input.dimensionHeight,
+      dimensionDiameter:     input.dimensionDiameter,
+      dimensionCircumference: input.dimensionCircumference,
       colors: {
         create: input.colors.map((color, idx) => ({
           colorId:   color.colorId,
           unitPrice: color.unitPrice,
           weight:    color.weight,
-          stock:     color.stock,           // stock sur ProductColor
+          stock:     color.stock,
           isPrimary: color.isPrimary || idx === 0,
           saleOptions: {
             create: color.saleOptions.map((opt) => ({
               saleType:      opt.saleType,
               packQuantity:  opt.packQuantity,
+              size:          opt.size,
               discountType:  opt.discountType,
               discountValue: opt.discountValue,
             })),
@@ -108,17 +119,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     });
   }
 
-  // Références associées — bidirectionnel (A→B et B→A)
-  if (input.referenceIds.length > 0) {
-    await prisma.productReference.createMany({
-      data: [
-        ...input.referenceIds.map((referenceId) => ({ productId: product.id, referenceId })),
-        ...input.referenceIds.map((referenceId) => ({ productId: referenceId, referenceId: product.id })),
-      ],
-      skipDuplicates: true,
-    });
-  }
-
   revalidatePath("/admin/produits");
   return { id: product.id };
 }
@@ -140,11 +140,16 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     await tx.product.update({
       where: { id },
       data: {
-        reference:     input.reference.trim().toUpperCase(),
-        name:          input.name.trim(),
-        description:   input.description.trim(),
+        reference:             input.reference.trim().toUpperCase(),
+        name:                  input.name.trim(),
+        description:           input.description.trim(),
         categoryId:    input.categoryId,
-        subCategoryId: input.subCategoryId || null,
+        subCategories: { set: input.subCategoryIds.map((id) => ({ id })) },
+        dimensionLength:       input.dimensionLength,
+        dimensionWidth:        input.dimensionWidth,
+        dimensionHeight:       input.dimensionHeight,
+        dimensionDiameter:     input.dimensionDiameter,
+        dimensionCircumference: input.dimensionCircumference,
       },
     });
 
@@ -182,7 +187,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
           data: {
             unitPrice: colorInput.unitPrice,
             weight:    colorInput.weight,
-            stock:     colorInput.stock,    // stock sur ProductColor
+            stock:     colorInput.stock,
             isPrimary: colorInput.isPrimary,
           },
         });
@@ -192,6 +197,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             colorId:       existing.id,
             saleType:      opt.saleType,
             packQuantity:  opt.packQuantity,
+            size:          opt.size,
             discountType:  opt.discountType,
             discountValue: opt.discountValue,
           })),
@@ -207,12 +213,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             colorId:   colorInput.colorId,
             unitPrice: colorInput.unitPrice,
             weight:    colorInput.weight,
-            stock:     colorInput.stock,    // stock sur ProductColor
+            stock:     colorInput.stock,
             isPrimary: colorInput.isPrimary,
             saleOptions: {
               create: colorInput.saleOptions.map((opt) => ({
                 saleType:      opt.saleType,
                 packQuantity:  opt.packQuantity,
+                size:          opt.size,
                 discountType:  opt.discountType,
                 discountValue: opt.discountValue,
               })),
@@ -234,20 +241,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         data: [
           ...input.similarProductIds.map((sid) => ({ productId: id, similarId: sid })),
           ...input.similarProductIds.map((sid) => ({ productId: sid, similarId: id })),
-        ],
-        skipDuplicates: true,
-      });
-    }
-
-    // Références associées — bidirectionnel, reconstruction complète
-    await tx.productReference.deleteMany({
-      where: { OR: [{ productId: id }, { referenceId: id }] },
-    });
-    if (input.referenceIds.length > 0) {
-      await tx.productReference.createMany({
-        data: [
-          ...input.referenceIds.map((rid) => ({ productId: id, referenceId: rid })),
-          ...input.referenceIds.map((rid) => ({ productId: rid, referenceId: id })),
         ],
         skipDuplicates: true,
       });

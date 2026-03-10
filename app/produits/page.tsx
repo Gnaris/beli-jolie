@@ -30,8 +30,8 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
       },
       orderBy: { createdAt: "desc" },
       include: {
-        category:    { select: { name: true } },
-        subCategory: { select: { name: true } },
+        category:      { select: { name: true } },
+        subCategories: { select: { name: true }, take: 1 },
         colors: {
           select: {
             id:        true,
@@ -89,7 +89,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
                   name={product.name}
                   reference={product.reference}
                   category={product.category.name}
-                  subCategory={product.subCategory?.name ?? null}
+                  subCategory={product.subCategories[0]?.name ?? null}
                   colors={product.colors.map((c) => ({
                     id:         c.id,
                     hex:        c.color.hex,

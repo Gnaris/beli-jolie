@@ -7,6 +7,7 @@ interface SaleOptionData {
   id: string;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
+  size: string | null;
   discountType:  "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
 }
@@ -28,6 +29,14 @@ interface CompositionData {
   percentage: number;
 }
 
+interface DimensionsData {
+  length: number | null;
+  width: number | null;
+  height: number | null;
+  diameter: number | null;
+  circumference: number | null;
+}
+
 interface RelatedProduct {
   id: string;
   name: string;
@@ -42,11 +51,11 @@ interface ProductDetailProps {
   reference: string;
   description: string;
   category: string;
-  subCategory: string | null;
+  subCategories: string[];
   colors: ColorData[];
   compositions: CompositionData[];
+  dimensions: DimensionsData;
   similarProducts: RelatedProduct[];
-  references: RelatedProduct[];
 }
 
 function computePrice(unitPrice: number, opt: SaleOptionData): number {
@@ -93,15 +102,16 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
 }
 
 export default function ProductDetail({
-  name, reference, description, category, subCategory, colors,
-  compositions, similarProducts, references,
+  name, reference, description, category, subCategories, colors,
+  compositions, dimensions, similarProducts,
 }: ProductDetailProps) {
   const primaryColor = colors.find((c) => c.isPrimary) ?? colors[0];
-  const [selected, setSelected]           = useState<ColorData>(primaryColor);
-  const [hoveredColor, setHoveredColor]   = useState<ColorData | null>(null);
+  const [selected, setSelected]               = useState<ColorData>(primaryColor);
+  const [hoveredColor, setHoveredColor]       = useState<ColorData | null>(null);
   const [activeImageIdx, setActiveImageIdx]   = useState(0);
   const [hoveredImageIdx, setHoveredImageIdx] = useState<number | null>(null);
-  const [zoomedSrc, setZoomedSrc]         = useState<string | null>(null);
+  const [zoomedSrc, setZoomedSrc]             = useState<string | null>(null);
+  const [quantities, setQuantities]           = useState<Record<string, number>>({});
 
   const displayed = hoveredColor ?? selected;
   const displayedImage = hoveredColor
@@ -117,13 +127,21 @@ export default function ProductDetail({
     setHoveredImageIdx(null);
   }
 
+  // Dimensions à afficher (non nulles)
+  const dimRows: { label: string; value: number }[] = [
+    { label: "Longueur", value: dimensions.length! },
+    { label: "Largeur",  value: dimensions.width! },
+    { label: "Hauteur",  value: dimensions.height! },
+    { label: "Diamètre", value: dimensions.diameter! },
+    { label: "Circonférence", value: dimensions.circumference! },
+  ].filter((d) => d.value != null && d.value > 0);
+
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
 
         {/* ── Image principale + thumbnails ────────────────────────────── */}
         <div className="space-y-4">
-          {/* Image principale */}
           <div
             className="aspect-square bg-[#F1F5F9] overflow-hidden relative cursor-zoom-in"
             onClick={() => displayedImage && setZoomedSrc(displayedImage)}
@@ -153,7 +171,6 @@ export default function ProductDetail({
             )}
           </div>
 
-          {/* Thumbnails */}
           {selected.images.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {selected.images.map((img, i) => (
@@ -178,12 +195,10 @@ export default function ProductDetail({
 
         {/* ── Infos produit ────────────────────────────────────────────── */}
         <div className="space-y-6">
-          {/* Référence */}
           <span className="font-mono text-xs bg-[#F1F5F9] px-2 py-1 text-[#475569]">
             {reference}
           </span>
 
-          {/* Prix */}
           <div>
             <p className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-[#0F3460]">
               {maxPrice.toFixed(2)} €
@@ -191,12 +206,10 @@ export default function ProductDetail({
             </p>
           </div>
 
-          {/* Nom */}
           <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A] leading-snug">
             {name}
           </h1>
 
-          {/* Color picker */}
           {colors.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider">
@@ -223,13 +236,17 @@ export default function ProductDetail({
             </div>
           )}
 
-          {/* Catégorie */}
-          <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8]">
+          <div className="flex items-center gap-2 flex-wrap text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8]">
             <span>{category}</span>
-            {subCategory && <><span>/</span><span>{subCategory}</span></>}
+            {subCategories.map((sc) => (
+              <span key={sc} className="flex items-center gap-2">
+                <span>/</span>
+                <span>{sc}</span>
+              </span>
+            ))}
           </div>
 
-          {/* Description + Composition */}
+          {/* Description + Composition + Dimensions */}
           <div className="border-t border-[#F1F5F9] pt-4 space-y-4">
             <div>
               <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider mb-2">
@@ -258,6 +275,25 @@ export default function ProductDetail({
                 </div>
               </div>
             )}
+
+            {dimRows.length > 0 && (
+              <div>
+                <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider mb-2">
+                  Dimensions
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {dimRows.map((d) => (
+                    <span
+                      key={d.label}
+                      className="inline-flex items-center gap-1 text-xs bg-[#F1F5F9] text-[#475569] px-2.5 py-1 font-[family-name:var(--font-roboto)]"
+                    >
+                      {d.label}
+                      <span className="text-[#94A3B8]">— {d.value} mm</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Options de vente */}
@@ -272,33 +308,82 @@ export default function ProductDetail({
                   ? selected.unitPrice
                   : selected.unitPrice * (opt.packQuantity ?? 1);
                 const hasDiscount = price < basePrice;
-                // Stock effectif : pour un paquet, si stock < qté → stock paquet = 0
                 const effectiveStock = opt.saleType === "PACK" && opt.packQuantity
                   ? Math.floor(selected.stock / opt.packQuantity)
                   : selected.stock;
+                const qty = quantities[opt.id] ?? 1;
+
                 return (
                   <div
                     key={opt.id}
-                    className="flex items-center justify-between bg-[#FFFFFF] border border-[#F1F5F9] px-4 py-3"
+                    className="bg-[#FFFFFF] border border-[#E2E8F0] px-4 py-3 space-y-3"
                   >
-                    <div>
-                      <p className="text-sm font-medium text-[#0F172A] font-[family-name:var(--font-roboto)]">
-                        {opt.saleType === "UNIT"
-                          ? "À l'unité"
-                          : `Par paquet de ${opt.packQuantity}`}
-                      </p>
-                      <p className="text-xs text-[#94A3B8]">
-                        Stock : {effectiveStock} disponible{effectiveStock > 1 ? "s" : ""}
-                        {" · "}{selected.weight} kg / unité
-                      </p>
+                    {/* Ligne 1 : libellé + prix */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-[#0F172A] font-[family-name:var(--font-roboto)] flex items-center flex-wrap gap-1.5">
+                          {opt.saleType === "UNIT" ? "À l'unité" : `Par paquet de ${opt.packQuantity}`}
+                          {opt.size && (
+                            <span className="text-xs font-normal bg-[#F1F5F9] text-[#475569] px-2 py-0.5 border border-[#E2E8F0]">
+                              Taille {opt.size}
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-[#94A3B8] mt-0.5">
+                          Stock : {effectiveStock} disponible{effectiveStock !== 1 ? "s" : ""}
+                          {" · "}{selected.weight} kg / unité
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        {hasDiscount && (
+                          <p className="text-xs text-[#94A3B8] line-through">{basePrice.toFixed(2)} €</p>
+                        )}
+                        <p className={`font-[family-name:var(--font-poppins)] font-semibold ${hasDiscount ? "text-emerald-600" : "text-[#0F172A]"}`}>
+                          {price.toFixed(2)} €
+                        </p>
+                        {qty > 1 && (
+                          <p className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)]">
+                            = {(price * qty).toFixed(2)} € total
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-right">
-                      {hasDiscount && (
-                        <p className="text-xs text-[#94A3B8] line-through">{basePrice.toFixed(2)} €</p>
-                      )}
-                      <p className={`font-[family-name:var(--font-poppins)] font-semibold ${hasDiscount ? "text-emerald-600" : "text-[#0F172A]"}`}>
-                        {price.toFixed(2)} €
-                      </p>
+
+                    {/* Ligne 2 : quantité + bouton panier */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center border border-[#E2E8F0]">
+                        <button
+                          type="button"
+                          onClick={() => setQuantities((q) => ({ ...q, [opt.id]: Math.max(1, (q[opt.id] ?? 1) - 1) }))}
+                          className="w-8 h-8 flex items-center justify-center text-[#475569] hover:bg-[#F1F5F9] transition-colors text-lg leading-none"
+                        >−</button>
+                        <input
+                          type="number"
+                          min={1}
+                          max={effectiveStock || undefined}
+                          value={qty}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value);
+                            if (!isNaN(v) && v >= 1) setQuantities((q) => ({ ...q, [opt.id]: v }));
+                          }}
+                          className="w-12 h-8 text-center text-sm font-[family-name:var(--font-roboto)] text-[#0F172A] border-x border-[#E2E8F0] focus:outline-none focus:border-[#0F3460] bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setQuantities((q) => ({ ...q, [opt.id]: (q[opt.id] ?? 1) + 1 }))}
+                          className="w-8 h-8 flex items-center justify-center text-[#475569] hover:bg-[#F1F5F9] transition-colors text-lg leading-none"
+                        >+</button>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={effectiveStock === 0}
+                        className="flex-1 h-8 bg-[#0F3460] text-white text-xs font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#0A2540] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                      >
+                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                        </svg>
+                        Ajouter au panier
+                      </button>
                     </div>
                   </div>
                 );
@@ -316,20 +401,6 @@ export default function ProductDetail({
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {similarProducts.map((p) => (
-              <RelatedCard key={p.id} product={p} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Produit dans ces références ─────────────────────────────────── */}
-      {references.length > 0 && (
-        <section className="mt-16 border-t border-[#E2E8F0] pt-12">
-          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#0F172A] mb-6">
-            Ce produit fait partie de ces références
-          </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {references.map((p) => (
               <RelatedCard key={p.id} product={p} />
             ))}
           </div>

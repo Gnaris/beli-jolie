@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import ImageDropzone from "./ImageDropzone";
 
 // ─────────────────────────────────────────────
@@ -9,6 +9,7 @@ export interface SaleOptionState {
   tempId: string;
   saleType: "UNIT" | "PACK";
   packQuantity: string;
+  size: string;
   discountType: "" | "PERCENT" | "AMOUNT";
   discountValue: string;
 }
@@ -67,7 +68,7 @@ export function computeFinalPrice(unitPrice: string, opt: SaleOptionState): numb
 function uid() { return Math.random().toString(36).slice(2, 9); }
 
 function defaultSaleOption(type: "UNIT" | "PACK" = "UNIT"): SaleOptionState {
-  return { tempId: uid(), saleType: type, packQuantity: "", discountType: "", discountValue: "" };
+  return { tempId: uid(), saleType: type, packQuantity: "", size: "", discountType: "", discountValue: "" };
 }
 
 // ─────────────────────────────────────────────
@@ -94,26 +95,26 @@ function ColorSelect({ value, options, onChange }: {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 bg-white border border-[#E2E8F0] px-2 py-1.5 text-xs font-[family-name:var(--font-roboto)] text-[#0F172A] focus:outline-none focus:border-[#0F3460] hover:border-[#94A3B8] transition-colors text-left"
+        className="w-full flex items-center gap-2 bg-white border border-[#E2E8F0] px-3 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#0F172A] focus:outline-none focus:border-[#0F3460] hover:border-[#94A3B8] transition-colors text-left"
       >
-        <span className="w-3.5 h-3.5 rounded-full border border-[#E2E8F0] shrink-0" style={{ backgroundColor: sel?.hex || "#94A3B8" }} />
+        <span className="w-4 h-4 rounded-full border border-[#E2E8F0] shrink-0" style={{ backgroundColor: sel?.hex || "#94A3B8" }} />
         <span className="flex-1 truncate">{sel ? sel.name : <span className="text-[#94A3B8]">— Choisir —</span>}</span>
-        <svg className={`w-3 h-3 text-[#94A3B8] shrink-0 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className={`w-4 h-4 text-[#94A3B8] shrink-0 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
       {open && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-0.5 bg-white border border-[#E2E8F0] shadow-lg max-h-40 overflow-y-auto">
+        <div className="absolute z-50 top-full left-0 right-0 mt-0.5 bg-white border border-[#E2E8F0] shadow-lg max-h-48 overflow-y-auto">
           {options.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-[#94A3B8]">Aucune couleur disponible</div>
+            <div className="px-4 py-3 text-sm text-[#94A3B8]">Aucune couleur disponible</div>
           ) : options.map((opt) => (
             <button key={opt.id} type="button" onClick={() => { onChange(opt.id); setOpen(false); }}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-[#F1F5F9] transition-colors text-left ${opt.id === value ? "bg-[#F1F5F9]" : ""}`}
+              className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm hover:bg-[#F1F5F9] transition-colors text-left ${opt.id === value ? "bg-[#F1F5F9]" : ""}`}
             >
-              <span className="w-3.5 h-3.5 rounded-full border border-[#E2E8F0] shrink-0" style={{ backgroundColor: opt.hex || "#94A3B8" }} />
+              <span className="w-4 h-4 rounded-full border border-[#E2E8F0] shrink-0" style={{ backgroundColor: opt.hex || "#94A3B8" }} />
               <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#0F172A]">{opt.name}</span>
               {opt.id === value && (
-                <svg className="w-3 h-3 text-[#0F3460] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-[#0F3460] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                 </svg>
               )}
@@ -126,50 +127,65 @@ function ColorSelect({ value, options, onChange }: {
 }
 
 // ─────────────────────────────────────────────
-// QuickCreateColorForm — mini-form inline
+// Label utilitaire
 // ─────────────────────────────────────────────
-function QuickCreateColorForm({ onSave, onCancel }: {
-  onSave: (name: string, hex: string | null) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState("");
-  const [hex, setHex] = useState("#94A3B8");
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState("");
-
-  async function handleSave() {
-    if (!name.trim()) { setErr("Nom requis."); return; }
-    setSaving(true);
-    try { await onSave(name.trim(), hex); }
-    catch (e: unknown) { setErr(e instanceof Error ? e.message : "Erreur"); setSaving(false); }
-  }
-
+function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-      <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom"
-        className="border border-[#E2E8F0] px-2 py-1 text-[10px] font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#0F3460] flex-1 min-w-0"
-        autoFocus onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSave(); }}}
-      />
-      <input type="color" value={hex} onChange={(e) => setHex(e.target.value)}
-        className="w-7 h-6 border border-[#E2E8F0] cursor-pointer p-0 shrink-0" title="Couleur hex"
-      />
-      <button type="button" onClick={handleSave} disabled={saving || !name.trim()}
-        className="px-2 py-1 bg-[#0F3460] text-white text-[10px] hover:bg-[#0A2540] transition-colors disabled:opacity-50 shrink-0"
-      >{saving ? "…" : "OK"}</button>
-      <button type="button" onClick={onCancel}
-        className="px-2 py-1 border border-[#E2E8F0] text-[10px] text-[#475569] hover:border-[#0F3460] shrink-0"
-      >✕</button>
-      {err && <span className="text-[10px] text-red-500 w-full">{err}</span>}
-    </div>
+    <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-1.5 font-[family-name:var(--font-roboto)]">
+      {children}
+    </p>
   );
 }
 
 // ─────────────────────────────────────────────
-// Composant principal
+// Composant principal — layout en cartes
 // ─────────────────────────────────────────────
 export default function ColorVariantManager({ colors, availableColors, onChange, onQuickCreateColor }: ColorVariantManagerProps) {
-  const [quickCreateFor, setQuickCreateFor] = useState<string | null>(null);
 
+  // ── Scroll synchronisé haut / bas ────────────────────────────────────────
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const topScrollRef  = useRef<HTMLDivElement>(null);
+  const innerRef      = useRef<HTMLDivElement>(null);
+  const [innerScrollWidth, setInnerScrollWidth] = useState(0);
+
+  useEffect(() => {
+    if (innerRef.current) setInnerScrollWidth(innerRef.current.scrollWidth);
+  }, [colors]);
+
+  const onMainScroll = useCallback(() => {
+    if (topScrollRef.current && mainScrollRef.current)
+      topScrollRef.current.scrollLeft = mainScrollRef.current.scrollLeft;
+  }, []);
+
+  const onTopScroll = useCallback(() => {
+    if (mainScrollRef.current && topScrollRef.current)
+      mainScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+  }, []);
+
+  // ── Quick create couleur (carte séparée) ─────────────────────────────────
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const [newColorName,    setNewColorName]    = useState("");
+  const [newColorHex,     setNewColorHex]     = useState("#94A3B8");
+  const [quickSaving,     setQuickSaving]     = useState(false);
+  const [quickCreateErr,  setQuickCreateErr]  = useState("");
+
+  async function handleQuickSave() {
+    if (!newColorName.trim() || !onQuickCreateColor) return;
+    setQuickSaving(true);
+    try {
+      await onQuickCreateColor(newColorName.trim(), newColorHex);
+      setNewColorName("");
+      setNewColorHex("#94A3B8");
+      setShowQuickCreate(false);
+      setQuickCreateErr("");
+    } catch (e: unknown) {
+      setQuickCreateErr(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setQuickSaving(false);
+    }
+  }
+
+  // ── Mutations couleurs ───────────────────────────────────────────────────
   function updateColor(tempId: string, patch: Partial<ColorState>) {
     onChange(colors.map((c) => c.tempId === tempId ? { ...c, ...patch } : c));
   }
@@ -199,10 +215,14 @@ export default function ColorVariantManager({ colors, availableColors, onChange,
     updateColor(colorTempId, { colorId, colorName: sel.name, colorHex: sel.hex ?? "#94A3B8" });
   }
   function addSaleOption(colorTempId: string) {
-    onChange(colors.map((c) => c.tempId !== colorTempId ? c : { ...c, saleOptions: [...c.saleOptions, defaultSaleOption("PACK")] }));
+    onChange(colors.map((c) => c.tempId !== colorTempId ? c : {
+      ...c, saleOptions: [...c.saleOptions, defaultSaleOption("PACK")]
+    }));
   }
   function removeSaleOption(colorTempId: string, optTempId: string) {
-    onChange(colors.map((c) => c.tempId !== colorTempId ? c : { ...c, saleOptions: c.saleOptions.filter((o) => o.tempId !== optTempId) }));
+    onChange(colors.map((c) => c.tempId !== colorTempId ? c : {
+      ...c, saleOptions: c.saleOptions.filter((o) => o.tempId !== optTempId)
+    }));
   }
 
   async function handleAddImages(colorTempId: string, files: File[]) {
@@ -234,269 +254,357 @@ export default function ColorVariantManager({ colors, availableColors, onChange,
       return { ...c, imagePreviews: reorder(c.imagePreviews), imageFiles: c.imageFiles.length > 0 ? reorder(c.imageFiles) : [], uploadedPaths: reorder(c.uploadedPaths) };
     }));
   }
-  async function handleQuickCreate(colorTempId: string, name: string, hex: string | null) {
-    if (!onQuickCreateColor) return;
-    const newColor = await onQuickCreateColor(name, hex);
-    updateColor(colorTempId, { colorId: newColor.id, colorName: newColor.name, colorHex: newColor.hex ?? "#94A3B8" });
-    setQuickCreateFor(null);
-  }
 
   const usedColorIds = colors.map((c) => c.colorId);
 
   if (colors.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="text-center py-8 border-2 border-dashed border-[#E2E8F0] text-[#94A3B8] text-sm font-[family-name:var(--font-roboto)]">
+        <div className="text-center py-12 border-2 border-dashed border-[#E2E8F0] text-[#94A3B8] text-sm font-[family-name:var(--font-roboto)]">
           Cliquez sur &quot;Ajouter une couleur&quot; pour commencer.
         </div>
         <button type="button" onClick={addColor} disabled={availableColors.length === 0}
-          className="w-full border-2 border-dashed border-[#E2E8F0] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#0F3460] hover:border-[#0F3460] transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full border-2 border-dashed border-[#E2E8F0] py-4 text-sm font-[family-name:var(--font-roboto)] text-[#0F3460] hover:border-[#0F3460] transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" /></svg>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" /></svg>
           Ajouter une couleur
         </button>
       </div>
     );
   }
 
-  // Flatten: each row = (color, saleOption, optIdx)
-  type FlatRow = { color: ColorState; opt: SaleOptionState; optIdx: number };
-  const rows: FlatRow[] = colors.flatMap((color) =>
-    color.saleOptions.map((opt, optIdx) => ({ color, opt, optIdx }))
-  );
-
-  const thCls = "px-2 py-2 text-[10px] font-semibold text-[#475569] uppercase tracking-wider font-[family-name:var(--font-roboto)] whitespace-nowrap text-left border-b border-[#E2E8F0] bg-[#F8FAFC]";
-  const tdCls = "px-2 py-1.5 align-middle border-b border-[#F1F5F9]";
-
   return (
-    <div className="space-y-6">
-      {/* ── Tableau unique scrollable ── */}
-      <div className="border border-[#E2E8F0] overflow-x-auto overflow-y-auto max-h-[520px]">
-        <table className="w-full border-collapse text-xs min-w-[860px]">
-          <thead className="sticky top-0 z-10">
-            <tr>
-              <th className={thCls} style={{ width: 28 }}>★</th>
-              <th className={thCls} style={{ minWidth: 160 }}>Couleur</th>
-              <th className={thCls} style={{ width: 90 }}>Prix/u. (€)</th>
-              <th className={thCls} style={{ width: 80 }}>Poids (kg)</th>
-              <th className={thCls} style={{ width: 70 }}>Stock</th>
-              <th className={thCls} style={{ minWidth: 110 }}>Type vente</th>
-              <th className={thCls} style={{ width: 80 }}>Qté/paquet</th>
-              <th className={thCls} style={{ minWidth: 130 }}>Remise</th>
-              <th className={thCls} style={{ width: 90 }}>Prix final</th>
-              <th className={thCls} style={{ width: 72 }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ color, opt, optIdx }) => {
-              const isFirst = optIdx === 0;
-              const rowSpan = color.saleOptions.length;
-              const isQuickOpen = quickCreateFor === color.tempId;
-              const selectableColors = availableColors.filter((ac) => ac.id === color.colorId || !usedColorIds.includes(ac.id));
-              const totalPrice = computeTotalPrice(color.unitPrice, opt);
-              const finalPrice = computeFinalPrice(color.unitPrice, opt);
-              const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
-
-              // Row background: alternate per color group
-              const colorIdx = colors.findIndex((c) => c.tempId === color.tempId);
-              const rowBg = colorIdx % 2 === 0 ? "bg-white" : "bg-[#FAFBFC]";
-
-              return (
-                <tr key={`${color.tempId}-${opt.tempId}`} className={`${rowBg} hover:bg-[#F1F5F9] transition-colors`}>
-
-                  {/* ── Color-level cells (rowSpan) ── */}
-                  {isFirst && (
-                    <>
-                      {/* ★ Radio */}
-                      <td rowSpan={rowSpan} className={`${tdCls} border-r border-[#E2E8F0] text-center`} style={{ verticalAlign: "top", paddingTop: 10 }}>
-                        <input type="radio" name="primaryColor" checked={color.isPrimary} onChange={() => setPrimary(color.tempId)} className="accent-[#0F3460]" title="Couleur principale" />
-                      </td>
-
-                      {/* Couleur — ColorSelect + quick create */}
-                      <td rowSpan={rowSpan} className={`${tdCls} border-r border-[#E2E8F0]`} style={{ verticalAlign: "top", paddingTop: 6 }}>
-                        <ColorSelect value={color.colorId} options={selectableColors} onChange={(id) => handleColorSelect(color.tempId, id)} />
-                        {onQuickCreateColor && (
-                          <button type="button" onClick={() => setQuickCreateFor(isQuickOpen ? null : color.tempId)}
-                            className="mt-1 text-[10px] text-[#0F3460] hover:text-[#0A2540] font-medium font-[family-name:var(--font-roboto)]"
-                          >
-                            {isQuickOpen ? "✕ Annuler" : "+ Créer une couleur"}
-                          </button>
-                        )}
-                        {isQuickOpen && (
-                          <QuickCreateColorForm
-                            onSave={(name, hex) => handleQuickCreate(color.tempId, name, hex)}
-                            onCancel={() => setQuickCreateFor(null)}
-                          />
-                        )}
-                      </td>
-
-                      {/* Prix unitaire */}
-                      <td rowSpan={rowSpan} className={`${tdCls} border-r border-[#E2E8F0]`} style={{ verticalAlign: "top", paddingTop: 6 }}>
-                        <input type="number" min="0" step="0.01" value={color.unitPrice} placeholder="0.00"
-                          onChange={(e) => updateColor(color.tempId, { unitPrice: e.target.value })}
-                          className="w-full border border-[#E2E8F0] px-1.5 py-1 text-xs text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)]"
-                        />
-                      </td>
-
-                      {/* Poids */}
-                      <td rowSpan={rowSpan} className={`${tdCls} border-r border-[#E2E8F0]`} style={{ verticalAlign: "top", paddingTop: 6 }}>
-                        <input type="number" min="0" step="0.001" value={color.weight} placeholder="0.008"
-                          onChange={(e) => updateColor(color.tempId, { weight: e.target.value })}
-                          className="w-full border border-[#E2E8F0] px-1.5 py-1 text-xs text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)]"
-                        />
-                      </td>
-
-                      {/* Stock */}
-                      <td rowSpan={rowSpan} className={`${tdCls} border-r border-[#E2E8F0]`} style={{ verticalAlign: "top", paddingTop: 6 }}>
-                        <input type="number" min="0" step="1" value={color.stock} placeholder="0"
-                          onChange={(e) => updateColor(color.tempId, { stock: e.target.value })}
-                          className="w-full border border-[#E2E8F0] px-1.5 py-1 text-xs text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)]"
-                        />
-                      </td>
-                    </>
-                  )}
-
-                  {/* ── Option-level cells ── */}
-
-                  {/* Type vente */}
-                  <td className={`${tdCls} border-r border-[#E2E8F0]`}>
-                    <div className="flex gap-1">
-                      {(["UNIT", "PACK"] as const).map((type) => (
-                        <button key={type} type="button"
-                          onClick={() => updateSaleOption(color.tempId, opt.tempId, { saleType: type, packQuantity: type === "UNIT" ? "" : opt.packQuantity })}
-                          className={`px-2 py-0.5 text-[10px] font-semibold border transition-colors font-[family-name:var(--font-roboto)] ${opt.saleType === type ? "bg-[#0F3460] text-white border-[#0F3460]" : "bg-white text-[#475569] border-[#E2E8F0] hover:border-[#0F3460]"}`}
-                        >
-                          {type === "UNIT" ? "Unité" : "Paquet"}
-                        </button>
-                      ))}
-                    </div>
-                  </td>
-
-                  {/* Qté/paquet */}
-                  <td className={`${tdCls} border-r border-[#E2E8F0]`}>
-                    {opt.saleType === "PACK" ? (
-                      <input type="number" min="2" max="99999" value={opt.packQuantity} placeholder="12"
-                        onChange={(e) => updateSaleOption(color.tempId, opt.tempId, { packQuantity: e.target.value })}
-                        className="w-full border border-[#E2E8F0] px-1.5 py-1 text-xs text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)]"
-                      />
-                    ) : (
-                      <span className="text-[#94A3B8] text-[10px] px-1">—</span>
-                    )}
-                  </td>
-
-                  {/* Remise */}
-                  <td className={`${tdCls} border-r border-[#E2E8F0]`}>
-                    <div className="flex items-center gap-1">
-                      <select value={opt.discountType}
-                        onChange={(e) => updateSaleOption(color.tempId, opt.tempId, { discountType: e.target.value as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
-                        className="border border-[#E2E8F0] px-1 py-1 text-[10px] font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#0F3460] bg-white text-[#0F172A]"
-                      >
-                        <option value="">Aucune</option>
-                        <option value="PERCENT">%</option>
-                        <option value="AMOUNT">€</option>
-                      </select>
-                      {opt.discountType && (
-                        <input type="number" min="0" step="0.01" value={opt.discountValue} placeholder="0"
-                          onChange={(e) => updateSaleOption(color.tempId, opt.tempId, { discountValue: e.target.value })}
-                          className="w-14 border border-[#E2E8F0] px-1.5 py-1 text-[10px] text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)]"
-                        />
-                      )}
-                    </div>
-                  </td>
-
-                  {/* Prix final */}
-                  <td className={`${tdCls} border-r border-[#E2E8F0]`}>
-                    {finalPrice !== null ? (
-                      <div className="flex flex-col items-end">
-                        {hasDiscount && totalPrice !== null && (
-                          <span className="text-[9px] text-[#94A3B8] line-through">{totalPrice.toFixed(2)} €</span>
-                        )}
-                        <span className={`text-xs font-semibold font-[family-name:var(--font-poppins)] ${hasDiscount ? "text-emerald-600" : "text-[#0F172A]"}`}>
-                          {finalPrice.toFixed(2)} €
-                        </span>
-                        {opt.saleType === "PACK" && opt.packQuantity && (
-                          <span className="text-[9px] text-[#94A3B8]">({color.unitPrice} × {opt.packQuantity})</span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-[#94A3B8] text-[10px]">—</span>
-                    )}
-                  </td>
-
-                  {/* Actions */}
-                  <td className={tdCls}>
-                    <div className="flex items-center justify-center gap-1">
-                      {isFirst && color.saleOptions.length < 2 && (
-                        <button type="button" onClick={() => addSaleOption(color.tempId)} title="Ajouter une option de vente"
-                          className="text-[#0F3460] hover:text-[#0A2540] transition-colors p-0.5"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </button>
-                      )}
-                      {color.saleOptions.length > 1 && (
-                        <button type="button" onClick={() => removeSaleOption(color.tempId, opt.tempId)} title="Supprimer cette option"
-                          className="text-[#94A3B8] hover:text-red-500 transition-colors p-0.5"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
-                      {isFirst && (
-                        <button type="button" onClick={() => removeColor(color.tempId)} title="Supprimer cette couleur"
-                          className="text-red-300 hover:text-red-600 transition-colors p-0.5 ml-1"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <div className="space-y-5">
+      {/* ── Barre de scroll miroir — en haut ── */}
+      <div ref={topScrollRef} className="overflow-x-auto" onScroll={onTopScroll} style={{ height: 12 }}>
+        <div style={{ width: innerScrollWidth, height: 1 }} />
       </div>
 
-      {/* Bouton ajouter couleur */}
-      <button type="button" onClick={addColor}
-        disabled={availableColors.length === 0 || colors.length >= availableColors.length}
-        className="w-full border-2 border-dashed border-[#E2E8F0] py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#0F3460] hover:border-[#0F3460] transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" /></svg>
-        Ajouter une couleur
-      </button>
+      {/* ── Scroll principal ── */}
+      <div ref={mainScrollRef} className="overflow-x-auto pb-2" onScroll={onMainScroll}>
+        <div ref={innerRef} className="flex gap-5 items-start" style={{ minWidth: "max-content" }}>
 
-      {/* ── Images par couleur ── */}
-      {colors.length > 0 && (
-        <div className="space-y-4 border-t border-[#E2E8F0] pt-4">
-          <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider font-[family-name:var(--font-roboto)]">
-            Images par couleur (partagées entre toutes les options de la même couleur)
-          </p>
-          {colors.map((color, colorIdx) => (
-            <div key={color.tempId} className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="w-3.5 h-3.5 rounded-full border border-[#E2E8F0] shrink-0" style={{ backgroundColor: color.colorHex || "#94A3B8" }} />
-                <span className="text-xs font-medium text-[#0F172A] font-[family-name:var(--font-roboto)]">
-                  {color.colorName || `Couleur ${colorIdx + 1}`}
-                </span>
+          {/* ── Cartes couleurs ── */}
+          {colors.map((color, colorIdx) => {
+            const selectableColors = availableColors.filter((ac) => ac.id === color.colorId || !usedColorIds.includes(ac.id));
+
+            return (
+              <div key={color.tempId} className="border border-[#E2E8F0] overflow-hidden flex-none bg-white" style={{ width: 720 }}>
+
+                {/* En-tête */}
+                <div className="flex items-center justify-between px-7 py-4 bg-[#F1F5F9] border-b border-[#E2E8F0]">
+                  <div className="flex items-center gap-5">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="radio"
+                        name="primaryColor"
+                        checked={color.isPrimary}
+                        onChange={() => setPrimary(color.tempId)}
+                        className="accent-[#0F3460]"
+                      />
+                      <span className="text-sm font-medium text-[#475569] font-[family-name:var(--font-roboto)]">Principale</span>
+                    </label>
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className="w-5 h-5 rounded-full border-2 border-white shadow-sm shrink-0"
+                        style={{ backgroundColor: color.colorHex || "#94A3B8" }}
+                      />
+                      <span className="text-base font-semibold text-[#0F172A] font-[family-name:var(--font-poppins)]">
+                        {color.colorName || `Couleur ${colorIdx + 1}`}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeColor(color.tempId)}
+                    className="text-sm text-red-400 hover:text-red-600 transition-colors font-[family-name:var(--font-roboto)] flex items-center gap-1.5"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Supprimer
+                  </button>
+                </div>
+
+                {/* Corps */}
+                <div className="p-7 space-y-7">
+
+                  {/* ── Champs en grille 4 colonnes ── */}
+                  <div className="grid grid-cols-4 gap-4">
+                    {/* Couleur */}
+                    <div>
+                      <FieldLabel>Couleur</FieldLabel>
+                      <ColorSelect
+                        value={color.colorId}
+                        options={selectableColors}
+                        onChange={(id) => handleColorSelect(color.tempId, id)}
+                      />
+                    </div>
+
+                    {/* Prix / unité */}
+                    <div>
+                      <FieldLabel>Prix / unité (€)</FieldLabel>
+                      <input
+                        type="number" min="0" step="0.01" value={color.unitPrice} placeholder="0.00"
+                        onChange={(e) => updateColor(color.tempId, { unitPrice: e.target.value })}
+                        className="w-full border border-[#E2E8F0] px-3 py-2.5 text-sm text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)]"
+                      />
+                    </div>
+
+                    {/* Poids */}
+                    <div>
+                      <FieldLabel>Poids (kg)</FieldLabel>
+                      <input
+                        type="number" min="0" step="0.001" value={color.weight} placeholder="0.008"
+                        onChange={(e) => updateColor(color.tempId, { weight: e.target.value })}
+                        className="w-full border border-[#E2E8F0] px-3 py-2.5 text-sm text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)]"
+                      />
+                    </div>
+
+                    {/* Stock */}
+                    <div>
+                      <FieldLabel>Stock</FieldLabel>
+                      <input
+                        type="number" min="0" step="1" value={color.stock} placeholder="0"
+                        onChange={(e) => updateColor(color.tempId, { stock: e.target.value })}
+                        className="w-full border border-[#E2E8F0] px-3 py-2.5 text-sm text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* ── Options de vente ── */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-[#475569] font-[family-name:var(--font-roboto)]">
+                        Options de vente
+                        <span className="ml-2 font-normal normal-case text-[#94A3B8]">
+                          ({color.saleOptions.length} option{color.saleOptions.length > 1 ? "s" : ""})
+                        </span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => addSaleOption(color.tempId)}
+                        className="text-xs text-[#0F3460] hover:text-[#0A2540] font-medium font-[family-name:var(--font-roboto)] flex items-center gap-1 transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        Ajouter un paquet
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {color.saleOptions.map((opt) => {
+                        const totalPrice = computeTotalPrice(color.unitPrice, opt);
+                        const finalPrice = computeFinalPrice(color.unitPrice, opt);
+                        const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
+
+                        return (
+                          <div
+                            key={opt.tempId}
+                            className="bg-[#F8FAFC] border border-[#E2E8F0] px-3 py-2 flex items-center gap-2 flex-wrap"
+                          >
+                            {/* Type toggle */}
+                            <div className="flex gap-0.5 shrink-0">
+                              {(["UNIT", "PACK"] as const).map((type) => (
+                                <button
+                                  key={type} type="button"
+                                  onClick={() => updateSaleOption(color.tempId, opt.tempId, {
+                                    saleType: type,
+                                    packQuantity: type === "UNIT" ? "" : opt.packQuantity
+                                  })}
+                                  className={`px-2.5 py-1 text-xs font-semibold border transition-colors font-[family-name:var(--font-roboto)] ${
+                                    opt.saleType === type
+                                      ? "bg-[#0F3460] text-white border-[#0F3460]"
+                                      : "bg-white text-[#475569] border-[#E2E8F0] hover:border-[#0F3460]"
+                                  }`}
+                                >
+                                  {type === "UNIT" ? "Unité" : "Paquet"}
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* Qté paquet */}
+                            {opt.saleType === "PACK" ? (
+                              <input
+                                type="number" min="2" max="99999" value={opt.packQuantity} placeholder="Qté"
+                                onChange={(e) => updateSaleOption(color.tempId, opt.tempId, { packQuantity: e.target.value })}
+                                className="w-16 border border-[#E2E8F0] px-2 py-1 text-xs text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)] bg-white shrink-0"
+                              />
+                            ) : (
+                              <span className="text-xs text-[#94A3B8] italic font-[family-name:var(--font-roboto)] shrink-0">unité</span>
+                            )}
+
+                            {/* Taille */}
+                            <input
+                              type="text" value={opt.size} placeholder="Taille"
+                              onChange={(e) => updateSaleOption(color.tempId, opt.tempId, { size: e.target.value })}
+                              className="w-20 border border-[#E2E8F0] px-2 py-1 text-xs focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)] bg-white shrink-0"
+                            />
+
+                            {/* Remise */}
+                            <select
+                              value={opt.discountType}
+                              onChange={(e) => updateSaleOption(color.tempId, opt.tempId, {
+                                discountType: e.target.value as "" | "PERCENT" | "AMOUNT",
+                                discountValue: ""
+                              })}
+                              className="border border-[#E2E8F0] px-1.5 py-1 text-xs font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#0F3460] bg-white text-[#0F172A] shrink-0"
+                            >
+                              <option value="">Remise</option>
+                              <option value="PERCENT">%</option>
+                              <option value="AMOUNT">€</option>
+                            </select>
+                            {opt.discountType && (
+                              <input
+                                type="number" min="0" step="0.01" value={opt.discountValue} placeholder="0"
+                                onChange={(e) => updateSaleOption(color.tempId, opt.tempId, { discountValue: e.target.value })}
+                                className="w-16 border border-[#E2E8F0] px-2 py-1 text-xs text-right focus:outline-none focus:border-[#0F3460] font-[family-name:var(--font-roboto)] bg-white shrink-0"
+                              />
+                            )}
+
+                            {/* Prix final */}
+                            <div className="flex-1 text-right min-w-0">
+                              {finalPrice !== null ? (
+                                <span className={`text-xs font-semibold font-[family-name:var(--font-poppins)] ${hasDiscount ? "text-emerald-600" : "text-[#0F172A]"}`}>
+                                  {hasDiscount && totalPrice !== null && (
+                                    <span className="text-[#94A3B8] line-through mr-1.5 font-normal">{totalPrice.toFixed(2)} €</span>
+                                  )}
+                                  {finalPrice.toFixed(2)} €
+                                </span>
+                              ) : (
+                                <span className="text-[#94A3B8] text-xs">—</span>
+                              )}
+                            </div>
+
+                            {/* Supprimer */}
+                            {color.saleOptions.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeSaleOption(color.tempId, opt.tempId)}
+                                title="Supprimer cette option"
+                                className="text-[#94A3B8] hover:text-red-500 transition-colors shrink-0"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* ── Images ── */}
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-[#475569] font-[family-name:var(--font-roboto)] mb-2">
+                      Images{" "}
+                      <span className="font-normal normal-case text-[#94A3B8]">
+                        (partagées entre toutes les options — max 5)
+                      </span>
+                    </p>
+                    <ImageDropzone
+                      colorIndex={colorIdx}
+                      previews={color.imagePreviews}
+                      onAdd={(files) => handleAddImages(color.tempId, files)}
+                      onRemove={(idx) => handleRemoveImage(color.tempId, idx)}
+                      onReorder={(from, to) => handleReorderImage(color.tempId, from, to)}
+                      uploading={color.uploading}
+                    />
+                  </div>
+                </div>
               </div>
-              <ImageDropzone
-                colorIndex={colorIdx}
-                previews={color.imagePreviews}
-                onAdd={(files) => handleAddImages(color.tempId, files)}
-                onRemove={(idx) => handleRemoveImage(color.tempId, idx)}
-                onReorder={(from, to) => handleReorderImage(color.tempId, from, to)}
-                uploading={color.uploading}
-              />
+            );
+          })}
+
+          {/* ── Carte : Ajouter une couleur ── */}
+          <div
+            className="border-2 border-dashed border-[#E2E8F0] flex items-center justify-center cursor-pointer hover:border-[#0F3460] transition-colors flex-none"
+            style={{ width: 200, minHeight: 140 }}
+            onClick={availableColors.length === 0 || colors.length >= availableColors.length ? undefined : addColor}
+          >
+            <button
+              type="button"
+              onClick={addColor}
+              disabled={availableColors.length === 0 || colors.length >= availableColors.length}
+              className="flex flex-col items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#0F3460] disabled:opacity-40 disabled:cursor-not-allowed p-4 text-center"
+            >
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Ajouter une couleur
+            </button>
+          </div>
+
+          {/* ── Carte : Créer une couleur ── */}
+          {onQuickCreateColor && (
+            <div
+              className="flex-none border-2 transition-colors"
+              style={{ width: 200, minHeight: 140 }}
+            >
+              {showQuickCreate ? (
+                <div className="p-4 flex flex-col gap-2.5 h-full border-[#0F3460]">
+                  <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider font-[family-name:var(--font-roboto)]">
+                    Nouvelle couleur
+                  </p>
+                  <input
+                    type="text"
+                    value={newColorName}
+                    onChange={(e) => setNewColorName(e.target.value)}
+                    placeholder="Nom de la couleur"
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleQuickSave(); } }}
+                    className="border border-[#E2E8F0] px-2.5 py-1.5 text-xs font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#0F3460] w-full"
+                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={newColorHex}
+                      onChange={(e) => setNewColorHex(e.target.value)}
+                      className="w-8 h-7 border border-[#E2E8F0] cursor-pointer p-0 shrink-0"
+                      title="Couleur hex"
+                    />
+                    <span className="text-xs text-[#475569] font-mono flex-1 truncate">{newColorHex}</span>
+                  </div>
+                  {quickCreateErr && <p className="text-xs text-red-500 font-[family-name:var(--font-roboto)]">{quickCreateErr}</p>}
+                  <div className="flex gap-1.5 mt-auto">
+                    <button
+                      type="button"
+                      onClick={handleQuickSave}
+                      disabled={quickSaving || !newColorName.trim()}
+                      className="flex-1 py-1.5 bg-[#0F3460] text-white text-xs hover:bg-[#0A2540] transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)]"
+                    >
+                      {quickSaving ? "…" : "Créer"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowQuickCreate(false); setQuickCreateErr(""); }}
+                      className="px-2.5 py-1.5 border border-[#E2E8F0] text-xs text-[#475569] hover:border-[#0F3460] transition-colors font-[family-name:var(--font-roboto)]"
+                    >✕</button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="border-dashed border-[#E2E8F0] w-full h-full flex items-center justify-center cursor-pointer hover:border-[#0F3460] transition-colors"
+                  style={{ borderWidth: 2 }}
+                  onClick={() => setShowQuickCreate(true)}
+                >
+                  <button
+                    type="button"
+                    className="flex flex-col items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#475569] hover:text-[#0F3460] transition-colors p-4 text-center"
+                  >
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
+                    </svg>
+                    Créer une couleur
+                  </button>
+                </div>
+              )}
             </div>
-          ))}
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

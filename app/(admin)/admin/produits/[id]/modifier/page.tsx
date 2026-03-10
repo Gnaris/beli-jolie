@@ -33,8 +33,8 @@ export default async function ModifierProduitPage({
           include: { composition: true },
           orderBy:  { percentage: "desc" },
         },
+        subCategories:   { select: { id: true } },
         similarProducts: { select: { similarId: true } },
-        productRefs:     { select: { referenceId: true } },
       },
     }),
     prisma.category.findMany({
@@ -64,6 +64,7 @@ export default async function ModifierProduitPage({
       tempId:        uid(),
       saleType:      opt.saleType,
       packQuantity:  opt.packQuantity != null ? String(opt.packQuantity) : "",
+      size:          opt.size ?? "",
       discountType:  (opt.discountType ?? "") as "" | "PERCENT" | "AMOUNT",
       discountValue: opt.discountValue != null ? String(opt.discountValue) : "",
     })),
@@ -74,20 +75,20 @@ export default async function ModifierProduitPage({
   }));
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-8">
       <div>
-        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8] mb-1">
+        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8] mb-2">
           <Link href="/admin/produits" className="hover:text-[#0F3460] transition-colors">Produits</Link>
           <span>/</span>
           <span className="text-[#475569] truncate max-w-xs">{product.name}</span>
           <span>/</span>
           <span className="text-[#475569]">Modifier</span>
         </div>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
+        <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-bold text-[#0F172A]">
           Modifier le produit
         </h1>
-        <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] mt-0.5">
-          Réf. <span className="font-mono">{product.reference}</span>
+        <p className="text-base text-[#94A3B8] font-[family-name:var(--font-roboto)] mt-1">
+          Réf. <span className="font-mono font-semibold text-[#475569]">{product.reference}</span>
         </p>
       </div>
 
@@ -103,14 +104,18 @@ export default async function ModifierProduitPage({
           name:              product.name,
           description:       product.description,
           categoryId:        product.categoryId,
-          subCategoryId:     product.subCategoryId ?? "",
+          subCategoryIds:    product.subCategories.map((sc) => sc.id),
           colors:            initialColors,
           compositions:      product.compositions.map((c) => ({
             compositionId: c.compositionId,
             percentage:    String(c.percentage),
           })),
           similarProductIds: product.similarProducts.map((sp) => sp.similarId),
-          referenceIds:      product.productRefs.map((pr) => pr.referenceId),
+          dimLength:        product.dimensionLength != null ? String(product.dimensionLength) : "",
+          dimWidth:         product.dimensionWidth != null ? String(product.dimensionWidth) : "",
+          dimHeight:        product.dimensionHeight != null ? String(product.dimensionHeight) : "",
+          dimDiameter:      product.dimensionDiameter != null ? String(product.dimensionDiameter) : "",
+          dimCircumference: product.dimensionCircumference != null ? String(product.dimensionCircumference) : "",
         }}
       />
     </div>

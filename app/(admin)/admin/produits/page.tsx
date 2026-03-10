@@ -12,8 +12,8 @@ export default async function ProduitsPage() {
   const products = await prisma.product.findMany({
     orderBy: { createdAt: "desc" },
     include: {
-      category:    { select: { name: true } },
-      subCategory: { select: { name: true } },
+      category:      { select: { name: true } },
+      subCategories: { select: { name: true }, take: 1 },
       colors: {
         select: {
           id: true,
@@ -127,8 +127,8 @@ export default async function ProduitsPage() {
                     {/* Catégorie */}
                     <td className="px-4 py-3 hidden md:table-cell">
                       <span className="text-[#475569]">{product.category.name}</span>
-                      {product.subCategory && (
-                        <span className="text-[#94A3B8]"> / {product.subCategory.name}</span>
+                      {product.subCategories[0] && (
+                        <span className="text-[#94A3B8]"> / {product.subCategories[0].name}</span>
                       )}
                     </td>
 

@@ -22,8 +22,8 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   const product = await prisma.product.findUnique({
     where: { id },
     include: {
-      category:    { select: { name: true } },
-      subCategory: { select: { name: true } },
+      category:      { select: { name: true } },
+      subCategories: { select: { name: true } },
       colors: {
         include: {
           color:       { select: { name: true, hex: true } },
@@ -39,19 +39,6 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       similarProducts: {
         include: {
           similar: {
-            include: {
-              colors: {
-                where:   { isPrimary: true },
-                include: { images: { orderBy: { order: "asc" }, take: 1 }, color: { select: { name: true } } },
-                take: 1,
-              },
-            },
-          },
-        },
-      },
-      productRefs: {
-        include: {
-          reference: {
             include: {
               colors: {
                 where:   { isPrimary: true },
@@ -104,7 +91,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
             reference={product.reference}
             description={product.description}
             category={product.category.name}
-            subCategory={product.subCategory?.name ?? null}
+            subCategories={product.subCategories.map((sc) => sc.name)}
             colors={product.colors.map((pc) => ({
               id:         pc.id,
               name:       pc.color.name,
@@ -118,6 +105,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                 id:            opt.id,
                 saleType:      opt.saleType,
                 packQuantity:  opt.packQuantity,
+                size:          opt.size ?? null,
                 discountType:  opt.discountType,
                 discountValue: opt.discountValue,
               })),
@@ -126,8 +114,14 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               name:       c.composition.name,
               percentage: c.percentage,
             }))}
+            dimensions={{
+              length:        product.dimensionLength,
+              width:         product.dimensionWidth,
+              height:        product.dimensionHeight,
+              diameter:      product.dimensionDiameter,
+              circumference: product.dimensionCircumference,
+            }}
             similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
-            references={product.productRefs.map((pr) => toRelated(pr.reference))}
           />
         </div>
       </main>

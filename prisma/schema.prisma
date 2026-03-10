@@ -71,7 +71,7 @@ model SubCategory {
   slug       String
   categoryId String
   category   Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  products   Product[]
+  products   Product[] @relation("ProductSubCategories")
   createdAt  DateTime  @default(now())
 
   @@unique([name, categoryId])
@@ -114,16 +114,18 @@ model Product {
   description   String               @db.Text
   categoryId    String
   category      Category             @relation(fields: [categoryId], references: [id])
-  subCategoryId String?
-  subCategory   SubCategory?         @relation(fields: [subCategoryId], references: [id])
+  subCategories SubCategory[]        @relation("ProductSubCategories")
   colors        ProductColor[]
   compositions  ProductComposition[]
   // Produits similaires (M2M self)
   similarProducts ProductSimilar[]   @relation("PSim_A")
   similarTo       ProductSimilar[]   @relation("PSim_B")
-  // Références associées — parures, ensembles (M2M self)
-  productRefs  ProductReference[]    @relation("PRef_A")
-  referencedBy ProductReference[]   @relation("PRef_B")
+  // Dimensions optionnelles (en mm)
+  dimensionLength        Float?
+  dimensionWidth         Float?
+  dimensionHeight        Float?
+  dimensionDiameter      Float?
+  dimensionCircumference Float?
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 }
@@ -136,16 +138,6 @@ model ProductSimilar {
   similar   Product @relation("PSim_B", fields: [similarId], references: [id], onDelete: Cascade)
 
   @@id([productId, similarId])
-}
-
-// Références associées — parures (M2M self-relation)
-model ProductReference {
-  productId   String
-  referenceId String
-  product     Product @relation("PRef_A", fields: [productId], references: [id], onDelete: Cascade)
-  reference   Product @relation("PRef_B", fields: [referenceId], references: [id], onDelete: Cascade)
-
-  @@id([productId, referenceId])
 }
 
 // Variante couleur d'un produit — prix unitaire et poids partagés entre UNIT et PACK
@@ -174,6 +166,7 @@ model SaleOption {
   productColor  ProductColor  @relation(fields: [colorId], references: [id], onDelete: Cascade)
   saleType      SaleType      // UNIT ou PACK
   packQuantity  Int?          // Quantité par paquet (null si UNIT)
+  size          String?       // Taille (ex: 17, 18, L, XL) — optionnel
   discountType  DiscountType? // Type de remise (null = pas de remise)
   discountValue Float?        // Valeur de la remise
   createdAt     DateTime      @default(now())
