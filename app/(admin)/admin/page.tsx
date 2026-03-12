@@ -25,7 +25,7 @@ export default async function AdminDashboardPage() {
     await Promise.all([
       prisma.user.count({ where: { role: "CLIENT" } }),
       prisma.user.count({ where: { status: "PENDING" } }),
-      prisma.user.count({ where: { status: "APPROVED" } }),
+      prisma.user.count({ where: { status: "APPROVED", role: "CLIENT" } }),
       prisma.user.count({ where: { status: "REJECTED" } }),
       prisma.user.findMany({
         where: { status: "PENDING" },

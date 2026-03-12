@@ -34,10 +34,15 @@ model User {
   phone     String
   siret     String     @unique
   kbisPath  String
+  vatNumber String?    // Numéro TVA intracommunautaire (ex: FR12345678901)
   role      Role       @default(CLIENT)
   status    UserStatus @default(PENDING)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+
+  cart      Cart?
+  addresses ShippingAddress[]
+  orders    Order[]
 }
 
 // ─────────────────────────────────────────────
@@ -171,6 +176,7 @@ model SaleOption {
   discountValue Float?        // Valeur de la remise
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+  cartItems     CartItem[]
 }
 
 // Image d'une variante couleur
@@ -181,4 +187,131 @@ model ProductImage {
   path      String       // Chemin relatif depuis /public
   order     Int          @default(0)
   createdAt DateTime     @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Panier & commandes
+// ─────────────────────────────────────────────
+
+// Panier persistant en base (un par utilisateur)
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+// Ligne du panier — liée à une option de vente
+model CartItem {
+  id           String     @id @default(cuid())
+  cartId       String
+  cart         Cart       @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  saleOptionId String
+  saleOption   SaleOption @relation(fields: [saleOptionId], references: [id])
+  quantity     Int        @default(1)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([cartId, saleOptionId])
+}
+
+// ─────────────────────────────────────────────
+// Commandes
+// ─────────────────────────────────────────────
+
+enum OrderStatus {
+  PENDING     // En attente de traitement
+  PROCESSING  // En préparation
+  SHIPPED     // Expédiée
+  DELIVERED   // Livrée
+  CANCELLED   // Annulée
+}
+
+// Commande validée par le client
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String      @unique // ex: BJ-2026-000001
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  items       OrderItem[]
+  status      OrderStatus @default(PENDING)
+
+  // Snapshot adresse de livraison
+  shipLabel     String
+  shipFirstName String
+  shipLastName  String
+  shipCompany   String?
+  shipAddress1  String
+  shipAddress2  String?
+  shipZipCode   String
+  shipCity      String
+  shipCountry   String
+
+  // Snapshot client
+  clientCompany   String
+  clientEmail     String
+  clientPhone     String
+  clientSiret     String
+  clientVatNumber String?
+
+  // Transporteur
+  carrierId    String
+  carrierName  String
+  carrierPrice Float
+
+  // TVA
+  tvaRate    Float  // ex: 0.20
+  subtotalHT Float
+  tvaAmount  Float
+  totalTTC   Float
+
+  // Easy-Express
+  eeTrackingId String?  // Numéro de suivi
+  eeLabelUrl   String?  // URL du bordereau PDF @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Ligne de commande (snapshot produit au moment de la commande)
+model OrderItem {
+  id          String @id @default(cuid())
+  orderId     String
+  order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productName String
+  productRef  String
+  colorName   String
+  saleType    String  // "UNIT" | "PACK"
+  packQty     Int?
+  size        String?
+  imagePath   String? // première image (relatif /public)
+
+  unitPrice   Float   // prix unitaire calculé (remise incluse)
+  quantity    Int
+  lineTotal   Float
+
+  createdAt DateTime @default(now())
+}
+
+// Adresse de livraison (plusieurs par utilisateur)
+model ShippingAddress {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label      String   // ex: "Boutique principale"
+  firstName  String
+  lastName   String
+  company    String?
+  address1   String
+  address2   String?
+  zipCode    String
+  city       String
+  country    String   @default("FR")
+  phone      String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

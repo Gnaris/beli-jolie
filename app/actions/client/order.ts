@@ -1,0 +1,454 @@
+"use server";
+
+import { getServerSession } from "next-auth";
+import { revalidatePath } from "next/cache";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
+import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
+import nodemailer from "nodemailer";
+
+// ─────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────
+
+export interface PlaceOrderInput {
+  addressId:     string;
+  carrierId:     string;   // base64 carrierId Easy-Express (ou "fallback_*")
+  transactionId: string;   // transactionId retourné par /api/carriers
+  carrierName:   string;
+  carrierPrice:  number;
+  tvaRate:       number;
+}
+
+export interface PlaceOrderResult {
+  success:     true;
+  orderId:     string;
+  orderNumber: string;
+}
+
+export interface PlaceOrderError {
+  success: false;
+  error:   string;
+}
+
+// ─────────────────────────────────────────────
+// Génération numéro de commande
+// ─────────────────────────────────────────────
+
+async function generateOrderNumber(): Promise<string> {
+  const year = new Date().getFullYear();
+  const count = await prisma.order.count({
+    where: { orderNumber: { startsWith: `BJ-${year}-` } },
+  });
+  const seq = String(count + 1).padStart(6, "0");
+  return `BJ-${year}-${seq}`;
+}
+
+// ─────────────────────────────────────────────
+// Action principale
+// ─────────────────────────────────────────────
+
+export async function placeOrder(
+  input: PlaceOrderInput
+): Promise<PlaceOrderResult | PlaceOrderError> {
+  const session = await getServerSession(authOptions);
+  if (!session) return { success: false, error: "Non authentifié." };
+
+  const userId = session.user.id;
+
+  // ── 1. Récupérer toutes les données nécessaires ──────────────────────────
+
+  const [user, cart, address] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        firstName: true, lastName: true, company: true,
+        email: true, phone: true, siret: true, vatNumber: true,
+      },
+    }),
+    prisma.cart.findUnique({
+      where: { userId },
+      include: {
+        items: {
+          include: {
+            saleOption: {
+              include: {
+                productColor: {
+                  include: {
+                    product: { include: { category: true } },
+                    color:   true,
+                    images:  { orderBy: { order: "asc" }, take: 1 },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.shippingAddress.findFirst({ where: { id: input.addressId, userId } }),
+  ]);
+
+  if (!user)    return { success: false, error: "Utilisateur introuvable." };
+  if (!cart || cart.items.length === 0) return { success: false, error: "Panier vide." };
+  if (!address) return { success: false, error: "Adresse de livraison introuvable." };
+
+  // ── 2. Calculs ─────────────────────────────────────────────────────────
+
+  function computeUnitPrice(opt: (typeof cart.items)[0]["saleOption"]): number {
+    const { unitPrice } = opt.productColor;
+    const base = opt.saleType === "UNIT" ? unitPrice : unitPrice * (opt.packQuantity ?? 1);
+    if (!opt.discountType || !opt.discountValue) return base;
+    if (opt.discountType === "PERCENT") return Math.max(0, base * (1 - opt.discountValue / 100));
+    return Math.max(0, base - opt.discountValue);
+  }
+
+  const subtotalHT = cart.items.reduce(
+    (s, item) => s + computeUnitPrice(item.saleOption) * item.quantity, 0
+  );
+  const tvaAmount  = subtotalHT * input.tvaRate;
+  const totalTTC   = subtotalHT + tvaAmount + input.carrierPrice;
+
+  const totalWeightKg = cart.items.reduce((s, item) => {
+    const units = item.saleOption.saleType === "PACK"
+      ? (item.saleOption.packQuantity ?? 1) * item.quantity
+      : item.quantity;
+    return s + item.saleOption.productColor.weight * units;
+  }, 0);
+
+  // ── 3. Créer la commande en base ─────────────────────────────────────────
+
+  const orderNumber = await generateOrderNumber();
+
+  const orderItems: OrderItemPDF[] = cart.items.map((item) => {
+    const unitPrice = computeUnitPrice(item.saleOption);
+    return {
+      productName: item.saleOption.productColor.product.name,
+      productRef:  item.saleOption.productColor.product.reference,
+      colorName:   item.saleOption.productColor.color.name,
+      saleType:    item.saleOption.saleType,
+      packQty:     item.saleOption.packQuantity,
+      size:        item.saleOption.size,
+      imagePath:   item.saleOption.productColor.images[0]?.path ?? null,
+      unitPrice,
+      quantity:    item.quantity,
+      lineTotal:   unitPrice * item.quantity,
+    };
+  });
+
+  const order = await prisma.order.create({
+    data: {
+      orderNumber,
+      userId,
+      status:       "PENDING",
+      // Livraison
+      shipLabel:    address.label,
+      shipFirstName: address.firstName,
+      shipLastName:  address.lastName,
+      shipCompany:   address.company ?? null,
+      shipAddress1:  address.address1,
+      shipAddress2:  address.address2 ?? null,
+      shipZipCode:   address.zipCode,
+      shipCity:      address.city,
+      shipCountry:   address.country,
+      // Client
+      clientCompany:   user.company,
+      clientEmail:     user.email,
+      clientPhone:     user.phone,
+      clientSiret:     user.siret,
+      clientVatNumber: user.vatNumber ?? null,
+      // Transporteur
+      carrierId:    input.carrierId,
+      carrierName:  input.carrierName,
+      carrierPrice: input.carrierPrice,
+      // TVA
+      tvaRate:    input.tvaRate,
+      subtotalHT,
+      tvaAmount,
+      totalTTC,
+      // Items
+      items: {
+        create: orderItems.map((item) => ({
+          productName: item.productName,
+          productRef:  item.productRef,
+          colorName:   item.colorName,
+          saleType:    item.saleType,
+          packQty:     item.packQty ?? null,
+          size:        item.size ?? null,
+          imagePath:   item.imagePath ?? null,
+          unitPrice:   item.unitPrice,
+          quantity:    item.quantity,
+          lineTotal:   item.lineTotal,
+        })),
+      },
+    },
+  });
+
+  // ── 4. Créer l'expédition Easy-Express ───────────────────────────────────
+
+  let labelBuffer: Buffer | null = null;
+
+  // Ne pas appeler Easy-Express si on est sur un carrier fallback
+  const isFallbackCarrier = input.carrierId.startsWith("fallback_");
+
+  const eeResult = isFallbackCarrier
+    ? { success: false as const, error: "Carrier fallback — pas d'expédition Easy-Express." }
+    : await createEasyExpressShipment({
+        transactionId: input.transactionId,
+        carrierId:     input.carrierId,
+        orderNumber,
+        weightKg:      totalWeightKg,
+        toFirstName:   address.firstName,
+        toLastName:    address.lastName,
+        toCompany:     address.company ?? null,
+        toEmail:       user.email,
+        toAddress1:    address.address1,
+        toAddress2:    address.address2 ?? null,
+        toZipCode:     address.zipCode,
+        toCity:        address.city,
+        toCountry:     address.country,
+        toPhone:       address.phone ?? null,
+      });
+
+  if (eeResult.success) {
+    // Mettre à jour la commande avec le tracking
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        eeTrackingId: eeResult.trackingId,
+        eeLabelUrl:   eeResult.labelUrl,
+      },
+    });
+
+    // Télécharger le bordereau pour l'attacher à l'email
+    if (eeResult.labelUrl) {
+      labelBuffer = await fetchEasyExpressLabel(eeResult.labelUrl);
+    }
+  } else {
+    console.warn("[placeOrder] Easy-Express:", eeResult.error);
+  }
+
+  // ── 5. Générer le PDF de commande ─────────────────────────────────────────
+
+  let pdfBuffer: Buffer | null = null;
+  try {
+    pdfBuffer = await generateOrderPDF({
+      orderNumber,
+      createdAt:       order.createdAt,
+      clientCompany:   user.company,
+      clientFirstName: user.firstName,
+      clientLastName:  user.lastName,
+      clientEmail:     user.email,
+      clientPhone:     user.phone,
+      clientSiret:     user.siret,
+      clientVatNumber: user.vatNumber ?? null,
+      shipLabel:       address.label,
+      shipFirstName:   address.firstName,
+      shipLastName:    address.lastName,
+      shipCompany:     address.company ?? null,
+      shipAddress1:    address.address1,
+      shipAddress2:    address.address2 ?? null,
+      shipZipCode:     address.zipCode,
+      shipCity:        address.city,
+      shipCountry:     address.country,
+      carrierName:     input.carrierName,
+      carrierPrice:    input.carrierPrice,
+      tvaRate:         input.tvaRate,
+      subtotalHT,
+      tvaAmount,
+      totalTTC,
+      items:           orderItems,
+    });
+  } catch (err) {
+    console.error("[placeOrder] PDF error:", err);
+  }
+
+  // ── 6. Envoyer l'email à l'admin ─────────────────────────────────────────
+
+  notifyNewOrder({
+    orderNumber,
+    orderId:    order.id,
+    user:       { ...user, firstName: user.firstName, lastName: user.lastName },
+    address,
+    carrierName: input.carrierName,
+    carrierPrice: input.carrierPrice,
+    items:        orderItems,
+    subtotalHT,
+    tvaRate:      input.tvaRate,
+    tvaAmount,
+    totalTTC,
+    pdfBuffer:    pdfBuffer ?? undefined,
+    labelBuffer:  labelBuffer ?? undefined,
+  }).catch((err) => console.error("[placeOrder] Email error:", err));
+
+  // ── 7. Vider le panier ────────────────────────────────────────────────────
+
+  await prisma.cartItem.deleteMany({ where: { cartId: cart.id } });
+
+  revalidatePath("/panier");
+  revalidatePath("/admin/commandes");
+
+  return { success: true, orderId: order.id, orderNumber };
+}
+
+// ─────────────────────────────────────────────
+// Email notification admin
+// ─────────────────────────────────────────────
+
+interface NotifyOrderData {
+  orderNumber:  string;
+  orderId:      string;
+  user:         { firstName: string; lastName: string; company: string; email: string; phone: string; siret: string; vatNumber?: string | null };
+  address:      { firstName: string; lastName: string; company: string | null; address1: string; address2: string | null; zipCode: string; city: string; country: string };
+  carrierName:  string;
+  carrierPrice: number;
+  items:        OrderItemPDF[];
+  subtotalHT:   number;
+  tvaRate:      number;
+  tvaAmount:    number;
+  totalTTC:     number;
+  pdfBuffer?:   Buffer;
+  labelBuffer?: Buffer;
+}
+
+async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
+  const { GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_EMAIL, NEXTAUTH_URL } = process.env;
+  if (!GMAIL_USER || !GMAIL_APP_PASSWORD || !NOTIFY_EMAIL) {
+    console.warn("[notifyNewOrder] Variables Gmail manquantes.");
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+  });
+
+  const itemsHtml = data.items.map((item) => `
+    <tr>
+      <td style="padding:10px 14px;border-bottom:1px solid #EDD5DC;">
+        <strong>${item.productName}</strong><br/>
+        <small style="color:#6B4F5C;">Réf. ${item.productRef} · ${item.colorName}
+        ${item.saleType === "PACK" ? ` · Paquet ×${item.packQty}` : ""}
+        ${item.size ? ` · T.${item.size}` : ""}</small>
+      </td>
+      <td style="padding:10px 14px;text-align:center;border-bottom:1px solid #EDD5DC;">${item.quantity}</td>
+      <td style="padding:10px 14px;text-align:right;border-bottom:1px solid #EDD5DC;">${item.unitPrice.toFixed(2)} €</td>
+      <td style="padding:10px 14px;text-align:right;border-bottom:1px solid #EDD5DC;font-weight:bold;">${item.lineTotal.toFixed(2)} €</td>
+    </tr>
+  `).join("");
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;color:#1C1018;">
+      <!-- En-tête -->
+      <div style="background:#C2516A;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0;">
+        <h2 style="margin:0;font-size:20px;">🌸 Nouvelle commande reçue</h2>
+        <p style="margin:6px 0 0;opacity:0.85;font-size:13px;">N° ${data.orderNumber} — ${new Date().toLocaleDateString("fr-FR")}</p>
+      </div>
+
+      <div style="background:#FEFAF6;padding:20px 24px;border:1px solid #EDD5DC;border-top:none;">
+
+        <!-- Client -->
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          <tr style="background:#FDF0F4;">
+            <td style="padding:10px 14px;font-weight:bold;">Société</td>
+            <td style="padding:10px 14px;">${data.user.company}</td>
+            <td style="padding:10px 14px;font-weight:bold;">Contact</td>
+            <td style="padding:10px 14px;">${data.user.firstName} ${data.user.lastName}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 14px;font-weight:bold;">Email</td>
+            <td style="padding:10px 14px;">${data.user.email}</td>
+            <td style="padding:10px 14px;font-weight:bold;">Téléphone</td>
+            <td style="padding:10px 14px;">${data.user.phone}</td>
+          </tr>
+          <tr style="background:#FDF0F4;">
+            <td style="padding:10px 14px;font-weight:bold;">SIRET</td>
+            <td style="padding:10px 14px;font-family:monospace;">${data.user.siret}</td>
+            ${data.user.vatNumber ? `
+            <td style="padding:10px 14px;font-weight:bold;">N° TVA</td>
+            <td style="padding:10px 14px;font-family:monospace;">${data.user.vatNumber}</td>
+            ` : "<td colspan='2'></td>"}
+          </tr>
+        </table>
+
+        <!-- Livraison -->
+        <div style="background:#EEF5F1;border:1px solid #A8C5B0;border-radius:6px;padding:12px 16px;margin-bottom:20px;">
+          <strong style="color:#5E8470;">📦 Livraison via ${data.carrierName}</strong><br/>
+          <span style="color:#1C1018;">${data.address.firstName} ${data.address.lastName}${data.address.company ? ` — ${data.address.company}` : ""}</span><br/>
+          <span style="color:#6B4F5C;">${data.address.address1}${data.address.address2 ? `, ${data.address.address2}` : ""}<br/>
+          ${data.address.zipCode} ${data.address.city}, ${data.address.country}</span>
+        </div>
+
+        <!-- Articles -->
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:13px;">
+          <thead>
+            <tr style="background:#C2516A;color:#fff;">
+              <th style="padding:10px 14px;text-align:left;">Produit</th>
+              <th style="padding:10px 14px;text-align:center;">Qté</th>
+              <th style="padding:10px 14px;text-align:right;">P.U. HT</th>
+              <th style="padding:10px 14px;text-align:right;">Total HT</th>
+            </tr>
+          </thead>
+          <tbody>${itemsHtml}</tbody>
+        </table>
+
+        <!-- Totaux -->
+        <table style="width:250px;margin-left:auto;border-collapse:collapse;font-size:13px;">
+          <tr>
+            <td style="padding:6px 0;color:#6B4F5C;">Sous-total HT</td>
+            <td style="padding:6px 0;text-align:right;font-weight:bold;">${data.subtotalHT.toFixed(2)} €</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B4F5C;">TVA (${data.tvaRate === 0 ? "0% — exonéré" : `${(data.tvaRate * 100).toFixed(0)}%`})</td>
+            <td style="padding:6px 0;text-align:right;font-weight:bold;">${data.tvaAmount.toFixed(2)} €</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B4F5C;">Livraison</td>
+            <td style="padding:6px 0;text-align:right;font-weight:bold;">${data.carrierPrice === 0 ? "Gratuit" : `${data.carrierPrice.toFixed(2)} €`}</td>
+          </tr>
+          <tr style="border-top:2px solid #C2516A;">
+            <td style="padding:10px 0;font-weight:bold;font-size:15px;">TOTAL TTC</td>
+            <td style="padding:10px 0;text-align:right;font-weight:bold;font-size:15px;color:#C2516A;">${data.totalTTC.toFixed(2)} €</td>
+          </tr>
+        </table>
+
+        <!-- Lien admin -->
+        <div style="margin-top:24px;">
+          <a href="${NEXTAUTH_URL}/admin/commandes/${data.orderId}"
+             style="background:#C2516A;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+            Voir la commande dans l'admin →
+          </a>
+        </div>
+      </div>
+
+      <p style="color:#B89AA6;font-size:11px;padding:12px 24px;">Beli &amp; Jolie — Administration</p>
+    </div>
+  `;
+
+  const attachments: nodemailer.SendMailOptions["attachments"] = [];
+
+  if (data.pdfBuffer) {
+    attachments.push({
+      filename: `commande-${data.orderNumber}.pdf`,
+      content:  data.pdfBuffer,
+      contentType: "application/pdf",
+    });
+  }
+
+  if (data.labelBuffer) {
+    attachments.push({
+      filename: `bordereau-${data.orderNumber}.pdf`,
+      content:  data.labelBuffer,
+      contentType: "application/pdf",
+    });
+  }
+
+  await transporter.sendMail({
+    from:    `"Beli & Jolie" <${GMAIL_USER}>`,
+    to:      NOTIFY_EMAIL,
+    subject: `Nouvelle commande ${data.orderNumber} — ${data.user.company}`,
+    html,
+    attachments,
+  });
+}

@@ -71,3 +71,22 @@ export async function createCompositionQuick(
   revalidatePath("/admin/compositions");
   return composition;
 }
+
+export async function createSubCategoryQuick(
+  name: string,
+  categoryId: string
+): Promise<{ id: string; name: string }> {
+  await requireAdmin();
+  const trimmedName = name.trim();
+  if (!trimmedName) throw new Error("Le nom est requis.");
+  if (!categoryId) throw new Error("Catégorie parente requise.");
+
+  const subCategory = await prisma.subCategory.create({
+    data: { name: trimmedName, slug: toSlug(trimmedName), categoryId },
+    select: { id: true, name: true },
+  });
+
+  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
+  return subCategory;
+}

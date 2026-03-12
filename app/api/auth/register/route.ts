@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs/promises";
 import { prisma } from "@/lib/prisma";
 import { registerSchema } from "@/lib/validations/auth";
+import { notifyNewClientRegistration } from "@/lib/notifications";
 
 /**
  * POST /api/auth/register
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
       email:           formData.get("email") as string,
       phone:           formData.get("phone") as string,
       siret:           formData.get("siret") as string,
+      vatNumber:       (formData.get("vatNumber") as string | null) || undefined,
       password:        formData.get("password") as string,
       confirmPassword: formData.get("confirmPassword") as string,
     };
@@ -118,7 +120,7 @@ export async function POST(request: NextRequest) {
     // Hash du mot de passe (12 rounds = bon équilibre sécurité/performance)
     const hashedPassword = await bcrypt.hash(data.password, 12);
 
-    await prisma.user.create({
+    const newUser = await prisma.user.create({
       data: {
         email:     data.email.toLowerCase().trim(),
         password:  hashedPassword,
@@ -127,11 +129,25 @@ export async function POST(request: NextRequest) {
         company:   data.company.trim(),
         phone:     data.phone.trim(),
         siret:     data.siret.trim(),
+        vatNumber: data.vatNumber?.trim() || null,
         kbisPath,
         role:      "CLIENT",
         status:    "PENDING", // L'admin devra valider le compte
       },
     });
+
+    // Notification admin (email + Kbis en pièce jointe) — non bloquant
+    notifyNewClientRegistration({
+      firstName: newUser.firstName,
+      lastName:  newUser.lastName,
+      company:   newUser.company,
+      email:     newUser.email,
+      phone:     newUser.phone,
+      siret:     newUser.siret,
+      kbisPath:  newUser.kbisPath,
+    }).catch((err) =>
+      console.error("[POST /api/auth/register] Notification échouée :", err)
+    );
 
     return NextResponse.json(
       {

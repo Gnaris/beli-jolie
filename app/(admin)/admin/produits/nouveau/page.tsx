@@ -20,14 +20,14 @@ export default async function NouveauProduitPage() {
   ]);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-8">
       <div>
-        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8] mb-1">
+        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8] mb-2">
           <Link href="/admin/produits" className="hover:text-[#0F3460] transition-colors">Produits</Link>
           <span>/</span>
           <span className="text-[#475569]">Nouveau</span>
         </div>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
+        <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-bold text-[#0F172A]">
           Créer un produit
         </h1>
       </div>
