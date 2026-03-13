@@ -16,7 +16,7 @@ export default function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
 
             {/* Titre principal */}
             <h1 className="font-[family-name:var(--font-poppins)] text-4xl md:text-5xl lg:text-6xl font-semibold text-[#0F172A] leading-[1.1] mb-6">
-              L'élégance
+              L&apos;élégance
               <br />
               <em className="font-normal text-[#0F3460]">sans compromis</em>
               <br />

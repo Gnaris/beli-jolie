@@ -16,7 +16,7 @@ export default function PromoSection() {
 
             {/* Badge */}
             <span className="inline-block text-xs font-[family-name:var(--font-roboto)] font-semibold tracking-[0.2em] uppercase text-[#0F3460] bg-[#0F3460]/10 border border-[#0F3460]/30 px-4 py-1.5 mb-6">
-              Offre Pro — Jusqu'à -30%
+              Offre Pro — Jusqu&apos;à -30%
             </span>
 
             {/* Titre */}

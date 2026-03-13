@@ -70,20 +70,20 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-[#FFFFFF]">
+      <main className="min-h-screen bg-[#F5F5F5]">
         <div className="container-site py-10">
 
           {/* Fil d'Ariane */}
-          <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8] mb-8">
-            <Link href="/produits" className="hover:text-[#0F3460] transition-colors">
+          <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#999999] mb-8">
+            <Link href="/produits" className="hover:text-[#1A1A1A] transition-colors">
               Produits
             </Link>
-            <span>/</span>
-            <Link href={`/produits?cat=${product.categoryId}`} className="hover:text-[#0F3460] transition-colors">
+            <span className="text-[#E5E5E5]">/</span>
+            <Link href={`/produits?cat=${product.categoryId}`} className="hover:text-[#1A1A1A] transition-colors">
               {product.category.name}
             </Link>
-            <span>/</span>
-            <span className="text-[#475569] truncate">{product.name}</span>
+            <span className="text-[#E5E5E5]">/</span>
+            <span className="text-[#555555] truncate">{product.name}</span>
           </nav>
 
           <ProductDetail

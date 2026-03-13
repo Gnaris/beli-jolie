@@ -47,5 +47,6 @@ next-env.d.ts
 # fichiers sensibles
 admin.txt
 .claude/*
+!.claude/skill.md
 !.claude/memory/
 !.claude/memory/**

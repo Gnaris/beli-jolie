@@ -45,6 +45,14 @@ export const registerSchema = z.object({
     .string()
     .length(14, "Le SIRET doit contenir exactement 14 chiffres.")
     .regex(/^\d{14}$/, "Le SIRET ne doit contenir que des chiffres."),
+  vatNumber: z
+    .string()
+    .regex(
+      /^[A-Z]{2}[A-Z0-9]{2,13}$/,
+      "Format invalide (ex: FR12345678901, DE123456789)."
+    )
+    .optional()
+    .or(z.literal("")),
   password: z
     .string()
     .min(8, "Le mot de passe doit contenir au moins 8 caractères.")

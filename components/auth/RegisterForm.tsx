@@ -22,6 +22,7 @@ export default function RegisterForm() {
     email: "",
     phone: "",
     siret: "",
+    vatNumber: "",
     password: "",
     confirmPassword: "",
   });
@@ -130,7 +131,7 @@ export default function RegisterForm() {
             {successMessage}
           </p>
           <Link href="/" className="btn-primary">
-            Retour à l'accueil
+            Retour à l&apos;accueil
           </Link>
         </div>
       </div>
@@ -142,7 +143,7 @@ export default function RegisterForm() {
       {/* Titre */}
       <div className="text-center mb-8">
         <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-[#0F172A]">
-          Demande d'accès Pro
+          Demande d&apos;accès Pro
         </h1>
         <p className="mt-2 font-[family-name:var(--font-roboto)] text-sm text-[#475569]">
           Remplissez le formulaire — notre équipe examinera votre dossier sous 48h.
@@ -211,6 +212,29 @@ export default function RegisterForm() {
               placeholder="12345678901234" maxLength={14}
               onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))}
             />
+
+            {/* ── N° TVA intracommunautaire (optionnel) ── */}
+            <div>
+              <label htmlFor="vatNumber" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#1A1A1A] mb-1.5">
+                N° TVA intracommunautaire{" "}
+                <span className="text-[#999999] font-normal">(optionnel)</span>
+              </label>
+              <input
+                id="vatNumber"
+                type="text"
+                value={fields.vatNumber}
+                onChange={(e) => handleChange("vatNumber", e.target.value.toUpperCase().replace(/\s/g, ""))}
+                placeholder="FR12345678901"
+                maxLength={20}
+                className={`w-full bg-white border ${fieldErrors.vatNumber ? "border-red-400" : "border-[#E5E5E5]"} rounded-lg px-4 py-3 text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none focus:border-[#1A1A1A] focus:shadow-[0_0_0_2px_rgba(26,26,26,0.08)] transition-all`}
+              />
+              <p className="text-xs text-[#999999] mt-1 font-[family-name:var(--font-roboto)]">
+                Requis pour les entreprises UE hors France (exonération TVA par autoliquidation)
+              </p>
+              {fieldErrors.vatNumber && (
+                <p className="text-xs text-red-600 mt-1 font-[family-name:var(--font-roboto)]">{fieldErrors.vatNumber}</p>
+              )}
+            </div>
 
             {/* ── Kbis (upload) ── */}
             <div>

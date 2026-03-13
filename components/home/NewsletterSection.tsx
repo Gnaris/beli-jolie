@@ -94,7 +94,7 @@ export default function NewsletterSection() {
                 )}
               </div>
               <button type="submit" className="btn-primary shrink-0">
-                S'inscrire
+                S&apos;inscrire
               </button>
             </form>
           )}

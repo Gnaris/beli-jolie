@@ -35,14 +35,14 @@ export default async function NouveauProduitPage() {
       {categories.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 text-sm font-[family-name:var(--font-roboto)]">
           Aucune catégorie.{" "}
-          <Link href="/admin/categories" className="underline font-medium">Créez-en une d'abord.</Link>
+          <Link href="/admin/categories" className="underline font-medium">Créez-en une d&apos;abord.</Link>
         </div>
       )}
 
       {colors.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 text-sm font-[family-name:var(--font-roboto)]">
           Aucune couleur dans la bibliothèque.{" "}
-          <Link href="/admin/couleurs" className="underline font-medium">Créez des couleurs d'abord.</Link>
+          <Link href="/admin/couleurs" className="underline font-medium">Créez des couleurs d&apos;abord.</Link>
         </div>
       )}
 

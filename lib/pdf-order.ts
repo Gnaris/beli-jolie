@@ -327,7 +327,7 @@ export function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
       ty += 16;
 
       // Prix ligne
-      const hasDiscount = false; // déjà calculé
+      // déjà calculé dans lineTotal
       doc.font("Helvetica").fontSize(9);
       setFill(doc, C.plumLight);
       doc.text(

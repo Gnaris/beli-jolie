@@ -1,12 +1,10 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
+import ClientSidebar from "@/components/layout/ClientSidebar";
 
 /**
- * Layout de l'espace client
- * Protège toutes les routes sous (client)/ — redirige si non connecté
+ * Layout espace client — sidebar gauche + contenu droit
  */
 export default async function ClientLayout({
   children,
@@ -19,18 +17,20 @@ export default async function ClientLayout({
     redirect("/connexion?callbackUrl=/espace-pro");
   }
 
-  // Un admin ne doit pas accéder à l'espace client
   if (session.user.role === "ADMIN") {
     redirect("/admin");
   }
 
   return (
-    <>
-      <Navbar />
-      <main className="min-h-screen bg-[#FFFFFF]">
-        {children}
+    <div className="min-h-screen bg-[#F5F5F5]">
+      <ClientSidebar />
+      {/* Contenu décalé de la largeur de la sidebar sur desktop */}
+      <main className="lg:ml-60 min-h-screen pt-0 lg:pt-0">
+        {/* Offset pour header mobile */}
+        <div className="pt-14 lg:pt-0">
+          {children}
+        </div>
       </main>
-      <Footer />
-    </>
+    </div>
   );
 }

@@ -27,37 +27,44 @@ export default function ProductCard({
   const primaryColor = colors.find((c) => c.isPrimary) ?? colors[0];
   const [hoveredColor, setHoveredColor] = useState<ColorData | null>(null);
 
-  const displayed   = hoveredColor ?? primaryColor;
-  const image       = displayed?.firstImage;
-  const maxPrice    = Math.max(...colors.map((c) => c.unitPrice));
+  const displayed = hoveredColor ?? primaryColor;
+  const image     = displayed?.firstImage;
+  const minPrice  = Math.min(...colors.map((c) => c.unitPrice));
 
   return (
     <Link
       href={`/produits/${id}`}
-      className="group block bg-white border border-[#E2E8F0] hover:border-[#0F3460] transition-colors overflow-hidden"
+      className="group block bg-white border border-[#E5E5E5] rounded-lg overflow-hidden transition-shadow duration-200 hover:shadow-[0_4px_16px_rgba(0,0,0,0.1)]"
     >
       {/* Image */}
-      <div className="aspect-square bg-[#F1F5F9] relative overflow-hidden">
+      <div className="aspect-square bg-[#F5F5F5] relative overflow-hidden">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={image}
             alt={name}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-103"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <svg className="w-12 h-12 text-[#94A3B8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-10 h-10 text-[#CCCCCC]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
-                d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+                d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
             </svg>
           </div>
         )}
 
         {/* Badge référence */}
-        <span className="absolute top-2 left-2 bg-[#0F172A]/70 text-white text-[10px] font-mono px-1.5 py-0.5">
+        <span className="absolute top-2 left-2 bg-white text-[#555555] text-[10px] font-mono px-2 py-0.5 rounded border border-[#E5E5E5]">
           {reference}
         </span>
+
+        {/* Badge couleurs */}
+        {colors.length > 1 && (
+          <span className="absolute top-2 right-2 bg-white text-[#555555] text-[10px] font-[family-name:var(--font-roboto)] px-2 py-0.5 rounded border border-[#E5E5E5]">
+            {colors.length} coloris
+          </span>
+        )}
       </div>
 
       {/* Infos */}
@@ -72,33 +79,35 @@ export default function ProductCard({
                 title={c.name}
                 onMouseEnter={() => setHoveredColor(c)}
                 onMouseLeave={() => setHoveredColor(null)}
-                onClick={(e) => e.preventDefault()} // Laisse le Link gérer la navigation
-                className={`w-5 h-5 rounded-full border-2 transition-all ${
+                onClick={(e) => e.preventDefault()}
+                className={`w-4 h-4 rounded-full border-2 transition-all duration-100 ${
                   (hoveredColor?.id ?? primaryColor?.id) === c.id
-                    ? "border-[#0F3460] scale-110"
-                    : "border-[#E2E8F0]"
+                    ? "border-[#1A1A1A] scale-110"
+                    : "border-[#E5E5E5] hover:border-[#999999]"
                 }`}
-                style={{ backgroundColor: c.hex ?? "#94A3B8" }}
+                style={{ backgroundColor: c.hex ?? "#CCCCCC" }}
               />
             ))}
           </div>
         )}
 
         {/* Nom */}
-        <p className="font-[family-name:var(--font-poppins)] font-semibold text-sm text-[#0F172A] line-clamp-2 leading-snug">
+        <p className="font-[family-name:var(--font-roboto)] font-medium text-sm text-[#1A1A1A] line-clamp-2 leading-snug">
           {name}
         </p>
 
         {/* Catégorie */}
-        <p className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)]">
+        <p className="text-xs text-[#999999] font-[family-name:var(--font-roboto)]">
           {category}{subCategory && <> · {subCategory}</>}
         </p>
 
         {/* Prix */}
-        <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#0F3460]">
-          {maxPrice.toFixed(2)} €
-          <span className="text-[10px] text-[#94A3B8] font-normal font-[family-name:var(--font-roboto)] ml-1">/ unité</span>
-        </p>
+        <div className="flex items-baseline gap-1 pt-0.5">
+          <p className="font-[family-name:var(--font-roboto)] font-semibold text-sm text-[#1A1A1A]">
+            {minPrice.toFixed(2)} €
+          </p>
+          <span className="text-[10px] text-[#999999] font-[family-name:var(--font-roboto)]">/ unité</span>
+        </div>
       </div>
     </Link>
   );

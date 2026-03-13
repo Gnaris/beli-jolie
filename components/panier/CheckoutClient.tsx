@@ -166,15 +166,15 @@ function FieldInput({
 }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#1C1018] mb-1.5">
-        {label}{optional && <span className="text-[#B89AA6] font-normal ml-1">(optionnel)</span>}
-        {required && <span className="text-[#C2516A] ml-0.5">*</span>}
+      <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#1A1A1A] mb-1.5">
+        {label}{optional && <span className="text-[#999999] font-normal ml-1">(optionnel)</span>}
+        {required && <span className="text-[#1A1A1A] ml-0.5">*</span>}
       </label>
       <input
         id={id} type={type} value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder} required={required}
-        className="w-full bg-white border border-[#EDD5DC] rounded-lg px-4 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#1C1018] placeholder:text-[#B89AA6] focus:outline-none focus:border-[#C2516A] focus:shadow-[0_0_0_3px_rgba(194,81,106,0.1)] transition-all"
+        className="w-full bg-white border border-[#E5E5E5] rounded-lg px-4 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none focus:border-[#1A1A1A] focus:shadow-[0_0_0_2px_rgba(26,26,26,0.08)] transition-all"
       />
     </div>
   );
@@ -225,13 +225,13 @@ function AddressForm({
         <FieldInput id="addr-city" label="Ville" value={f.city} onChange={set("city")} required />
       </div>
       <div>
-        <label htmlFor="addr-country" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#1C1018] mb-1.5">
-          Pays <span className="text-[#C2516A]">*</span>
+        <label htmlFor="addr-country" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#1A1A1A] mb-1.5">
+          Pays <span className="text-[#1A1A1A]">*</span>
         </label>
         <select
           id="addr-country" value={f.country}
           onChange={(e) => set("country")(e.target.value)}
-          className="w-full bg-white border border-[#EDD5DC] rounded-lg px-4 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#1C1018] focus:outline-none focus:border-[#C2516A] focus:shadow-[0_0_0_3px_rgba(194,81,106,0.1)] transition-all"
+          className="w-full bg-white border border-[#E5E5E5] rounded-lg px-4 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] focus:outline-none focus:border-[#1A1A1A] focus:shadow-[0_0_0_2px_rgba(26,26,26,0.08)] transition-all"
         >
           {EU_COUNTRY_OPTIONS.map((c) => (
             <option key={c.code} value={c.code}>{c.label}</option>
@@ -239,9 +239,9 @@ function AddressForm({
         </select>
       </div>
       <FieldInput id="addr-phone" label="Téléphone" value={f.phone} onChange={set("phone")} type="tel" optional placeholder="0612345678" />
-      <label className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#1C1018] cursor-pointer">
+      <label className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] cursor-pointer">
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)}
-          className="accent-[#C2516A] w-4 h-4" />
+          className="accent-[#1A1A1A] w-4 h-4" />
         Définir comme adresse par défaut
       </label>
       <div className="flex gap-3 pt-1">
@@ -273,24 +273,24 @@ function CarrierCard({
       onClick={onClick}
       className={`w-full text-left border rounded-xl p-4 flex items-center gap-4 transition-all ${
         selected
-          ? "border-[#C2516A] bg-[#FDF0F4] shadow-[0_0_0_2px_rgba(194,81,106,0.15)]"
-          : "border-[#EDD5DC] bg-white hover:border-[#D97A8E]"
+          ? "border-[#1A1A1A] bg-[#F5F5F5] shadow-[0_0_0_2px_rgba(26,26,26,0.15)]"
+          : "border-[#E5E5E5] bg-white hover:border-[#555555]"
       }`}
     >
       <div className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center ${
-        selected ? "border-[#C2516A]" : "border-[#B89AA6]"
+        selected ? "border-[#1A1A1A]" : "border-[#999999]"
       }`}>
-        {selected && <div className="w-2.5 h-2.5 rounded-full bg-[#C2516A]" />}
+        {selected && <div className="w-2.5 h-2.5 rounded-full bg-[#1A1A1A]" />}
       </div>
       <div className="flex-1">
-        <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#1C1018]">
+        <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#1A1A1A]">
           {carrier.name}
         </p>
-        <p className="text-xs text-[#6B4F5C] font-[family-name:var(--font-roboto)] mt-0.5">
+        <p className="text-xs text-[#555555] font-[family-name:var(--font-roboto)] mt-0.5">
           {carrier.delay}
         </p>
       </div>
-      <p className="font-[family-name:var(--font-poppins)] font-semibold text-sm text-[#1C1018] shrink-0">
+      <p className="font-[family-name:var(--font-poppins)] font-semibold text-sm text-[#1A1A1A] shrink-0">
         {carrier.price === 0 ? "Gratuit" : `${carrier.price.toFixed(2)} €`}
       </p>
     </button>
@@ -423,20 +423,20 @@ export default function CheckoutClient({
   if (orderResult) {
     return (
       <div className="container-site py-14 flex items-center justify-center min-h-[60vh]">
-        <div className="max-w-lg w-full bg-white border border-[#EDD5DC] rounded-2xl p-10 shadow-spring text-center space-y-5">
-          <div className="w-16 h-16 bg-[#EEF5F1] rounded-full flex items-center justify-center mx-auto">
-            <svg className="w-8 h-8 text-[#7A9E87]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="max-w-lg w-full bg-white border border-[#E5E5E5] rounded-2xl p-10 shadow-card text-center space-y-5">
+          <div className="w-16 h-16 bg-[#F5F5F5] rounded-full flex items-center justify-center mx-auto">
+            <svg className="w-8 h-8 text-[#555555]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
           <div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#1C1018]">
+            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#1A1A1A]">
               Commande validée !
             </h1>
-            <p className="mt-2 text-sm font-[family-name:var(--font-roboto)] text-[#6B4F5C]">
-              Votre commande <span className="font-semibold text-[#C2516A]">{orderResult.orderNumber}</span> a bien été enregistrée.
+            <p className="mt-2 text-sm font-[family-name:var(--font-roboto)] text-[#555555]">
+              Votre commande <span className="font-semibold text-[#1A1A1A]">{orderResult.orderNumber}</span> a bien été enregistrée.
             </p>
-            <p className="mt-1 text-sm font-[family-name:var(--font-roboto)] text-[#B89AA6]">
+            <p className="mt-1 text-sm font-[family-name:var(--font-roboto)] text-[#999999]">
               Un récapitulatif PDF a été envoyé à notre équipe. Vous serez contacté pour la suite.
             </p>
           </div>
@@ -457,16 +457,16 @@ export default function CheckoutClient({
     <div className="container-site py-10 md:py-14">
       {/* En-tête */}
       <div className="mb-8">
-        <Link href="/panier" className="text-xs font-[family-name:var(--font-roboto)] text-[#C2516A] hover:text-[#A8405A] flex items-center gap-1 mb-4 transition-colors">
+        <Link href="/panier" className="text-xs font-[family-name:var(--font-roboto)] text-[#555555] hover:text-[#333333] flex items-center gap-1 mb-4 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
           Retour au panier
         </Link>
-        <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-[#C2516A] mb-1">
+        <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-[#1A1A1A] mb-1">
           Commande
         </p>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-[#1C1018]">
+        <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-[#1A1A1A]">
           Finaliser la commande
         </h1>
       </div>
@@ -477,10 +477,10 @@ export default function CheckoutClient({
         <div className="lg:col-span-2 space-y-6">
 
           {/* ── 1. Informations client ── */}
-          <section className="bg-white border border-[#EDD5DC] rounded-2xl overflow-hidden shadow-spring">
-            <div className="px-5 py-3.5 border-b border-[#EDD5DC] bg-[#FDF0F4] flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-[#C2516A] text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1C1018] uppercase tracking-wide">
+          <section className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-card">
+            <div className="px-5 py-3.5 border-b border-[#E5E5E5] bg-[#F5F5F5] flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
+              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] uppercase tracking-wide">
                 Informations client
               </h2>
             </div>
@@ -495,17 +495,17 @@ export default function CheckoutClient({
           </section>
 
           {/* ── 2. Adresse de livraison ── */}
-          <section className="bg-white border border-[#EDD5DC] rounded-2xl overflow-hidden shadow-spring">
-            <div className="px-5 py-3.5 border-b border-[#EDD5DC] bg-[#FDF0F4] flex items-center justify-between">
+          <section className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-card">
+            <div className="px-5 py-3.5 border-b border-[#E5E5E5] bg-[#F5F5F5] flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-[#C2516A] text-white text-xs font-bold flex items-center justify-center shrink-0">2</span>
-                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1C1018] uppercase tracking-wide">
+                <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">2</span>
+                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] uppercase tracking-wide">
                   Adresse de livraison
                 </h2>
               </div>
               {!showAddressForm && (
                 <button type="button" onClick={() => setShowAddressForm(true)}
-                  className="text-xs font-[family-name:var(--font-roboto)] text-[#C2516A] hover:text-[#A8405A] transition-colors flex items-center gap-1">
+                  className="text-xs font-[family-name:var(--font-roboto)] text-[#555555] hover:text-[#333333] transition-colors flex items-center gap-1">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
@@ -522,31 +522,31 @@ export default function CheckoutClient({
                   onClick={() => setSelectedAddrId(addr.id)}
                   className={`w-full text-left border rounded-xl p-4 transition-all ${
                     selectedAddrId === addr.id
-                      ? "border-[#C2516A] bg-[#FDF0F4] shadow-[0_0_0_2px_rgba(194,81,106,0.1)]"
-                      : "border-[#EDD5DC] bg-white hover:border-[#D97A8E]"
+                      ? "border-[#1A1A1A] bg-[#F5F5F5] shadow-[0_0_0_2px_rgba(26,26,26,0.1)]"
+                      : "border-[#E5E5E5] bg-white hover:border-[#555555]"
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <div className={`w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center ${
-                      selectedAddrId === addr.id ? "border-[#C2516A]" : "border-[#B89AA6]"
+                      selectedAddrId === addr.id ? "border-[#1A1A1A]" : "border-[#999999]"
                     }`}>
                       {selectedAddrId === addr.id && (
-                        <div className="w-2 h-2 rounded-full bg-[#C2516A]" />
+                        <div className="w-2 h-2 rounded-full bg-[#1A1A1A]" />
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#1C1018]">
+                      <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#1A1A1A]">
                         {addr.label}
                         {addr.isDefault && (
-                          <span className="ml-2 text-[10px] font-normal bg-[#EEF5F1] text-[#5E8470] px-1.5 py-0.5 rounded-full">
+                          <span className="ml-2 text-[10px] font-normal bg-[#F5F5F5] text-[#333333] px-1.5 py-0.5 rounded-full">
                             Par défaut
                           </span>
                         )}
                       </p>
-                      <p className="text-xs text-[#6B4F5C] font-[family-name:var(--font-roboto)] mt-0.5">
+                      <p className="text-xs text-[#555555] font-[family-name:var(--font-roboto)] mt-0.5">
                         {addr.firstName} {addr.lastName}{addr.company ? ` · ${addr.company}` : ""}
                       </p>
-                      <p className="text-xs text-[#B89AA6] font-[family-name:var(--font-roboto)]">
+                      <p className="text-xs text-[#999999] font-[family-name:var(--font-roboto)]">
                         {addr.address1}{addr.address2 ? `, ${addr.address2}` : ""} — {addr.zipCode} {addr.city}, {addr.country}
                       </p>
                     </div>
@@ -564,7 +564,7 @@ export default function CheckoutClient({
               )}
 
               {addresses.length === 0 && !showAddressForm && (
-                <p className="text-sm text-[#B89AA6] font-[family-name:var(--font-roboto)] text-center py-4">
+                <p className="text-sm text-[#999999] font-[family-name:var(--font-roboto)] text-center py-4">
                   Aucune adresse enregistrée.
                 </p>
               )}
@@ -572,22 +572,22 @@ export default function CheckoutClient({
           </section>
 
           {/* ── 3. Mode de livraison ── */}
-          <section className="bg-white border border-[#EDD5DC] rounded-2xl overflow-hidden shadow-spring">
-            <div className="px-5 py-3.5 border-b border-[#EDD5DC] bg-[#FDF0F4] flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-[#C2516A] text-white text-xs font-bold flex items-center justify-center shrink-0">3</span>
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1C1018] uppercase tracking-wide">
+          <section className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-card">
+            <div className="px-5 py-3.5 border-b border-[#E5E5E5] bg-[#F5F5F5] flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">3</span>
+              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] uppercase tracking-wide">
                 Mode de livraison
               </h2>
             </div>
             <div className="p-5 space-y-3">
               {!selectedAddr && (
-                <p className="text-sm text-[#B89AA6] font-[family-name:var(--font-roboto)] text-center py-3">
+                <p className="text-sm text-[#999999] font-[family-name:var(--font-roboto)] text-center py-3">
                   Sélectionnez une adresse de livraison pour voir les transporteurs disponibles.
                 </p>
               )}
 
               {selectedAddr && carriersLoading && (
-                <div className="flex items-center justify-center py-8 gap-3 text-[#B89AA6]">
+                <div className="flex items-center justify-center py-8 gap-3 text-[#999999]">
                   <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -603,7 +603,7 @@ export default function CheckoutClient({
               )}
 
               {selectedAddr && !carriersLoading && !carriersError && carriers.length === 0 && (
-                <p className="text-sm text-[#B89AA6] font-[family-name:var(--font-roboto)] text-center py-3">
+                <p className="text-sm text-[#999999] font-[family-name:var(--font-roboto)] text-center py-3">
                   Aucun transporteur disponible pour cette adresse.
                 </p>
               )}
@@ -622,39 +622,39 @@ export default function CheckoutClient({
 
         {/* ── Récapitulatif ───────────────────────── */}
         <div>
-          <div className="bg-white border border-[#EDD5DC] rounded-2xl shadow-spring overflow-hidden sticky top-24">
-            <div className="px-5 py-3.5 border-b border-[#EDD5DC] bg-[#FDF0F4]">
-              <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1C1018] uppercase tracking-wide">
+          <div className="bg-white border border-[#E5E5E5] rounded-2xl shadow-card overflow-hidden sticky top-24">
+            <div className="px-5 py-3.5 border-b border-[#E5E5E5] bg-[#F5F5F5]">
+              <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] uppercase tracking-wide">
                 Récapitulatif
               </h3>
             </div>
 
             {/* Articles */}
-            <div className="px-5 py-4 space-y-2 border-b border-[#EDD5DC]">
+            <div className="px-5 py-4 space-y-2 border-b border-[#E5E5E5]">
               {cart.items.map((item) => {
                 const price     = computeUnitPrice(item.saleOption);
                 const lineTotal = price * item.quantity;
                 return (
                   <div key={item.id} className="flex items-start gap-2 text-xs font-[family-name:var(--font-roboto)]">
-                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#FDF0F4] shrink-0">
+                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#F5F5F5] shrink-0">
                       {item.saleOption.productColor.images[0]?.path ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={item.saleOption.productColor.images[0].path}
                           alt={item.saleOption.productColor.product.name}
                           className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full bg-[#FDF0F4]" />
+                        <div className="w-full h-full bg-[#F5F5F5]" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[#1C1018] font-medium line-clamp-1">{item.saleOption.productColor.product.name}</p>
-                      <p className="text-[#B89AA6]">
+                      <p className="text-[#1A1A1A] font-medium line-clamp-1">{item.saleOption.productColor.product.name}</p>
+                      <p className="text-[#999999]">
                         {item.saleOption.productColor.color.name}
                         {item.saleOption.saleType === "PACK" ? ` · ×${item.saleOption.packQuantity}` : ""}
                         {" "}× {item.quantity}
                       </p>
                     </div>
-                    <span className="text-[#1C1018] font-semibold shrink-0">{lineTotal.toFixed(2)} €</span>
+                    <span className="text-[#1A1A1A] font-semibold shrink-0">{lineTotal.toFixed(2)} €</span>
                   </div>
                 );
               })}
@@ -662,28 +662,28 @@ export default function CheckoutClient({
 
             {/* Totaux */}
             <div className="px-5 py-4 space-y-2 text-sm font-[family-name:var(--font-roboto)]">
-              <div className="flex justify-between text-[#6B4F5C]">
+              <div className="flex justify-between text-[#555555]">
                 <span>Sous-total HT</span>
-                <span className="font-medium text-[#1C1018]">{subtotalHT.toFixed(2)} €</span>
+                <span className="font-medium text-[#1A1A1A]">{subtotalHT.toFixed(2)} €</span>
               </div>
-              <div className="flex justify-between text-[#6B4F5C]">
-                <span>TVA <span className="text-xs text-[#B89AA6]">({tvaLabel})</span></span>
-                <span className="font-medium text-[#1C1018]">
+              <div className="flex justify-between text-[#555555]">
+                <span>TVA <span className="text-xs text-[#999999]">({tvaLabel})</span></span>
+                <span className="font-medium text-[#1A1A1A]">
                   {selectedAddr ? `${tvaAmount.toFixed(2)} €` : "—"}
                 </span>
               </div>
-              <div className="flex justify-between text-[#6B4F5C]">
+              <div className="flex justify-between text-[#555555]">
                 <span>Livraison</span>
-                <span className="font-medium text-[#1C1018]">
+                <span className="font-medium text-[#1A1A1A]">
                   {selectedCarrier
                     ? selectedCarrier.price === 0 ? "Gratuit" : `${selectedCarrier.price.toFixed(2)} €`
                     : "—"}
                 </span>
               </div>
 
-              <div className="border-t border-[#EDD5DC] pt-3 flex justify-between items-center mt-2">
-                <span className="font-semibold text-[#1C1018]">Total TTC</span>
-                <span className="font-[family-name:var(--font-poppins)] font-semibold text-lg text-[#C2516A]">
+              <div className="border-t border-[#E5E5E5] pt-3 flex justify-between items-center mt-2">
+                <span className="font-semibold text-[#1A1A1A]">Total TTC</span>
+                <span className="font-[family-name:var(--font-poppins)] font-semibold text-lg text-[#1A1A1A]">
                   {canProceed ? `${totalTTC.toFixed(2)} €` : "—"}
                 </span>
               </div>
@@ -721,7 +721,7 @@ export default function CheckoutClient({
                   </>
                 )}
               </button>
-              <p className="text-xs text-[#B89AA6] font-[family-name:var(--font-roboto)] text-center">
+              <p className="text-xs text-[#999999] font-[family-name:var(--font-roboto)] text-center">
                 Paiement par virement — notre équipe vous contactera
               </p>
             </div>
@@ -739,8 +739,8 @@ export default function CheckoutClient({
 function InfoLine({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-semibold text-[#B89AA6] uppercase tracking-wider">{label}</span>
-      <span className={`text-[#1C1018] ${mono ? "font-mono text-xs" : "text-sm"}`}>{value}</span>
+      <span className="text-xs font-semibold text-[#999999] uppercase tracking-wider">{label}</span>
+      <span className={`text-[#1A1A1A] ${mono ? "font-mono text-xs" : "text-sm"}`}>{value}</span>
     </div>
   );
 }
