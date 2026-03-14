@@ -43,6 +43,22 @@ model User {
   cart      Cart?
   addresses ShippingAddress[]
   orders    Order[]
+  favorites Favorite[]
+}
+
+// ─────────────────────────────────────────────
+// Favoris
+// ─────────────────────────────────────────────
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
 }
 
 // ─────────────────────────────────────────────
@@ -111,6 +127,23 @@ model ProductComposition {
   @@unique([productId, compositionId])
 }
 
+// Tags (mots-clés pour recherche)
+model Tag {
+  id        String       @id @default(cuid())
+  name      String       @unique
+  products  ProductTag[]
+  createdAt DateTime     @default(now())
+}
+
+model ProductTag {
+  productId String
+  tagId     String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([productId, tagId])
+}
+
 // Produit principal
 model Product {
   id            String               @id @default(cuid())
@@ -122,6 +155,10 @@ model Product {
   subCategories SubCategory[]        @relation("ProductSubCategories")
   colors        ProductColor[]
   compositions  ProductComposition[]
+  collections   CollectionProduct[]
+  favorites     Favorite[]
+  tags          ProductTag[]
+  isBestSeller  Boolean              @default(false)
   // Produits similaires (M2M self)
   similarProducts ProductSimilar[]   @relation("PSim_A")
   similarTo       ProductSimilar[]   @relation("PSim_B")
@@ -147,19 +184,20 @@ model ProductSimilar {
 
 // Variante couleur d'un produit — prix unitaire et poids partagés entre UNIT et PACK
 model ProductColor {
-  id          String         @id @default(cuid())
+  id          String              @id @default(cuid())
   productId   String
-  product     Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product     Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
   colorId     String
-  color       Color          @relation(fields: [colorId], references: [id])
-  unitPrice   Float          // Prix par unité HT — partagé entre UNIT et PACK
-  weight      Float          // Poids en kg (ex: 0.008)
-  stock       Int            @default(0) // Stock commun à toutes les options de vente de cette couleur
-  isPrimary   Boolean        @default(false)
+  color       Color               @relation(fields: [colorId], references: [id])
+  unitPrice   Float               // Prix par unité HT — partagé entre UNIT et PACK
+  weight      Float               // Poids en kg (ex: 0.008)
+  stock       Int                 @default(0) // Stock commun à toutes les options de vente de cette couleur
+  isPrimary   Boolean             @default(false)
   saleOptions SaleOption[]
-  images      ProductImage[] // Max 5 images — partagées entre UNIT et PACK
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  images      ProductImage[]      // Max 5 images — partagées entre UNIT et PACK
+  collectionOverrides CollectionProduct[] // Apparitions dans des collections avec cette couleur
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   @@unique([productId, colorId])
 }
@@ -294,6 +332,35 @@ model OrderItem {
   lineTotal   Float
 
   createdAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Collections
+// ─────────────────────────────────────────────
+
+// Collection (ex: "Été 2026", "Romantique", "Minimaliste")
+model Collection {
+  id          String              @id @default(cuid())
+  name        String
+  image       String?             // Chemin relatif depuis /public
+  products    CollectionProduct[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+// Liaison produit ↔ collection avec couleur et ordre d'affichage
+model CollectionProduct {
+  id           String        @id @default(cuid())
+  collectionId String
+  collection   Collection    @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorId      String?       // Couleur à afficher dans cette collection (null = couleur primaire)
+  productColor ProductColor? @relation(fields: [colorId], references: [id])
+  position     Int           @default(0)
+  createdAt    DateTime      @default(now())
+
+  @@unique([collectionId, productId])
 }
 
 // Adresse de livraison (plusieurs par utilisateur)

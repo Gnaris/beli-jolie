@@ -35,6 +35,7 @@ export default async function ModifierProduitPage({
         },
         subCategories:   { select: { id: true } },
         similarProducts: { select: { similarId: true } },
+        tags:            { include: { tag: true } },
       },
     }),
     prisma.category.findMany({
@@ -111,6 +112,8 @@ export default async function ModifierProduitPage({
             percentage:    String(c.percentage),
           })),
           similarProductIds: product.similarProducts.map((sp) => sp.similarId),
+          tagNames:          product.tags.map((t) => t.tag.name),
+          isBestSeller:      product.isBestSeller,
           dimLength:        product.dimensionLength != null ? String(product.dimensionLength) : "",
           dimWidth:         product.dimensionWidth != null ? String(product.dimensionWidth) : "",
           dimHeight:        product.dimensionHeight != null ? String(product.dimensionHeight) : "",

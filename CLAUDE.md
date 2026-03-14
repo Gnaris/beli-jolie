@@ -23,7 +23,7 @@ npx prisma generate          # Regenerate Prisma client (required after schema c
 npx prisma studio            # Open Prisma Studio GUI
 
 # Admin account
-npx tsx scripts/create-admin.ts   # Create admin@belijolie.fr / Admin2025!
+npx tsx scripts/create-admin.ts   # Crée le compte admin défini dans .env (ADMIN_EMAIL / ADMIN_PASSWORD)
 ```
 
 > **After `prisma db push`**: restart the dev server — it locks the generated `.dll` file and `generate` will fail otherwise.

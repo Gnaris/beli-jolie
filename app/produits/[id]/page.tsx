@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import Navbar from "@/components/layout/Navbar";
+import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
 
@@ -68,25 +68,26 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   }
 
   return (
-    <>
-      <Navbar />
-      <main className="min-h-screen bg-[#F5F5F5]">
-        <div className="container-site py-10">
+    <div className="flex min-h-screen">
+      <PublicSidebar />
+      <div className="flex-1 lg:ml-60 pt-14 lg:pt-0 min-w-0">
+        <main className="min-h-screen bg-[#F5F5F5]">
+          <div className="container-site py-10">
 
-          {/* Fil d'Ariane */}
-          <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#999999] mb-8">
-            <Link href="/produits" className="hover:text-[#1A1A1A] transition-colors">
-              Produits
-            </Link>
-            <span className="text-[#E5E5E5]">/</span>
-            <Link href={`/produits?cat=${product.categoryId}`} className="hover:text-[#1A1A1A] transition-colors">
-              {product.category.name}
-            </Link>
-            <span className="text-[#E5E5E5]">/</span>
-            <span className="text-[#555555] truncate">{product.name}</span>
-          </nav>
+            {/* Fil d'Ariane */}
+            <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#999999] mb-8">
+              <Link href="/produits" className="hover:text-[#1A1A1A] transition-colors">
+                Produits
+              </Link>
+              <span className="text-[#E5E5E5]">/</span>
+              <Link href={`/produits?cat=${product.categoryId}`} className="hover:text-[#1A1A1A] transition-colors">
+                {product.category.name}
+              </Link>
+              <span className="text-[#E5E5E5]">/</span>
+              <span className="text-[#555555] truncate">{product.name}</span>
+            </nav>
 
-          <ProductDetail
+            <ProductDetail
             name={product.name}
             reference={product.reference}
             description={product.description}
@@ -123,9 +124,10 @@ export default async function ProduitDetailPage({ params }: PageProps) {
             }}
             similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
           />
-        </div>
-      </main>
-      <Footer />
-    </>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    </div>
   );
 }

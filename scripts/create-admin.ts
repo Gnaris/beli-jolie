@@ -1,17 +1,27 @@
 /**
  * Script de création du compte administrateur
  * Usage : npx tsx scripts/create-admin.ts
+ *
+ * Variables requises dans .env :
+ *   ADMIN_EMAIL    — email du compte admin
+ *   ADMIN_PASSWORD — mot de passe du compte admin
  */
 
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-const ADMIN_EMAIL    = "beliandjolie@gmail.com";
-const ADMIN_PASSWORD = "Lin123Chen";
+const ADMIN_EMAIL    = process.env.ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 async function main() {
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+    console.error("❌ Variables ADMIN_EMAIL et ADMIN_PASSWORD requises dans .env");
+    process.exit(1);
+  }
+
   console.log("🔧 Création du compte administrateur...\n");
 
   // Vérifier si un admin existe déjà
@@ -56,9 +66,9 @@ async function main() {
 
   console.log("✅ Compte admin créé avec succès !\n");
   console.log("┌─────────────────────────────────────────┐");
-  console.log(`│  Email    : ${admin.email.padEnd(29)}│`);
-  console.log(`│  Mot de passe : ${ADMIN_PASSWORD.padEnd(23)}│`);
-  console.log(`│  Rôle     : ADMIN                       │`);
+  console.log(`│  Email        : ${admin.email.padEnd(23)}│`);
+  console.log(`│  Mot de passe : (défini dans .env)      │`);
+  console.log(`│  Rôle         : ADMIN                   │`);
   console.log("└─────────────────────────────────────────┘");
   console.log("\n🔐 Connectez-vous sur http://localhost:3000/connexion");
 }

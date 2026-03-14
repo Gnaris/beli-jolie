@@ -1,30 +1,59 @@
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { deleteProduct } from "@/app/actions/admin/products";
 import DeleteButton from "@/components/admin/categories/DeleteButton";
+import AdminProductsFilters from "@/components/admin/products/AdminProductsFilters";
+import AdminPagination from "@/components/admin/products/AdminPagination";
 
 export const metadata: Metadata = {
   title: "Produits",
 };
 
-export default async function ProduitsPage() {
-  const products = await prisma.product.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      category:      { select: { name: true } },
-      subCategories: { select: { name: true }, take: 1 },
-      colors: {
-        select: {
-          id: true,
-          unitPrice: true,
-          color: { select: { name: true, hex: true } },
-          images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
-          saleOptions: { select: { saleType: true } },
+interface PageProps {
+  searchParams: Promise<{ q?: string; page?: string; perPage?: string }>;
+}
+
+export default async function ProduitsPage({ searchParams }: PageProps) {
+  const { q = "", page: pageParam = "1", perPage: perPageParam = "20" } = await searchParams;
+
+  const currentPage = Math.max(1, parseInt(pageParam));
+  const perPage     = Math.max(1, parseInt(perPageParam) || 20);
+
+  const where = {
+    ...(q && {
+      OR: [
+        { name:      { contains: q } },
+        { reference: { contains: q } },
+      ],
+    }),
+  };
+
+  const [products, totalCount] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip:    (currentPage - 1) * perPage,
+      take:    perPage,
+      include: {
+        category:      { select: { name: true } },
+        subCategories: { select: { name: true }, take: 1 },
+        colors: {
+          select: {
+            id:        true,
+            unitPrice: true,
+            color:     { select: { name: true, hex: true } },
+            images:    { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
+            saleOptions: { select: { saleType: true } },
+          },
         },
       },
-    },
-  });
+    }),
+    prisma.product.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(totalCount / perPage);
 
   return (
     <div className="space-y-6">
@@ -35,7 +64,7 @@ export default async function ProduitsPage() {
             Produits
           </h1>
           <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] mt-0.5">
-            {products.length} produit{products.length > 1 ? "s" : ""} au catalogue
+            {totalCount} produit{totalCount > 1 ? "s" : ""} au catalogue
           </p>
         </div>
         <Link
@@ -47,6 +76,13 @@ export default async function ProduitsPage() {
           </svg>
           Nouveau produit
         </Link>
+      </div>
+
+      {/* Filtres + quantité par page */}
+      <div className="bg-white border border-[#E2E8F0] px-4 py-3">
+        <Suspense>
+          <AdminProductsFilters totalCount={totalCount} />
+        </Suspense>
       </div>
 
       {/* Tableau */}
@@ -61,14 +97,16 @@ export default async function ProduitsPage() {
             Aucun produit
           </p>
           <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] mb-4">
-            Commencez par créer votre premier produit.
+            {q ? "Aucun résultat pour cette recherche." : "Commencez par créer votre premier produit."}
           </p>
-          <Link
-            href="/admin/produits/nouveau"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0F3460] text-white text-sm font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#0A2540] transition-colors"
-          >
-            Créer un produit
-          </Link>
+          {!q && (
+            <Link
+              href="/admin/produits/nouveau"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0F3460] text-white text-sm font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#0A2540] transition-colors"
+            >
+              Créer un produit
+            </Link>
+          )}
         </div>
       ) : (
         <div className="bg-white border border-[#E2E8F0] overflow-hidden">
@@ -173,6 +211,16 @@ export default async function ProduitsPage() {
               })}
             </tbody>
           </table>
+
+          {/* Footer tableau : info + pagination */}
+          <div className="flex items-center justify-between px-4 py-3 border-t border-[#F1F5F9]">
+            <p className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)]">
+              {(currentPage - 1) * perPage + 1}–{Math.min(currentPage * perPage, totalCount)} sur {totalCount}
+            </p>
+            <Suspense>
+              <AdminPagination currentPage={currentPage} totalPages={totalPages} />
+            </Suspense>
+          </div>
         </div>
       )}
     </div>

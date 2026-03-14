@@ -29,7 +29,7 @@ export default async function AdminLayout({
     <div className="min-h-screen bg-[#FFFFFF] flex">
 
       {/* Sidebar admin */}
-      <aside className="w-64 shrink-0 bg-[#0F172A] min-h-screen hidden lg:flex flex-col">
+      <aside className="w-64 shrink-0 bg-[#0F172A] hidden lg:flex flex-col fixed top-0 left-0 h-screen">
         {/* Logo */}
         <div className="px-6 py-6 border-b border-[#475569]/40">
           <Link href="/" className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#FFFFFF] tracking-wide">
@@ -41,7 +41,7 @@ export default async function AdminLayout({
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-4 py-6 space-y-1" aria-label="Navigation admin">
+        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto" aria-label="Navigation admin">
           {ADMIN_NAV.map((item) => (
             <Link
               key={item.href}
@@ -69,7 +69,7 @@ export default async function AdminLayout({
       </aside>
 
       {/* Contenu principal */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
         {/* Header admin mobile */}
         <header className="lg:hidden bg-[#0F172A] px-4 py-4 flex items-center justify-between">
           <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#FFFFFF]">
@@ -160,6 +160,15 @@ const ADMIN_NAV = [
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Collections",
+    href: "/admin/collections",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z" />
       </svg>
     ),
   },

@@ -49,6 +49,8 @@ export interface ProductInput {
   colors: ColorInput[];
   compositions: CompositionInput[];
   similarProductIds: string[];
+  tagNames: string[];
+  isBestSeller: boolean;
   dimensionLength: number | null;
   dimensionWidth: number | null;
   dimensionHeight: number | null;
@@ -66,13 +68,26 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   const existing = await prisma.product.findUnique({ where: { reference: input.reference } });
   if (existing) throw new Error("Cette référence existe déjà.");
 
+  // Upsert tags
+  const tagRecords = await Promise.all(
+    input.tagNames.map((n) =>
+      prisma.tag.upsert({
+        where: { name: n.trim().toLowerCase() },
+        create: { name: n.trim().toLowerCase() },
+        update: {},
+      })
+    )
+  );
+
   const product = await prisma.product.create({
     data: {
       reference:             input.reference.trim().toUpperCase(),
       name:                  input.name.trim(),
       description:           input.description.trim(),
       categoryId:    input.categoryId,
+      isBestSeller:  input.isBestSeller,
       subCategories: { connect: input.subCategoryIds.map((id) => ({ id })) },
+      tags:          { create: tagRecords.map((t) => ({ tagId: t.id })) },
       dimensionLength:       input.dimensionLength,
       dimensionWidth:        input.dimensionWidth,
       dimensionHeight:       input.dimensionHeight,
@@ -135,6 +150,17 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   });
   if (dup) throw new Error("Cette référence est déjà utilisée par un autre produit.");
 
+  // Upsert tags
+  const tagRecords = await Promise.all(
+    input.tagNames.map((n) =>
+      prisma.tag.upsert({
+        where: { name: n.trim().toLowerCase() },
+        create: { name: n.trim().toLowerCase() },
+        update: {},
+      })
+    )
+  );
+
   await prisma.$transaction(async (tx) => {
     // Mise à jour des champs de base
     await tx.product.update({
@@ -144,6 +170,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         name:                  input.name.trim(),
         description:           input.description.trim(),
         categoryId:    input.categoryId,
+        isBestSeller:  input.isBestSeller,
         subCategories: { set: input.subCategoryIds.map((id) => ({ id })) },
         dimensionLength:       input.dimensionLength,
         dimensionWidth:        input.dimensionWidth,
@@ -152,6 +179,15 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         dimensionCircumference: input.dimensionCircumference,
       },
     });
+
+    // Tags — reconstruction complète
+    await tx.productTag.deleteMany({ where: { productId: id } });
+    if (tagRecords.length > 0) {
+      await tx.productTag.createMany({
+        data: tagRecords.map((t) => ({ productId: id, tagId: t.id })),
+        skipDuplicates: true,
+      });
+    }
 
     // Compositions — reconstruction complète
     await tx.productComposition.deleteMany({ where: { productId: id } });
@@ -261,4 +297,12 @@ export async function deleteProduct(id: string) {
   await prisma.product.delete({ where: { id } });
   revalidatePath("/admin/produits");
   redirect("/admin/produits");
+}
+
+// ─────────────────────────────────────────────
+// Tags
+// ─────────────────────────────────────────────
+
+export async function getAllTags() {
+  return prisma.tag.findMany({ orderBy: { name: "asc" } });
 }

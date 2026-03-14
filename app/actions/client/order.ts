@@ -4,6 +4,29 @@ import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+
+// ─────────────────────────────────────────────
+// Annuler une commande (CLIENT — statut PENDING uniquement)
+// ─────────────────────────────────────────────
+
+export async function cancelOrder(orderId: string): Promise<void> {
+  const session = await getServerSession(authOptions);
+  if (!session) throw new Error("Non authentifié.");
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, userId: session.user.id },
+  });
+  if (!order) throw new Error("Commande introuvable.");
+  if (order.status !== "PENDING") throw new Error("Cette commande ne peut plus être annulée.");
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data:  { status: "CANCELLED" },
+  });
+
+  revalidatePath("/commandes");
+  revalidatePath(`/commandes/${orderId}`);
+}
 import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
 import nodemailer from "nodemailer";

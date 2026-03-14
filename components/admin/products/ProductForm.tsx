@@ -49,6 +49,8 @@ interface ProductFormProps {
     colors: ColorState[];
     compositions: CompositionItem[];
     similarProductIds: string[];
+    tagNames: string[];
+    isBestSeller: boolean;
     dimLength: string;
     dimWidth: string;
     dimHeight: string;
@@ -109,6 +111,9 @@ export default function ProductForm({
   );
   const [compositions, setCompositions] = useState<CompositionItem[]>(initialData?.compositions ?? []);
   const [similarProductIds, setSimilarProductIds] = useState<string[]>(initialData?.similarProductIds ?? []);
+  const [tagNames,          setTagNames]          = useState<string[]>(initialData?.tagNames ?? []);
+  const [isBestSeller,      setIsBestSeller]      = useState(initialData?.isBestSeller ?? false);
+  const [tagInput,          setTagInput]          = useState("");
 
   // ── Dimensions ───────────────────────────────────────────────────────────
   const [dimLength,        setDimLength]        = useState(initialData?.dimLength        ?? "");
@@ -214,6 +219,17 @@ export default function ProductForm({
     }
   }
 
+  function addTag() {
+    const t = tagInput.trim().toLowerCase();
+    if (!t || tagNames.includes(t)) { setTagInput(""); return; }
+    setTagNames((prev) => [...prev, t]);
+    setTagInput("");
+  }
+
+  function removeTag(tag: string) {
+    setTagNames((prev) => prev.filter((x) => x !== tag));
+  }
+
   async function handleCreateComposition() {
     if (!newCompName.trim()) { setCompCreateError("Nom requis."); return; }
     setCompCreateError("");
@@ -291,6 +307,8 @@ export default function ProductForm({
         percentage:    parseFloat(c.percentage),
       })),
       similarProductIds,
+      tagNames,
+      isBestSeller,
       dimensionLength:        dimLength        ? parseFloat(dimLength)        : null,
       dimensionWidth:         dimWidth         ? parseFloat(dimWidth)         : null,
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
@@ -484,6 +502,50 @@ export default function ProductForm({
             required
           />
         </Field>
+
+        {/* ── Tags + Best Seller ── */}
+        <div className="border-t border-[#F1F5F9] pt-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#475569] mb-1.5">
+              Tags <span className="font-normal text-[#94A3B8]">— mots-clés pour la recherche</span>
+            </label>
+            <div className="flex gap-2 flex-wrap mb-2">
+              {tagNames.map((t) => (
+                <span key={t} className="flex items-center gap-1 bg-[#F1F5F9] text-[#475569] text-xs px-2.5 py-1 border border-[#E2E8F0] font-[family-name:var(--font-roboto)]">
+                  {t}
+                  <button type="button" onClick={() => removeTag(t)} className="text-[#94A3B8] hover:text-red-500 ml-0.5 leading-none transition-colors">×</button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                placeholder="Ajouter un tag…"
+                className="field-input flex-1"
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+              />
+              <button type="button" onClick={addTag} disabled={!tagInput.trim()}
+                className="px-3 py-2 bg-[#0F3460] text-white text-xs font-[family-name:var(--font-roboto)] hover:bg-[#0A2540] transition-colors disabled:opacity-40 shrink-0"
+              >Ajouter</button>
+            </div>
+          </div>
+          <div className="flex flex-col justify-center">
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={isBestSeller}
+                onChange={(e) => setIsBestSeller(e.target.checked)}
+                className="w-4 h-4 border-[#E2E8F0] accent-[#0F3460]"
+              />
+              <div>
+                <span className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#475569]">Best Seller</span>
+                <p className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)] mt-0.5">Mettre ce produit en avant dans les filtres</p>
+              </div>
+            </label>
+          </div>
+        </div>
 
         {/* ── Dimensions ── */}
         <div className="border-t border-[#F1F5F9] pt-5 space-y-3">
