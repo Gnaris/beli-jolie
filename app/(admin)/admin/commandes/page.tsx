@@ -8,11 +8,11 @@ import { prisma } from "@/lib/prisma";
 export const metadata: Metadata = { title: "Commandes — Admin" };
 
 const STATUS_LABELS: Record<string, { label: string; badge: string }> = {
-  PENDING:    { label: "En attente",      badge: "badge-warning" },
-  PROCESSING: { label: "En préparation",  badge: "badge-info" },
-  SHIPPED:    { label: "Expédiée",        badge: "badge-success" },
-  DELIVERED:  { label: "Livrée",          badge: "badge-success" },
-  CANCELLED:  { label: "Annulée",         badge: "badge-error" },
+  PENDING:    { label: "En attente",      badge: "badge badge-warning" },
+  PROCESSING: { label: "En préparation",  badge: "badge badge-info" },
+  SHIPPED:    { label: "Expédiée",        badge: "badge badge-success" },
+  DELIVERED:  { label: "Livrée",          badge: "badge badge-success" },
+  CANCELLED:  { label: "Annulée",         badge: "badge badge-error" },
 };
 
 export default async function AdminCommandesPage({
@@ -156,7 +156,7 @@ export default async function AdminCommandesPage({
 
                 {/* Statut */}
                 <div>
-                  <span className={`${st.badge} w-fit`}>
+                  <span className={st.badge}>
                     {st.label}
                   </span>
                 </div>

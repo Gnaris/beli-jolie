@@ -82,7 +82,7 @@ export default async function CommandesPage() {
   });
 
   return (
-    <div className="p-6 md:p-8 max-w-4xl">
+    <div className="p-6 md:p-10 w-full">
       {/* En-tete */}
       <div className="mb-6">
         <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A]">

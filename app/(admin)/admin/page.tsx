@@ -4,138 +4,264 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import DashboardParticlesLoader from "@/components/admin/dashboard/DashboardParticlesLoader";
+import DashboardCharts from "@/components/admin/dashboard/DashboardCharts";
+import type { MonthlyPoint, StatusPoint, TopProduct } from "@/components/admin/dashboard/DashboardCharts";
 
 export const metadata: Metadata = {
   title: "Tableau de bord — Admin",
 };
 
-/**
- * Page principale du panel administrateur
- *
- * Affiche :
- * - Statistiques globales (clients, commandes, comptes en attente)
- * - Liste des derniers comptes en attente de validation
- */
 export default async function AdminDashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
-  // Récupération des statistiques en parallèle
-  const [totalClients, pendingCount, approvedCount, rejectedCount, latestPending] =
-    await Promise.all([
-      prisma.user.count({ where: { role: "CLIENT" } }),
-      prisma.user.count({ where: { status: "PENDING" } }),
-      prisma.user.count({ where: { status: "APPROVED", role: "CLIENT" } }),
-      prisma.user.count({ where: { status: "REJECTED" } }),
-      prisma.user.findMany({
-        where: { status: "PENDING" },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          company: true,
-          email: true,
-          siret: true,
-          createdAt: true,
-        },
-      }),
-    ]);
+  // Date helpers
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOf6MonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
-  const stats = [
-    {
-      label: "Clients actifs",
-      value: approvedCount,
-      color: "text-text-primary",
-      iconBg: "bg-bg-tertiary",
-      iconColor: "text-text-secondary",
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-        </svg>
-      ),
-    },
-    {
-      label: "En attente",
-      value: pendingCount,
-      color: "text-warning",
-      iconBg: "bg-[#FEF3C7]",
-      iconColor: "text-warning",
-      alert: pendingCount > 0,
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-    },
-    {
-      label: "Total inscrits",
-      value: totalClients,
-      color: "text-text-primary",
-      iconBg: "bg-bg-tertiary",
-      iconColor: "text-text-secondary",
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-        </svg>
-      ),
-    },
-    {
-      label: "Refusés",
-      value: rejectedCount,
-      color: "text-error",
-      iconBg: "bg-[#FEE2E2]",
-      iconColor: "text-error",
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-        </svg>
-      ),
-    },
-  ];
+  // Fetch all data in parallel
+  const [
+    totalClients,
+    pendingCount,
+    approvedCount,
+    rejectedCount,
+    latestPending,
+    totalOrders,
+    totalRevenueAgg,
+    totalProducts,
+    totalCollections,
+    ordersThisMonth,
+    revenueThisMonthAgg,
+    recentOrders,
+    orderStatusRaw,
+    topProductsRaw,
+  ] = await Promise.all([
+    prisma.user.count({ where: { role: "CLIENT" } }),
+    prisma.user.count({ where: { status: "PENDING" } }),
+    prisma.user.count({ where: { status: "APPROVED", role: "CLIENT" } }),
+    prisma.user.count({ where: { status: "REJECTED" } }),
+    prisma.user.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        company: true,
+        email: true,
+        siret: true,
+        createdAt: true,
+      },
+    }),
+    prisma.order.count(),
+    prisma.order.aggregate({
+      _sum: { totalTTC: true },
+      where: { status: { not: "CANCELLED" } },
+    }),
+    prisma.product.count(),
+    prisma.collection.count(),
+    prisma.order.count({
+      where: { createdAt: { gte: startOfMonth } },
+    }),
+    prisma.order.aggregate({
+      _sum: { totalTTC: true },
+      where: {
+        createdAt: { gte: startOfMonth },
+        status: { not: "CANCELLED" },
+      },
+    }),
+    // For monthly chart: last 6 months of orders
+    prisma.order.findMany({
+      where: {
+        createdAt: { gte: startOf6MonthsAgo },
+        status: { not: "CANCELLED" },
+      },
+      select: { createdAt: true, totalTTC: true },
+    }),
+    // Status distribution
+    prisma.order.groupBy({
+      by: ["status"],
+      _count: true,
+    }),
+    // Top 5 products
+    prisma.orderItem.groupBy({
+      by: ["productName"],
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: "desc" } },
+      take: 5,
+    }),
+  ]);
+
+  // Compute scalar values (convert Decimal to Number)
+  const totalRevenue = Number(totalRevenueAgg._sum.totalTTC ?? 0);
+  const revenueThisMonth = Number(revenueThisMonthAgg._sum.totalTTC ?? 0);
+
+  // Build monthly chart data (6 months, oldest first)
+  const monthLabels: { key: string; label: string }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+    monthLabels.push({ key, label });
+  }
+
+  const monthlyMap: Record<string, { orders: number; revenue: number }> = {};
+  for (const { key } of monthLabels) {
+    monthlyMap[key] = { orders: 0, revenue: 0 };
+  }
+  for (const order of recentOrders) {
+    const d = new Date(order.createdAt);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (monthlyMap[key]) {
+      monthlyMap[key].orders += 1;
+      monthlyMap[key].revenue += Number(order.totalTTC ?? 0);
+    }
+  }
+
+  const monthlyData: MonthlyPoint[] = monthLabels.map(({ key, label }) => ({
+    label,
+    orders: monthlyMap[key].orders,
+    revenue: Math.round(monthlyMap[key].revenue * 100) / 100,
+  }));
+
+  // Status distribution
+  const statusDist: StatusPoint[] = orderStatusRaw.map((s) => ({
+    status: s.status,
+    count: s._count,
+  }));
+
+  // Top products
+  const topProducts: TopProduct[] = topProductsRaw.map((p) => ({
+    name: p.productName,
+    qty: Number(p._sum.quantity ?? 0),
+  }));
+
+  // Today date label
+  const todayLabel = now.toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const todayFormatted = todayLabel.charAt(0).toUpperCase() + todayLabel.slice(1);
 
   return (
     <div className="space-y-8">
 
-      {/* En-tête */}
-      <div>
-        <h1 className="page-title">
-          Bonjour, {session.user.name.split(" ")[0]}
-        </h1>
-        <p className="page-subtitle font-[family-name:var(--font-roboto)]">
-          Tableau de bord — Beli & Jolie Administration
-        </p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className={`stat-card flex items-start gap-4 ${stat.alert ? "ring-2 ring-warning/30" : ""}`}
-          >
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${stat.iconBg} ${stat.iconColor}`}>
-              {stat.icon}
-            </div>
-            <div>
-              <p className={`font-[family-name:var(--font-poppins)] text-3xl font-bold ${stat.color}`}>
-                {stat.value}
-              </p>
-              <p className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary mt-0.5">
-                {stat.label}
-              </p>
-              {stat.alert && (
-                <span className="inline-flex items-center gap-1 text-xs text-warning font-medium mt-1 font-[family-name:var(--font-roboto)]">
-                  Action requise
-                </span>
-              )}
-            </div>
+      {/* ── HERO BANNER ── */}
+      <div className="relative overflow-hidden rounded-2xl h-44"
+        style={{ background: "linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%)" }}>
+        <DashboardParticlesLoader />
+        <div className="relative z-10 h-full flex flex-col justify-center px-8">
+          <div className="inline-flex items-center gap-2 bg-white/20 text-white/80 text-xs font-[family-name:var(--font-roboto)] px-3 py-1 rounded-full mb-3 w-fit">
+            {todayFormatted}
           </div>
-        ))}
+          <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-bold text-white leading-tight">
+            Bonjour, {session.user.name?.split(" ")[0] ?? "Admin"} 👋
+          </h1>
+          <p className="font-[family-name:var(--font-roboto)] text-white/60 text-sm mt-1">
+            Tableau de bord — Beli &amp; Jolie Administration
+          </p>
+        </div>
       </div>
 
-      {/* Comptes en attente */}
+      {/* ── STAT CARDS ── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        {/* Revenu total */}
+        <div className="stat-card flex flex-col gap-1">
+          <div className="w-9 h-9 rounded-xl bg-[#F7F7F8] flex items-center justify-center mb-1">
+            <svg className="w-4 h-4 text-[#6B7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75" />
+            </svg>
+          </div>
+          <p className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A]">
+            {new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(totalRevenue)}
+          </p>
+          <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B7280]">Revenu total</p>
+        </div>
+
+        {/* Revenu ce mois */}
+        <div className="stat-card flex flex-col gap-1">
+          <div className="w-9 h-9 rounded-xl bg-[#F0FDF4] flex items-center justify-center mb-1">
+            <svg className="w-4 h-4 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75" />
+            </svg>
+          </div>
+          <p className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A]">
+            {new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(revenueThisMonth)}
+          </p>
+          <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B7280]">Revenu ce mois</p>
+        </div>
+
+        {/* Commandes total */}
+        <div className="stat-card flex flex-col gap-1">
+          <div className="w-9 h-9 rounded-xl bg-[#F7F7F8] flex items-center justify-center mb-1">
+            <svg className="w-4 h-4 text-[#6B7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
+            </svg>
+          </div>
+          <p className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A]">
+            {totalOrders}
+          </p>
+          <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B7280]">Commandes</p>
+        </div>
+
+        {/* Commandes ce mois */}
+        <div className="stat-card flex flex-col gap-1">
+          <div className="w-9 h-9 rounded-xl bg-[#EFF6FF] flex items-center justify-center mb-1">
+            <svg className="w-4 h-4 text-[#3B82F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+            </svg>
+          </div>
+          <p className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A]">
+            {ordersThisMonth}
+          </p>
+          <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B7280]">Cmd ce mois</p>
+        </div>
+
+        {/* Clients actifs */}
+        <div className="stat-card flex flex-col gap-1">
+          <div className="w-9 h-9 rounded-xl bg-[#F7F7F8] flex items-center justify-center mb-1">
+            <svg className="w-4 h-4 text-[#6B7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+            </svg>
+          </div>
+          <p className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A]">
+            {approvedCount}
+          </p>
+          <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B7280]">Clients actifs</p>
+        </div>
+
+        {/* En attente */}
+        <div className={`stat-card flex flex-col gap-1 ${pendingCount > 0 ? "ring-2 ring-warning/30" : ""}`}>
+          <div className="w-9 h-9 rounded-xl bg-[#FEF3C7] flex items-center justify-center mb-1">
+            <svg className="w-4 h-4 text-[#F59E0B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#F59E0B]">
+            {pendingCount}
+          </p>
+          <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B7280]">En attente</p>
+          {pendingCount > 0 && (
+            <span className="text-xs text-[#F59E0B] font-medium font-[family-name:var(--font-roboto)]">
+              Action requise
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ── CHARTS ── */}
+      <DashboardCharts
+        monthlyData={monthlyData}
+        statusDist={statusDist}
+        topProducts={topProducts}
+      />
+
+      {/* ── DEMANDES EN ATTENTE ── */}
       <div>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
@@ -153,8 +279,8 @@ export default async function AdminDashboardPage() {
 
         {latestPending.length === 0 ? (
           <div className="card p-8 text-center">
-            <div className="w-12 h-12 rounded-full bg-accent-light flex items-center justify-center mx-auto mb-3">
-              <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <div className="w-12 h-12 rounded-full bg-[#F0FDF4] flex items-center justify-center mx-auto mb-3">
+              <svg className="w-6 h-6 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -164,51 +290,75 @@ export default async function AdminDashboardPage() {
           </div>
         ) : (
           <div className="card overflow-hidden">
-            {/* En-tête tableau */}
-            <div className="hidden md:grid grid-cols-[1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-border table-header">
-              {["Nom / Société", "Email", "SIRET", "Actions"].map((h) => (
-                <span key={h} className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
-                  {h}
-                </span>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border table-header">
+                    <th className="px-5 py-3 text-left text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
+                      Société
+                    </th>
+                    <th className="px-5 py-3 text-left text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
+                      Contact
+                    </th>
+                    <th className="px-5 py-3 text-left text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">
+                      Email
+                    </th>
+                    <th className="px-5 py-3 text-left text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">
+                      SIRET
+                    </th>
+                    <th className="px-5 py-3 text-left text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">
+                      Date
+                    </th>
+                    <th className="px-5 py-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {latestPending.map((user) => (
+                    <tr key={user.id} className="border-b border-border last:border-0 hover:bg-bg-secondary transition-colors">
+                      <td className="px-5 py-4">
+                        <p className="font-[family-name:var(--font-roboto)] font-semibold text-text-primary text-sm">
+                          {user.company}
+                        </p>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <p className="font-[family-name:var(--font-roboto)] text-sm text-text-primary">
+                          {user.firstName} {user.lastName}
+                        </p>
+                      </td>
+                      <td className="px-5 py-4">
+                        <p className="font-[family-name:var(--font-roboto)] text-sm text-text-secondary">
+                          {user.email}
+                        </p>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <p className="font-mono text-sm text-text-secondary">
+                          {user.siret}
+                        </p>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <p className="font-[family-name:var(--font-roboto)] text-xs text-text-secondary">
+                          {new Date(user.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
+                        </p>
+                      </td>
+                      <td className="px-5 py-4 text-right whitespace-nowrap">
+                        <Link
+                          href={`/admin/utilisateurs/${user.id}`}
+                          className="btn-primary text-xs"
+                        >
+                          Examiner
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
-            {/* Lignes */}
-            {latestPending.map((user) => (
-              <div
-                key={user.id}
-                className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-3 md:gap-4 px-5 py-4 table-row items-center"
-              >
-                <div>
-                  <p className="font-[family-name:var(--font-roboto)] font-medium text-text-primary text-sm">
-                    {user.firstName} {user.lastName}
-                  </p>
-                  <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
-                    {user.company}
-                  </p>
-                </div>
-                <p className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary truncate">
-                  {user.email}
-                </p>
-                <p className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary font-mono">
-                  {user.siret}
-                </p>
-                <div className="flex gap-2">
-                  <Link
-                    href={`/admin/utilisateurs/${user.id}`}
-                    className="btn-primary text-xs"
-                  >
-                    Examiner
-                  </Link>
-                </div>
-              </div>
-            ))}
           </div>
         )}
       </div>
 
-      {/* Liens rapides */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* ── LIENS RAPIDES ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {[
           {
             label: "Gérer les clients",
@@ -227,6 +377,27 @@ export default async function AdminDashboardPage() {
             icon: (
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+              </svg>
+            ),
+          },
+          {
+            label: "Commandes",
+            href: "/admin/commandes",
+            desc: "Suivre et gérer les commandes",
+            icon: (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
+              </svg>
+            ),
+          },
+          {
+            label: "Collections",
+            href: "/admin/collections",
+            desc: "Organiser les collections",
+            icon: (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z" />
               </svg>
             ),
           },
@@ -250,7 +421,7 @@ export default async function AdminDashboardPage() {
               {link.icon}
             </div>
             <div>
-              <p className="font-[family-name:var(--font-roboto)] font-semibold text-text-primary text-sm group-hover:text-text-secondary transition-colors">
+              <p className="font-[family-name:var(--font-roboto)] font-semibold text-text-primary text-sm">
                 {link.label} →
               </p>
               <p className="text-xs text-text-muted mt-1 font-[family-name:var(--font-roboto)]">

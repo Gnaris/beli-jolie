@@ -21,6 +21,7 @@ export async function middleware(request: NextRequest) {
 
   const isAuthenticated = !!token;
   const isAdmin = token?.role === "ADMIN";
+  const previewMode = request.cookies.get("bj_admin_preview")?.value === "1";
 
   // ── Routes publiques uniquement si NON connecté ────────────────────
   if (pathname.startsWith("/connexion") || pathname.startsWith("/inscription")) {
@@ -53,8 +54,20 @@ export async function middleware(request: NextRequest) {
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    // Un admin redirigé vers son panel
-    if (isAdmin) return NextResponse.redirect(new URL("/admin", request.url));
+    // Un admin redirigé vers son panel, sauf en mode preview
+    if (isAdmin && !previewMode) return NextResponse.redirect(new URL("/admin", request.url));
+    return NextResponse.next();
+  }
+
+  // ── Panier ──────────────────────────────────────────────────────────
+  if (pathname.startsWith("/panier")) {
+    if (!isAuthenticated) {
+      const loginUrl = new URL("/connexion", request.url);
+      loginUrl.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    // Un admin redirigé vers son panel, sauf en mode preview
+    if (isAdmin && !previewMode) return NextResponse.redirect(new URL("/admin", request.url));
     return NextResponse.next();
   }
 
@@ -64,6 +77,10 @@ export async function middleware(request: NextRequest) {
       const loginUrl = new URL("/connexion", request.url);
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
+    }
+    // Un admin redirigé vers son panel sur /commandes, sauf en mode preview
+    if (pathname.startsWith("/commandes") && isAdmin && !previewMode) {
+      return NextResponse.redirect(new URL("/admin", request.url));
     }
     return NextResponse.next();
   }
@@ -77,6 +94,7 @@ export const config = {
     "/espace-pro/:path*",
     "/produits/:path*",
     "/commandes/:path*",
+    "/panier/:path*",
     "/connexion",
     "/inscription",
   ],

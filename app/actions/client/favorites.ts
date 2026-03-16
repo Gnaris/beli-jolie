@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 
 async function requireClient() {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "CLIENT") throw new Error("Non autorisé");
+  if (!session || (session.user.role !== "CLIENT" && session.user.role !== "ADMIN")) throw new Error("Non autorisé");
   return session.user.id;
 }
 
@@ -31,7 +31,7 @@ export async function toggleFavorite(productId: string) {
 
 export async function getFavoriteIds(): Promise<string[]> {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "CLIENT") return [];
+  if (!session || (session.user.role !== "CLIENT" && session.user.role !== "ADMIN")) return [];
   const favorites = await prisma.favorite.findMany({
     where: { userId: session.user.id },
     select: { productId: true },

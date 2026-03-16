@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { removeFromCart, updateCartItem, clearCart } from "@/app/actions/client/cart";
 
 // ─────────────────────────────────────────────
@@ -44,6 +45,7 @@ interface CartData {
 
 interface Props {
   cart: CartData | null;
+  minOrderHT: number;
 }
 
 // ─────────────────────────────────────────────
@@ -73,6 +75,7 @@ function CartRow({
   onQtyChange: (id: string, qty: number) => void;
   isPending: boolean;
 }) {
+  const t = useTranslations("cart");
   const opt = item.saleOption;
   const product = opt.productColor.product;
   const image = opt.productColor.images[0]?.path ?? null;
@@ -113,18 +116,18 @@ function CartRow({
           </span>
           {opt.saleType === "PACK" && (
             <span className="text-xs bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
-              Paquet × {opt.packQuantity}
+              {t("packLabel")} {opt.packQuantity}
             </span>
           )}
           {opt.size && (
             <span className="text-xs bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
-              Taille {opt.size}
+              {t("sizeLabel")} {opt.size}
             </span>
           )}
         </div>
         {opt.saleType === "PACK" && (
           <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-            {packUnits} unités au total
+            {packUnits} {t("totalUnits")}
           </p>
         )}
       </div>
@@ -135,7 +138,7 @@ function CartRow({
           {lineTotal.toFixed(2)} €
         </p>
         <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-          {unitPrice.toFixed(2)} € / {opt.saleType === "UNIT" ? "unité" : "paquet"}
+          {unitPrice.toFixed(2)} € {opt.saleType === "UNIT" ? t("perUnit") : t("perPack")}
         </p>
 
         {/* Quantité */}
@@ -168,7 +171,7 @@ function CartRow({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
           </svg>
-          Retirer
+          {t("remove")}
         </button>
       </div>
     </div>
@@ -179,10 +182,12 @@ function CartRow({
 // Page principale
 // ─────────────────────────────────────────────
 
-export default function CartPageClient({ cart }: Props) {
-  const router      = useRouter();
+export default function CartPageClient({ cart, minOrderHT }: Props) {
+  const t       = useTranslations("cart");
+  const router  = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showClearModal, setShowClearModal] = useState(false);
+  const [showMinError, setShowMinError] = useState(false);
 
   function handleClearCart() {
     startTransition(async () => {
@@ -232,7 +237,7 @@ export default function CartPageClient({ cart }: Props) {
     return (
       <div className="container-site py-14">
         <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-text-primary mb-10">
-          Mon panier
+          {t("title")}
         </h1>
         <div className="max-w-md mx-auto text-center bg-white border border-border rounded-2xl p-12 shadow-card">
           <svg className="w-14 h-14 text-text-muted mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -240,13 +245,13 @@ export default function CartPageClient({ cart }: Props) {
               d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
           </svg>
           <p className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-text-primary mb-2">
-            Votre panier est vide
+            {t("empty")}
           </p>
           <p className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary mb-7">
-            Parcourez notre catalogue et ajoutez vos produits.
+            {t("emptyDesc")}
           </p>
           <Link href="/produits" className="btn-primary justify-center">
-            Voir le catalogue
+            {t("viewCatalogue")}
           </Link>
         </div>
       </div>
@@ -259,15 +264,15 @@ export default function CartPageClient({ cart }: Props) {
       <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
         <div>
           <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-text-muted mb-1">
-            Commande
+            {t("orderLabel")}
           </p>
           <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-text-primary">
-            Mon panier
+            {t("title")}
           </h1>
         </div>
         <div className="flex items-center gap-4">
           <p className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary">
-            {allItems.length} référence{allItems.length > 1 ? "s" : ""} · {totalUnits} unité{totalUnits > 1 ? "s" : ""}
+            {allItems.length} {allItems.length > 1 ? t("references_plural") : t("references")} · {totalUnits} {totalUnits > 1 ? t("units_plural") : t("units")}
           </p>
           <button
             type="button"
@@ -278,7 +283,7 @@ export default function CartPageClient({ cart }: Props) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
             </svg>
-            Vider le panier
+            {t("clearCart")}
           </button>
         </div>
       </div>
@@ -386,12 +391,56 @@ export default function CartPageClient({ cart }: Props) {
               </span>
             </div>
 
-            <Link href="/panier/commande" className="btn-primary w-full justify-center">
+            {/* Minimum d'achat */}
+            {minOrderHT > 0 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-[family-name:var(--font-roboto)] text-text-muted">
+                  <span>Minimum d&apos;achat HT</span>
+                  <span className={subtotal >= minOrderHT ? "text-[#22C55E] font-semibold" : "text-text-secondary"}>
+                    {subtotal.toFixed(2)} / {minOrderHT.toFixed(2)} €
+                  </span>
+                </div>
+                <div className="h-1.5 bg-[#F0F0F0] rounded-full overflow-hidden">
+                  <div
+                    className={`h-1.5 rounded-full transition-all duration-500 ${subtotal >= minOrderHT ? "bg-[#22C55E]" : "bg-[#F59E0B]"}`}
+                    style={{ width: `${Math.min(100, (subtotal / minOrderHT) * 100).toFixed(1)}%` }}
+                  />
+                </div>
+                {subtotal < minOrderHT && (
+                  <p className="text-xs font-[family-name:var(--font-roboto)] text-[#92400E]">
+                    Encore <span className="font-semibold">{(minOrderHT - subtotal).toFixed(2)} €</span> pour atteindre le minimum
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Erreur minimum au clic */}
+            {showMinError && (
+              <div className="flex items-start gap-2 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)] text-[#92400E]">
+                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                <span>Montant minimum de <strong>{minOrderHT.toFixed(2)} € HT</strong> non atteint. Ajoutez encore <strong>{(minOrderHT - subtotal).toFixed(2)} €</strong> d&apos;articles.</span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                if (minOrderHT > 0 && subtotal < minOrderHT) {
+                  setShowMinError(true);
+                  return;
+                }
+                setShowMinError(false);
+                router.push("/panier/commande");
+              }}
+              className="btn-primary w-full justify-center"
+            >
               Passer la commande
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
               </svg>
-            </Link>
+            </button>
 
             <Link href="/produits"
               className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center gap-1">

@@ -4,9 +4,11 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { loginSchema } from "@/lib/validations/auth";
 
 export default function LoginForm() {
+  const t = useTranslations("auth.login");
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/";
@@ -52,7 +54,7 @@ export default function LoginForm() {
 
       router.refresh();
     } catch {
-      setError("Une erreur est survenue. Veuillez réessayer.");
+      setError(t("submit"));
     } finally {
       setLoading(false);
     }
@@ -63,10 +65,10 @@ export default function LoginForm() {
       {/* Titre */}
       <div className="mb-8">
         <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-text-primary tracking-tight">
-          Connexion
+          {t("title")}
         </h1>
         <p className="mt-1.5 font-[family-name:var(--font-roboto)] text-sm text-text-muted">
-          Accedez a votre espace professionnel
+          {t("subtitle")}
         </p>
       </div>
 
@@ -90,7 +92,7 @@ export default function LoginForm() {
             htmlFor="email"
             className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1.5"
           >
-            Adresse email
+            {t("email")}
           </label>
           <input
             id="email"
@@ -111,13 +113,13 @@ export default function LoginForm() {
               htmlFor="password"
               className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary"
             >
-              Mot de passe
+              {t("password")}
             </label>
             <Link
               href="/mot-de-passe-oublie"
               className="text-xs font-[family-name:var(--font-roboto)] text-text-muted hover:text-text-primary transition-colors"
             >
-              Mot de passe oublie ?
+              {t("forgotPassword")}
             </Link>
           </div>
           <div className="relative">
@@ -135,7 +137,7 @@ export default function LoginForm() {
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
-              aria-label={showPassword ? "Masquer" : "Afficher"}
+              aria-label={showPassword ? t("hide") : t("show")}
             >
               {showPassword ? (
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -163,19 +165,19 @@ export default function LoginForm() {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              Connexion en cours...
+              {t("loading")}
             </>
           ) : (
-            "Se connecter"
+            t("submit")
           )}
         </button>
       </form>
 
       {/* Lien inscription */}
       <p className="mt-6 text-sm font-[family-name:var(--font-roboto)] text-text-muted">
-        Pas encore de compte ?{" "}
+        {t("noAccount")}{" "}
         <Link href="/inscription" className="text-text-primary font-medium hover:underline transition-colors">
-          Faire une demande d&apos;acces
+          {t("register")}
         </Link>
       </p>
     </div>

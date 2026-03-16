@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { getLocale } from "next-intl/server";
+import { getProductTranslation } from "@/lib/translate";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
@@ -55,6 +57,13 @@ export default async function ProduitDetailPage({ params }: PageProps) {
 
   if (!product) notFound();
 
+  // Auto-translate product name & description
+  const locale = await getLocale();
+  const translated = await getProductTranslation(product.id, locale as "fr" | "en" | "ar", {
+    name: product.name,
+    description: product.description,
+  });
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function toRelated(p: any) {
     const pc = p.colors[0];
@@ -85,13 +94,13 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                 {product.category.name}
               </Link>
               <span className="text-border">/</span>
-              <span className="text-text-secondary truncate">{product.name}</span>
+              <span className="text-text-secondary truncate">{translated.name}</span>
             </nav>
 
             <ProductDetail
-            name={product.name}
+            name={translated.name}
             reference={product.reference}
-            description={product.description}
+            description={translated.description}
             category={product.category.name}
             subCategories={product.subCategories.map((sc) => sc.name)}
             colors={product.colors.map((pc) => ({

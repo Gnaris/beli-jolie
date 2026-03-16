@@ -160,6 +160,7 @@ model Product {
   collections   CollectionProduct[]
   favorites     Favorite[]
   tags          ProductTag[]
+  translations  ProductTranslation[]
   isBestSeller  Boolean              @default(false)
   // Produits similaires (M2M self)
   similarProducts ProductSimilar[]   @relation("PSim_A")
@@ -174,6 +175,21 @@ model Product {
   updatedAt     DateTime             @updatedAt
 
   @@index([createdAt])
+}
+
+// Traductions automatiques des produits
+model ProductTranslation {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  locale      String   // "en" | "ar"
+  name        String
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([productId, locale])
+  @@index([productId])
 }
 
 // Produits similaires (M2M self-relation)
@@ -395,4 +411,30 @@ model ShippingAddress {
   isDefault  Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Configuration du site (clé/valeur)
+// ─────────────────────────────────────────────
+
+model SiteConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Tokens de réinitialisation de mot de passe
+// ─────────────────────────────────────────────
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([token])
 }

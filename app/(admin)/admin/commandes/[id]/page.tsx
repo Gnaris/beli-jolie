@@ -10,11 +10,11 @@ import InvoiceUpload from "@/components/admin/orders/InvoiceUpload";
 export const metadata: Metadata = { title: "Détail commande — Admin" };
 
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
-  PENDING:    { label: "En attente",     badge: "badge-warning" },
-  PROCESSING: { label: "En préparation", badge: "badge-info" },
-  SHIPPED:    { label: "Expédiée",       badge: "badge-success" },
-  DELIVERED:  { label: "Livrée",         badge: "badge-success" },
-  CANCELLED:  { label: "Annulée",        badge: "badge-error" },
+  PENDING:    { label: "En attente",     badge: "badge badge-warning" },
+  PROCESSING: { label: "En préparation", badge: "badge badge-info" },
+  SHIPPED:    { label: "Expédiée",       badge: "badge badge-success" },
+  DELIVERED:  { label: "Livrée",         badge: "badge badge-success" },
+  CANCELLED:  { label: "Annulée",        badge: "badge badge-error" },
 };
 
 export default async function AdminCommandeDetailPage({
@@ -147,16 +147,16 @@ export default async function AdminCommandeDetailPage({
                     </p>
                     <p className="text-xs font-mono text-text-muted mt-0.5">{item.productRef}</p>
                     <div className="flex flex-wrap gap-1.5 mt-1">
-                      <span className="badge-neutral">
+                      <span className="badge badge-neutral">
                         {item.colorName}
                       </span>
                       {item.saleType === "PACK" && (
-                        <span className="badge-neutral">
+                        <span className="badge badge-neutral">
                           Paquet ×{item.packQty}
                         </span>
                       )}
                       {item.size && (
-                        <span className="badge-neutral">
+                        <span className="badge badge-neutral">
                           Taille {item.size}
                         </span>
                       )}

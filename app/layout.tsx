@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Poppins, Roboto } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
+import { RTL_LOCALES } from "@/i18n/request";
 import SessionProvider from "@/components/providers/SessionProvider";
 import "./globals.css";
 
@@ -58,15 +61,25 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
+  const isRTL = RTL_LOCALES.includes(locale as "ar");
+
   return (
-    <html lang="fr" className={`${poppins.variable} ${roboto.variable}`}>
+    <html
+      lang={locale}
+      dir={isRTL ? "rtl" : "ltr"}
+      className={`${poppins.variable} ${roboto.variable}`}
+    >
       <body className="antialiased">
-        <SessionProvider>{children}</SessionProvider>
+        <NextIntlClientProvider messages={messages}>
+          <SessionProvider>{children}</SessionProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );
 }
- 

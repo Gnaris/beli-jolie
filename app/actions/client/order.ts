@@ -154,6 +154,14 @@ export async function placeOrder(
   const subtotalHT = cart.items.reduce(
     (s, item) => s + computeUnitPrice(item.saleOption) * item.quantity, 0
   );
+
+  // Vérification minimum commande
+  const minConfig = await prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } });
+  const minHT = minConfig ? parseFloat(minConfig.value) : 0;
+  if (minHT > 0 && subtotalHT < minHT) {
+    return { success: false, error: `Montant minimum de commande non atteint. Minimum requis : ${minHT.toFixed(2)} € HT.` };
+  }
+
   const tvaAmount  = subtotalHT * input.tvaRate;
   const totalTTC   = subtotalHT + tvaAmount + input.carrierPrice;
 

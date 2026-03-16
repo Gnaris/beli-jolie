@@ -16,9 +16,7 @@ export default async function AdminCollectionsPage() {
       {/* En-tête */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="page-title">
-            Collections
-          </h1>
+          <h1 className="page-title">Collections</h1>
           <p className="page-subtitle font-[family-name:var(--font-roboto)]">
             Gérez les collections de bijoux de la boutique.
           </p>
@@ -34,73 +32,93 @@ export default async function AdminCollectionsPage() {
         </Link>
       </div>
 
-      {/* Liste */}
+      {/* État vide */}
       {collections.length === 0 ? (
-        <div className="card p-12 text-center">
-          <svg className="w-10 h-10 text-border mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z" />
-          </svg>
-          <p className="text-text-muted text-sm font-[family-name:var(--font-roboto)]">
-            Aucune collection pour l&apos;instant.
+        <div className="bg-white border border-[#E5E5E5] rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] p-16 flex flex-col items-center text-center">
+          <div className="w-20 h-20 rounded-2xl bg-[#F7F7F8] flex items-center justify-center mb-5">
+            <svg className="w-9 h-9 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z" />
+            </svg>
+          </div>
+          <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-lg mb-2">
+            Aucune collection
+          </p>
+          <p className="text-sm text-[#6B7280] font-[family-name:var(--font-roboto)] mb-6 max-w-xs">
+            Commencez par créer votre première collection pour organiser vos bijoux.
           </p>
           <Link
             href="/admin/collections/nouveau"
-            className="mt-4 inline-block text-sm text-text-primary hover:underline font-[family-name:var(--font-roboto)] font-medium"
+            className="btn-primary inline-flex items-center gap-2"
           >
-            Créer la première collection →
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Créer la première collection
           </Link>
         </div>
       ) : (
-        <div className="card overflow-hidden">
-          {/* Header */}
-          <div className="grid grid-cols-[3fr_1fr_auto] gap-4 px-5 py-3 border-b border-border table-header">
-            {["Collection", "Produits", "Actions"].map((h) => (
-              <span key={h} className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)]">
-                {h}
-              </span>
-            ))}
-          </div>
-
-          {/* Rows */}
+        /* Grid de cartes */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {collections.map((col) => (
             <div
               key={col.id}
-              className="grid grid-cols-[3fr_1fr_auto] gap-4 px-5 py-4 table-row items-center"
+              className="group bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.10)] hover:scale-[1.02] transition-all duration-200"
             >
-              {/* Nom + image */}
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-12 h-12 rounded-lg bg-bg-tertiary shrink-0 overflow-hidden border border-border">
-                  {col.image ? (
-                    <img src={col.image} alt={col.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                          d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
-                      </svg>
+              {/* Image */}
+              <div className="relative aspect-[4/3] overflow-hidden bg-[#F7F7F8]">
+                {col.image ? (
+                  <>
+                    <img
+                      src={col.image}
+                      alt={col.name}
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                    {/* Overlay gradient */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                    {/* Nom sur l'overlay */}
+                    <div className="absolute bottom-0 left-0 right-0 px-4 pb-3">
+                      <p className="font-[family-name:var(--font-poppins)] font-semibold text-white text-sm leading-tight line-clamp-2">
+                        {col.name}
+                      </p>
                     </div>
-                  )}
-                </div>
-                <p className="font-medium text-text-primary text-sm font-[family-name:var(--font-roboto)] truncate">
-                  {col.name}
-                </p>
+                  </>
+                ) : (
+                  /* Fallback sans image */
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                    <svg className="w-10 h-10 text-[#C4C4C4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
+                    </svg>
+                  </div>
+                )}
               </div>
 
-              {/* Count */}
-              <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)]">
-                {col._count.products} produit{col._count.products !== 1 ? "s" : ""}
-              </p>
+              {/* Corps de la carte */}
+              <div className="px-4 py-3">
+                {/* Nom (si pas d'image) + badge produits */}
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  {!col.image && (
+                    <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm leading-tight line-clamp-2 flex-1">
+                      {col.name}
+                    </p>
+                  )}
+                  {col.image && <div className="flex-1" />}
+                  <span className="badge badge-neutral shrink-0 text-xs">
+                    {col._count.products} produit{col._count.products !== 1 ? "s" : ""}
+                  </span>
+                </div>
 
-              {/* Actions */}
-              <div className="flex items-center gap-2">
-                <Link
-                  href={`/admin/collections/${col.id}/modifier`}
-                  className="btn-secondary text-xs"
-                >
-                  Modifier
-                </Link>
-                <DeleteCollectionButton id={col.id} name={col.name} />
+                {/* Boutons */}
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/admin/collections/${col.id}/modifier`}
+                    className="btn-secondary text-xs flex-1 text-center"
+                  >
+                    Modifier
+                  </Link>
+                  <DeleteCollectionButton id={col.id} name={col.name} />
+                </div>
               </div>
             </div>
           ))}

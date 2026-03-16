@@ -12,9 +12,9 @@ export const metadata: Metadata = {
 
 /** Correspondance statut → libellé + styles */
 const STATUS_CONFIG: Record<UserStatus, { label: string; className: string }> = {
-  PENDING:  { label: "En attente", className: "badge-warning" },
-  APPROVED: { label: "Approuvé",   className: "badge-success" },
-  REJECTED: { label: "Rejeté",     className: "badge-error" },
+  PENDING:  { label: "En attente", className: "badge badge-warning" },
+  APPROVED: { label: "Approuvé",   className: "badge badge-success" },
+  REJECTED: { label: "Rejeté",     className: "badge badge-error" },
 };
 
 /** Filtres disponibles avec leur label */
@@ -189,7 +189,7 @@ export default async function UtilisateursPage({
                       <p className="font-[family-name:var(--font-roboto)] font-semibold text-text-primary text-sm group-hover:text-text-secondary transition-colors">
                         {client.firstName} {client.lastName}
                       </p>
-                      <span className={`${statusCfg.className} text-[11px]`}>
+                      <span className={statusCfg.className}>
                         {statusCfg.label}
                       </span>
                     </div>

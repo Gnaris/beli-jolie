@@ -16,7 +16,7 @@ export default async function CommandePage() {
   if (!session) redirect("/connexion?callbackUrl=/panier/commande");
   if (session.user.status !== "APPROVED") redirect("/panier");
 
-  const [cart, addresses, user] = await Promise.all([
+  const [cart, addresses, user, minConfig] = await Promise.all([
     getCart(),
     getShippingAddresses(),
     prisma.user.findUnique({
@@ -31,9 +31,29 @@ export default async function CommandePage() {
         vatNumber: true,
       },
     }),
+    prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
   ]);
 
   if (!cart || cart.items.length === 0) redirect("/panier");
+
+  // Vérification minimum commande (couche serveur — ne peut pas être contournée)
+  const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
+  if (minOrderHT > 0) {
+    const subtotalHT = cart.items.reduce((sum, item) => {
+      const { unitPrice } = item.saleOption.productColor;
+      const base = item.saleOption.saleType === "UNIT"
+        ? unitPrice
+        : unitPrice * (item.saleOption.packQuantity ?? 1);
+      let price = base;
+      if (item.saleOption.discountType && item.saleOption.discountValue) {
+        price = item.saleOption.discountType === "PERCENT"
+          ? Math.max(0, base * (1 - item.saleOption.discountValue / 100))
+          : Math.max(0, base - item.saleOption.discountValue);
+      }
+      return sum + price * item.quantity;
+    }, 0);
+    if (subtotalHT < minOrderHT) redirect("/panier");
+  }
 
   return (
     <CheckoutClient

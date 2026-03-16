@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import SearchFilters from "@/components/produits/SearchFilters";
@@ -22,6 +23,7 @@ interface PageProps {
 }
 
 export default async function ProduitsPage({ searchParams }: PageProps) {
+  const t = await getTranslations("products");
   const {
     q = "", cat = "", subcat = "",
     collection = "", color: colorId = "", tag: tagId = "",
@@ -108,10 +110,10 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
       <div className="bg-bg-primary border-b border-border">
         <div className="container-site py-6">
           <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
-            Catalogue
+            {t("title")}
           </h1>
           <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
-            Bijoux en acier inoxydable — tarifs professionnels
+            {t("subtitle")}
           </p>
         </div>
       </div>

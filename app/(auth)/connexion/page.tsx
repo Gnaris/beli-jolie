@@ -21,6 +21,11 @@ export default function ConnexionPage() {
           Créer un compte professionnel →
         </a>
       </p>
+      <p className="text-center mt-3">
+        <a href="/mot-de-passe-oublie" className="text-sm text-text-muted font-[family-name:var(--font-roboto)] hover:text-text-secondary transition-colors">
+          Mot de passe oublié ?
+        </a>
+      </p>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { getCart } from "@/app/actions/client/cart";
 import CartPageClient from "@/components/panier/CartPageClient";
 
@@ -36,7 +37,11 @@ export default async function PanierPage() {
     );
   }
 
-  const cart = await getCart();
+  const [cart, minConfig] = await Promise.all([
+    getCart(),
+    prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
+  ]);
+  const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
 
-  return <CartPageClient cart={cart} />;
+  return <CartPageClient cart={cart} minOrderHT={minOrderHT} />;
 }

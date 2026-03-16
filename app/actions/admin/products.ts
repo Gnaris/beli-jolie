@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateProductTranslations } from "@/lib/translate";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -292,6 +293,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       });
     }
   });
+
+  // Invalider les traductions en cache pour forcer une re-traduction
+  await invalidateProductTranslations(id);
 
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${id}/modifier`);

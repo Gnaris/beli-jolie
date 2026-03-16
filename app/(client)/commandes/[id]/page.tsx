@@ -49,7 +49,7 @@ export default async function CommandeDetailPage({
   const isCancelled = order.status === "CANCELLED";
 
   return (
-    <div className="p-6 md:p-8 max-w-3xl space-y-6">
+    <div className="p-6 md:p-10 w-full space-y-6">
       <SuccessToast />
 
       {/* Fil d'Ariane */}

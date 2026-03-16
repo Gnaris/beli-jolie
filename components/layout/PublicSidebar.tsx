@@ -1,21 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-
-const NAV_LINKS = [
-  { label: "Accueil",     href: "/" },
-  { label: "Produits",    href: "/produits" },
-  { label: "Catégories",  href: "/categories" },
-  { label: "Collections", href: "/collections" },
-];
-
-const CLIENT_LINKS = [
-  { label: "Commandes",   href: "/commandes" },
-  { label: "Favoris",     href: "/favoris" },
-];
+import { useTranslations, useLocale } from "next-intl";
+import { disableAdminPreview } from "@/app/actions/admin/preview-mode";
+import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 
 /* -- Icons ---------------------------------------- */
 function IconCart() {
@@ -48,14 +39,6 @@ function IconLogout() {
     </svg>
   );
 }
-function IconSearch() {
-  return (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-        d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-    </svg>
-  );
-}
 
 /* -- Component ------------------------------------ */
 interface SearchResult {
@@ -68,12 +51,35 @@ interface SearchResult {
 }
 
 export default function PublicSidebar() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [cartCount, setCartCount]   = useState(0);
-  const [scrolled, setScrolled]     = useState(false);
+  const t      = useTranslations("nav");
+  const locale = useLocale();
+
+  const [mobileOpen, setMobileOpen]       = useState(false);
+  const [cartCount, setCartCount]         = useState(0);
+  const [scrolled, setScrolled]           = useState(false);
+  const [isAdminPreview, setIsAdminPreview] = useState(false);
+  const [previewPending] = useTransition();
   const pathname  = usePathname();
   const router = useRouter();
   const { data: session } = useSession();
+
+  // Nav links (labels from translations)
+  const NAV_LINKS = [
+    { label: t("home"),        href: "/" },
+    { label: t("products"),    href: "/produits" },
+    { label: t("categories"),  href: "/categories" },
+    { label: t("collections"), href: "/collections" },
+  ];
+
+  const CLIENT_LINKS = [
+    { label: t("orders"),    href: "/commandes" },
+    { label: t("favorites"), href: "/favoris" },
+  ];
+
+  // Détecte le cookie mode aperçu admin (recalculé à chaque changement de page)
+  useEffect(() => {
+    setIsAdminPreview(document.cookie.includes("bj_admin_preview=1"));
+  }, [pathname]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -132,18 +138,20 @@ export default function PublicSidebar() {
     router.push(`/produits/${id}`);
   }
 
-  const isClient = session?.user?.role === "CLIENT";
-  const company  = (session?.user as { company?: string })?.company ?? session?.user?.name ?? "";
-  const initials = company ? company.slice(0, 2).toUpperCase() : "?";
+  const isClient     = session?.user?.role === "CLIENT";
+  const isAdminMode  = session?.user?.role === "ADMIN" && isAdminPreview;
+  const showClientUI = isClient || isAdminMode;
+  const company      = (session?.user as { company?: string })?.company ?? session?.user?.name ?? "";
+  const initials     = company ? company.slice(0, 2).toUpperCase() : "?";
 
   useEffect(() => {
-    if (isClient) {
+    if (showClientUI) {
       fetch("/api/cart/count")
         .then((r) => r.json())
         .then((d) => setCartCount(d.count ?? 0))
         .catch(() => {});
     }
-  }, [isClient]);
+  }, [showClientUI]);
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 8);
@@ -187,7 +195,7 @@ export default function PublicSidebar() {
                 {link.label}
               </Link>
             ))}
-            {isClient && CLIENT_LINKS.map((link) => (
+            {showClientUI && CLIENT_LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -211,7 +219,7 @@ export default function PublicSidebar() {
                   value={searchQuery}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   onFocus={() => { if (searchResults.length > 0) setShowResults(true); }}
-                  placeholder="Rechercher un produit..."
+                  placeholder={t("search")}
                   className="w-full bg-bg-secondary border border-border-light rounded-lg pl-9 pr-4 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-text-primary transition-colors"
                 />
                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,7 +239,7 @@ export default function PublicSidebar() {
                 {searchResults.length === 0 ? (
                   <div className="px-4 py-6 text-center">
                     <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
-                      Aucun résultat pour &quot;{searchQuery}&quot;
+                      {t("searchNoResults")} &quot;{searchQuery}&quot;
                     </p>
                   </div>
                 ) : (
@@ -279,7 +287,7 @@ export default function PublicSidebar() {
                       }}
                       className="w-full px-4 py-3 text-center text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary hover:bg-bg-secondary transition-colors"
                     >
-                      Voir tous les résultats →
+                      {t("searchResults")} →
                     </button>
                   </>
                 )}
@@ -290,12 +298,15 @@ export default function PublicSidebar() {
           {/* Right actions */}
           <div className="flex items-center gap-2 ml-auto">
 
+            {/* Language switcher */}
+            <LanguageSwitcher currentLocale={locale} />
+
             {/* Cart */}
-            {isClient && (
+            {showClientUI && (
               <Link
                 href="/panier"
                 className="relative flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
-                aria-label="Panier"
+                aria-label={t("cart")}
               >
                 <IconCart />
                 {cartCount > 0 && (
@@ -320,7 +331,7 @@ export default function PublicSidebar() {
                 <button
                   onClick={() => signOut({ callbackUrl: "/" })}
                   className="flex items-center justify-center w-9 h-9 text-text-muted hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
-                  aria-label="Déconnexion"
+                  aria-label={t("logout")}
                 >
                   <IconLogout />
                 </button>
@@ -330,7 +341,7 @@ export default function PublicSidebar() {
                 href="/connexion"
                 className="hidden md:inline-flex btn-primary text-xs py-2 px-4"
               >
-                Connexion Pro
+                {t("login")}
               </Link>
             )}
 
@@ -392,10 +403,10 @@ export default function PublicSidebar() {
                 </Link>
               ))}
 
-              {isClient && (
+              {showClientUI && (
                 <>
                   <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-[family-name:var(--font-roboto)] px-3 pb-1 pt-4">
-                    Mon espace
+                    {t("account")}
                   </p>
                   {CLIENT_LINKS.map((link) => (
                     <Link
@@ -418,6 +429,14 @@ export default function PublicSidebar() {
                   ))}
                 </>
               )}
+
+              {/* Language switcher in mobile drawer */}
+              <div className="px-3 pt-4">
+                <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-[family-name:var(--font-roboto)] pb-2">
+                  Langue / Language
+                </p>
+                <LanguageSwitcher currentLocale={locale} />
+              </div>
             </nav>
 
             {/* Drawer footer */}
@@ -438,7 +457,7 @@ export default function PublicSidebar() {
                     className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
                   >
                     <IconLogout />
-                    Se déconnecter
+                    {t("logout")}
                   </button>
                 </>
               ) : (
@@ -447,7 +466,7 @@ export default function PublicSidebar() {
                   onClick={() => setMobileOpen(false)}
                   className="btn-primary w-full justify-center"
                 >
-                  Connexion Pro
+                  {t("login")}
                 </Link>
               )}
             </div>
@@ -457,6 +476,29 @@ export default function PublicSidebar() {
 
       {/* Spacer for fixed navbar */}
       <div className="h-16" />
+
+      {/* ── Bandeau mode aperçu admin ── */}
+      {session?.user?.role === "ADMIN" && isAdminPreview && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#1A1A1A] text-white px-4 py-3 flex items-center justify-between gap-4 shadow-[0_-2px_12px_rgba(0,0,0,0.3)]">
+          <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)]">
+            <svg className="w-4 h-4 text-[#F59E0B] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            <span className="font-semibold text-[#F59E0B]">Mode aperçu admin</span>
+            <span className="text-white/60 hidden sm:inline">— Vous naviguez comme un client.</span>
+          </div>
+          <form action={disableAdminPreview}>
+            <button
+              type="submit"
+              disabled={previewPending}
+              className="text-xs font-[family-name:var(--font-roboto)] font-semibold bg-white text-[#1A1A1A] px-4 py-1.5 rounded-lg hover:bg-[#F0F0F0] transition-colors whitespace-nowrap disabled:opacity-60"
+            >
+              {previewPending ? "..." : t("backToAdmin")}
+            </button>
+          </form>
+        </div>
+      )}
     </>
   );
 }

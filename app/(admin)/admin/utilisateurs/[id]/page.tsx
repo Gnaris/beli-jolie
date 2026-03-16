@@ -10,9 +10,9 @@ import type { UserStatus } from "@prisma/client";
 
 /** Correspondance statut → styles */
 const STATUS_CONFIG: Record<UserStatus, { label: string; className: string }> = {
-  PENDING:  { label: "En attente de validation", className: "badge-warning px-4 py-2 text-sm" },
-  APPROVED: { label: "Compte approuvé",          className: "badge-success px-4 py-2 text-sm" },
-  REJECTED: { label: "Compte rejeté",            className: "badge-error px-4 py-2 text-sm" },
+  PENDING:  { label: "En attente de validation", className: "badge badge-warning" },
+  APPROVED: { label: "Compte approuvé",          className: "badge badge-success" },
+  REJECTED: { label: "Compte rejeté",            className: "badge badge-error" },
 };
 
 export async function generateMetadata({

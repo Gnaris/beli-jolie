@@ -198,7 +198,7 @@ export default async function DashboardPage() {
   });
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl">
+    <div className="p-6 md:p-10 w-full">
       <div className="flex gap-6">
         {/* -- Colonne principale (gauche) -- */}
         <div className="flex-1 min-w-0 space-y-6">
@@ -468,7 +468,7 @@ export default async function DashboardPage() {
         </div>
 
         {/* -- Colonne droite : Historique des produits commandes -- */}
-        <aside className="hidden lg:block w-[420px] shrink-0">
+        <aside className="hidden lg:block w-[460px] shrink-0">
           <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden sticky top-24">
             <div className="px-6 py-4 border-b border-[#E5E5E5]">
               <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
