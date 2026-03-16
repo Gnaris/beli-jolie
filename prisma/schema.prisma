@@ -34,9 +34,11 @@ model User {
   phone     String
   siret     String     @unique
   kbisPath  String
-  vatNumber String?    // Numéro TVA intracommunautaire (ex: FR12345678901)
-  role      Role       @default(CLIENT)
-  status    UserStatus @default(PENDING)
+  address          String?    // Adresse de l'entreprise
+  vatNumber        String?    // Numéro TVA intracommunautaire (ex: FR12345678901)
+  stripeCustomerId String?    @unique // cus_xxx — requis pour le virement bancaire
+  role             Role       @default(CLIENT)
+  status           UserStatus @default(PENDING)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -170,6 +172,8 @@ model Product {
   dimensionCircumference Float?
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
+
+  @@index([createdAt])
 }
 
 // Produits similaires (M2M self-relation)
@@ -305,12 +309,22 @@ model Order {
   tvaAmount  Float
   totalTTC   Float
 
+  // Stripe
+  stripePaymentIntentId String?  @unique // pi_xxx
+  paymentStatus         String   @default("pending") // pending | paid | failed
+
   // Easy-Express
   eeTrackingId String?  // Numéro de suivi
   eeLabelUrl   String?  // URL du bordereau PDF @db.Text
 
+  // Facture uploadée par l'admin
+  invoicePath String?  // Chemin relatif depuis /private/uploads/invoices/
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([userId, createdAt])
 }
 
 // Ligne de commande (snapshot produit au moment de la commande)

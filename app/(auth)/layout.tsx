@@ -5,34 +5,25 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function AuthLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#F5F5F5] flex flex-col">
-      {/* En-tête */}
-      <header className="bg-white border-b border-[#E5E5E5] py-4">
-        <div className="container-site flex justify-center">
-          <Link
-            href="/"
-            className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A] tracking-wide"
-          >
-            Beli <span className="text-[#999999]">&</span> Jolie
-          </Link>
-        </div>
-      </header>
+    <div className="min-h-screen flex flex-col bg-bg-primary">
+      {/* Header */}
+      <div className="flex items-center px-6 py-4 border-b border-border">
+        <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-bold text-text-primary">
+          Beli & Jolie
+        </Link>
+      </div>
 
-      {/* Contenu */}
-      <main className="flex-1 flex items-center justify-center py-10 px-4">
+      {/* Centered form */}
+      <main className="flex-1 flex items-center justify-center px-6 py-12">
         {children}
       </main>
 
-      {/* Pied de page */}
-      <footer className="py-4 border-t border-[#E5E5E5] bg-white text-center">
-        <p className="text-xs font-[family-name:var(--font-roboto)] text-[#999999]">
-          © {new Date().getFullYear()} Beli & Jolie — Plateforme réservée aux professionnels
+      {/* Footer */}
+      <footer className="px-6 py-4 border-t border-border text-center">
+        <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+          Plateforme réservée aux professionnels revendeurs
         </p>
       </footer>
     </div>

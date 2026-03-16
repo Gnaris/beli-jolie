@@ -37,7 +37,7 @@ export async function GET(
     return new NextResponse("Impossible de récupérer le bordereau.", { status: 502 });
   }
 
-  return new NextResponse(buffer, {
+  return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       "Content-Type":        "application/pdf",
       "Content-Disposition": `attachment; filename="bordereau-${order.orderNumber}.pdf"`,

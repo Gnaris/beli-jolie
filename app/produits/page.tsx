@@ -34,10 +34,10 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const minPrice    = minPriceParam ? parseFloat(minPriceParam) : null;
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
 
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   const where: Record<string, unknown> = {
+    // Cacher les produits entièrement hors-stock (toutes couleurs à stock 0)
+    NOT: { colors: { every: { stock: { equals: 0 } } } },
     ...(q && {
       OR: [
         { name:      { contains: q } },
@@ -51,7 +51,8 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     ...(colorId    && { colors: { some: { colorId } } }),
     ...(tagId      && { tags: { some: { tagId } } }),
     ...(bestseller_ && { isBestSeller: true }),
-    ...(isNew_      && { createdAt: { gte: thirtyDaysAgo } }),
+    // Nouveautés : produits créés dans les 30 derniers jours
+    ...(isNew_      && { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
     ...((minPrice !== null || maxPrice !== null) && {
       colors: {
         some: {
@@ -100,24 +101,25 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const initialHasMore = products.length === PER_PAGE && products.length < totalCount;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="min-h-screen bg-bg-secondary">
       <PublicSidebar />
-      <div className="flex-1 lg:ml-60 pt-14 lg:pt-0 min-w-0">
-        <main className="min-h-screen bg-[#F5F5F5]">
-          {/* En-tête page */}
-          <div className="bg-white border-b border-[#E5E5E5]">
-            <div className="container-site py-6">
-              <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A]">
-                Catalogue
-              </h1>
-              <p className="text-sm text-[#999999] font-[family-name:var(--font-roboto)] mt-0.5">
-                Bijoux en acier inoxydable — tarifs professionnels
-              </p>
-            </div>
-          </div>
+      <main>
+      {/* En-tete page */}
+      <div className="bg-bg-primary border-b border-border">
+        <div className="container-site py-6">
+          <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
+            Catalogue
+          </h1>
+          <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+            Bijoux en acier inoxydable — tarifs professionnels
+          </p>
+        </div>
+      </div>
 
-          <div className="container-site py-6 space-y-5">
-            {/* Filtres */}
+      <div className="py-6 pl-3 pr-4 sm:pl-4 sm:pr-6 lg:pr-8">
+        <div className="flex gap-5">
+          {/* Sidebar filtres — desktop */}
+          <aside className="hidden lg:block w-60 shrink-0">
             <Suspense>
               <SearchFilters
                 categories={categories}
@@ -127,6 +129,23 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
                 totalCount={totalCount}
               />
             </Suspense>
+          </aside>
+
+          {/* Contenu principal */}
+          <div className="flex-1 min-w-0 space-y-5">
+            {/* Barre mobile : filtres + compteur */}
+            <div className="lg:hidden">
+              <Suspense>
+                <SearchFilters
+                  categories={categories}
+                  collections={collections}
+                  colors={colors}
+                  tags={tags}
+                  totalCount={totalCount}
+                  mobileMode
+                />
+              </Suspense>
+            </div>
 
             {/* Grille + infinite scroll */}
             <Suspense>
@@ -136,9 +155,10 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
               />
             </Suspense>
           </div>
-        </main>
-        <Footer />
+        </div>
       </div>
+      </main>
+      <Footer />
     </div>
   );
 }

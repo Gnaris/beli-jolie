@@ -18,7 +18,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, allProducts] = await Promise.all([
+  const [product, categories, colors, compositions, allProducts, tags] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -34,7 +34,23 @@ export default async function ModifierProduitPage({
           orderBy:  { percentage: "desc" },
         },
         subCategories:   { select: { id: true } },
-        similarProducts: { select: { similarId: true } },
+        similarProducts: {
+          include: {
+            similar: {
+              select: {
+                id: true,
+                name: true,
+                reference: true,
+                category: { select: { name: true } },
+                colors: {
+                  orderBy: { isPrimary: "desc" },
+                  select: { images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 } },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
         tags:            { include: { tag: true } },
       },
     }),
@@ -48,6 +64,7 @@ export default async function ModifierProduitPage({
       orderBy: { name: "asc" },
       select:  { id: true, name: true, reference: true },
     }),
+    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
   if (!product) notFound();
@@ -56,10 +73,10 @@ export default async function ModifierProduitPage({
     tempId:       uid(),
     colorId:      pc.colorId,
     colorName:    pc.color.name,
-    colorHex:     pc.color.hex ?? "#94A3B8",
+    colorHex:     pc.color.hex ?? "#9CA3AF",
     unitPrice:    String(pc.unitPrice),
     weight:       String(pc.weight),
-    stock:        String((pc as unknown as { stock?: number }).stock ?? pc.saleOptions[0]?.stock ?? 0),
+    stock:        String((pc as unknown as { stock?: number }).stock ?? 0),
     isPrimary:    pc.isPrimary,
     saleOptions:  pc.saleOptions.map((opt) => ({
       tempId:        uid(),
@@ -78,18 +95,18 @@ export default async function ModifierProduitPage({
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       <div>
-        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8] mb-2">
-          <Link href="/admin/produits" className="hover:text-[#0F3460] transition-colors">Produits</Link>
+        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-2">
+          <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
           <span>/</span>
-          <span className="text-[#475569] truncate max-w-xs">{product.name}</span>
+          <span className="text-text-secondary truncate max-w-xs">{product.name}</span>
           <span>/</span>
-          <span className="text-[#475569]">Modifier</span>
+          <span className="text-text-secondary">Modifier</span>
         </div>
-        <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-bold text-[#0F172A]">
+        <h1 className="page-title">
           Modifier le produit
         </h1>
-        <p className="text-base text-[#94A3B8] font-[family-name:var(--font-roboto)] mt-1">
-          Réf. <span className="font-mono font-semibold text-[#475569]">{product.reference}</span>
+        <p className="text-base text-text-muted font-[family-name:var(--font-roboto)] mt-1">
+          Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
         </p>
       </div>
 
@@ -98,6 +115,7 @@ export default async function ModifierProduitPage({
         availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
         allProducts={allProducts.filter((p) => p.id !== id)}
+        availableTags={tags}
         mode="edit"
         productId={product.id}
         initialData={{
@@ -111,7 +129,14 @@ export default async function ModifierProduitPage({
             compositionId: c.compositionId,
             percentage:    String(c.percentage),
           })),
-          similarProductIds: product.similarProducts.map((sp) => sp.similarId),
+          similarProductIds: product.similarProducts.map((sp) => sp.similar.id),
+          similarProducts: product.similarProducts.map((sp) => ({
+            id: sp.similar.id,
+            name: sp.similar.name,
+            reference: sp.similar.reference,
+            category: sp.similar.category.name,
+            image: sp.similar.colors[0]?.images[0]?.path ?? null,
+          })),
           tagNames:          product.tags.map((t) => t.tag.name),
           isBestSeller:      product.isBestSeller,
           dimLength:        product.dimensionLength != null ? String(product.dimensionLength) : "",

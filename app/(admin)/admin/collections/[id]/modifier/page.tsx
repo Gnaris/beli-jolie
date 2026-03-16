@@ -118,7 +118,7 @@ export default function EditCollectionPage() {
   if (!collection) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="w-6 h-6 border-2 border-[#0F172A] border-t-transparent rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-bg-dark border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -129,44 +129,44 @@ export default function EditCollectionPage() {
       <div className="flex items-center gap-3">
         <Link
           href="/admin/collections"
-          className="text-[#475569] hover:text-[#0F172A] transition-colors"
+          className="text-text-muted hover:text-text-primary transition-colors"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
         </Link>
         <div>
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
+          <h1 className="page-title">
             {collection.name}
           </h1>
-          <p className="text-sm text-[#475569] font-[family-name:var(--font-roboto)]">
+          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
             Modifier la collection
           </p>
         </div>
       </div>
 
       {/* Infos générales */}
-      <div className="bg-white border border-[#E2E8F0] rounded-lg p-6 space-y-5">
-        <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A]">
+      <div className="card p-6 space-y-5">
+        <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
           Informations générales
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5 rounded-md">
+            <div className="bg-[#FEE2E2] border border-[#FECACA] text-error text-sm px-4 py-2.5 rounded-xl">
               {error}
             </div>
           )}
           {success && (
-            <div className="bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-2.5 rounded-md">
+            <div className="bg-accent-light border border-accent/30 text-accent-dark text-sm px-4 py-2.5 rounded-xl">
               Collection mise à jour avec succès.
             </div>
           )}
 
           {/* Nom */}
           <div>
-            <label className="block text-sm font-medium text-[#0F172A] mb-1.5 font-[family-name:var(--font-roboto)]">
-              Nom <span className="text-red-500">*</span>
+            <label className="field-label font-[family-name:var(--font-roboto)]">
+              Nom <span className="text-error">*</span>
             </label>
             <input
               type="text"
@@ -179,18 +179,18 @@ export default function EditCollectionPage() {
 
           {/* Image */}
           <div>
-            <label className="block text-sm font-medium text-[#0F172A] mb-1.5 font-[family-name:var(--font-roboto)]">
+            <label className="field-label font-[family-name:var(--font-roboto)]">
               Image
             </label>
             {preview ? (
-              <div className="relative w-40 h-40 rounded-lg overflow-hidden border border-[#E2E8F0]">
+              <div className="relative w-40 h-40 rounded-xl overflow-hidden border border-border">
                 <img src={preview} alt="Aperçu" className="w-full h-full object-cover" />
                 <button
                   type="button"
                   onClick={() => { setImage(null); setPreview(null); }}
                   className="absolute top-1.5 right-1.5 bg-white/90 rounded-full p-1 hover:bg-white shadow-sm"
                 >
-                  <svg className="w-3.5 h-3.5 text-[#1A1A1A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-3.5 h-3.5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
@@ -200,7 +200,7 @@ export default function EditCollectionPage() {
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading}
-                className="w-40 h-40 border-2 border-dashed border-[#E2E8F0] rounded-lg flex flex-col items-center justify-center gap-1.5 text-[#94A3B8] hover:border-[#94A3B8] transition-colors text-xs font-[family-name:var(--font-roboto)]"
+                className="w-40 h-40 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-1.5 text-text-muted hover:border-border-dark hover:text-text-secondary transition-colors text-xs font-[family-name:var(--font-roboto)]"
               >
                 {uploading ? "Téléchargement…" : (
                   <>
@@ -233,8 +233,8 @@ export default function EditCollectionPage() {
       </div>
 
       {/* Products manager */}
-      <div className="bg-white border border-[#E2E8F0] rounded-lg p-6">
-        <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A] mb-5">
+      <div className="card p-6">
+        <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-5">
           Produits de la collection
         </h2>
         <CollectionProductManager
@@ -249,7 +249,7 @@ export default function EditCollectionPage() {
         <Link
           href={`/collections/${params.id}`}
           target="_blank"
-          className="text-sm text-[#0F3460] hover:underline font-[family-name:var(--font-roboto)]"
+          className="text-sm text-text-secondary hover:text-text-primary hover:underline font-[family-name:var(--font-roboto)]"
         >
           Voir la collection en vitrine →
         </Link>

@@ -76,8 +76,6 @@ export async function fetchEasyExpressRates(
     });
 
     const rawText = await res.text();
-    console.log("[easy-express/rates] Status:", res.status);
-    console.log("[easy-express/rates] Body:", rawText.slice(0, 500));
 
     if (!res.ok) {
       return { success: false, error: `Easy-Express rates (${res.status}): ${rawText.slice(0, 200)}` };
@@ -100,9 +98,6 @@ export async function fetchEasyExpressRates(
     const message     = response.Message as Record<string, unknown>;
     const transactionId = (message.transactionId ?? "") as string;
     const rawCarriers   = (message.carriers ?? []) as Record<string, unknown>[];
-
-    console.log("[easy-express/rates] transactionId:", transactionId);
-    console.log("[easy-express/rates] carriers count:", rawCarriers.length);
 
     const carriers: RatesCarrier[] = rawCarriers.map((c) => {
       const infos = (c.infos ?? {}) as Record<string, unknown>;
@@ -211,11 +206,8 @@ export async function createEasyExpressShipment(
     });
 
     const rawText = await res.text();
-    console.log("[easy-express/checkout] Status:", res.status);
-    console.log("[easy-express/checkout] Body:", rawText.slice(0, 500));
 
     if (!res.ok) {
-      console.error("[easy-express/checkout] Erreur:", res.status, rawText);
       return { success: false, error: `Easy-Express checkout (${res.status}): ${rawText.slice(0, 200)}` };
     }
 
@@ -239,9 +231,6 @@ export async function createEasyExpressShipment(
     const trackingId = (first.tracking ?? "") as string;
     // "labels" = PDF combiné de tous les bordereaux, "ticket" = label individuel
     const labelUrl   = (message.labels ?? first.ticket ?? "") as string;
-
-    console.log("[easy-express/checkout] trackingId:", trackingId);
-    console.log("[easy-express/checkout] labelUrl:", labelUrl);
 
     if (!trackingId) {
       return { success: false, error: "Easy-Express: numéro de suivi absent de la réponse." };

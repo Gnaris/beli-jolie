@@ -50,7 +50,7 @@ export default function AdminProductsFilters({ totalCount }: Props) {
       {/* Recherche */}
       <div className="relative flex-1 max-w-sm">
         <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94A3B8]"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted"
           fill="none" stroke="currentColor" viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -60,17 +60,17 @@ export default function AdminProductsFilters({ totalCount }: Props) {
           type="search"
           defaultValue={q}
           onChange={(e) => navigate({ q: e.target.value })}
-          placeholder="Rechercher un produit, une référence…"
-          className="w-full pl-9 pr-3 py-2 border border-[#E2E8F0] bg-white text-sm font-[family-name:var(--font-roboto)] text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#0F3460] transition-colors"
+          placeholder="Rechercher un produit, une reference..."
+          className="w-full pl-9 pr-3 py-2 border border-border bg-bg-primary text-sm font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors rounded-lg"
         />
       </div>
 
-      {/* Séparateur */}
-      <div className="hidden sm:block h-5 w-px bg-[#E2E8F0]" />
+      {/* Separateur */}
+      <div className="hidden sm:block h-5 w-px bg-border" />
 
-      {/* Quantité par page */}
+      {/* Quantite par page */}
       <div className="flex items-center gap-2 shrink-0">
-        <span className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)] whitespace-nowrap">
+        <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)] whitespace-nowrap">
           Afficher
         </span>
         <div className="flex items-center gap-1">
@@ -79,10 +79,10 @@ export default function AdminProductsFilters({ totalCount }: Props) {
               key={n}
               type="button"
               onClick={() => navigate({ perPage: String(n) })}
-              className={`px-2.5 py-1 text-xs font-[family-name:var(--font-roboto)] border transition-colors ${
+              className={`px-2.5 py-1 text-xs font-[family-name:var(--font-roboto)] border rounded-lg transition-colors ${
                 String(n) === perPage
-                  ? "bg-[#0F3460] text-white border-[#0F3460]"
-                  : "bg-white text-[#475569] border-[#E2E8F0] hover:border-[#0F3460] hover:text-[#0F3460]"
+                  ? "bg-bg-dark text-white border-bg-dark"
+                  : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark hover:text-text-primary"
               }`}
             >
               {n}
@@ -97,23 +97,23 @@ export default function AdminProductsFilters({ totalCount }: Props) {
               value={customValue}
               onChange={(e) => setCustomValue(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") applyCustom(); }}
-              placeholder={!isPreset ? perPage : "…"}
-              className={`w-16 px-2 py-1 text-xs border font-[family-name:var(--font-roboto)] text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#0F3460] transition-colors ${
-                !isPreset ? "border-[#0F3460] bg-[#EFF6FF]" : "border-[#E2E8F0] bg-white"
+              placeholder={!isPreset ? perPage : "..."}
+              className={`w-16 px-2 py-1 text-xs border rounded-lg font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors ${
+                !isPreset ? "border-bg-dark bg-bg-secondary" : "border-border bg-bg-primary"
               }`}
             />
             {customValue && (
               <button
                 type="button"
                 onClick={applyCustom}
-                className="px-2 py-1 text-xs bg-[#0F3460] text-white font-[family-name:var(--font-roboto)] hover:bg-[#0A2540] transition-colors"
+                className="px-2 py-1 text-xs bg-bg-dark text-white font-[family-name:var(--font-roboto)] rounded-lg hover:bg-neutral-800 transition-colors"
               >
                 OK
               </button>
             )}
           </div>
         </div>
-        <span className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)] whitespace-nowrap">
+        <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)] whitespace-nowrap">
           / {totalCount} produit{totalCount > 1 ? "s" : ""}
         </span>
       </div>
@@ -123,9 +123,9 @@ export default function AdminProductsFilters({ totalCount }: Props) {
         <button
           type="button"
           onClick={() => navigate({ q: null })}
-          className="text-xs text-[#94A3B8] hover:text-[#0F172A] font-[family-name:var(--font-roboto)] underline shrink-0 transition-colors"
+          className="text-xs text-text-muted hover:text-text-primary font-[family-name:var(--font-roboto)] underline shrink-0 transition-colors"
         >
-          Réinitialiser
+          Reinitialiser
         </button>
       )}
     </div>

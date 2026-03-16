@@ -3,28 +3,16 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 
-/**
- * Layout espace client — sidebar gauche + contenu droit
- */
-export default async function ClientLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function ClientLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
 
-  if (!session) {
-    redirect("/connexion?callbackUrl=/espace-pro");
-  }
-
-  if (session.user.role === "ADMIN") {
-    redirect("/admin");
-  }
+  if (!session) redirect("/connexion?callbackUrl=/espace-pro");
+  if (session.user.role === "ADMIN") redirect("/admin");
 
   return (
-    <div className="flex min-h-screen">
+    <div className="min-h-screen bg-bg-secondary">
       <PublicSidebar />
-      <main className="flex-1 lg:ml-60 pt-14 lg:pt-0 min-w-0">
+      <main className="min-h-[calc(100vh-64px)]">
         {children}
       </main>
     </div>

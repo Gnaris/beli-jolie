@@ -4,79 +4,76 @@ import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import type { Metadata } from "next";
 import LogoutButton from "@/components/admin/LogoutModal";
+import AdminMobileNav from "@/components/admin/AdminMobileNav";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/**
- * Layout du panel d'administration
- * Double vérification serveur : si non ADMIN → redirect /connexion
- * (Le middleware assure déjà la protection, ceci est un filet de sécurité)
- */
-export default async function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
-  if (!session || session.user.role !== "ADMIN") {
-    redirect("/connexion");
-  }
+  const initials = session.user.name
+    ? session.user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
+    : "A";
 
   return (
-    <div className="min-h-screen bg-[#FFFFFF] flex">
+    <div className="min-h-screen bg-bg-secondary flex">
 
-      {/* Sidebar admin */}
-      <aside className="w-64 shrink-0 bg-[#0F172A] hidden lg:flex flex-col fixed top-0 left-0 h-screen">
+      {/* ===== SIDEBAR - fixed left (desktop) ===== */}
+      <aside className="w-[260px] shrink-0 bg-bg-primary border-r border-border hidden lg:flex flex-col fixed top-0 left-0 h-screen z-40">
+
         {/* Logo */}
-        <div className="px-6 py-6 border-b border-[#475569]/40">
-          <Link href="/" className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#FFFFFF] tracking-wide">
-            Beli <span className="text-[#94A3B8]">&</span> Jolie
+        <div className="px-6 py-5 border-b border-border">
+          <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-bold text-text-primary tracking-tight">
+            Beli & Jolie
           </Link>
-          <p className="text-xs text-[#475569] mt-1 font-[family-name:var(--font-roboto)]">
-            Panel Administrateur
+          <p className="text-[10px] text-text-muted mt-0.5 font-[family-name:var(--font-roboto)] uppercase tracking-wider">
+            Administration
           </p>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto" aria-label="Navigation admin">
+        <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-0.5" aria-label="Navigation admin">
           {ADMIN_NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center gap-3 px-3 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#E2E8F0] hover:text-[#FFFFFF] hover:bg-[#1E3A5F] rounded-sm transition-colors"
+              className="flex items-center gap-3 px-3 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors group"
             >
-              <span className="text-[#94A3B8]" aria-hidden="true">{item.icon}</span>
+              <span className="text-text-muted group-hover:text-text-secondary transition-colors" aria-hidden="true">
+                {item.icon}
+              </span>
               {item.label}
             </Link>
           ))}
         </nav>
 
-        {/* Footer sidebar */}
-        <div className="px-4 py-4 border-t border-[#475569]/40">
-          <div className="px-3 py-2">
-            <p className="text-xs font-[family-name:var(--font-roboto)] text-[#94A3B8]">
-              Connecté en tant que
-            </p>
-            <p className="text-sm font-[family-name:var(--font-roboto)] font-medium text-[#FFFFFF] truncate">
-              {session.user.name}
-            </p>
+        {/* User / Logout */}
+        <div className="px-3 py-4 border-t border-border">
+          <div className="flex items-center gap-3 px-3 py-2.5 mb-1 bg-bg-secondary rounded-lg">
+            <div className="w-8 h-8 rounded-full bg-bg-dark flex items-center justify-center shrink-0">
+              <span className="text-text-inverse text-[11px] font-bold font-[family-name:var(--font-roboto)]">{initials}</span>
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-text-primary truncate font-[family-name:var(--font-roboto)] leading-tight">
+                {session.user.name}
+              </p>
+              <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)] leading-tight truncate">
+                Administrateur
+              </p>
+            </div>
           </div>
           <LogoutButton />
         </div>
       </aside>
 
-      {/* Contenu principal */}
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
-        {/* Header admin mobile */}
-        <header className="lg:hidden bg-[#0F172A] px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#FFFFFF]">
-            Beli <span className="text-[#94A3B8]">&</span> Jolie
-          </Link>
-          <span className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)]">Admin</span>
-        </header>
+      {/* ===== MAIN CONTENT ===== */}
+      <div className="flex-1 flex flex-col min-w-0 lg:ml-[260px]">
+
+        {/* Mobile header + slide-in drawer */}
+        <AdminMobileNav userName={session.user.name ?? "Admin"} initials={initials} />
 
         <main className="flex-1 p-6 md:p-8">
           {children}
@@ -86,9 +83,7 @@ export default async function AdminLayout({
   );
 }
 
-// ─────────────────────────────────────────────
-// Liens de navigation admin
-// ─────────────────────────────────────────────
+/* --- Admin navigation --------------------------- */
 const ADMIN_NAV = [
   {
     label: "Tableau de bord",
@@ -100,16 +95,7 @@ const ADMIN_NAV = [
     ),
   },
   {
-    label: "Comptes en attente",
-    href: "/admin/utilisateurs?status=PENDING",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Tous les clients",
+    label: "Clients",
     href: "/admin/utilisateurs",
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -123,6 +109,34 @@ const ADMIN_NAV = [
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Commandes",
+    href: "/admin/commandes",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Collections",
+    href: "/admin/collections",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Catégories",
+    href: "/admin/categories",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 6h.008v.008H6V6z" />
       </svg>
     ),
   },
@@ -145,30 +159,11 @@ const ADMIN_NAV = [
     ),
   },
   {
-    label: "Catégories",
-    href: "/admin/categories",
+    label: "Mots clés",
+    href: "/admin/mots-cles",
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 6h.008v.008H6V6z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Commandes",
-    href: "/admin/commandes",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Collections",
-    href: "/admin/collections",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3zM6 6h.008v.008H6V6z" />
       </svg>
     ),
   },

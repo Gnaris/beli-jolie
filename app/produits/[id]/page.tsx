@@ -24,6 +24,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     include: {
       category:      { select: { name: true } },
       subCategories: { select: { name: true } },
+      tags:          { include: { tag: { select: { id: true, name: true } } } },
       colors: {
         include: {
           color:       { select: { name: true, hex: true } },
@@ -41,7 +42,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
           similar: {
             include: {
               colors: {
-                where:   { isPrimary: true },
+                orderBy: { isPrimary: "desc" },
                 include: { images: { orderBy: { order: "asc" }, take: 1 }, color: { select: { name: true } } },
                 take: 1,
               },
@@ -68,23 +69,23 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="min-h-screen">
       <PublicSidebar />
-      <div className="flex-1 lg:ml-60 pt-14 lg:pt-0 min-w-0">
-        <main className="min-h-screen bg-[#F5F5F5]">
+      <div className="min-w-0">
+        <main className="min-h-screen bg-bg-secondary">
           <div className="container-site py-10">
 
             {/* Fil d'Ariane */}
-            <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#999999] mb-8">
-              <Link href="/produits" className="hover:text-[#1A1A1A] transition-colors">
+            <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-8">
+              <Link href="/produits" className="hover:text-text-primary transition-colors">
                 Produits
               </Link>
-              <span className="text-[#E5E5E5]">/</span>
-              <Link href={`/produits?cat=${product.categoryId}`} className="hover:text-[#1A1A1A] transition-colors">
+              <span className="text-border">/</span>
+              <Link href={`/produits?cat=${product.categoryId}`} className="hover:text-text-primary transition-colors">
                 {product.category.name}
               </Link>
-              <span className="text-[#E5E5E5]">/</span>
-              <span className="text-[#555555] truncate">{product.name}</span>
+              <span className="text-border">/</span>
+              <span className="text-text-secondary truncate">{product.name}</span>
             </nav>
 
             <ProductDetail
@@ -99,7 +100,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               hex:        pc.color.hex,
               unitPrice:  pc.unitPrice,
               weight:     pc.weight,
-              stock:      (pc as unknown as { stock?: number }).stock ?? pc.saleOptions[0]?.stock ?? 0,
+              stock:      (pc as unknown as { stock?: number }).stock ?? 0,
               isPrimary:  pc.isPrimary,
               images:     pc.images.map((img) => ({ path: img.path, order: img.order })),
               saleOptions: pc.saleOptions.map((opt) => ({
@@ -122,6 +123,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               diameter:      product.dimensionDiameter,
               circumference: product.dimensionCircumference,
             }}
+            tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
             similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
           />
           </div>

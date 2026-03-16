@@ -63,11 +63,11 @@ function SidebarNav({ pathname, cartCount, session, onLogout }: SidebarNavProps)
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className="px-6 py-5 border-b border-[#E5E5E5]">
-        <Link href="/produits" className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#1A1A1A] tracking-wide">
-          Beli <span className="text-[#999999]">&amp;</span> Jolie
+      <div className="px-6 py-5 border-b border-border">
+        <Link href="/produits" className="font-[family-name:var(--font-poppins)] text-lg font-bold text-text-primary tracking-tight">
+          Beli & Jolie
         </Link>
-        <p className="text-[10px] text-[#999999] font-[family-name:var(--font-roboto)] mt-0.5 uppercase tracking-widest">
+        <p className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)] mt-0.5 uppercase tracking-widest">
           Espace Professionnel
         </p>
       </div>
@@ -80,18 +80,18 @@ function SidebarNav({ pathname, cartCount, session, onLogout }: SidebarNavProps)
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-[family-name:var(--font-roboto)] transition-colors ${
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-[family-name:var(--font-roboto)] transition-colors ${
                 active
-                  ? "bg-[#1A1A1A] text-white"
-                  : "text-[#555555] hover:bg-[#F5F5F5] hover:text-[#1A1A1A]"
+                  ? "bg-bg-dark text-text-inverse"
+                  : "text-text-secondary hover:bg-bg-secondary hover:text-text-primary"
               }`}
             >
-              <span className={active ? "text-white" : "text-[#999999]"}>
+              <span className={active ? "text-text-inverse" : "text-text-muted"}>
                 {item.icon}
               </span>
               {item.label}
               {item.showBadge && cartCount > 0 && (
-                <span className={`ml-auto min-w-[20px] h-5 ${active ? "bg-white text-[#1A1A1A]" : "bg-[#1A1A1A] text-white"} text-[10px] font-bold rounded-full flex items-center justify-center px-1`}>
+                <span className={`ml-auto min-w-[20px] h-5 ${active ? "bg-white text-text-primary" : "bg-bg-dark text-text-inverse"} text-[10px] font-bold rounded-full flex items-center justify-center px-1`}>
                   {cartCount > 99 ? "99+" : cartCount}
                 </span>
               )}
@@ -101,13 +101,13 @@ function SidebarNav({ pathname, cartCount, session, onLogout }: SidebarNavProps)
       </nav>
 
       {/* Footer sidebar */}
-      <div className="px-3 py-4 border-t border-[#E5E5E5] space-y-0.5">
+      <div className="px-3 py-4 border-t border-border space-y-0.5">
         {session?.user && (
           <div className="px-3 py-2.5 mb-1">
-            <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#1A1A1A] truncate">
+            <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-primary truncate">
               {(session.user.company as string) || session.user.name}
             </p>
-            <p className="text-[11px] text-[#999999] font-[family-name:var(--font-roboto)] truncate mt-0.5">
+            <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)] truncate mt-0.5">
               {session.user.email}
             </p>
           </div>
@@ -115,7 +115,7 @@ function SidebarNav({ pathname, cartCount, session, onLogout }: SidebarNavProps)
         <button
           type="button"
           onClick={onLogout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-[family-name:var(--font-roboto)] text-[#999999] hover:bg-[#F5F5F5] hover:text-[#1A1A1A] transition-colors w-full"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-[family-name:var(--font-roboto)] text-text-muted hover:bg-bg-secondary hover:text-text-primary transition-colors w-full"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -156,17 +156,17 @@ export default function ClientSidebar() {
 
   return (
     <>
-      {/* Sidebar desktop */}
-      <aside className="hidden lg:flex flex-col fixed left-0 top-0 h-screen w-60 bg-white border-r border-[#E5E5E5] z-40">
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:flex flex-col fixed left-0 top-0 h-screen w-[260px] bg-bg-primary border-r border-border z-40">
         <SidebarNav {...navProps} />
       </aside>
 
-      {/* Header mobile */}
-      <header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-[#E5E5E5] h-14 flex items-center justify-between px-4">
+      {/* Mobile header */}
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-bg-primary border-b border-border h-14 flex items-center justify-between px-4">
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
-          className="p-2 text-[#1A1A1A]"
+          className="p-2 text-text-primary"
           aria-label="Ouvrir le menu"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -174,36 +174,36 @@ export default function ClientSidebar() {
           </svg>
         </button>
 
-        <Link href="/produits" className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
-          Beli <span className="text-[#999999]">&amp;</span> Jolie
+        <Link href="/produits" className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary">
+          Beli & Jolie
         </Link>
 
-        <Link href="/panier" className="relative p-2 text-[#1A1A1A]" aria-label="Panier">
+        <Link href="/panier" className="relative p-2 text-text-primary" aria-label="Panier">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
           </svg>
           {cartCount > 0 && (
-            <span className="absolute top-0 right-0 min-w-[16px] h-4 bg-[#1A1A1A] text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5">
+            <span className="absolute top-0 right-0 min-w-[16px] h-4 bg-bg-dark text-text-inverse text-[9px] font-bold rounded-full flex items-center justify-center px-0.5">
               {cartCount > 99 ? "99+" : cartCount}
             </span>
           )}
         </Link>
       </header>
 
-      {/* Drawer mobile */}
+      {/* Mobile drawer */}
       {mobileOpen && (
         <>
           <div
             className="lg:hidden fixed inset-0 z-50 bg-black/40"
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="lg:hidden fixed left-0 top-0 h-screen w-64 bg-white z-50 border-r border-[#E5E5E5]">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[#E5E5E5]">
-              <span className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">Menu</span>
+          <aside className="lg:hidden fixed left-0 top-0 h-screen w-[260px] bg-bg-primary z-50 border-r border-border">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary">Menu</span>
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                className="p-1 text-[#999999] hover:text-[#1A1A1A]"
+                className="p-1 text-text-muted hover:text-text-primary"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
@@ -215,17 +215,17 @@ export default function ClientSidebar() {
         </>
       )}
 
-      {/* Modal déconnexion */}
+      {/* Logout modal */}
       {logoutOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
           onClick={() => setLogoutOpen(false)}
         >
-          <div className="bg-white w-full max-w-sm p-6 rounded-lg shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-2">
+          <div className="bg-bg-primary w-full max-w-sm p-6 rounded-xl shadow-xl border border-border" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-2">
               Confirmer la déconnexion
             </h3>
-            <p className="text-sm text-[#555555] font-[family-name:var(--font-roboto)] mb-5">
+            <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-5">
               Voulez-vous vraiment quitter votre session ?
             </p>
             <div className="flex gap-3">
@@ -234,7 +234,7 @@ export default function ClientSidebar() {
                 Déconnexion
               </button>
               <button type="button" onClick={() => setLogoutOpen(false)}
-                className="flex-1 btn-outline justify-center">
+                className="flex-1 btn-secondary justify-center">
                 Annuler
               </button>
             </div>

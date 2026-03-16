@@ -7,14 +7,20 @@ export const metadata: Metadata = {
   description: "Connectez-vous à votre espace professionnel Beli & Jolie.",
 };
 
-/**
- * Page de connexion
- * LoginForm est wrappé dans Suspense car il utilise useSearchParams()
- */
 export default function ConnexionPage() {
   return (
-    <Suspense fallback={<div className="w-full max-w-md h-64 bg-[#FFFFFF] border border-[#E2E8F0] animate-pulse" />}>
-      <LoginForm />
-    </Suspense>
+    <div className="w-full max-w-md mx-auto">
+      <Suspense fallback={<div className="w-full h-64 card animate-pulse" />}>
+        <LoginForm />
+      </Suspense>
+      <p className="text-center mt-6">
+        <a
+          href="/inscription"
+          className="text-sm font-medium text-text-secondary font-[family-name:var(--font-roboto)] hover:text-text-primary transition-colors"
+        >
+          Créer un compte professionnel →
+        </a>
+      </p>
+    </div>
   );
 }

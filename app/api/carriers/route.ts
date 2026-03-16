@@ -55,12 +55,13 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  const CARRIER_MARGIN = 5; // marge en euros
   return NextResponse.json({
     transactionId: result.transactionId,
     carriers: result.carriers.map((c) => ({
       id:    c.carrierId,
       name:  c.name,
-      price: c.price,
+      price: Math.round((c.price + CARRIER_MARGIN) * 100) / 100,
       delay: c.delay,
       logo:  c.logo,
     })),
@@ -72,28 +73,29 @@ export async function POST(request: NextRequest) {
  * Les IDs fallback sont préfixés "fallback_" pour les distinguer des vrais carriers.
  */
 function getFallbackCarriers(country: string, weightKg: number) {
+  const MARGIN = 5; // marge en euros
   const isFrance = country === "FR";
   const isEU     = ["BE","LU","DE","ES","IT","NL","PT","AT","CH"].includes(country);
 
   if (isFrance) {
     const colissimo = weightKg <= 0.5 ? 4.95 : weightKg <= 2 ? 7.50 : 12.00;
     return [
-      { id: "fallback_colissimo_dom", name: "Colissimo — Domicile",     price: colissimo,     delay: "48h ouvrées" },
-      { id: "fallback_colissimo_rel", name: "Colissimo — Point Relais", price: colissimo - 1, delay: "48h ouvrées" },
-      { id: "fallback_chronopost",    name: "Chronopost 13h",           price: colissimo + 6, delay: "Le lendemain avant 13h" },
+      { id: "fallback_colissimo_dom", name: "Colissimo — Domicile",     price: colissimo + MARGIN,     delay: "48h ouvrees" },
+      { id: "fallback_colissimo_rel", name: "Colissimo — Point Relais", price: colissimo - 1 + MARGIN, delay: "48h ouvrees" },
+      { id: "fallback_chronopost",    name: "Chronopost 13h",           price: colissimo + 6 + MARGIN, delay: "Le lendemain avant 13h" },
     ];
   }
 
   if (isEU) {
     const base = weightKg <= 1 ? 9.90 : weightKg <= 5 ? 15.00 : 25.00;
     return [
-      { id: "fallback_colissimo_eu", name: "Colissimo Europe",  price: base,      delay: "4-7 jours ouvrés" },
-      { id: "fallback_chrono_eu",    name: "Chronopost Europe", price: base + 10, delay: "2-3 jours ouvrés" },
+      { id: "fallback_colissimo_eu", name: "Colissimo Europe",  price: base + MARGIN,      delay: "4-7 jours ouvres" },
+      { id: "fallback_chrono_eu",    name: "Chronopost Europe", price: base + 10 + MARGIN, delay: "2-3 jours ouvres" },
     ];
   }
 
   const base = weightKg <= 1 ? 19.90 : weightKg <= 5 ? 32.00 : 55.00;
   return [
-    { id: "fallback_colissimo_intl", name: "Colissimo International", price: base, delay: "7-14 jours ouvrés" },
+    { id: "fallback_colissimo_intl", name: "Colissimo International", price: base + MARGIN, delay: "7-14 jours ouvres" },
   ];
 }

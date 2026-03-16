@@ -49,12 +49,12 @@ export default async function CollectionDetailPage({ params }: PageProps) {
   if (!collection) notFound();
 
   return (
-    <div className="flex min-h-screen">
+    <div className="min-h-screen">
       <PublicSidebar />
 
-      <div className="flex-1 lg:ml-60 pt-14 lg:pt-0 min-w-0">
+      <div className="min-w-0">
         {/* Header */}
-        <div className="bg-white border-b border-[#E5E5E5]">
+        <div className="bg-bg-primary border-b border-border">
           {/* Cover image */}
           {collection.image && (
             <div className="h-48 md:h-64 overflow-hidden">
@@ -67,17 +67,17 @@ export default async function CollectionDetailPage({ params }: PageProps) {
             </div>
           )}
           <div className="container-site py-6">
-            <div className="flex items-center gap-2 text-xs text-[#999999] font-[family-name:var(--font-roboto)] mb-2">
-              <Link href="/collections" className="hover:text-[#1A1A1A] transition-colors">
+            <div className="flex items-center gap-2 text-xs text-text-muted font-[family-name:var(--font-roboto)] mb-2">
+              <Link href="/collections" className="hover:text-text-primary transition-colors">
                 Collections
               </Link>
               <span>/</span>
-              <span className="text-[#1A1A1A]">{collection.name}</span>
+              <span className="text-text-primary">{collection.name}</span>
             </div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#1A1A1A]">
+            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary">
               {collection.name}
             </h1>
-            <p className="mt-1 text-sm text-[#999999] font-[family-name:var(--font-roboto)]">
+            <p className="mt-1 text-sm text-text-muted font-[family-name:var(--font-roboto)]">
               {collection.products.length} produit{collection.products.length !== 1 ? "s" : ""}
             </p>
           </div>
@@ -85,7 +85,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
 
         <main className="container-site py-8">
           {collection.products.length === 0 ? (
-            <div className="text-center py-20 text-[#999999] font-[family-name:var(--font-roboto)]">
+            <div className="text-center py-20 text-text-muted font-[family-name:var(--font-roboto)]">
               Cette collection ne contient pas encore de produits.
             </div>
           ) : (
@@ -100,12 +100,13 @@ export default async function CollectionDetailPage({ params }: PageProps) {
 
                 // Build colors array with chosen color marked as primary
                 const colors = p.colors.map((c) => ({
-                  id:         c.id,
-                  hex:        c.color.hex,
-                  name:       c.color.name,
-                  firstImage: c.images[0]?.path ?? null,
-                  unitPrice:  c.unitPrice,
-                  isPrimary:  cp.colorId ? c.id === cp.colorId : c.isPrimary,
+                  id:          c.id,
+                  hex:         c.color.hex,
+                  name:        c.color.name,
+                  firstImage:  c.images[0]?.path ?? null,
+                  unitPrice:   c.unitPrice,
+                  isPrimary:   cp.colorId ? c.id === cp.colorId : c.isPrimary,
+                  saleOptions: [] as { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null }[],
                 }));
 
                 return (

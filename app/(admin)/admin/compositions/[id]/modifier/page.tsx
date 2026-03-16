@@ -17,20 +17,18 @@ export default async function ModifierCompositionPage({
   return (
     <div className="max-w-md space-y-6">
       <div>
-        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#94A3B8] mb-1">
-          <Link href="/admin/compositions" className="hover:text-[#0F3460] transition-colors">Compositions</Link>
+        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-1">
+          <Link href="/admin/compositions" className="hover:text-text-primary transition-colors">Compositions</Link>
           <span>/</span>
-          <span className="text-[#475569] truncate">{composition.name}</span>
+          <span className="text-text-secondary truncate">{composition.name}</span>
         </div>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
-          Modifier la composition
-        </h1>
+        <h1 className="page-title">Modifier la composition</h1>
       </div>
 
-      <div className="bg-white border border-[#E2E8F0] p-6">
+      <div className="card p-6">
         <form action={action} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-[#475569] uppercase tracking-wider mb-1.5 font-[family-name:var(--font-roboto)]">
+            <label className="field-label uppercase tracking-wider text-xs font-semibold">
               Nom de la composition
             </label>
             <input
@@ -43,16 +41,10 @@ export default async function ModifierCompositionPage({
             />
           </div>
           <div className="flex gap-3 pt-2">
-            <button
-              type="submit"
-              className="px-6 py-2.5 bg-[#0F3460] text-white text-sm font-medium hover:bg-[#0A2540] transition-colors font-[family-name:var(--font-roboto)]"
-            >
+            <button type="submit" className="btn-primary">
               Enregistrer
             </button>
-            <Link
-              href="/admin/compositions"
-              className="px-6 py-2.5 border border-[#E2E8F0] text-[#475569] text-sm hover:border-[#0F3460] hover:text-[#0F172A] transition-colors font-[family-name:var(--font-roboto)]"
-            >
+            <Link href="/admin/compositions" className="btn-secondary">
               Annuler
             </Link>
           </div>

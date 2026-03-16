@@ -29,6 +29,7 @@ export async function cancelOrder(orderId: string): Promise<void> {
 }
 import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
+import { stripe } from "@/lib/stripe";
 import nodemailer from "nodemailer";
 
 // ─────────────────────────────────────────────
@@ -42,6 +43,7 @@ export interface PlaceOrderInput {
   carrierName:   string;
   carrierPrice:  number;
   tvaRate:       number;
+  stripePaymentIntentId: string; // pi_xxx retourné par Stripe
 }
 
 export interface PlaceOrderResult {
@@ -117,9 +119,31 @@ export async function placeOrder(
   if (!cart || cart.items.length === 0) return { success: false, error: "Panier vide." };
   if (!address) return { success: false, error: "Adresse de livraison introuvable." };
 
+  // ── Vérifier le paiement Stripe côté serveur ───────────────────────────────
+  let paymentIntent;
+  try {
+    paymentIntent = await stripe.paymentIntents.retrieve(input.stripePaymentIntentId);
+  } catch (err) {
+    console.error("[placeOrder] Erreur retrieve PI:", err);
+    return { success: false, error: "Payment Intent introuvable." };
+  }
+  console.log(`[placeOrder] PI status: ${paymentIntent.status}, PI id: ${paymentIntent.id}`);
+  // "succeeded" = carte confirmée
+  // "processing" = virement en cours de traitement
+  // "requires_action" = virement bancaire — coordonnées affichées, en attente du virement
+  const validStatuses = ["succeeded", "processing", "requires_action"];
+  if (!validStatuses.includes(paymentIntent.status)) {
+    console.error(`[placeOrder] Statut refusé: ${paymentIntent.status}`);
+    return { success: false, error: `Le paiement n'a pas été confirmé (statut: ${paymentIntent.status}). Veuillez réessayer.` };
+  }
+
+  const isAwaitingTransfer = paymentIntent.status === "processing" || paymentIntent.status === "requires_action";
+
+  const cartItems = cart.items;
+
   // ── 2. Calculs ─────────────────────────────────────────────────────────
 
-  function computeUnitPrice(opt: (typeof cart.items)[0]["saleOption"]): number {
+  function computeUnitPrice(opt: (typeof cartItems)[0]["saleOption"]): number {
     const { unitPrice } = opt.productColor;
     const base = opt.saleType === "UNIT" ? unitPrice : unitPrice * (opt.packQuantity ?? 1);
     if (!opt.discountType || !opt.discountValue) return base;
@@ -165,6 +189,9 @@ export async function placeOrder(
       orderNumber,
       userId,
       status:       "PENDING",
+      // Stripe
+      stripePaymentIntentId: input.stripePaymentIntentId,
+      paymentStatus:         isAwaitingTransfer ? "awaiting_transfer" : "paid",
       // Livraison
       shipLabel:    address.label,
       shipFirstName: address.firstName,
@@ -208,102 +235,101 @@ export async function placeOrder(
     },
   });
 
-  // ── 4. Créer l'expédition Easy-Express ───────────────────────────────────
+  // ── 4-6. Easy-Express + PDF + Email — uniquement si paiement carte (pas virement en attente)
+  // Pour les virements, le webhook Stripe s'en chargera quand le virement sera confirmé.
 
-  let labelBuffer: Buffer | null = null;
+  if (!isAwaitingTransfer) {
+    let labelBuffer: Buffer | null = null;
 
-  // Ne pas appeler Easy-Express si on est sur un carrier fallback
-  const isFallbackCarrier = input.carrierId.startsWith("fallback_");
+    // Ne pas appeler Easy-Express si on est sur un carrier fallback
+    const isFallbackCarrier = input.carrierId.startsWith("fallback_");
 
-  const eeResult = isFallbackCarrier
-    ? { success: false as const, error: "Carrier fallback — pas d'expédition Easy-Express." }
-    : await createEasyExpressShipment({
-        transactionId: input.transactionId,
-        carrierId:     input.carrierId,
-        orderNumber,
-        weightKg:      totalWeightKg,
-        toFirstName:   address.firstName,
-        toLastName:    address.lastName,
-        toCompany:     address.company ?? null,
-        toEmail:       user.email,
-        toAddress1:    address.address1,
-        toAddress2:    address.address2 ?? null,
-        toZipCode:     address.zipCode,
-        toCity:        address.city,
-        toCountry:     address.country,
-        toPhone:       address.phone ?? null,
+    const eeResult = isFallbackCarrier
+      ? { success: false as const, error: "Carrier fallback — pas d'expédition Easy-Express." }
+      : await createEasyExpressShipment({
+          transactionId: input.transactionId,
+          carrierId:     input.carrierId,
+          orderNumber,
+          weightKg:      totalWeightKg,
+          toFirstName:   address.firstName,
+          toLastName:    address.lastName,
+          toCompany:     address.company ?? null,
+          toEmail:       user.email,
+          toAddress1:    address.address1,
+          toAddress2:    address.address2 ?? null,
+          toZipCode:     address.zipCode,
+          toCity:        address.city,
+          toCountry:     address.country,
+          toPhone:       address.phone ?? null,
+        });
+
+    if (eeResult.success) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          eeTrackingId: eeResult.trackingId,
+          eeLabelUrl:   eeResult.labelUrl,
+        },
       });
 
-  if (eeResult.success) {
-    // Mettre à jour la commande avec le tracking
-    await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        eeTrackingId: eeResult.trackingId,
-        eeLabelUrl:   eeResult.labelUrl,
-      },
-    });
-
-    // Télécharger le bordereau pour l'attacher à l'email
-    if (eeResult.labelUrl) {
-      labelBuffer = await fetchEasyExpressLabel(eeResult.labelUrl);
+      if (eeResult.labelUrl) {
+        labelBuffer = await fetchEasyExpressLabel(eeResult.labelUrl);
+      }
+    } else {
+      console.warn("[placeOrder] Easy-Express:", eeResult.error);
     }
-  } else {
-    console.warn("[placeOrder] Easy-Express:", eeResult.error);
-  }
 
-  // ── 5. Générer le PDF de commande ─────────────────────────────────────────
+    // ── PDF ─────────────────────────────────────
+    let pdfBuffer: Buffer | null = null;
+    try {
+      pdfBuffer = await generateOrderPDF({
+        orderNumber,
+        createdAt:       order.createdAt,
+        clientCompany:   user.company,
+        clientFirstName: user.firstName,
+        clientLastName:  user.lastName,
+        clientEmail:     user.email,
+        clientPhone:     user.phone,
+        clientSiret:     user.siret,
+        clientVatNumber: user.vatNumber ?? null,
+        shipLabel:       address.label,
+        shipFirstName:   address.firstName,
+        shipLastName:    address.lastName,
+        shipCompany:     address.company ?? null,
+        shipAddress1:    address.address1,
+        shipAddress2:    address.address2 ?? null,
+        shipZipCode:     address.zipCode,
+        shipCity:        address.city,
+        shipCountry:     address.country,
+        carrierName:     input.carrierName,
+        carrierPrice:    input.carrierPrice,
+        tvaRate:         input.tvaRate,
+        subtotalHT,
+        tvaAmount,
+        totalTTC,
+        items:           orderItems,
+      });
+    } catch (err) {
+      console.error("[placeOrder] PDF error:", err);
+    }
 
-  let pdfBuffer: Buffer | null = null;
-  try {
-    pdfBuffer = await generateOrderPDF({
+    // ── Email admin ─────────────────────────────
+    notifyNewOrder({
       orderNumber,
-      createdAt:       order.createdAt,
-      clientCompany:   user.company,
-      clientFirstName: user.firstName,
-      clientLastName:  user.lastName,
-      clientEmail:     user.email,
-      clientPhone:     user.phone,
-      clientSiret:     user.siret,
-      clientVatNumber: user.vatNumber ?? null,
-      shipLabel:       address.label,
-      shipFirstName:   address.firstName,
-      shipLastName:    address.lastName,
-      shipCompany:     address.company ?? null,
-      shipAddress1:    address.address1,
-      shipAddress2:    address.address2 ?? null,
-      shipZipCode:     address.zipCode,
-      shipCity:        address.city,
-      shipCountry:     address.country,
-      carrierName:     input.carrierName,
-      carrierPrice:    input.carrierPrice,
-      tvaRate:         input.tvaRate,
+      orderId:    order.id,
+      user:       { ...user, firstName: user.firstName, lastName: user.lastName },
+      address,
+      carrierName: input.carrierName,
+      carrierPrice: input.carrierPrice,
+      items:        orderItems,
       subtotalHT,
+      tvaRate:      input.tvaRate,
       tvaAmount,
       totalTTC,
-      items:           orderItems,
-    });
-  } catch (err) {
-    console.error("[placeOrder] PDF error:", err);
+      pdfBuffer:    pdfBuffer ?? undefined,
+      labelBuffer:  labelBuffer ?? undefined,
+    }).catch((err) => console.error("[placeOrder] Email error:", err));
   }
-
-  // ── 6. Envoyer l'email à l'admin ─────────────────────────────────────────
-
-  notifyNewOrder({
-    orderNumber,
-    orderId:    order.id,
-    user:       { ...user, firstName: user.firstName, lastName: user.lastName },
-    address,
-    carrierName: input.carrierName,
-    carrierPrice: input.carrierPrice,
-    items:        orderItems,
-    subtotalHT,
-    tvaRate:      input.tvaRate,
-    tvaAmount,
-    totalTTC,
-    pdfBuffer:    pdfBuffer ?? undefined,
-    labelBuffer:  labelBuffer ?? undefined,
-  }).catch((err) => console.error("[placeOrder] Email error:", err));
 
   // ── 7. Vider le panier ────────────────────────────────────────────────────
 
@@ -349,31 +375,31 @@ async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
 
   const itemsHtml = data.items.map((item) => `
     <tr>
-      <td style="padding:10px 14px;border-bottom:1px solid #EDD5DC;">
+      <td style="padding:10px 14px;border-bottom:1px solid #E5E5E5;">
         <strong>${item.productName}</strong><br/>
-        <small style="color:#6B4F5C;">Réf. ${item.productRef} · ${item.colorName}
+        <small style="color:#6B6B6B;">Réf. ${item.productRef} · ${item.colorName}
         ${item.saleType === "PACK" ? ` · Paquet ×${item.packQty}` : ""}
         ${item.size ? ` · T.${item.size}` : ""}</small>
       </td>
-      <td style="padding:10px 14px;text-align:center;border-bottom:1px solid #EDD5DC;">${item.quantity}</td>
-      <td style="padding:10px 14px;text-align:right;border-bottom:1px solid #EDD5DC;">${item.unitPrice.toFixed(2)} €</td>
-      <td style="padding:10px 14px;text-align:right;border-bottom:1px solid #EDD5DC;font-weight:bold;">${item.lineTotal.toFixed(2)} €</td>
+      <td style="padding:10px 14px;text-align:center;border-bottom:1px solid #E5E5E5;">${item.quantity}</td>
+      <td style="padding:10px 14px;text-align:right;border-bottom:1px solid #E5E5E5;">${item.unitPrice.toFixed(2)} €</td>
+      <td style="padding:10px 14px;text-align:right;border-bottom:1px solid #E5E5E5;font-weight:bold;">${item.lineTotal.toFixed(2)} €</td>
     </tr>
   `).join("");
 
   const html = `
-    <div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;color:#1C1018;">
+    <div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;color:#1A1A1A;">
       <!-- En-tête -->
-      <div style="background:#C2516A;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0;">
-        <h2 style="margin:0;font-size:20px;">🌸 Nouvelle commande reçue</h2>
-        <p style="margin:6px 0 0;opacity:0.85;font-size:13px;">N° ${data.orderNumber} — ${new Date().toLocaleDateString("fr-FR")}</p>
+      <div style="background:#1A1A1A;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0;">
+        <h2 style="margin:0;font-size:20px;">Nouvelle commande reçue</h2>
+        <p style="margin:6px 0 0;opacity:0.7;font-size:13px;">N° ${data.orderNumber} — ${new Date().toLocaleDateString("fr-FR")}</p>
       </div>
 
-      <div style="background:#FEFAF6;padding:20px 24px;border:1px solid #EDD5DC;border-top:none;">
+      <div style="background:#FFFFFF;padding:20px 24px;border:1px solid #E5E5E5;border-top:none;">
 
         <!-- Client -->
         <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-          <tr style="background:#FDF0F4;">
+          <tr style="background:#F7F7F8;">
             <td style="padding:10px 14px;font-weight:bold;">Société</td>
             <td style="padding:10px 14px;">${data.user.company}</td>
             <td style="padding:10px 14px;font-weight:bold;">Contact</td>
@@ -385,7 +411,7 @@ async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
             <td style="padding:10px 14px;font-weight:bold;">Téléphone</td>
             <td style="padding:10px 14px;">${data.user.phone}</td>
           </tr>
-          <tr style="background:#FDF0F4;">
+          <tr style="background:#F7F7F8;">
             <td style="padding:10px 14px;font-weight:bold;">SIRET</td>
             <td style="padding:10px 14px;font-family:monospace;">${data.user.siret}</td>
             ${data.user.vatNumber ? `
@@ -396,17 +422,17 @@ async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
         </table>
 
         <!-- Livraison -->
-        <div style="background:#EEF5F1;border:1px solid #A8C5B0;border-radius:6px;padding:12px 16px;margin-bottom:20px;">
-          <strong style="color:#5E8470;">📦 Livraison via ${data.carrierName}</strong><br/>
-          <span style="color:#1C1018;">${data.address.firstName} ${data.address.lastName}${data.address.company ? ` — ${data.address.company}` : ""}</span><br/>
-          <span style="color:#6B4F5C;">${data.address.address1}${data.address.address2 ? `, ${data.address.address2}` : ""}<br/>
+        <div style="background:#F7F7F8;border:1px solid #E5E5E5;border-radius:6px;padding:12px 16px;margin-bottom:20px;">
+          <strong style="color:#1A1A1A;">Livraison via ${data.carrierName}</strong><br/>
+          <span style="color:#1A1A1A;">${data.address.firstName} ${data.address.lastName}${data.address.company ? ` — ${data.address.company}` : ""}</span><br/>
+          <span style="color:#6B6B6B;">${data.address.address1}${data.address.address2 ? `, ${data.address.address2}` : ""}<br/>
           ${data.address.zipCode} ${data.address.city}, ${data.address.country}</span>
         </div>
 
         <!-- Articles -->
         <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:13px;">
           <thead>
-            <tr style="background:#C2516A;color:#fff;">
+            <tr style="background:#1A1A1A;color:#fff;">
               <th style="padding:10px 14px;text-align:left;">Produit</th>
               <th style="padding:10px 14px;text-align:center;">Qté</th>
               <th style="padding:10px 14px;text-align:right;">P.U. HT</th>
@@ -419,33 +445,33 @@ async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
         <!-- Totaux -->
         <table style="width:250px;margin-left:auto;border-collapse:collapse;font-size:13px;">
           <tr>
-            <td style="padding:6px 0;color:#6B4F5C;">Sous-total HT</td>
+            <td style="padding:6px 0;color:#6B6B6B;">Sous-total HT</td>
             <td style="padding:6px 0;text-align:right;font-weight:bold;">${data.subtotalHT.toFixed(2)} €</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#6B4F5C;">TVA (${data.tvaRate === 0 ? "0% — exonéré" : `${(data.tvaRate * 100).toFixed(0)}%`})</td>
+            <td style="padding:6px 0;color:#6B6B6B;">TVA (${data.tvaRate === 0 ? "0% — exonéré" : `${(data.tvaRate * 100).toFixed(0)}%`})</td>
             <td style="padding:6px 0;text-align:right;font-weight:bold;">${data.tvaAmount.toFixed(2)} €</td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#6B4F5C;">Livraison</td>
+            <td style="padding:6px 0;color:#6B6B6B;">Livraison</td>
             <td style="padding:6px 0;text-align:right;font-weight:bold;">${data.carrierPrice === 0 ? "Gratuit" : `${data.carrierPrice.toFixed(2)} €`}</td>
           </tr>
-          <tr style="border-top:2px solid #C2516A;">
+          <tr style="border-top:2px solid #1A1A1A;">
             <td style="padding:10px 0;font-weight:bold;font-size:15px;">TOTAL TTC</td>
-            <td style="padding:10px 0;text-align:right;font-weight:bold;font-size:15px;color:#C2516A;">${data.totalTTC.toFixed(2)} €</td>
+            <td style="padding:10px 0;text-align:right;font-weight:bold;font-size:15px;color:#1A1A1A;">${data.totalTTC.toFixed(2)} €</td>
           </tr>
         </table>
 
         <!-- Lien admin -->
         <div style="margin-top:24px;">
           <a href="${NEXTAUTH_URL}/admin/commandes/${data.orderId}"
-             style="background:#C2516A;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+             style="background:#1A1A1A;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
             Voir la commande dans l'admin →
           </a>
         </div>
       </div>
 
-      <p style="color:#B89AA6;font-size:11px;padding:12px 24px;">Beli &amp; Jolie — Administration</p>
+      <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;">Beli &amp; Jolie — Administration</p>
     </div>
   `;
 

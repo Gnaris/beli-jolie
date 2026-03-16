@@ -10,20 +10,20 @@ import path from "path";
 import fs from "fs";
 
 // ─────────────────────────────────────────────
-// Couleurs — Spring theme
+// Couleurs — Monochrome theme
 // ─────────────────────────────────────────────
 const C = {
-  rose:        "#C2516A",
-  roseDark:    "#A8405A",
-  roseLight:   "#EDD5DC",
-  roseBg:      "#FDF0F4",
-  sage:        "#7A9E87",
-  plum:        "#1C1018",
-  plumLight:   "#6B4F5C",
-  muted:       "#B89AA6",
-  surface:     "#FEFAF6",
+  rose:        "#1A1A1A",
+  roseDark:    "#111111",
+  roseLight:   "#E5E5E5",
+  roseBg:      "#F7F7F8",
+  sage:        "#6B6B6B",
+  plum:        "#1A1A1A",
+  plumLight:   "#6B6B6B",
+  muted:       "#9CA3AF",
+  surface:     "#FFFFFF",
   white:       "#FFFFFF",
-  footerBg:    "#2D1830",
+  footerBg:    "#111111",
 };
 
 // ─────────────────────────────────────────────
@@ -408,7 +408,7 @@ export function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
       const footerY = doc.page.height - 40;
       doc.rect(0, footerY, W, 40).fill(hex2rgb(C.footerBg) as [number, number, number]);
       doc.font("Helvetica").fontSize(8);
-      setFill(doc, "#B89AA6");
+      setFill(doc, "#9CA3AF");
       doc.text(
         `Beli & Jolie — Bijoux Acier Inoxydable BtoB  ·  ${data.orderNumber}  ·  Page ${i + 1} / ${pageCount}`,
         ML, footerY + 14, { width: CW, align: "center" }

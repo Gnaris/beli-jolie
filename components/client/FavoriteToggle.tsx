@@ -39,8 +39,8 @@ export default function FavoriteToggle({ productId, isFavorite: initialFavorite,
       aria-label={isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
       className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
         isFavorite
-          ? "bg-[#C2516A] text-white shadow-md"
-          : "bg-white/90 text-[#555555] hover:text-[#C2516A] hover:bg-white shadow-sm"
+          ? "bg-[#1A1A1A] text-white shadow-md"
+          : "bg-white/90 text-[#9CA3AF] hover:text-[#1A1A1A] hover:bg-white shadow-sm"
       } ${isPending ? "opacity-50" : ""} ${className ?? ""}`}
     >
       <svg

@@ -68,7 +68,7 @@ export async function GET(
       })),
     });
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as unknown as BodyInit, {
       headers: {
         "Content-Type":        "application/pdf",
         "Content-Disposition": `attachment; filename="commande-${order.orderNumber}.pdf"`,

@@ -4,10 +4,16 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateOrderStatus } from "@/app/actions/admin/orders";
 
-const TRANSITIONS: Record<string, { next: string; label: string; color: string }[]> = {
-  PENDING:    [{ next: "PROCESSING", label: "Passer en préparation", color: "bg-blue-600 hover:bg-blue-700" }, { next: "CANCELLED", label: "Annuler", color: "bg-red-600 hover:bg-red-700" }],
-  PROCESSING: [{ next: "SHIPPED",    label: "Marquer comme expédiée", color: "bg-[#5E8470] hover:bg-[#4a7059]" }, { next: "CANCELLED", label: "Annuler", color: "bg-red-600 hover:bg-red-700" }],
-  SHIPPED:    [{ next: "DELIVERED",  label: "Marquer comme livrée",   color: "bg-[#5E8470] hover:bg-[#4a7059]" }],
+const TRANSITIONS: Record<string, { next: string; label: string; variant: string }[]> = {
+  PENDING:    [
+    { next: "PROCESSING", label: "Passer en préparation", variant: "btn-primary" },
+    { next: "CANCELLED", label: "Annuler", variant: "btn-danger" },
+  ],
+  PROCESSING: [
+    { next: "SHIPPED", label: "Marquer comme expédiée", variant: "btn-primary" },
+    { next: "CANCELLED", label: "Annuler", variant: "btn-danger" },
+  ],
+  SHIPPED:    [{ next: "DELIVERED", label: "Marquer comme livrée", variant: "btn-primary" }],
   DELIVERED:  [],
   CANCELLED:  [],
 };
@@ -40,7 +46,7 @@ export default function OrderStatusActions({
           type="button"
           disabled={isPending}
           onClick={() => handleUpdate(action.next)}
-          className={`text-white text-xs font-[family-name:var(--font-roboto)] font-medium px-3 py-1.5 transition-colors disabled:opacity-50 ${action.color}`}
+          className={`${action.variant} text-xs px-3 py-1.5 rounded-lg disabled:opacity-50`}
         >
           {isPending ? "…" : action.label}
         </button>

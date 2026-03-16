@@ -54,6 +54,7 @@ interface ProductDetailProps {
   description: string;
   category: string;
   subCategories: string[];
+  tags: { id: string; name: string }[];
   colors: ColorData[];
   compositions: CompositionData[];
   dimensions: DimensionsData;
@@ -71,9 +72,9 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
   return (
     <Link
       href={`/produits/${product.id}`}
-      className="group block bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden hover:border-[#1A1A1A] transition-all duration-300 hover:shadow-[0_8px_32px_rgba(26,26,26,0.14)]"
+      className="group block card card-hover overflow-hidden"
     >
-      <div className="aspect-square bg-[#F5F5F5] overflow-hidden">
+      <div className="aspect-square bg-bg-tertiary overflow-hidden">
         {product.primaryImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -83,19 +84,19 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <svg className="w-10 h-10 text-[#555555] opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-10 h-10 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
-                d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+                d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
             </svg>
           </div>
         )}
       </div>
       <div className="p-3.5">
-        <p className="text-xs font-mono text-[#999999]">{product.reference}</p>
-        <p className="text-sm font-medium text-[#1A1A1A] font-[family-name:var(--font-roboto)] mt-0.5 line-clamp-2">
+        <p className="text-xs font-mono text-text-muted">{product.reference}</p>
+        <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] mt-0.5 line-clamp-2">
           {product.name}
         </p>
-        <p className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] mt-1">
+        <p className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-text-primary mt-1">
           {product.minPrice.toFixed(2)} €
         </p>
       </div>
@@ -104,7 +105,7 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
 }
 
 export default function ProductDetail({
-  name, reference, description, category, subCategories, colors,
+  name, reference, description, category, subCategories, tags, colors,
   compositions, dimensions, similarProducts,
 }: ProductDetailProps) {
   const router = useRouter();
@@ -120,10 +121,14 @@ export default function ProductDetail({
 
   function handleAddToCart(saleOptionId: string, qty: number) {
     startTransition(async () => {
-      await addToCart(saleOptionId, qty);
-      setAddedOptId(saleOptionId);
-      router.refresh(); // rafraîchit le badge panier dans la Navbar
-      setTimeout(() => setAddedOptId(null), 2000);
+      try {
+        await addToCart(saleOptionId, qty);
+        setAddedOptId(saleOptionId);
+        router.refresh(); // rafraichit le badge panier dans la Navbar
+        setTimeout(() => setAddedOptId(null), 2000);
+      } catch {
+        router.push("/connexion");
+      }
     });
   }
 
@@ -145,18 +150,18 @@ export default function ProductDetail({
     { label: "Longueur",     value: dimensions.length! },
     { label: "Largeur",      value: dimensions.width! },
     { label: "Hauteur",      value: dimensions.height! },
-    { label: "Diamètre",     value: dimensions.diameter! },
-    { label: "Circonférence", value: dimensions.circumference! },
+    { label: "Diametre",     value: dimensions.diameter! },
+    { label: "Circonference", value: dimensions.circumference! },
   ].filter((d) => d.value != null && d.value > 0);
 
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
 
-        {/* ── Images ──────────────────────────────────────────────────── */}
+        {/* -- Images -------------------------------------------------- */}
         <div className="space-y-4">
           <div
-            className="aspect-square bg-[#F5F5F5] overflow-hidden relative cursor-zoom-in rounded-2xl"
+            className="aspect-square bg-bg-tertiary overflow-hidden relative cursor-zoom-in rounded-xl"
             onClick={() => displayedImage && setZoomedSrc(displayedImage)}
           >
             {displayedImage ? (
@@ -168,14 +173,14 @@ export default function ProductDetail({
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
-                <svg className="w-16 h-16 text-[#555555] opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-16 h-16 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
-                    d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+                    d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
                 </svg>
               </div>
             )}
             {displayedImage && (
-              <div className="absolute bottom-3 right-3 bg-white/70 backdrop-blur-sm text-[#555555] p-1.5 rounded-lg">
+              <div className="absolute bottom-3 right-3 bg-white/70 backdrop-blur-sm text-text-secondary p-1.5 rounded-lg">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6" />
@@ -195,10 +200,10 @@ export default function ProductDetail({
                   onMouseEnter={() => setHoveredImageIdx(i)}
                   onMouseLeave={() => setHoveredImageIdx(null)}
                   onClick={() => setActiveImageIdx(i)}
-                  className={`w-16 h-16 object-cover rounded-xl cursor-pointer transition-all shrink-0 border-2 ${
+                  className={`w-16 h-16 object-cover rounded-lg cursor-pointer transition-all shrink-0 border-2 ${
                     activeImageIdx === i
-                      ? "border-[#1A1A1A] shadow-sm"
-                      : "border-[#E5E5E5] hover:border-[#555555]"
+                      ? "border-text-primary shadow-sm"
+                      : "border-border hover:border-border-dark"
                   }`}
                 />
               ))}
@@ -206,31 +211,46 @@ export default function ProductDetail({
           )}
         </div>
 
-        {/* ── Infos produit ──────────────────────────────────────────── */}
+        {/* -- Infos produit ------------------------------------------- */}
         <div className="space-y-6">
-          {/* Référence */}
-          <span className="font-mono text-xs bg-[#F5F5F5] text-[#555555] px-2.5 py-1 rounded-full border border-[#E5E5E5] inline-block">
+          {/* Reference */}
+          <span className="font-mono text-xs bg-bg-tertiary text-text-secondary px-2.5 py-1 rounded-full border border-border inline-block">
             {reference}
           </span>
 
           {/* Prix */}
           <div>
-            <p className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-[#1A1A1A]">
+            <p className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-text-primary">
               {maxPrice.toFixed(2)} €
-              <span className="text-sm text-[#999999] font-normal ml-1">/ unité</span>
+              <span className="text-sm text-text-muted font-normal ml-1">/ unite</span>
             </p>
           </div>
 
           {/* Nom */}
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#1A1A1A] leading-snug">
+          <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary leading-snug">
             {name}
           </h1>
 
-          {/* Sélecteur couleur */}
+          {/* Mots cles */}
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((tag) => (
+                <Link
+                  key={tag.id}
+                  href={`/produits?tag=${tag.id}`}
+                  className="text-xs px-3 py-1 rounded-full bg-bg-secondary text-text-secondary border border-border font-[family-name:var(--font-roboto)] hover:bg-bg-tertiary transition-colors"
+                >
+                  {tag.name}
+                </Link>
+              ))}
+            </div>
+          )}
+
+          {/* Selecteur couleur */}
           {colors.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#555555] uppercase tracking-wider">
-                Couleur — <span className="font-normal text-[#1A1A1A]">{displayed.name}</span>
+              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
+                Couleur — <span className="font-normal text-text-primary">{displayed.name}</span>
               </p>
               <div className="flex gap-2.5 flex-wrap">
                 {colors.map((c) => (
@@ -243,18 +263,18 @@ export default function ProductDetail({
                     onClick={() => handleColorClick(c)}
                     className={`w-8 h-8 rounded-full border-2 transition-all ${
                       selected.id === c.id
-                        ? "border-[#1A1A1A] scale-110 shadow-md"
-                        : "border-[#E5E5E5] hover:border-[#555555] hover:scale-105"
+                        ? "border-text-primary scale-110 shadow-md"
+                        : "border-border hover:border-border-dark hover:scale-105"
                     }`}
-                    style={{ backgroundColor: c.hex ?? "#999999" }}
+                    style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
                   />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Breadcrumb catégorie */}
-          <div className="flex items-center gap-2 flex-wrap text-sm font-[family-name:var(--font-roboto)] text-[#999999]">
+          {/* Breadcrumb categorie */}
+          <div className="flex items-center gap-2 flex-wrap text-sm font-[family-name:var(--font-roboto)] text-text-muted">
             <span>{category}</span>
             {subCategories.map((sc) => (
               <span key={sc} className="flex items-center gap-2">
@@ -265,29 +285,29 @@ export default function ProductDetail({
           </div>
 
           {/* Description + Composition + Dimensions */}
-          <div className="border-t border-[#F5F5F5] pt-5 space-y-5">
+          <div className="border-t border-border pt-5 space-y-5">
             <div>
-              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#555555] uppercase tracking-wider mb-2">
+              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider mb-2">
                 Description
               </p>
-              <p className="text-sm text-[#1A1A1A] font-[family-name:var(--font-roboto)] leading-relaxed">
+              <p className="text-sm text-text-primary font-[family-name:var(--font-roboto)] leading-relaxed">
                 {description}
               </p>
             </div>
 
             {compositions.length > 0 && (
               <div>
-                <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#555555] uppercase tracking-wider mb-2">
+                <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider mb-2">
                   Composition
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {compositions.map((comp) => (
                     <span
                       key={comp.name}
-                      className="inline-flex items-center gap-1 text-xs bg-[#F5F5F5] text-[#333333] px-2.5 py-1 rounded-full font-[family-name:var(--font-roboto)] border border-[#E5E5E5]"
+                      className="inline-flex items-center gap-1 text-xs bg-bg-tertiary text-text-primary px-2.5 py-1 rounded-full font-[family-name:var(--font-roboto)] border border-border"
                     >
                       {comp.name}
-                      <span className="text-[#555555]">— {comp.percentage}%</span>
+                      <span className="text-text-secondary">— {comp.percentage}%</span>
                     </span>
                   ))}
                 </div>
@@ -296,17 +316,17 @@ export default function ProductDetail({
 
             {dimRows.length > 0 && (
               <div>
-                <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#555555] uppercase tracking-wider mb-2">
+                <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider mb-2">
                   Dimensions
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {dimRows.map((d) => (
                     <span
                       key={d.label}
-                      className="inline-flex items-center gap-1 text-xs bg-[#F5F5F5] text-[#555555] px-2.5 py-1 rounded-full font-[family-name:var(--font-roboto)] border border-[#E5E5E5]"
+                      className="inline-flex items-center gap-1 text-xs bg-bg-tertiary text-text-secondary px-2.5 py-1 rounded-full font-[family-name:var(--font-roboto)] border border-border"
                     >
                       {d.label}
-                      <span className="text-[#999999]">— {d.value} mm</span>
+                      <span className="text-text-muted">— {d.value} mm</span>
                     </span>
                   ))}
                 </div>
@@ -316,8 +336,8 @@ export default function ProductDetail({
 
           {/* Options de commande */}
           {selected.saleOptions.length > 0 && (
-            <div className="border-t border-[#F5F5F5] pt-5 space-y-3">
-              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#555555] uppercase tracking-wider">
+            <div className="border-t border-border pt-5 space-y-3">
+              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
                 Options de commande — {selected.name}
               </p>
               {selected.saleOptions.map((opt) => {
@@ -334,49 +354,49 @@ export default function ProductDetail({
                 return (
                   <div
                     key={opt.id}
-                    className="bg-white border border-[#E5E5E5] rounded-xl px-4 py-4 space-y-3 hover:border-[#1A1A1A] transition-colors"
+                    className="bg-bg-primary border border-border rounded-xl px-4 py-4 space-y-3 hover:border-border-dark transition-colors"
                   >
-                    {/* Libellé + prix */}
+                    {/* Libelle + prix */}
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-medium text-[#1A1A1A] font-[family-name:var(--font-roboto)] flex items-center flex-wrap gap-1.5">
-                          {opt.saleType === "UNIT" ? "À l'unité" : `Par paquet de ${opt.packQuantity}`}
+                        <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] flex items-center flex-wrap gap-1.5">
+                          {opt.saleType === "UNIT" ? "A l'unite" : `Par paquet de ${opt.packQuantity}`}
                           {opt.size && (
-                            <span className="text-xs font-normal bg-[#F5F5F5] text-[#333333] px-2 py-0.5 rounded-full border border-[#E5E5E5]">
+                            <span className="text-xs font-normal bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
                               Taille {opt.size}
                             </span>
                           )}
                         </p>
-                        <p className="text-xs text-[#999999] mt-0.5 font-[family-name:var(--font-roboto)]">
+                        <p className="text-xs text-text-muted mt-0.5 font-[family-name:var(--font-roboto)]">
                           {effectiveStock > 0
-                            ? <span className="text-[#555555]">✓ {effectiveStock} disponible{effectiveStock !== 1 ? "s" : ""}</span>
-                            : <span className="text-[#1A1A1A]">Rupture de stock</span>
+                            ? <span className="text-text-secondary">&#10003; {effectiveStock} disponible{effectiveStock !== 1 ? "s" : ""}</span>
+                            : <span className="text-text-primary">Rupture de stock</span>
                           }
-                          {" · "}{selected.weight} kg / unité
+                          {" · "}{selected.weight} kg / unite
                         </p>
                       </div>
                       <div className="text-right shrink-0">
                         {hasDiscount && (
-                          <p className="text-xs text-[#999999] line-through">{basePrice.toFixed(2)} €</p>
+                          <p className="text-xs text-text-muted line-through">{basePrice.toFixed(2)} €</p>
                         )}
-                        <p className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${hasDiscount ? "text-[#555555]" : "text-[#1A1A1A]"}`}>
+                        <p className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${hasDiscount ? "text-accent-dark" : "text-text-primary"}`}>
                           {price.toFixed(2)} €
                         </p>
                         {qty > 1 && (
-                          <p className="text-xs text-[#999999] font-[family-name:var(--font-roboto)]">
+                          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
                             = {(price * qty).toFixed(2)} € total
                           </p>
                         )}
                       </div>
                     </div>
 
-                    {/* Quantité + panier */}
+                    {/* Quantite + panier */}
                     <div className="flex items-center gap-3">
-                      <div className="flex items-center border border-[#E5E5E5] rounded-lg overflow-hidden">
+                      <div className="flex items-center border border-border rounded-lg overflow-hidden">
                         <button
                           type="button"
                           onClick={() => setQuantities((q) => ({ ...q, [opt.id]: Math.max(1, (q[opt.id] ?? 1) - 1) }))}
-                          className="w-8 h-9 flex items-center justify-center text-[#555555] hover:bg-[#F5F5F5] transition-colors text-base"
+                          className="w-8 h-9 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
                         >−</button>
                         <input
                           type="number"
@@ -387,27 +407,28 @@ export default function ProductDetail({
                             const v = parseInt(e.target.value);
                             if (!isNaN(v) && v >= 1) setQuantities((q) => ({ ...q, [opt.id]: v }));
                           }}
-                          className="w-12 h-9 text-center text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] border-x border-[#E5E5E5] focus:outline-none bg-white"
+                          className="w-12 h-9 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-x border-border focus:outline-none bg-bg-primary"
                         />
                         <button
                           type="button"
                           onClick={() => setQuantities((q) => ({ ...q, [opt.id]: (q[opt.id] ?? 1) + 1 }))}
-                          className="w-8 h-9 flex items-center justify-center text-[#555555] hover:bg-[#F5F5F5] transition-colors text-base"
+                          className="w-8 h-9 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
                         >+</button>
                       </div>
                       <button
                         type="button"
                         disabled={effectiveStock === 0 || isPending}
                         onClick={() => handleAddToCart(opt.id, qty)}
-                        className="flex-1 h-9 text-white text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg shadow-[0_1px_3px_rgba(26,26,26,0.25)] bg-[#1A1A1A] hover:bg-[#333333]"
-                        style={addedOptId === opt.id ? { backgroundColor: "#555555" } : undefined}
+                        className={`flex-1 h-9 text-text-inverse text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg ${
+                          addedOptId === opt.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
+                        }`}
                       >
                         {addedOptId === opt.id ? (
                           <>
                             <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
-                            Ajouté !
+                            Ajoute !
                           </>
                         ) : (
                           <>
@@ -427,10 +448,10 @@ export default function ProductDetail({
         </div>
       </div>
 
-      {/* ── Produits similaires ──────────────────────────────────────── */}
+      {/* -- Produits similaires --------------------------------------- */}
       {similarProducts.length > 0 && (
-        <section className="mt-16 border-t border-[#E5E5E5] pt-12">
-          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A] mb-6 section-title">
+        <section className="mt-16 border-t border-border pt-12">
+          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary mb-6 section-title">
             Produits similaires
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -444,15 +465,15 @@ export default function ProductDetail({
       {/* Lightbox */}
       {zoomedSrc && (
         <div
-          className="fixed inset-0 z-50 bg-[#1A1A1A]/90 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setZoomedSrc(null)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={zoomedSrc}
-            alt="Aperçu"
+            alt="Apercu"
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl rounded-2xl"
+            className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl rounded-xl"
           />
           <button
             type="button"

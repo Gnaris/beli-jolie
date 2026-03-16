@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 /**
- * Section catégories de produits
- * Grille responsive : 2 colonnes mobile → 3 colonnes tablet → 5 colonnes desktop
+ * Section categories de produits
+ * Grille responsive : 2 colonnes mobile -> 3 colonnes tablet -> 5 colonnes desktop
  */
 
 const CATEGORIES = [
@@ -65,50 +65,50 @@ const CATEGORIES = [
 
 export default function CategoriesSection() {
   return (
-    <section className="bg-[#FFFFFF] py-14 md:py-20" aria-labelledby="categories-title">
+    <section className="bg-bg-primary py-14 md:py-20" aria-labelledby="categories-title">
       <div className="container-site">
-
-        {/* En-tête de section */}
+        {/* Section header */}
         <div className="text-center mb-10 md:mb-12">
-          <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-[#0F3460] mb-3">
+          <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-text-secondary mb-3">
             Notre catalogue
           </p>
           <h2
             id="categories-title"
-            className="font-[family-name:var(--font-poppins)] text-3xl md:text-4xl font-semibold text-[#0F172A] section-title-center"
+            className="font-[family-name:var(--font-poppins)] text-3xl md:text-4xl font-semibold text-text-primary section-title-center"
           >
             Nos Collections
           </h2>
-          <p className="mt-5 text-[#475569] font-[family-name:var(--font-roboto)] text-base max-w-lg mx-auto">
-            Explorez notre sélection de bijoux acier inoxydable — tendance, durables et abordables pour votre clientèle.
+          <p className="mt-5 text-text-secondary font-[family-name:var(--font-roboto)] text-base max-w-lg mx-auto">
+            Explorez notre selection de bijoux acier inoxydable — tendance,
+            durables et abordables pour votre clientele.
           </p>
         </div>
 
-        {/* Grille des catégories */}
+        {/* Categories grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
           {CATEGORIES.map((category) => (
             <Link
               key={category.slug}
               href={`/collections/${category.slug}`}
-              className="group flex flex-col items-center text-center gap-4 bg-[#FFFFFF] border border-[#E2E8F0] p-6 md:p-8 hover:border-[#0F3460] hover:shadow-md transition-all duration-200"
+              className="group flex flex-col items-center text-center gap-4 card p-6 md:p-8 hover:border-border-dark hover:shadow-card-hover transition-all duration-200"
             >
-              {/* Icône dans un cercle */}
-              <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#F1F5F9] flex items-center justify-center text-[#0F3460] group-hover:bg-[#0F3460] group-hover:text-[#FFFFFF] transition-all duration-200">
+              {/* Icon circle */}
+              <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-bg-secondary flex items-center justify-center text-text-secondary group-hover:bg-bg-dark group-hover:text-text-inverse transition-all duration-200">
                 {category.icon}
               </div>
 
-              {/* Nom de la catégorie */}
+              {/* Category name */}
               <div>
-                <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A] group-hover:text-[#0F3460] transition-colors">
+                <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary group-hover:text-text-secondary transition-colors">
                   {category.label}
                 </p>
-                <p className="text-xs font-[family-name:var(--font-roboto)] text-[#475569] mt-1">
-                  {category.count} références
+                <p className="text-xs font-[family-name:var(--font-roboto)] text-text-muted mt-1">
+                  {category.count} references
                 </p>
               </div>
 
-              {/* Flèche "Explorer" */}
-              <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#0F3460] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {/* Explore arrow */}
+              <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-text-secondary flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 Explorer
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
@@ -118,9 +118,9 @@ export default function CategoriesSection() {
           ))}
         </div>
 
-        {/* CTA global */}
+        {/* Global CTA */}
         <div className="text-center mt-10">
-          <Link href="/boutique" className="btn-outline">
+          <Link href="/boutique" className="btn-secondary">
             Voir tout le catalogue
           </Link>
         </div>

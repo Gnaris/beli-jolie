@@ -2,60 +2,85 @@ import Link from "next/link";
 
 export default function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
   return (
-    <section className="bg-[#FFFFFF] overflow-hidden">
-      <div className="container-site">
-        <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[520px] md:min-h-[600px]">
+    <section className="bg-bg-dark relative overflow-hidden">
+      {/* Subtle grid background */}
+      <div
+        className="absolute inset-0 opacity-[0.04]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px)",
+          backgroundSize: "60px 60px",
+        }}
+      />
 
-          {/* Contenu textuel */}
-          <div className="flex flex-col justify-center py-16 lg:py-20 text-center lg:text-left order-2 lg:order-1">
-
-            {/* Badge catégorie */}
-            <span className="inline-block self-center lg:self-start text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-[#0F3460] bg-[#F1F5F9] px-4 py-1.5 mb-6">
-              Plateforme BtoB — Acier Inoxydable
-            </span>
-
-            {/* Titre principal */}
-            <h1 className="font-[family-name:var(--font-poppins)] text-4xl md:text-5xl lg:text-6xl font-semibold text-[#0F172A] leading-[1.1] mb-6">
-              L&apos;élégance
+      <div className="container-site py-24 md:py-32 relative">
+        <div className="grid md:grid-cols-2 gap-12 items-center">
+          {/* Text */}
+          <div>
+            <div className="inline-flex items-center gap-2 bg-white/10 text-white/70 text-[11px] font-medium uppercase tracking-[0.2em] px-3 py-1.5 rounded-full mb-8 font-[family-name:var(--font-roboto)]">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              Grossiste B2B — Bijoux acier inoxydable
+            </div>
+            <h1 className="font-[family-name:var(--font-poppins)] text-4xl md:text-5xl font-semibold leading-[1.1] text-text-inverse mb-6">
+              Des bijoux tendance
               <br />
-              <em className="font-normal text-[#0F3460]">sans compromis</em>
-              <br />
-              pour les pros
+              pour votre boutique
             </h1>
-
-            {/* Sous-titre */}
-            <p className="font-[family-name:var(--font-roboto)] text-base md:text-lg text-[#475569] leading-relaxed max-w-md mx-auto lg:mx-0 mb-8">
-              Collections de bijoux en acier inoxydable, pensées pour les revendeurs, boutiques et créateurs exigeants.
-              Tarifs professionnels, livraison mondiale.
+            <p className="text-text-muted text-base leading-relaxed font-[family-name:var(--font-roboto)] mb-10 max-w-md">
+              +500 references en acier inoxydable. Tarifs professionnels,
+              livraison rapide, service apres-vente reactif.
             </p>
-
-            {/* CTAs */}
-            <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
-              <Link href="/produits" className="btn-primary">
-                Découvrir les produits
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                </svg>
-              </Link>
-              {!isLoggedIn && (
-                <Link href="/inscription" className="btn-outline">
-                  Créer un compte pro
+            <div className="flex flex-wrap gap-3">
+              {isLoggedIn ? (
+                <Link
+                  href="/produits"
+                  className="inline-flex items-center gap-2 bg-bg-primary text-text-primary text-sm font-medium px-6 py-2.5 rounded-lg hover:bg-bg-tertiary transition-colors font-[family-name:var(--font-roboto)]"
+                >
+                  Voir le catalogue
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
                 </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/connexion"
+                    className="inline-flex items-center gap-2 bg-bg-primary text-text-primary text-sm font-medium px-6 py-2.5 rounded-lg hover:bg-bg-tertiary transition-colors font-[family-name:var(--font-roboto)]"
+                  >
+                    Acces espace pro
+                  </Link>
+                  <Link
+                    href="/inscription"
+                    className="inline-flex items-center gap-2 border border-white/20 text-text-inverse text-sm px-6 py-2.5 rounded-lg hover:bg-white/10 transition-colors font-[family-name:var(--font-roboto)]"
+                  >
+                    Creer un compte
+                  </Link>
+                </>
               )}
             </div>
 
-            {/* Chiffres clés */}
-            <div className="flex justify-center lg:justify-start gap-8 mt-10 pt-8 border-t border-[#E2E8F0]">
+            {/* Quick stats */}
+            <div className="flex flex-wrap gap-6 mt-10 pt-10 border-t border-white/10">
               {[
-                { value: "+500", label: "Références" },
-                { value: "+1200", label: "Clients Pro" },
-                { value: "48h", label: "Livraison" },
+                { value: "+500", label: "References" },
+                { value: "J+1", label: "Livraison France" },
+                { value: "B2B", label: "Professionnel" },
               ].map((stat) => (
-                <div key={stat.label} className="text-center lg:text-left">
-                  <p className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F3460]">
+                <div key={stat.label}>
+                  <p className="font-[family-name:var(--font-poppins)] text-xl font-bold text-text-inverse">
                     {stat.value}
                   </p>
-                  <p className="text-xs font-[family-name:var(--font-roboto)] text-[#475569] tracking-wide uppercase mt-0.5">
+                  <p className="text-text-muted text-xs font-[family-name:var(--font-roboto)] mt-0.5">
                     {stat.label}
                   </p>
                 </div>
@@ -63,38 +88,68 @@ export default function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             </div>
           </div>
 
-          {/* Visuel décoratif */}
-          <div className="relative flex items-center justify-center order-1 lg:order-2 pt-10 lg:pt-0">
-            {/* Fond arrondi beige */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 md:w-96 md:h-96 bg-[#F1F5F9] rounded-full" />
-
-            {/* Placeholder image — à remplacer par next/image avec vraies photos */}
-            <div className="relative z-10 w-64 h-64 md:w-80 md:h-80 rounded-2xl bg-[#E2E8F0] flex flex-col items-center justify-center gap-3 shadow-lg">
-              {/* Icône bijou décorative */}
-              <svg className="w-20 h-20 text-[#0F3460] opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
-                  d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-              </svg>
-              <span className="text-[#0F3460] font-[family-name:var(--font-poppins)] text-lg font-medium opacity-70">
-                Beli & Jolie
-              </span>
-              <span className="text-[#475569] text-xs font-[family-name:var(--font-roboto)] opacity-60">
-                Photo à intégrer
-              </span>
+          {/* Right panel */}
+          <div className="hidden md:flex flex-col gap-3">
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-white/60">
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-text-inverse text-sm font-medium font-[family-name:var(--font-roboto)]">
+                    Catalogue exclusif
+                  </p>
+                  <p className="text-text-muted text-xs font-[family-name:var(--font-roboto)]">
+                    Acier inoxydable premium
+                  </p>
+                </div>
+              </div>
+              <div className="h-px bg-white/5" />
+              {[
+                "Colliers & Pendentifs",
+                "Bracelets & Joncs",
+                "Bagues & Anneaux",
+                "Boucles d'oreilles",
+              ].map((cat) => (
+                <div key={cat} className="flex items-center justify-between">
+                  <span className="text-text-muted text-sm font-[family-name:var(--font-roboto)]">
+                    {cat}
+                  </span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-white/20" />
+                </div>
+              ))}
             </div>
-
-            {/* Badge flottant "100% Original" */}
-            <div className="absolute bottom-16 left-4 md:left-8 z-20 bg-[#FFFFFF] border border-[#E2E8F0] rounded-full px-4 py-2 shadow-md flex items-center gap-2">
-              <svg className="w-4 h-4 text-[#0F3460]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.745 3.745 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.745 3.745 0 013.296-1.043A3.745 3.745 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.745 3.745 0 013.296 1.043 3.745 3.745 0 011.043 3.296A3.745 3.745 0 0121 12z" />
-              </svg>
-              <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#0F172A]">
-                Qualité certifiée
-              </span>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <p className="text-text-inverse text-lg font-bold font-[family-name:var(--font-poppins)]">
+                  500+
+                </p>
+                <p className="text-text-muted text-xs font-[family-name:var(--font-roboto)] mt-0.5">
+                  Produits disponibles
+                </p>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <p className="text-text-inverse text-lg font-bold font-[family-name:var(--font-poppins)]">
+                  100%
+                </p>
+                <p className="text-text-muted text-xs font-[family-name:var(--font-roboto)] mt-0.5">
+                  Acier chirurgical
+                </p>
+              </div>
             </div>
           </div>
-
         </div>
       </div>
     </section>

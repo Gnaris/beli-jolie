@@ -17,10 +17,9 @@ export async function GET(request: NextRequest) {
   const maxPrice    = searchParams.get("maxPrice") ? parseFloat(searchParams.get("maxPrice")!) : null;
   const page        = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
 
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   const where: Record<string, unknown> = {
+    NOT: { colors: { every: { stock: { equals: 0 } } } },
     ...(q && {
       OR: [
         { name:      { contains: q } },
@@ -34,7 +33,7 @@ export async function GET(request: NextRequest) {
     ...(colorId    && { colors: { some: { colorId } } }),
     ...(tagId      && { tags: { some: { tagId } } }),
     ...(bestseller && { isBestSeller: true }),
-    ...(isNew      && { createdAt: { gte: thirtyDaysAgo } }),
+    ...(isNew      && { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
     ...((minPrice !== null || maxPrice !== null) && {
       colors: {
         some: {
@@ -49,7 +48,7 @@ export async function GET(request: NextRequest) {
 
   const products = await prisma.product.findMany({
     where,
-    orderBy: { createdAt: "desc" },
+    orderBy: isNew ? { updatedAt: "desc" } : { createdAt: "desc" },
     skip:    (page - 1) * PER_PAGE,
     take:    PER_PAGE,
     include: {

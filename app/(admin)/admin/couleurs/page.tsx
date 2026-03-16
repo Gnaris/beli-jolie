@@ -13,24 +13,22 @@ export default async function CouleursPage() {
   });
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
+    <div className="max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
-          Bibliothèque de couleurs
-        </h1>
-        <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] mt-0.5">
+        <h1 className="page-title">Bibliothèque de couleurs</h1>
+        <p className="page-subtitle">
           Créez les couleurs ici, puis assignez-les à vos produits.
         </p>
       </div>
 
       {/* Formulaire création */}
-      <section className="bg-white border border-[#E2E8F0] p-6 space-y-4">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#475569] uppercase tracking-wider">
+      <section className="card p-6 space-y-4">
+        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-secondary uppercase tracking-wider">
           Nouvelle couleur
         </h2>
         <form action={createColor} className="flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider mb-1.5">
+            <label className="field-label uppercase tracking-wider text-xs font-semibold">
               Nom *
             </label>
             <input
@@ -42,20 +40,17 @@ export default async function CouleursPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider mb-1.5">
+            <label className="field-label uppercase tracking-wider text-xs font-semibold">
               Couleur hex
             </label>
             <input
               type="color"
               name="hex"
-              defaultValue="#94A3B8"
-              className="h-[38px] w-16 border border-[#E2E8F0] p-0.5 cursor-pointer"
+              defaultValue="#9CA3AF"
+              className="h-[38px] w-16 border border-border rounded-lg p-0.5 cursor-pointer"
             />
           </div>
-          <button
-            type="submit"
-            className="px-5 py-2.5 bg-[#0F3460] text-white text-sm font-[family-name:var(--font-poppins)] font-semibold hover:bg-[#0A2540] transition-colors whitespace-nowrap"
-          >
+          <button type="submit" className="btn-primary whitespace-nowrap">
             Ajouter
           </button>
         </form>
@@ -63,12 +58,12 @@ export default async function CouleursPage() {
 
       {/* Liste */}
       <section className="space-y-2">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#475569] uppercase tracking-wider border-b border-[#E2E8F0] pb-2">
+        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
           Couleurs ({colors.length})
         </h2>
 
         {colors.length === 0 ? (
-          <p className="text-sm text-[#94A3B8] font-[family-name:var(--font-roboto)] py-6 text-center border border-dashed border-[#E2E8F0]">
+          <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] py-6 text-center border border-dashed border-border rounded-xl">
             Aucune couleur créée
           </p>
         ) : (
@@ -76,18 +71,18 @@ export default async function CouleursPage() {
             {colors.map((color) => (
               <li
                 key={color.id}
-                className="flex items-center justify-between bg-white border border-[#E2E8F0] px-4 py-3"
+                className="flex items-center justify-between card px-4 py-3"
               >
                 <div className="flex items-center gap-3">
                   <span
-                    className="w-8 h-8 rounded border border-[#E2E8F0] shrink-0"
-                    style={{ backgroundColor: color.hex ?? "#94A3B8" }}
+                    className="w-8 h-8 rounded-lg border border-border shrink-0"
+                    style={{ backgroundColor: color.hex ?? "#9CA3AF" }}
                   />
                   <div>
-                    <p className="text-sm font-medium text-[#0F172A] font-[family-name:var(--font-roboto)]">
+                    <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)]">
                       {color.name}
                     </p>
-                    <p className="text-xs text-[#94A3B8]">
+                    <p className="text-xs text-text-muted">
                       {color.hex ?? "Pas de couleur hex"} · utilisée dans{" "}
                       {color._count.productColors} produit{color._count.productColors > 1 ? "s" : ""}
                     </p>
@@ -96,7 +91,7 @@ export default async function CouleursPage() {
                 <div className="flex items-center gap-1">
                   <Link
                     href={`/admin/couleurs/${color.id}/modifier`}
-                    className="p-1.5 text-[#94A3B8] hover:text-[#0F3460] transition-colors"
+                    className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
                     title="Modifier"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

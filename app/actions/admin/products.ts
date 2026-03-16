@@ -227,6 +227,16 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             isPrimary: colorInput.isPrimary,
           },
         });
+        // Supprimer d'abord les CartItems liés (pas de onDelete: Cascade sur cette relation)
+        const saleOptionIds = await tx.saleOption.findMany({
+          where: { colorId: existing.id },
+          select: { id: true },
+        });
+        if (saleOptionIds.length > 0) {
+          await tx.cartItem.deleteMany({
+            where: { saleOptionId: { in: saleOptionIds.map((s) => s.id) } },
+          });
+        }
         await tx.saleOption.deleteMany({ where: { colorId: existing.id } });
         await tx.saleOption.createMany({
           data: colorInput.saleOptions.map((opt) => ({
@@ -305,4 +315,24 @@ export async function deleteProduct(id: string) {
 
 export async function getAllTags() {
   return prisma.tag.findMany({ orderBy: { name: "asc" } });
+}
+
+export async function createTag(name: string) {
+  await requireAdmin();
+  const trimmed = name.trim().toLowerCase();
+  if (!trimmed) throw new Error("Nom invalide.");
+  const tag = await prisma.tag.upsert({
+    where: { name: trimmed },
+    create: { name: trimmed },
+    update: {},
+  });
+  revalidatePath("/admin/mots-cles");
+  return tag;
+}
+
+export async function deleteTag(id: string) {
+  await requireAdmin();
+  await prisma.tag.delete({ where: { id } });
+  revalidatePath("/admin/mots-cles");
+  revalidatePath("/produits");
 }

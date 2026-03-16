@@ -128,14 +128,14 @@ export default function CollectionProductManager({
     await removeProductFromCollection(collectionId, productId);
     setItems((prev) => prev.filter((it) => it.productId !== productId));
     setSaving(false);
-    flash("Produit retiré.");
+    flash("Produit retire.");
   }
 
   // ── Add product ──────────────────────────────────────────────────────────
 
   async function onAdd(product: AvailableProduct) {
     if (items.some((it) => it.productId === product.id)) {
-      flash("Ce produit est déjà dans la collection.");
+      flash("Ce produit est deja dans la collection.");
       return;
     }
     setSaving(true);
@@ -151,7 +151,7 @@ export default function CollectionProductManager({
     ]);
     setSaving(false);
     setSearch("");
-    flash("Produit ajouté.");
+    flash("Produit ajoute.");
   }
 
   // ── Filtered available products ──────────────────────────────────────────
@@ -172,14 +172,14 @@ export default function CollectionProductManager({
     <div className="space-y-6">
       {/* Status bar */}
       {message && (
-        <div className="bg-[#F0F9F0] border border-[#B8DDB8] text-[#2D6A2D] text-sm px-4 py-2 rounded-md">
+        <div className="bg-bg-secondary border border-border text-text-secondary text-sm px-4 py-2 rounded-xl">
           {message}
         </div>
       )}
 
       {/* Search & add */}
       <div>
-        <label className="block text-sm font-medium text-[#0F172A] mb-1.5 font-[family-name:var(--font-roboto)]">
+        <label className="block text-sm font-medium text-text-primary mb-1.5 font-[family-name:var(--font-roboto)]">
           Ajouter un produit
         </label>
         <div className="relative">
@@ -187,11 +187,11 @@ export default function CollectionProductManager({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher par nom ou référence…"
+            placeholder="Rechercher par nom ou reference..."
             className="field-input"
           />
           {filtered.length > 0 && (
-            <ul className="absolute z-10 top-full mt-1 left-0 right-0 bg-white border border-[#E5E5E5] rounded-md shadow-lg max-h-64 overflow-y-auto">
+            <ul className="absolute z-10 top-full mt-1 left-0 right-0 bg-bg-primary border border-border rounded-xl shadow-lg max-h-64 overflow-y-auto">
               {filtered.map((p) => {
                 const img = p.colors[0]?.images[0]?.path;
                 return (
@@ -199,16 +199,16 @@ export default function CollectionProductManager({
                     <button
                       type="button"
                       onClick={() => onAdd(p)}
-                      className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-[#F5F5F5] text-left"
+                      className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-bg-secondary text-left"
                     >
-                      <div className="w-9 h-9 rounded bg-[#F5F5F5] shrink-0 overflow-hidden">
+                      <div className="w-9 h-9 rounded bg-bg-tertiary shrink-0 overflow-hidden">
                         {img && (
                           <img src={img} alt={p.name} className="w-full h-full object-cover" />
                         )}
                       </div>
                       <div className="min-w-0">
-                        <p className="font-medium text-[#1A1A1A] truncate">{p.name}</p>
-                        <p className="text-[#999999] text-xs font-mono">{p.reference}</p>
+                        <p className="font-medium text-text-primary truncate">{p.name}</p>
+                        <p className="text-text-muted text-xs font-mono">{p.reference}</p>
                       </div>
                     </button>
                   </li>
@@ -217,26 +217,26 @@ export default function CollectionProductManager({
             </ul>
           )}
         </div>
-        <p className="mt-1 text-xs text-[#999999] font-[family-name:var(--font-roboto)]">
-          Saisissez au moins 2 caractères pour rechercher.
+        <p className="mt-1 text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+          Saisissez au moins 2 caracteres pour rechercher.
         </p>
       </div>
 
       {/* Products list */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-[#0F172A] font-[family-name:var(--font-roboto)]">
+          <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)]">
             Produits dans la collection ({items.length})
           </p>
           {saving && (
-            <span className="text-xs text-[#999999] font-[family-name:var(--font-roboto)]">
-              Enregistrement…
+            <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+              Enregistrement...
             </span>
           )}
         </div>
 
         {items.length === 0 ? (
-          <div className="border border-dashed border-[#E5E5E5] rounded-lg py-10 text-center text-[#999999] text-sm font-[family-name:var(--font-roboto)]">
+          <div className="border border-dashed border-border rounded-xl py-10 text-center text-text-muted text-sm font-[family-name:var(--font-roboto)]">
             Aucun produit dans cette collection. Ajoutez-en via la recherche ci-dessus.
           </div>
         ) : (
@@ -253,22 +253,22 @@ export default function CollectionProductManager({
                   onDragStart={() => onDragStart(index)}
                   onDragOver={(e) => onDragOver(e, index)}
                   onDragEnd={onDragEnd}
-                  className="flex items-center gap-3 bg-white border border-[#E5E5E5] rounded-lg px-3 py-2.5 cursor-grab active:cursor-grabbing select-none"
+                  className="flex items-center gap-3 bg-bg-primary border border-border rounded-xl px-3 py-2.5 cursor-grab active:cursor-grabbing select-none"
                 >
                   {/* Drag handle */}
-                  <div className="text-[#CCCCCC] shrink-0" aria-hidden>
+                  <div className="text-text-muted shrink-0" aria-hidden>
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm8-12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0z" />
                     </svg>
                   </div>
 
                   {/* Image */}
-                  <div className="w-12 h-12 rounded bg-[#F5F5F5] shrink-0 overflow-hidden">
+                  <div className="w-12 h-12 rounded bg-bg-tertiary shrink-0 overflow-hidden">
                     {displayImage ? (
                       <img src={displayImage} alt={item.product.name} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <svg className="w-5 h-5 text-[#CCCCCC]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                             d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
                         </svg>
@@ -278,10 +278,10 @@ export default function CollectionProductManager({
 
                   {/* Infos */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#1A1A1A] truncate font-[family-name:var(--font-roboto)]">
+                    <p className="text-sm font-medium text-text-primary truncate font-[family-name:var(--font-roboto)]">
                       {item.product.name}
                     </p>
-                    <p className="text-xs text-[#999999] font-mono">{item.product.reference}</p>
+                    <p className="text-xs text-text-muted font-mono">{item.product.reference}</p>
                   </div>
 
                   {/* Color selector */}
@@ -295,10 +295,10 @@ export default function CollectionProductManager({
                           onClick={() => onColorChange(item.productId, c.id)}
                           className={`w-5 h-5 rounded-full border-2 transition-all ${
                             (item.colorId ?? activeColor?.id) === c.id
-                              ? "border-[#1A1A1A] scale-110"
-                              : "border-[#E5E5E5] hover:border-[#999999]"
+                              ? "border-bg-dark scale-110"
+                              : "border-border hover:border-text-muted"
                           }`}
-                          style={{ backgroundColor: c.hex ?? "#CCCCCC" }}
+                          style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
                         />
                       ))}
                     </div>
@@ -315,7 +315,7 @@ export default function CollectionProductManager({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") onPositionChange(item.productId, (e.target as HTMLInputElement).value);
                     }}
-                    className="w-12 text-center border border-[#E5E5E5] rounded text-sm py-1 text-[#1A1A1A] font-[family-name:var(--font-roboto)] shrink-0"
+                    className="w-12 text-center border border-border rounded-lg text-sm py-1 text-text-primary font-[family-name:var(--font-roboto)] shrink-0 focus:outline-none focus:border-bg-dark"
                     title="Position"
                   />
 
@@ -323,7 +323,7 @@ export default function CollectionProductManager({
                   <button
                     type="button"
                     onClick={() => onRemove(item.productId)}
-                    className="shrink-0 p-1 text-[#999999] hover:text-red-500 transition-colors"
+                    className="shrink-0 p-1 text-text-muted hover:text-red-600 transition-colors"
                     title="Retirer de la collection"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

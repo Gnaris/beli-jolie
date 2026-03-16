@@ -2,9 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Guide de travail complet** : voir `.claude/skill.md`
 > **Mémoire projet** : voir `.claude/memory/MEMORY.md`
-> **Thème printemps** : voir `.claude/memory/theme-printemps.md`
+> **Architecture complète** : voir `.claude/memory/project-architecture.md`
+> **Endpoints API** : voir `.claude/memory/api-endpoints.md`
+> **Design monochrome** : voir `.claude/memory/design-monochrome.md`
+> **Préférences utilisateur** : voir `.claude/memory/feedback-preferences.md`
 
 ---
 
@@ -35,20 +37,14 @@ Copy `.env.example` to `.env`:
 DATABASE_URL="mysql://root@localhost:3306/beli_jolie"
 NEXTAUTH_SECRET="<random base64 string>"
 NEXTAUTH_URL="http://localhost:3000"
+ADMIN_EMAIL="..."
+ADMIN_PASSWORD="..."
 EASY_EXPRESS_API_KEY="<bearer token Easy-Express>"
-EE_SENDER_COMPANY="..."
-EE_SENDER_SHOP_NAME="..."
-EE_SENDER_SIRET="..."
-EE_SENDER_EMAIL="..."
-EE_SENDER_PHONE="..."
-EE_SENDER_MOBILE="..."
-EE_SENDER_STREET="..."
-EE_SENDER_CITY="..."
-EE_SENDER_POSTAL_CODE="..."
-EE_SENDER_COUNTRY="FR"
-GMAIL_USER="..."
-GMAIL_APP_PASSWORD="..."
-NOTIFY_EMAIL="..."
+EE_SENDER_COMPANY / EE_SENDER_SHOP_NAME / EE_SENDER_SIRET / EE_SENDER_EMAIL
+EE_SENDER_PHONE / EE_SENDER_MOBILE / EE_SENDER_STREET / EE_SENDER_CITY
+EE_SENDER_POSTAL_CODE / EE_SENDER_COUNTRY="FR"
+GMAIL_USER / GMAIL_APP_PASSWORD / NOTIFY_EMAIL
+STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ```
 
 ## Architecture
@@ -60,7 +56,7 @@ The app uses three Next.js route groups with separate layouts:
 |---|---|---|
 | `(auth)` | `/connexion`, `/inscription` | Unauthenticated only (redirects if logged in) |
 | `(admin)` | `/admin/*` | ADMIN role only |
-| `(client)` | `/espace-pro/*`, `/panier/*` | CLIENT role only |
+| `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*` | CLIENT role (APPROVED) only |
 
 Route protection is handled **twice**: in `middleware.ts` (edge, fast) and in each group `layout.tsx` (server-side fallback).
 
@@ -77,7 +73,7 @@ Products have a nested structure — read this before touching product code:
 Product
   └── ProductColor[]          (one per color variant)
         ├── SaleOption[]       (UNIT and/or PACK, max 2 per color)
-        │     └── unitPrice, weight, stock, discountType, discountValue
+        │     └── unitPrice, weight, stock, discountType, discountValue, size, packQuantity
         └── ProductImage[]     (max 5, shared between UNIT+PACK of same color)
 ```
 Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied.
@@ -90,30 +86,51 @@ Order
   ├── orderNumber: BJ-YYYY-XXXXXX
   ├── carrier info (carrierId, carrierName, carrierPrice)
   ├── TVA (tvaRate, subtotalHT, tvaAmount, totalTTC)
+  ├── Payment (stripePaymentIntentId, paymentStatus: pending|paid|failed)
   └── Easy-Express (eeTrackingId?, eeLabelUrl?)
 ```
 
 ### File Storage
-- **Kbis documents** → `private/uploads/kbis/` (outside `/public`, served via `/api/admin/kbis/[filename]` with ADMIN auth check)
-- **Product images** → `public/uploads/products/` (publicly accessible, served directly)
+| Type | Path | Access |
+|------|------|--------|
+| Product images | `public/uploads/products/` | Public (direct) |
+| Collection images | `public/uploads/collections/` | Public (direct) |
+| Kbis documents | `private/uploads/kbis/` | ADMIN via `/api/admin/kbis/[filename]` |
+| Invoices | `private/uploads/invoices/` | ADMIN or owner client via API |
 
 ### Server Actions
 All mutations go through Server Actions in `app/actions/`. Each action calls `requireAdmin()` or `requireAuth()` (verifies session server-side) before doing anything. Actions call `revalidatePath()` to bust the Next.js cache.
 
 ### Styling Conventions
 - **Tailwind CSS v4** — no `tailwind.config.js`; theme tokens are defined in `app/globals.css` inside `@theme inline {}`
-- **Spring theme palette** (mars 2026) — see `.claude/memory/theme-printemps.md` for full palette
-- Primary CTA: `#C2516A` (rose), surface: `#FEFAF6` (ivory), text: `#1C1018` (plum), accent: `#7A9E87` (sage)
+- **Monochrome dashboard theme** (mars 2026) — see `.claude/memory/design-monochrome.md` for full palette
+- Primary: `#1A1A1A` (dark), surface: `#F7F7F8` (light gray), text: `#1A1A1A`, accent: `#22C55E` (green for success/positive)
+- Status: success `#22C55E`, warning `#F59E0B`, error `#EF4444`, info `#3B82F6`
 - Fonts via CSS variables: `var(--font-poppins)` for headings, `var(--font-roboto)` for body — reference them as `font-[family-name:var(--font-poppins)]` in Tailwind classes
-- Reusable CSS utilities: `.btn-primary`, `.btn-outline`, `.field-input`, `.container-site`, `.section-title`, `.shadow-spring`, `.gradient-spring`
+- Reusable CSS utilities: `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.field-input`, `.field-label`, `.container-site`, `.card`, `.card-hover`, `.badge-success`, `.badge-warning`, `.badge-error`, `.badge-neutral`, `.badge-info`, `.stat-card`, `.table-header`, `.table-row`, `.sidebar-item`, `.sidebar-active`, `.page-title`, `.page-subtitle`
+- Animations: `.animate-fadeIn` (opacity + translateY), `.animate-slideIn` (opacity + translateX)
+- Admin forms: split into separate blocks with `bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]`
 
-### Zod Validation
-Use `.issues` not `.errors` when accessing ZodError details — `.errors` does not exist on the TypeScript type in this version.
+### Key Components
+- **Public header**: `PublicSidebar.tsx` (NOT `Navbar.tsx`) — logo, functional search bar, nav links, cart
+- **Admin mobile**: `AdminMobileNav.tsx` — hamburger + slide-in drawer with all nav links
+- **3D Hero**: `JewelryScene.tsx` loaded via `JewelrySceneLoader.tsx` (client wrapper for `ssr: false`)
+- **Product form**: `ProductForm.tsx` — 4 separate blocks (fiche produit, mots-clés, dimensions, composition)
+
+### Important Gotchas
+- `ssr: false` with `next/dynamic` is NOT allowed in Server Components → use a `"use client"` wrapper
+- Zod v4: use `.issues` not `.errors` when accessing ZodError details
+- `PublicSidebar.tsx` is the actual visible header on public pages, not `Navbar.tsx`
 
 ### Key Libraries
-- **Prisma 5.22.0** (not v7 — v7 has breaking changes incompatible with this project)
-- **NextAuth 4** (not v5)
-- **Zod 3**
+- **Next.js 16.1.6** (App Router, Server Components)
+- **React 19.2.3**
+- **Prisma 5.22.0** (NOT v7 — v7 has breaking changes incompatible with this project)
+- **NextAuth 4** (NOT v5)
+- **Zod 4.3.6**
+- **Stripe 20.4.1** (payments: card + bank transfer)
+- **Three.js 0.183.2** (3D jewelry animation)
+- **Recharts 3.8.0** (admin charts)
 - `bcryptjs` (12 salt rounds) for password hashing
 - `pdfkit` for PDF generation — requires `serverExternalPackages: ["pdfkit"]` in `next.config.ts`
 - `nodemailer` for transactional email (Gmail App Password)
@@ -124,4 +141,19 @@ Use `.issues` not `.errors` when accessing ZodError details — `.errors` does n
 - Flow: `POST /api/v3/shipments/rates` → transactionId → `POST /api/v3/shipments/checkout`
 - Prices in **centimes** → divide by 100 for euros
 - Minimum weight: 1 kg (`Math.max(1, weightKg)`)
+- +5€ margin added to Easy-Express prices
 - transactionId expires quickly — use immediately after /rates
+- Fallback: hardcoded Colissimo/Chronopost rates by country/weight
+
+### Stripe Integration
+- PaymentIntent: card + bank_transfer (fallback card only)
+- Webhook events: `payment_intent.succeeded`, `.processing`, `.payment_failed`
+- Bank transfer flow: `awaiting_transfer` → webhook confirmation → Easy-Express + PDF + email
+- Stripe Customer created if not exists, stored in `user.stripeCustomerId`
+
+### TVA Rules
+- France: 20%
+- DOM-TOM: 0%
+- EU + valid VAT (VIES): 0% (reverse charge)
+- EU without VAT: 20%
+- Non-EU: 0%

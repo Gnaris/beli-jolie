@@ -7,12 +7,12 @@ import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = { title: "Commandes — Admin" };
 
-const STATUS_LABELS: Record<string, { label: string; bg: string; text: string }> = {
-  PENDING:    { label: "En attente",    bg: "bg-amber-50",    text: "text-amber-700" },
-  PROCESSING: { label: "En préparation", bg: "bg-blue-50",     text: "text-blue-700" },
-  SHIPPED:    { label: "Expédiée",      bg: "bg-[#EEF5F1]",  text: "text-[#5E8470]" },
-  DELIVERED:  { label: "Livrée",        bg: "bg-[#EEF5F1]",  text: "text-[#5E8470]" },
-  CANCELLED:  { label: "Annulée",       bg: "bg-red-50",      text: "text-red-700" },
+const STATUS_LABELS: Record<string, { label: string; badge: string }> = {
+  PENDING:    { label: "En attente",      badge: "badge-warning" },
+  PROCESSING: { label: "En préparation",  badge: "badge-info" },
+  SHIPPED:    { label: "Expédiée",        badge: "badge-success" },
+  DELIVERED:  { label: "Livrée",          badge: "badge-success" },
+  CANCELLED:  { label: "Annulée",         badge: "badge-error" },
 };
 
 export default async function AdminCommandesPage({
@@ -65,10 +65,10 @@ export default async function AdminCommandesPage({
       {/* En-tête */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
+          <h1 className="page-title">
             Commandes
           </h1>
-          <p className="text-sm text-[#475569] font-[family-name:var(--font-roboto)] mt-0.5">
+          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
             {total} commande{total !== 1 ? "s" : ""}
           </p>
         </div>
@@ -94,25 +94,25 @@ export default async function AdminCommandesPage({
           name="q"
           defaultValue={q}
           placeholder="Société, email, n° commande…"
-          className="flex-1 border border-[#E2E8F0] px-3 py-2 text-sm font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#0F3460] rounded"
+          className="field-input flex-1"
         />
         <button type="submit"
-          className="px-4 py-2 bg-[#0F3460] text-white text-sm rounded hover:bg-[#0A2540] transition-colors font-[family-name:var(--font-roboto)]">
+          className="btn-primary whitespace-nowrap">
           Chercher
         </button>
       </form>
 
       {/* Tableau */}
       {orders.length === 0 ? (
-        <div className="bg-white border border-[#E2E8F0] p-10 text-center text-[#475569] font-[family-name:var(--font-roboto)] text-sm">
+        <div className="card p-10 text-center text-text-muted font-[family-name:var(--font-roboto)] text-sm">
           Aucune commande trouvée.
         </div>
       ) : (
-        <div className="bg-white border border-[#E2E8F0] overflow-hidden">
+        <div className="card overflow-hidden w-full">
           {/* En-tête tableau — desktop */}
-          <div className="hidden lg:grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-[#E2E8F0] bg-[#F1F5F9]">
-            {["N° Commande", "Client", "Montant TTC", "Statut", "Transporteur", "Actions"].map((h) => (
-              <span key={h} className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#475569] uppercase tracking-wider">
+          <div className="hidden lg:grid grid-cols-[minmax(160px,2fr)_minmax(140px,2fr)_minmax(100px,1fr)_minmax(100px,1fr)_minmax(120px,1.5fr)_80px] gap-4 px-6 py-3 border-b border-border table-header">
+            {["N° Commande", "Client", "Montant TTC", "Statut", "Transporteur", ""].map((h) => (
+              <span key={h} className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
                 {h}
               </span>
             ))}
@@ -121,16 +121,17 @@ export default async function AdminCommandesPage({
           {orders.map((order) => {
             const st = STATUS_LABELS[order.status] ?? STATUS_LABELS.PENDING;
             return (
-              <div
+              <Link
                 key={order.id}
-                className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_auto] gap-3 lg:gap-4 px-5 py-4 border-b border-[#F1F5F9] last:border-0 items-center"
+                href={`/admin/commandes/${order.id}`}
+                className="grid grid-cols-1 lg:grid-cols-[minmax(160px,2fr)_minmax(140px,2fr)_minmax(100px,1fr)_minmax(100px,1fr)_minmax(120px,1.5fr)_80px] gap-3 lg:gap-4 px-6 py-4 border-b border-border last:border-b-0 items-center hover:bg-bg-secondary transition-colors"
               >
                 {/* N° + date */}
-                <div>
-                  <p className="font-[family-name:var(--font-roboto)] font-semibold text-[#0F172A] text-sm">
+                <div className="min-w-0">
+                  <p className="font-[family-name:var(--font-roboto)] font-semibold text-text-primary text-sm">
                     {order.orderNumber}
                   </p>
-                  <p className="text-xs text-[#475569] font-[family-name:var(--font-roboto)] mt-0.5">
+                  <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
                     {new Date(order.createdAt).toLocaleDateString("fr-FR", {
                       day: "2-digit", month: "short", year: "numeric",
                     })}
@@ -139,45 +140,44 @@ export default async function AdminCommandesPage({
                 </div>
 
                 {/* Client */}
-                <div>
-                  <p className="text-sm font-medium text-[#0F172A] font-[family-name:var(--font-roboto)]">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] truncate">
                     {order.clientCompany}
                   </p>
-                  <p className="text-xs text-[#475569] font-[family-name:var(--font-roboto)] truncate">
+                  <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] truncate">
                     {order.clientEmail}
                   </p>
                 </div>
 
                 {/* Montant */}
-                <p className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-[#0F172A]">
+                <p className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-text-primary">
                   {order.totalTTC.toFixed(2)} €
                 </p>
 
                 {/* Statut */}
-                <span className={`inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full font-[family-name:var(--font-roboto)] ${st.bg} ${st.text} w-fit`}>
-                  {st.label}
-                </span>
+                <div>
+                  <span className={`${st.badge} w-fit`}>
+                    {st.label}
+                  </span>
+                </div>
 
                 {/* Transporteur */}
-                <div>
-                  <p className="text-xs text-[#475569] font-[family-name:var(--font-roboto)]">
+                <div className="min-w-0">
+                  <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] truncate">
                     {order.carrierName}
                   </p>
                   {order.eeTrackingId && (
-                    <p className="text-xs font-mono text-[#0F3460] mt-0.5">
+                    <p className="text-xs font-mono text-text-muted mt-0.5 truncate">
                       {order.eeTrackingId}
                     </p>
                   )}
                 </div>
 
                 {/* Actions */}
-                <Link
-                  href={`/admin/commandes/${order.id}`}
-                  className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#0F3460] border border-[#0F3460] px-3 py-1.5 hover:bg-[#0F3460] hover:text-white transition-colors whitespace-nowrap"
-                >
+                <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-text-secondary hover:text-text-primary transition-colors whitespace-nowrap text-right">
                   Voir →
-                </Link>
-              </div>
+                </span>
+              </Link>
             );
           })}
         </div>
@@ -194,15 +194,15 @@ function FilterChip({
   return (
     <Link
       href={href}
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-[family-name:var(--font-roboto)] font-medium border transition-colors ${
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-[family-name:var(--font-roboto)] font-medium border rounded-lg transition-colors ${
         active
-          ? "bg-[#0F3460] text-white border-[#0F3460]"
-          : "bg-white text-[#475569] border-[#E2E8F0] hover:border-[#0F3460] hover:text-[#0F3460]"
+          ? "bg-bg-dark text-text-inverse border-bg-dark"
+          : "bg-bg-primary text-text-secondary border-border hover:border-border-dark hover:text-text-primary"
       }`}
     >
       {label}
       <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${
-        active ? "bg-white/20 text-white" : "bg-[#F1F5F9] text-[#475569]"
+        active ? "bg-white/20 text-text-inverse" : "bg-bg-tertiary text-text-secondary"
       }`}>
         {count}
       </span>

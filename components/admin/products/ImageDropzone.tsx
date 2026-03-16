@@ -49,7 +49,7 @@ export default function ImageDropzone({
   function handleZoneDrop(e: React.DragEvent) {
     e.preventDefault();
     setDropZoneDragging(false);
-    if (draggedIdx !== null) return; // Drag interne, ignoré ici
+    if (draggedIdx !== null) return; // Drag interne, ignore ici
     handleFiles(e.dataTransfer.files);
   }
 
@@ -84,7 +84,7 @@ export default function ImageDropzone({
   return (
     <>
       <div className="space-y-3">
-        {/* Grille des prévisualisations */}
+        {/* Grille des previsualisations */}
         {previews.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {previews.map((src, imgIdx) => (
@@ -97,7 +97,7 @@ export default function ImageDropzone({
                 onDragEnd={handleImgDragEnd}
                 className={`relative group w-20 h-20 cursor-grab active:cursor-grabbing transition-all ${
                   draggedIdx === imgIdx  ? "opacity-30 scale-95" : ""
-                } ${dragOverIdx === imgIdx ? "ring-2 ring-[#0F3460] ring-offset-1" : ""}`}
+                } ${dragOverIdx === imgIdx ? "ring-2 ring-bg-dark ring-offset-1" : ""}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -105,7 +105,7 @@ export default function ImageDropzone({
                   alt={`Image ${imgIdx + 1}`}
                   draggable={false}
                   onClick={() => setZoomedSrc(src)}
-                  className="w-full h-full object-cover border border-[#E2E8F0] cursor-zoom-in"
+                  className="w-full h-full object-cover border border-border cursor-zoom-in"
                 />
                 {/* Supprimer */}
                 <button
@@ -114,13 +114,13 @@ export default function ImageDropzone({
                   className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
                   aria-label="Supprimer l'image"
                 >
-                  ×
+                  x
                 </button>
                 {/* Badge ordre */}
-                <span className="absolute bottom-0 left-0 bg-[#0F172A]/60 text-white text-[9px] px-1 select-none">
+                <span className="absolute bottom-0 left-0 bg-bg-dark/60 text-white text-[9px] px-1 select-none">
                   {imgIdx + 1}
                 </span>
-                {/* Icône drag */}
+                {/* Icone drag */}
                 <span className="absolute top-0 left-0 p-0.5 opacity-0 group-hover:opacity-70 transition-opacity">
                   <svg className="w-3 h-3 text-white drop-shadow" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm8-16a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
@@ -140,8 +140,8 @@ export default function ImageDropzone({
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed p-4 text-center cursor-pointer transition-colors ${
               dropZoneDragging
-                ? "border-[#0F3460] bg-[#FFFFFF]"
-                : "border-[#E2E8F0] hover:border-[#0F3460] bg-[#FFFFFF]"
+                ? "border-bg-dark bg-bg-secondary"
+                : "border-border hover:border-bg-dark bg-bg-primary"
             } ${uploading ? "opacity-60 pointer-events-none" : ""}`}
             role="button"
             tabIndex={0}
@@ -157,23 +157,23 @@ export default function ImageDropzone({
               id={`images-color-${colorIndex}`}
             />
             {uploading ? (
-              <div className="flex items-center justify-center gap-2 text-[#0F3460]">
+              <div className="flex items-center justify-center gap-2 text-text-secondary">
                 <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                 </svg>
-                <span className="text-xs font-[family-name:var(--font-roboto)]">Upload en cours…</span>
+                <span className="text-xs font-[family-name:var(--font-roboto)]">Upload en cours...</span>
               </div>
             ) : (
               <>
-                <svg className="w-6 h-6 text-[#94A3B8] mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6 text-text-muted mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                 </svg>
-                <p className="text-xs font-[family-name:var(--font-roboto)] text-[#475569]">
+                <p className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary">
                   Glissez ou cliquez pour ajouter
                 </p>
-                <p className="text-[10px] text-[#94A3B8] mt-0.5">
-                  JPG, PNG, WEBP · max 3 Mo · {previews.length}/{MAX_IMAGES} — glissez les images pour réordonner
+                <p className="text-[10px] text-text-muted mt-0.5">
+                  JPG, PNG, WEBP -- max 3 Mo -- {previews.length}/{MAX_IMAGES} — glissez les images pour reordonner
                 </p>
               </>
             )}
@@ -181,7 +181,7 @@ export default function ImageDropzone({
         )}
 
         {previews.length >= MAX_IMAGES && (
-          <p className="text-xs text-[#94A3B8] font-[family-name:var(--font-roboto)]">
+          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
             Maximum de {MAX_IMAGES} images atteint.
           </p>
         )}
@@ -196,7 +196,7 @@ export default function ImageDropzone({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={zoomedSrc}
-            alt="Aperçu"
+            alt="Apercu"
             onClick={(e) => e.stopPropagation()}
             className="max-w-full max-h-full object-contain shadow-2xl"
             style={{ maxHeight: "90vh", maxWidth: "90vw" }}
@@ -206,7 +206,7 @@ export default function ImageDropzone({
             onClick={() => setZoomedSrc(null)}
             className="absolute top-4 right-4 w-9 h-9 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-colors text-xl"
           >
-            ×
+            x
           </button>
         </div>
       )}

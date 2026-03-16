@@ -29,21 +29,21 @@ export default function CancelOrderButton({ orderId, orderNumber }: Props) {
   if (confirm) {
     return (
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs font-[family-name:var(--font-roboto)] text-[#555555]">
+        <span className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B]">
           Annuler {orderNumber} ?
         </span>
         <button
           type="button"
           onClick={handleCancel}
           disabled={isPending}
-          className="text-xs font-[family-name:var(--font-roboto)] font-medium text-red-600 hover:text-red-800 border border-red-200 rounded px-3 py-1.5 transition-colors disabled:opacity-60"
+          className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#EF4444] hover:text-[#DC2626] border border-[#FECACA] rounded-lg px-3 py-1.5 transition-colors disabled:opacity-60"
         >
-          {isPending ? "Annulation…" : "Confirmer"}
+          {isPending ? "Annulation..." : "Confirmer"}
         </button>
         <button
           type="button"
           onClick={() => setConfirm(false)}
-          className="text-xs font-[family-name:var(--font-roboto)] text-[#999999] hover:text-[#555555] transition-colors"
+          className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF] hover:text-[#6B6B6B] transition-colors"
         >
           Non, garder
         </button>
@@ -56,7 +56,7 @@ export default function CancelOrderButton({ orderId, orderNumber }: Props) {
       <button
         type="button"
         onClick={() => setConfirm(true)}
-        className="flex items-center gap-1.5 text-xs font-[family-name:var(--font-roboto)] text-red-500 hover:text-red-700 transition-colors border border-red-200 rounded px-3 py-1.5"
+        className="flex items-center gap-1.5 text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF] hover:text-[#EF4444] transition-colors border border-[#E5E5E5] rounded-lg px-3 py-1.5 hover:border-[#FECACA]"
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -64,7 +64,7 @@ export default function CancelOrderButton({ orderId, orderNumber }: Props) {
         </svg>
         Annuler la commande
       </button>
-      {error && <p className="text-[10px] text-red-500 mt-1 font-[family-name:var(--font-roboto)]">{error}</p>}
+      {error && <p className="text-[10px] text-[#EF4444] mt-1 font-[family-name:var(--font-roboto)]">{error}</p>}
     </div>
   );
 }

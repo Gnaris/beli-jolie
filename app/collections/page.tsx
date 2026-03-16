@@ -6,7 +6,7 @@ import Footer from "@/components/layout/Footer";
 
 export const metadata: Metadata = {
   title: "Collections — Beli & Jolie",
-  description: "Découvrez nos collections de bijoux en acier inoxydable.",
+  description: "Decouvrez nos collections de bijoux en acier inoxydable.",
 };
 
 export default async function CollectionsPage() {
@@ -16,17 +16,17 @@ export default async function CollectionsPage() {
   });
 
   return (
-    <div className="flex min-h-screen">
+    <div className="min-h-screen">
       <PublicSidebar />
 
-      <div className="flex-1 lg:ml-60 pt-14 lg:pt-0 min-w-0">
+      <div className="min-w-0">
         {/* Header */}
-        <div className="bg-white border-b border-[#E5E5E5]">
+        <div className="bg-bg-primary border-b border-border">
           <div className="container-site py-8">
-            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#1A1A1A]">
+            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary">
               Collections
             </h1>
-            <p className="mt-1 text-sm text-[#999999] font-[family-name:var(--font-roboto)]">
+            <p className="mt-1 text-sm text-text-muted font-[family-name:var(--font-roboto)]">
               {collections.length} collection{collections.length !== 1 ? "s" : ""} disponible{collections.length !== 1 ? "s" : ""}
             </p>
           </div>
@@ -34,7 +34,7 @@ export default async function CollectionsPage() {
 
         <main className="container-site py-8">
           {collections.length === 0 ? (
-            <div className="text-center py-20 text-[#999999] font-[family-name:var(--font-roboto)]">
+            <div className="text-center py-20 text-text-muted font-[family-name:var(--font-roboto)]">
               Aucune collection disponible pour l&apos;instant.
             </div>
           ) : (
@@ -43,10 +43,10 @@ export default async function CollectionsPage() {
                 <Link
                   key={col.id}
                   href={`/collections/${col.id}`}
-                  className="group bg-white border border-[#E5E5E5] rounded-lg overflow-hidden hover:shadow-[0_4px_16px_rgba(0,0,0,0.1)] transition-shadow"
+                  className="group card card-hover overflow-hidden"
                 >
                   {/* Image */}
-                  <div className="aspect-[16/9] bg-[#F5F5F5] overflow-hidden">
+                  <div className="aspect-[16/9] bg-bg-tertiary overflow-hidden">
                     {col.image ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -56,7 +56,7 @@ export default async function CollectionsPage() {
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <svg className="w-12 h-12 text-[#CCCCCC]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-12 h-12 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
                             d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
                         </svg>
@@ -67,14 +67,14 @@ export default async function CollectionsPage() {
                   {/* Info */}
                   <div className="px-4 py-3 flex items-center justify-between">
                     <div>
-                      <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-base">
+                      <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-base group-hover:text-text-secondary transition-colors">
                         {col.name}
                       </h2>
-                      <p className="text-xs text-[#999999] font-[family-name:var(--font-roboto)] mt-0.5">
+                      <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
                         {col._count.products} produit{col._count.products !== 1 ? "s" : ""}
                       </p>
                     </div>
-                    <svg className="w-4 h-4 text-[#999999] group-hover:text-[#1A1A1A] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                     </svg>
                   </div>

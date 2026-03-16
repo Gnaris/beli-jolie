@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 interface CollectionItem {
-  id:    string;
-  name:  string;
+  id: string;
+  name: string;
   image: string | null;
 }
 
@@ -14,28 +14,28 @@ export default function CollectionsGrid({ collections }: Props) {
   if (collections.length === 0) return null;
 
   return (
-    <section className="py-10">
+    <section className="py-12 bg-bg-primary">
       <div className="container-site">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="section-title font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A]">
+          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
             Nos collections
           </h2>
           <Link
             href="/collections"
-            className="text-sm font-medium text-[#1A1A1A] hover:underline font-[family-name:var(--font-roboto)]"
+            className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors font-[family-name:var(--font-roboto)]"
           >
-            Voir toutes →
+            Voir toutes &rarr;
           </Link>
         </div>
 
-        {/* Grid 2×2 */}
+        {/* Grid 2x2 */}
         <div className="grid grid-cols-2 gap-3 sm:gap-4">
           {collections.slice(0, 4).map((col) => (
             <Link
               key={col.id}
               href={`/collections/${col.id}`}
-              className="group relative aspect-[4/3] rounded-lg overflow-hidden bg-[#EEEEEE]"
+              className="group relative aspect-[4/3] rounded-xl overflow-hidden bg-bg-tertiary"
             >
               {col.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -45,20 +45,29 @@ export default function CollectionsGrid({ collections }: Props) {
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-[#E5E5E5]">
-                  <svg className="w-10 h-10 text-[#BBBBBB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
-                      d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
+                <div className="w-full h-full flex items-center justify-center bg-bg-tertiary">
+                  <svg
+                    className="w-10 h-10 text-text-muted"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1}
+                      d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z"
+                    />
                   </svg>
                 </div>
               )}
 
-              {/* Overlay */}
-              <div className="absolute inset-0 bg-black/30 group-hover:bg-black/40 transition-colors" />
+              {/* Dark gradient overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent group-hover:from-black/80 transition-colors" />
 
               {/* Label */}
               <div className="absolute bottom-0 left-0 right-0 p-4">
-                <p className="font-[family-name:var(--font-poppins)] text-white font-semibold text-base leading-snug drop-shadow">
+                <p className="font-[family-name:var(--font-poppins)] text-text-inverse font-semibold text-base leading-snug">
                   {col.name}
                 </p>
               </div>

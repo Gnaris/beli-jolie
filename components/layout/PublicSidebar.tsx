@@ -1,105 +1,32 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 
-/* ── Boutique nav items ───────────────────── */
-const BOUTIQUE_ITEMS = [
-  {
-    label: "Accueil",
-    href: "/",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-      </svg>
-    ),
-  },
-  {
-    label: "Produits",
-    href: "/produits",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Catégories",
-    href: "/categories",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 6h.008v.008H6V6z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Collections",
-    href: "/collections",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
-      </svg>
-    ),
-  },
+const NAV_LINKS = [
+  { label: "Accueil",     href: "/" },
+  { label: "Produits",    href: "/produits" },
+  { label: "Catégories",  href: "/categories" },
+  { label: "Collections", href: "/collections" },
 ];
 
-/* ── Mon espace nav items ─────────────────── */
-const MON_ESPACE_ITEMS = [
-  {
-    label: "Tableau de bord",
-    href: "/espace-pro",
-    badge: false,
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Commandes",
-    href: "/commandes",
-    badge: false,
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Panier",
-    href: "/panier",
-    badge: true,
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Favoris",
-    href: "/favoris",
-    badge: false,
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-          d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-      </svg>
-    ),
-  },
+const CLIENT_LINKS = [
+  { label: "Commandes",   href: "/commandes" },
+  { label: "Favoris",     href: "/favoris" },
 ];
 
-/* ── SVG icons ────────────────────────────── */
-function IconHamburger() {
+/* -- Icons ---------------------------------------- */
+function IconCart() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+        d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+    </svg>
+  );
+}
+function IconMenu() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -113,56 +40,101 @@ function IconClose() {
     </svg>
   );
 }
-function IconCart() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-        d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-    </svg>
-  );
-}
 function IconLogout() {
   return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
         d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
     </svg>
   );
 }
-function IconLogin() {
+function IconSearch() {
   return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-        d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+        d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
     </svg>
   );
 }
 
-/* ── Nav link style ───────────────────────── */
-function navClass(active: boolean) {
-  return `flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-[family-name:var(--font-roboto)] transition-colors ${
-    active
-      ? "bg-[#1C1018] text-white"
-      : "text-[#555555] hover:bg-[#F5F5F5] hover:text-[#1A1A1A]"
-  }`;
+/* -- Component ------------------------------------ */
+interface SearchResult {
+  id: string;
+  name: string;
+  reference: string;
+  category: string;
+  image: string | null;
+  price: number | null;
 }
 
-function SectionLabel({ label }: { label: string }) {
-  return (
-    <p className="px-3 pt-4 pb-1 text-[10px] font-[family-name:var(--font-roboto)] font-semibold text-[#AAAAAA] uppercase tracking-widest">
-      {label}
-    </p>
-  );
-}
-
-/* ── Component ────────────────────────────── */
 export default function PublicSidebar() {
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [cartCount, setCartCount] = useState(0);
-  const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [cartCount, setCartCount]   = useState(0);
+  const [scrolled, setScrolled]     = useState(false);
+  const pathname  = usePathname();
+  const router = useRouter();
   const { data: session } = useSession();
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [showResults, setShowResults] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowResults(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function handleSearchChange(value: string) {
+    setSearchQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (value.trim().length < 2) {
+      setSearchResults([]);
+      setShowResults(false);
+      return;
+    }
+    setSearchLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/products/search?q=${encodeURIComponent(value.trim())}`);
+        const data = await res.json();
+        setSearchResults(data.results ?? []);
+        setShowResults(true);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+  }
+
+  function handleSearchSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      router.push(`/produits?q=${encodeURIComponent(searchQuery.trim())}`);
+      setShowResults(false);
+      setSearchQuery("");
+    }
+  }
+
+  function handleResultClick(id: string) {
+    setShowResults(false);
+    setSearchQuery("");
+    router.push(`/produits/${id}`);
+  }
+
   const isClient = session?.user?.role === "CLIENT";
+  const company  = (session?.user as { company?: string })?.company ?? session?.user?.name ?? "";
+  const initials = company ? company.slice(0, 2).toUpperCase() : "?";
 
   useEffect(() => {
     if (isClient) {
@@ -173,181 +145,318 @@ export default function PublicSidebar() {
     }
   }, [isClient]);
 
-  const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
-    return pathname === href || pathname.startsWith(href + "/");
-  };
+  useEffect(() => {
+    const handler = () => setScrolled(window.scrollY > 8);
+    window.addEventListener("scroll", handler, { passive: true });
+    return () => window.removeEventListener("scroll", handler);
+  }, []);
 
-  const cartHref = session ? "/panier" : "/connexion";
-
-  /* ── Sidebar content (shared desktop + drawer) ── */
-  const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
-    <div className="flex flex-col h-full">
-      {/* Logo */}
-      <div className="px-6 py-5 border-b border-[#E5E5E5]">
-        <Link
-          href="/"
-          onClick={onNav}
-          className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#1A1A1A] tracking-wide"
-        >
-          Beli <span className="text-[#999999]">&</span> Jolie
-        </Link>
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 px-3 py-2 overflow-y-auto">
-        {/* ── Boutique ── */}
-        <SectionLabel label="Boutique" />
-        <div className="space-y-0.5">
-          {BOUTIQUE_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNav}
-              className={navClass(isActive(item.href))}
-            >
-              <span className={isActive(item.href) ? "text-white" : "text-[#AAAAAA]"}>
-                {item.icon}
-              </span>
-              {item.label}
-            </Link>
-          ))}
-        </div>
-
-        {/* ── Mon espace (CLIENT uniquement) ── */}
-        {isClient && (
-          <>
-            <SectionLabel label="Mon espace" />
-            <div className="space-y-0.5">
-              {MON_ESPACE_ITEMS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onNav}
-                  className={navClass(isActive(item.href))}
-                >
-                  <span className={isActive(item.href) ? "text-white" : "text-[#AAAAAA]"}>
-                    {item.icon}
-                  </span>
-                  <span className="flex-1">{item.label}</span>
-                  {item.badge && cartCount > 0 && (
-                    <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold px-1 ${isActive(item.href) ? "bg-white text-[#1C1018]" : "bg-[#1C1018] text-white"}`}>
-                      {cartCount > 9 ? "9+" : cartCount}
-                    </span>
-                  )}
-                </Link>
-              ))}
-            </div>
-          </>
-        )}
-      </nav>
-
-      {/* Bas de sidebar */}
-      <div className="px-3 py-4 border-t border-[#E5E5E5] space-y-0.5">
-        {session ? (
-          <>
-            {session.user && (
-              <div className="px-3 py-2 mb-1">
-                <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#1A1A1A] truncate">
-                  {(session.user as { company?: string }).company || session.user.name}
-                </p>
-                <p className="text-[11px] text-[#999999] font-[family-name:var(--font-roboto)] truncate mt-0.5">
-                  {session.user.email}
-                </p>
-              </div>
-            )}
-            <button
-              onClick={() => { onNav?.(); signOut({ callbackUrl: "/" }); }}
-              className={navClass(false) + " w-full text-left"}
-            >
-              <IconLogout />
-              <span>Se déconnecter</span>
-            </button>
-          </>
-        ) : (
-          <Link href="/connexion" onClick={onNav} className={navClass(pathname === "/connexion")}>
-            <IconLogin />
-            <span>Connexion</span>
-          </Link>
-        )}
-      </div>
-    </div>
-  );
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
 
   return (
     <>
-      {/* ════════════════════════════════════════
-          DESKTOP — sidebar fixe à gauche
-      ════════════════════════════════════════ */}
-      <aside className="hidden lg:flex flex-col fixed inset-y-0 left-0 w-60 bg-white border-r border-[#E5E5E5] z-40">
-        <SidebarContent />
-      </aside>
+      {/* ===== TOP NAVBAR - fixed ===== */}
+      <header
+        className={`fixed top-0 left-0 right-0 z-50 bg-bg-primary transition-shadow duration-200 ${
+          scrolled ? "shadow-[0_1px_0_var(--color-border),0_4px_16px_rgba(0,0,0,0.04)]" : "border-b border-border"
+        }`}
+      >
+        <div className="container-site h-16 flex items-center gap-6">
 
-      {/* ════════════════════════════════════════
-          MOBILE — en-tête fixe
-      ════════════════════════════════════════ */}
-      <header className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-white border-b border-[#E5E5E5] h-14 flex items-center px-4">
-        <button
-          onClick={() => setDrawerOpen(true)}
-          className="p-1.5 text-[#1A1A1A]"
-          aria-label="Ouvrir le menu"
-        >
-          <IconHamburger />
-        </button>
-
-        <div className="flex-1 flex justify-center">
+          {/* Logo */}
           <Link
             href="/"
-            className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] tracking-wide"
+            className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary tracking-tight shrink-0"
           >
-            Beli <span className="text-[#999999]">&</span> Jolie
+            Beli & Jolie
           </Link>
-        </div>
 
-        <div className="flex items-center gap-0.5">
-          <Link href={cartHref} className="relative p-1.5 text-[#1A1A1A]" aria-label="Panier">
-            <IconCart />
-            {cartCount > 0 && (
-              <span className="absolute top-0.5 right-0.5 bg-[#1A1A1A] text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center leading-none">
-                {cartCount > 9 ? "9+" : cartCount}
-              </span>
+          {/* Desktop nav */}
+          <nav className="hidden md:flex items-center gap-1 flex-1">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors font-[family-name:var(--font-roboto)] ${
+                  isActive(link.href)
+                    ? "bg-bg-tertiary text-text-primary font-medium"
+                    : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+            {isClient && CLIENT_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors font-[family-name:var(--font-roboto)] ${
+                  isActive(link.href)
+                    ? "bg-bg-tertiary text-text-primary font-medium"
+                    : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+
+          {/* Search bar (desktop only) */}
+          <div ref={searchRef} className="hidden lg:flex items-center relative w-72 z-20">
+            <form onSubmit={handleSearchSubmit} className="w-full">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  onFocus={() => { if (searchResults.length > 0) setShowResults(true); }}
+                  placeholder="Rechercher un produit..."
+                  className="w-full bg-bg-secondary border border-border-light rounded-lg pl-9 pr-4 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-text-primary transition-colors"
+                />
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                {searchLoading && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <div className="w-4 h-4 border-2 border-border border-t-text-primary rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+            </form>
+
+            {/* Search results dropdown */}
+            {showResults && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-lg overflow-hidden z-50 max-h-96 overflow-y-auto">
+                {searchResults.length === 0 ? (
+                  <div className="px-4 py-6 text-center">
+                    <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
+                      Aucun résultat pour &quot;{searchQuery}&quot;
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {searchResults.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => handleResultClick(r.id)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg-secondary transition-colors text-left border-b border-border-light last:border-b-0"
+                      >
+                        <div className="w-11 h-11 bg-bg-tertiary rounded-lg overflow-hidden shrink-0">
+                          {r.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={r.image} alt={r.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary truncate">{r.name}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] font-mono text-text-muted">{r.reference}</span>
+                            <span className="text-[10px] text-text-muted">·</span>
+                            <span className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)]">{r.category}</span>
+                          </div>
+                        </div>
+                        {r.price !== null && (
+                          <span className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-text-primary shrink-0">
+                            {r.price.toFixed(2)} €
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        router.push(`/produits?q=${encodeURIComponent(searchQuery.trim())}`);
+                        setShowResults(false);
+                        setSearchQuery("");
+                      }}
+                      className="w-full px-4 py-3 text-center text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary hover:bg-bg-secondary transition-colors"
+                    >
+                      Voir tous les résultats →
+                    </button>
+                  </>
+                )}
+              </div>
             )}
-          </Link>
+          </div>
+
+          {/* Right actions */}
+          <div className="flex items-center gap-2 ml-auto">
+
+            {/* Cart */}
+            {isClient && (
+              <Link
+                href="/panier"
+                className="relative flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
+                aria-label="Panier"
+              >
+                <IconCart />
+                {cartCount > 0 && (
+                  <span className="absolute top-1 right-1 w-4 h-4 bg-bg-dark text-text-inverse text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                    {cartCount > 9 ? "9+" : cartCount}
+                  </span>
+                )}
+              </Link>
+            )}
+
+            {/* Logged-in user */}
+            {session ? (
+              <div className="hidden md:flex items-center gap-2">
+                <Link href="/espace-pro" className="flex items-center gap-2.5 px-3 py-1.5 bg-bg-secondary rounded-lg border border-border-light hover:border-border-dark transition-colors">
+                  <div className="w-6 h-6 rounded-full bg-bg-dark flex items-center justify-center shrink-0">
+                    <span className="text-text-inverse text-[10px] font-bold font-[family-name:var(--font-roboto)]">{initials}</span>
+                  </div>
+                  <span className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] max-w-[120px] truncate">
+                    {company}
+                  </span>
+                </Link>
+                <button
+                  onClick={() => signOut({ callbackUrl: "/" })}
+                  className="flex items-center justify-center w-9 h-9 text-text-muted hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
+                  aria-label="Déconnexion"
+                >
+                  <IconLogout />
+                </button>
+              </div>
+            ) : (
+              <Link
+                href="/connexion"
+                className="hidden md:inline-flex btn-primary text-xs py-2 px-4"
+              >
+                Connexion Pro
+              </Link>
+            )}
+
+            {/* Mobile hamburger */}
+            <button
+              onClick={() => setMobileOpen(true)}
+              className="md:hidden flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
+              aria-label="Menu"
+            >
+              <IconMenu />
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* ════════════════════════════════════════
-          MOBILE — drawer latéral
-      ════════════════════════════════════════ */}
-      {drawerOpen && (
+      {/* ===== MOBILE DRAWER ===== */}
+      {mobileOpen && (
         <>
           <div
-            className="lg:hidden fixed inset-0 bg-black/40 z-50"
-            onClick={() => setDrawerOpen(false)}
+            className="fixed inset-0 bg-black/40 z-50 md:hidden"
+            onClick={() => setMobileOpen(false)}
           />
-          <div className="lg:hidden fixed inset-y-0 left-0 w-64 bg-white z-50 flex flex-col shadow-xl">
-            <div className="flex items-center justify-between px-4 py-4 border-b border-[#E5E5E5]">
+          <div className="fixed inset-y-0 right-0 w-72 bg-bg-primary z-50 md:hidden flex flex-col shadow-2xl">
+
+            {/* Drawer header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
               <Link
                 href="/"
-                onClick={() => setDrawerOpen(false)}
-                className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#1A1A1A]"
+                onClick={() => setMobileOpen(false)}
+                className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary"
               >
-                Beli <span className="text-[#999999]">&</span> Jolie
+                Beli & Jolie
               </Link>
               <button
-                onClick={() => setDrawerOpen(false)}
-                className="p-1 text-[#555555]"
-                aria-label="Fermer"
+                onClick={() => setMobileOpen(false)}
+                className="w-8 h-8 flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-bg-secondary rounded-lg"
               >
                 <IconClose />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              <SidebarContent onNav={() => setDrawerOpen(false)} />
+
+            {/* Links */}
+            <nav className="flex-1 px-4 py-4 overflow-y-auto space-y-1">
+              <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-[family-name:var(--font-roboto)] px-3 pb-1 pt-2">
+                Boutique
+              </p>
+              {NAV_LINKS.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center px-3 py-2.5 text-sm rounded-lg transition-colors font-[family-name:var(--font-roboto)] ${
+                    isActive(link.href)
+                      ? "bg-bg-tertiary text-text-primary font-medium"
+                      : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))}
+
+              {isClient && (
+                <>
+                  <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-[family-name:var(--font-roboto)] px-3 pb-1 pt-4">
+                    Mon espace
+                  </p>
+                  {CLIENT_LINKS.map((link) => (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      onClick={() => setMobileOpen(false)}
+                      className={`flex items-center justify-between px-3 py-2.5 text-sm rounded-lg transition-colors font-[family-name:var(--font-roboto)] ${
+                        isActive(link.href)
+                          ? "bg-bg-tertiary text-text-primary font-medium"
+                          : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+                      }`}
+                    >
+                      {link.label}
+                      {link.href === "/panier" && cartCount > 0 && (
+                        <span className="w-5 h-5 bg-bg-dark text-text-inverse text-[10px] font-bold rounded-full flex items-center justify-center">
+                          {cartCount}
+                        </span>
+                      )}
+                    </Link>
+                  ))}
+                </>
+              )}
+            </nav>
+
+            {/* Drawer footer */}
+            <div className="px-4 py-4 border-t border-border-light">
+              {session ? (
+                <>
+                  <div className="flex items-center gap-3 px-3 py-2.5 bg-bg-secondary rounded-lg mb-2">
+                    <div className="w-8 h-8 rounded-full bg-bg-dark flex items-center justify-center shrink-0">
+                      <span className="text-text-inverse text-[11px] font-bold">{initials}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-text-primary truncate font-[family-name:var(--font-roboto)]">{company}</p>
+                      <p className="text-xs text-text-muted truncate font-[family-name:var(--font-roboto)]">{session.user.email}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setMobileOpen(false); signOut({ callbackUrl: "/" }); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
+                  >
+                    <IconLogout />
+                    Se déconnecter
+                  </button>
+                </>
+              ) : (
+                <Link
+                  href="/connexion"
+                  onClick={() => setMobileOpen(false)}
+                  className="btn-primary w-full justify-center"
+                >
+                  Connexion Pro
+                </Link>
+              )}
             </div>
           </div>
         </>
       )}
+
+      {/* Spacer for fixed navbar */}
+      <div className="h-16" />
     </>
   );
 }

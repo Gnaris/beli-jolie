@@ -16,8 +16,11 @@ type ProductItem = {
   id:            string;
   name:          string;
   reference:     string;
+  isBestSeller?: boolean;
+  createdAt?:    string | Date;
   category:      { name: string };
   subCategories: { name: string }[];
+  tags:          { tag: { id: string; name: string } }[];
   colors: {
     id:        string;
     unitPrice: number;
@@ -130,18 +133,18 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
   if (products.length === 0) {
     return (
-      <div className="text-center py-20 bg-white border border-[#E5E5E5] rounded-lg">
-        <div className="w-14 h-14 bg-[#F5F5F5] rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-7 h-7 text-[#CCCCCC]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="text-center py-20 card">
+        <div className="w-14 h-14 bg-bg-tertiary rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
         </div>
-        <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
-          Aucun produit trouvé
+        <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">
+          Aucun produit trouve
         </p>
-        <p className="text-sm text-[#999999] font-[family-name:var(--font-roboto)]">
-          Essayez de modifier vos critères de recherche.
+        <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
+          Essayez de modifier vos criteres de recherche.
         </p>
       </div>
     );
@@ -149,7 +152,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         {products.map((product) => (
           <ProductCard
             key={product.id}
@@ -159,6 +162,9 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
             category={product.category.name}
             subCategory={product.subCategories[0]?.name ?? null}
             isFavorite={favoriteIds.has(product.id)}
+            isBestSeller={product.isBestSeller}
+            isNew={product.createdAt ? new Date(product.createdAt) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : false}
+            tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
             colors={product.colors.map((c) => ({
               id:         c.id,
               hex:        c.color.hex,
@@ -182,13 +188,13 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
       {loading && (
         <div className="flex justify-center py-6">
-          <div className="w-6 h-6 border-2 border-[#E5E5E5] border-t-[#C2516A] rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-border border-t-text-primary rounded-full animate-spin" />
         </div>
       )}
 
       {!hasMore && products.length > 0 && (
-        <p className="text-center text-sm text-[#999999] font-[family-name:var(--font-roboto)] py-4">
-          Tous les produits sont affichés ({products.length})
+        <p className="text-center text-sm text-text-muted font-[family-name:var(--font-roboto)] py-4">
+          Tous les produits sont affiches ({products.length})
         </p>
       )}
     </>

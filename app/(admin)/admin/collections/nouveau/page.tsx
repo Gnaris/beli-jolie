@@ -61,7 +61,7 @@ export default function NewCollectionPage() {
       <div className="flex items-center gap-3">
         <Link
           href="/admin/collections"
-          className="text-[#475569] hover:text-[#0F172A] transition-colors"
+          className="text-text-muted hover:text-text-primary transition-colors"
           aria-label="Retour"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -69,27 +69,27 @@ export default function NewCollectionPage() {
           </svg>
         </Link>
         <div>
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#0F172A]">
+          <h1 className="page-title">
             Nouvelle collection
           </h1>
-          <p className="text-sm text-[#475569] font-[family-name:var(--font-roboto)]">
+          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
             Créez une collection et ajoutez-y des produits après.
           </p>
         </div>
       </div>
 
       {/* Form */}
-      <form onSubmit={handleSubmit} className="bg-white border border-[#E2E8F0] rounded-lg p-6 space-y-5">
+      <form onSubmit={handleSubmit} className="card p-6 space-y-5">
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5 rounded-md">
+          <div className="bg-[#FEE2E2] border border-[#FECACA] text-error text-sm px-4 py-2.5 rounded-xl">
             {error}
           </div>
         )}
 
         {/* Nom */}
         <div>
-          <label className="block text-sm font-medium text-[#0F172A] mb-1.5 font-[family-name:var(--font-roboto)]">
-            Nom de la collection <span className="text-red-500">*</span>
+          <label className="field-label font-[family-name:var(--font-roboto)]">
+            Nom de la collection <span className="text-error">*</span>
           </label>
           <input
             type="text"
@@ -103,17 +103,17 @@ export default function NewCollectionPage() {
 
         {/* Image */}
         <div>
-          <label className="block text-sm font-medium text-[#0F172A] mb-1.5 font-[family-name:var(--font-roboto)]">
+          <label className="field-label font-[family-name:var(--font-roboto)]">
             Image de la collection
           </label>
 
           {preview ? (
-            <div className="relative w-48 h-48 rounded-lg overflow-hidden border border-[#E2E8F0]">
+            <div className="relative w-48 h-48 rounded-xl overflow-hidden border border-border">
               <img src={preview} alt="Aperçu" className="w-full h-full object-cover" />
               <button
                 type="button"
                 onClick={() => { setImage(null); setPreview(null); }}
-                className="absolute top-2 right-2 bg-white/90 text-[#1A1A1A] rounded-full p-1 hover:bg-white transition-colors shadow-sm"
+                className="absolute top-2 right-2 bg-white/90 text-text-primary rounded-full p-1 hover:bg-white transition-colors shadow-sm"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -125,7 +125,7 @@ export default function NewCollectionPage() {
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
-              className="w-full h-40 border-2 border-dashed border-[#E2E8F0] rounded-lg flex flex-col items-center justify-center gap-2 text-[#94A3B8] hover:border-[#94A3B8] transition-colors"
+              className="w-full h-40 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-2 text-text-muted hover:border-border-dark hover:text-text-secondary transition-colors"
             >
               {uploading ? (
                 <span className="text-sm font-[family-name:var(--font-roboto)]">Téléchargement…</span>
@@ -159,7 +159,7 @@ export default function NewCollectionPage() {
           >
             {saving ? "Création…" : "Créer la collection"}
           </button>
-          <Link href="/admin/collections" className="btn-outline">
+          <Link href="/admin/collections" className="btn-secondary">
             Annuler
           </Link>
         </div>

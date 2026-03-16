@@ -1,7 +1,6 @@
 /**
  * Section badges de confiance
- * 4 arguments clés : Certifié, Sécurisé, Livraison, Transparence
- * Inspiré du site de référence (bande horizontale sous le hero)
+ * 4 arguments cles : Certifie, Securise, Livraison, Transparence
  */
 
 const BADGES = [
@@ -12,8 +11,8 @@ const BADGES = [
           d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
       </svg>
     ),
-    title: "Certifié",
-    description: "Certificats d'authenticité disponibles sur chaque produit",
+    title: "Certifie",
+    description: "Certificats d'authenticite disponibles sur chaque produit",
   },
   {
     icon: (
@@ -22,8 +21,8 @@ const BADGES = [
           d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
       </svg>
     ),
-    title: "Sécurisé",
-    description: "Plateforme BtoB certifiée, paiements et données sécurisés",
+    title: "Securise",
+    description: "Plateforme BtoB certifiee, paiements et donnees securises",
   },
   {
     icon: (
@@ -33,7 +32,7 @@ const BADGES = [
       </svg>
     ),
     title: "Livraison Rapide",
-    description: "Expédition sous 48h, livraison mondiale fiable et suivie",
+    description: "Expedition sous 48h, livraison mondiale fiable et suivie",
   },
   {
     icon: (
@@ -43,13 +42,13 @@ const BADGES = [
       </svg>
     ),
     title: "Retours Faciles",
-    description: "Politique de retour simplifiée, service client réactif",
+    description: "Politique de retour simplifiee, service client reactif",
   },
 ];
 
 export default function TrustBadges() {
   return (
-    <section className="bg-[#FFFFFF] border-y border-[#E2E8F0]" aria-label="Nos garanties">
+    <section className="bg-bg-primary border-y border-border" aria-label="Nos garanties">
       <div className="container-site py-10 md:py-12">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
           {BADGES.map((badge) => (
@@ -57,18 +56,18 @@ export default function TrustBadges() {
               key={badge.title}
               className="flex flex-col items-center text-center gap-3 p-4"
             >
-              {/* Icône */}
-              <div className="text-[#0F3460]">
+              {/* Icon */}
+              <div className="text-text-secondary">
                 {badge.icon}
               </div>
 
-              {/* Titre */}
-              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#0F172A]">
+              {/* Title */}
+              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
                 {badge.title}
               </h3>
 
               {/* Description */}
-              <p className="font-[family-name:var(--font-roboto)] text-sm text-[#475569] leading-relaxed hidden sm:block">
+              <p className="font-[family-name:var(--font-roboto)] text-sm text-text-muted leading-relaxed hidden sm:block">
                 {badge.description}
               </p>
             </div>

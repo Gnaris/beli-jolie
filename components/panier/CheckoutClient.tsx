@@ -3,8 +3,16 @@
 import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { saveShippingAddress } from "@/app/actions/client/cart";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { saveShippingAddress, deleteShippingAddress } from "@/app/actions/client/cart";
 import { placeOrder } from "@/app/actions/client/order";
+
+// ─────────────────────────────────────────────
+// Stripe
+// ─────────────────────────────────────────────
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 // ─────────────────────────────────────────────
 // Types
@@ -166,15 +174,15 @@ function FieldInput({
 }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#1A1A1A] mb-1.5">
-        {label}{optional && <span className="text-[#999999] font-normal ml-1">(optionnel)</span>}
-        {required && <span className="text-[#1A1A1A] ml-0.5">*</span>}
+      <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-1.5">
+        {label}{optional && <span className="text-text-muted font-normal ml-1">(optionnel)</span>}
+        {required && <span className="text-text-primary ml-0.5">*</span>}
       </label>
       <input
         id={id} type={type} value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder} required={required}
-        className="w-full bg-white border border-[#E5E5E5] rounded-lg px-4 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none focus:border-[#1A1A1A] focus:shadow-[0_0_0_2px_rgba(26,26,26,0.08)] transition-all"
+        className="field-input w-full"
       />
     </div>
   );
@@ -185,7 +193,7 @@ function FieldInput({
 // ─────────────────────────────────────────────
 
 const EMPTY_ADDR = {
-  label: "", firstName: "", lastName: "", company: "",
+  firstName: "", lastName: "", company: "",
   address1: "", address2: "", zipCode: "", city: "", country: "FR", phone: "",
 };
 
@@ -212,7 +220,6 @@ function AddressForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <FieldInput id="label" label="Libellé" value={f.label} onChange={set("label")} placeholder="Boutique principale" required />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FieldInput id="addr-fn" label="Prénom" value={f.firstName} onChange={set("firstName")} required />
         <FieldInput id="addr-ln" label="Nom" value={f.lastName} onChange={set("lastName")} required />
@@ -225,13 +232,13 @@ function AddressForm({
         <FieldInput id="addr-city" label="Ville" value={f.city} onChange={set("city")} required />
       </div>
       <div>
-        <label htmlFor="addr-country" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-[#1A1A1A] mb-1.5">
-          Pays <span className="text-[#1A1A1A]">*</span>
+        <label htmlFor="addr-country" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-1.5">
+          Pays <span className="text-text-primary">*</span>
         </label>
         <select
           id="addr-country" value={f.country}
           onChange={(e) => set("country")(e.target.value)}
-          className="w-full bg-white border border-[#E5E5E5] rounded-lg px-4 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] focus:outline-none focus:border-[#1A1A1A] focus:shadow-[0_0_0_2px_rgba(26,26,26,0.08)] transition-all"
+          className="field-input w-full"
         >
           {EU_COUNTRY_OPTIONS.map((c) => (
             <option key={c.code} value={c.code}>{c.label}</option>
@@ -239,7 +246,7 @@ function AddressForm({
         </select>
       </div>
       <FieldInput id="addr-phone" label="Téléphone" value={f.phone} onChange={set("phone")} type="tel" optional placeholder="0612345678" />
-      <label className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] cursor-pointer">
+      <label className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary cursor-pointer">
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)}
           className="accent-[#1A1A1A] w-4 h-4" />
         Définir comme adresse par défaut
@@ -250,7 +257,7 @@ function AddressForm({
           {isSaving ? "Enregistrement…" : "Enregistrer l'adresse"}
         </button>
         <button type="button" onClick={onCancel}
-          className="btn-outline px-4 py-2 text-sm">
+          className="btn-secondary px-4 py-2 text-sm">
           Annuler
         </button>
       </div>
@@ -273,27 +280,117 @@ function CarrierCard({
       onClick={onClick}
       className={`w-full text-left border rounded-xl p-4 flex items-center gap-4 transition-all ${
         selected
-          ? "border-[#1A1A1A] bg-[#F5F5F5] shadow-[0_0_0_2px_rgba(26,26,26,0.15)]"
-          : "border-[#E5E5E5] bg-white hover:border-[#555555]"
+          ? "border-[#1A1A1A] bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
+          : "border-border bg-white hover:border-[#9CA3AF]"
       }`}
     >
       <div className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center ${
-        selected ? "border-[#1A1A1A]" : "border-[#999999]"
+        selected ? "border-[#1A1A1A]" : "border-[#9CA3AF]"
       }`}>
         {selected && <div className="w-2.5 h-2.5 rounded-full bg-[#1A1A1A]" />}
       </div>
       <div className="flex-1">
-        <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#1A1A1A]">
+        <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
           {carrier.name}
         </p>
-        <p className="text-xs text-[#555555] font-[family-name:var(--font-roboto)] mt-0.5">
+        <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] mt-0.5">
           {carrier.delay}
         </p>
       </div>
-      <p className="font-[family-name:var(--font-poppins)] font-semibold text-sm text-[#1A1A1A] shrink-0">
+      <p className="font-[family-name:var(--font-poppins)] font-semibold text-sm text-text-primary shrink-0">
         {carrier.price === 0 ? "Gratuit" : `${carrier.price.toFixed(2)} €`}
       </p>
     </button>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Formulaire paiement Stripe
+// ─────────────────────────────────────────────
+
+function StripePaymentForm({
+  onSuccess,
+  onProcessing,
+  onError,
+  disabled,
+}: {
+  onSuccess: (paymentIntentId: string) => void;
+  onProcessing: (paymentIntentId: string) => void;
+  onError: (msg: string) => void;
+  disabled: boolean;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!stripe || !elements || processing || disabled) return;
+
+    setProcessing(true);
+    onError("");
+
+    const result = await stripe.confirmPayment({
+      elements,
+      redirect: "if_required",
+    });
+
+    console.log("[Stripe] confirmPayment result:", JSON.stringify({
+      error: result.error?.message,
+      status: result.paymentIntent?.status,
+      id: result.paymentIntent?.id,
+    }));
+
+    const { error, paymentIntent } = result;
+
+    if (error) {
+      onError(error.message ?? "Erreur lors du paiement.");
+      setProcessing(false);
+    } else if (paymentIntent && paymentIntent.status === "succeeded") {
+      onSuccess(paymentIntent.id);
+    } else if (paymentIntent && (paymentIntent.status === "processing" || paymentIntent.status === "requires_action")) {
+      // Virement bancaire : "requires_action" = coordonnées bancaires affichées
+      // ou "processing" = virement en cours de traitement
+      onProcessing(paymentIntent.id);
+    } else {
+      onError("Le paiement n'a pas abouti. Veuillez réessayer.");
+      setProcessing(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement
+        onReady={() => setReady(true)}
+        options={{
+          layout: "tabs",
+        }}
+      />
+      <button
+        type="submit"
+        disabled={!stripe || !elements || processing || !ready || disabled}
+        className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {processing ? (
+          <>
+            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Paiement en cours…
+          </>
+        ) : (
+          <>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+            </svg>
+            Confirmer et payer
+          </>
+        )}
+      </button>
+    </form>
   );
 }
 
@@ -312,8 +409,29 @@ export default function CheckoutClient({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [orderResult, setOrderResult] = useState<{ orderNumber: string; orderId: string } | null>(null);
-  const [orderError, setOrderError]   = useState("");
+  const [orderError, setOrderError] = useState("");
+
+  // Stripe
+  const [clientSecret, setClientSecret]       = useState<string | null>(null);
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [stripeLoading, setStripeLoading]     = useState(false);
+  const [stripeError, setStripeError]         = useState("");
+
+  // Infos client editables (adresse de facturation)
+  const [billingInfo, setBillingInfo] = useState({
+    firstName: user.firstName,
+    lastName:  user.lastName,
+    company:   user.company,
+    email:     user.email,
+    phone:     user.phone,
+    address1:  "",
+    address2:  "",
+    zipCode:   "",
+    city:      "",
+    country:   "FR",
+  });
+  const [editingInfo, setEditingInfo] = useState(false);
+  const [sameAsBilling, setSameAsBilling] = useState(false);
 
   // Adresses
   const [addresses, setAddresses]   = useState<Address[]>(initialAddresses);
@@ -384,7 +502,7 @@ export default function CheckoutClient({
   // Sauvegarder une nouvelle adresse
   function handleSaveAddress(data: typeof EMPTY_ADDR & { isDefault: boolean }) {
     startTransition(async () => {
-      const saved = await saveShippingAddress(data);
+      const saved = await saveShippingAddress({ ...data, label: `${data.city} — ${data.address1}`.slice(0, 50) });
       setAddresses((prev) => {
         const updated = data.isDefault
           ? prev.map((a) => ({ ...a, isDefault: false }))
@@ -396,77 +514,144 @@ export default function CheckoutClient({
     });
   }
 
+  function handleSameAsBilling(checked: boolean) {
+    setSameAsBilling(checked);
+    if (checked && billingInfo.address1 && billingInfo.zipCode && billingInfo.city) {
+      startTransition(async () => {
+        const saved = await saveShippingAddress({
+          label: `Facturation — ${billingInfo.city}`,
+          firstName: billingInfo.firstName,
+          lastName:  billingInfo.lastName,
+          company:   billingInfo.company,
+          address1:  billingInfo.address1,
+          address2:  billingInfo.address2,
+          zipCode:   billingInfo.zipCode,
+          city:      billingInfo.city,
+          country:   billingInfo.country,
+          phone:     billingInfo.phone,
+          isDefault: false,
+        });
+        setAddresses((prev) => [...prev, saved as Address]);
+        setSelectedAddrId((saved as Address).id);
+        setShowAddressForm(false);
+      });
+    }
+  }
+
+  function handleDeleteAddress(addrId: string) {
+    startTransition(async () => {
+      await deleteShippingAddress(addrId);
+      setAddresses((prev) => prev.filter((a) => a.id !== addrId));
+      if (selectedAddrId === addrId) {
+        setSelectedAddrId(null);
+        setCarriers([]);
+      }
+    });
+  }
+
   const canProceed = !!selectedAddr && !!selectedCarrier;
 
-  function handlePlaceOrder() {
-    if (!canProceed) return;
+  // Créer le Payment Intent Stripe uniquement quand le client clique "Procéder au paiement"
+  async function handleInitiatePayment() {
+    if (!canProceed || clientSecret) return;
+    setStripeLoading(true);
+    setStripeError("");
+    try {
+      const res = await fetch("/api/payments/create-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          addressId:    selectedAddr!.id,
+          carrierId:    selectedCarrier!.id,
+          carrierName:  selectedCarrier!.name,
+          carrierPrice: selectedCarrier!.price,
+          tvaRate,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setStripeError(data.error);
+      } else {
+        setClientSecret(data.clientSecret);
+        setPaymentIntentId(data.paymentIntentId);
+      }
+    } catch {
+      setStripeError("Impossible d'initialiser le paiement.");
+    } finally {
+      setStripeLoading(false);
+    }
+  }
+
+  // Réinitialiser Stripe si l'adresse ou le transporteur change
+  useEffect(() => {
+    setClientSecret(null);
+    setPaymentIntentId(null);
+    setStripeError("");
+  }, [selectedAddrId, selectedCarrierId]);
+
+  // Après paiement Stripe réussi (carte) → créer la commande et rediriger
+  function handlePaymentSuccess(piId: string) {
     setOrderError("");
     startTransition(async () => {
       const result = await placeOrder({
-        addressId:     selectedAddr!.id,
-        carrierId:     selectedCarrier!.id,
+        addressId:             selectedAddr!.id,
+        carrierId:             selectedCarrier!.id,
         transactionId,
-        carrierName:   selectedCarrier!.name,
-        carrierPrice:  selectedCarrier!.price,
+        carrierName:           selectedCarrier!.name,
+        carrierPrice:          selectedCarrier!.price,
         tvaRate,
+        stripePaymentIntentId: piId,
       });
       if (result.success) {
-        setOrderResult({ orderNumber: result.orderNumber, orderId: result.orderId });
-        router.refresh();
+        router.push(`/commandes/${result.orderId}?success=1`);
       } else {
         setOrderError(result.error);
       }
     });
   }
 
-  // ── Écran de confirmation ─────────────────────────────────────────────────
-  if (orderResult) {
-    return (
-      <div className="container-site py-14 flex items-center justify-center min-h-[60vh]">
-        <div className="max-w-lg w-full bg-white border border-[#E5E5E5] rounded-2xl p-10 shadow-card text-center space-y-5">
-          <div className="w-16 h-16 bg-[#F5F5F5] rounded-full flex items-center justify-center mx-auto">
-            <svg className="w-8 h-8 text-[#555555]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#1A1A1A]">
-              Commande validée !
-            </h1>
-            <p className="mt-2 text-sm font-[family-name:var(--font-roboto)] text-[#555555]">
-              Votre commande <span className="font-semibold text-[#1A1A1A]">{orderResult.orderNumber}</span> a bien été enregistrée.
-            </p>
-            <p className="mt-1 text-sm font-[family-name:var(--font-roboto)] text-[#999999]">
-              Un récapitulatif PDF a été envoyé à notre équipe. Vous serez contacté pour la suite.
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-            <Link href="/produits" className="btn-outline px-6 py-2.5 text-sm justify-center">
-              Continuer mes achats
-            </Link>
-            <Link href="/espace-pro" className="btn-primary justify-center">
-              Mon espace pro
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
+  // Virement bancaire initié (processing) → créer la commande en attente de virement
+  function handlePaymentProcessing(piId: string) {
+    setOrderError("");
+    startTransition(async () => {
+      try {
+        const result = await placeOrder({
+          addressId:             selectedAddr!.id,
+          carrierId:             selectedCarrier!.id,
+          transactionId,
+          carrierName:           selectedCarrier!.name,
+          carrierPrice:          selectedCarrier!.price,
+          tvaRate,
+          stripePaymentIntentId: piId,
+        });
+        if (result.success) {
+          // Rediriger immédiatement vers la page commande avec un paramètre
+          // pour éviter que le revalidatePath ne nous redirige vers /panier
+          router.push(`/commandes/${result.orderId}?awaiting_transfer=1`);
+        } else {
+          setOrderError(result.error);
+        }
+      } catch (err) {
+        console.error("[Checkout] placeOrder exception:", err);
+        setOrderError("Erreur inattendue lors de la création de la commande.");
+      }
+    });
   }
 
   return (
     <div className="container-site py-10 md:py-14">
       {/* En-tête */}
       <div className="mb-8">
-        <Link href="/panier" className="text-xs font-[family-name:var(--font-roboto)] text-[#555555] hover:text-[#333333] flex items-center gap-1 mb-4 transition-colors">
+        <Link href="/panier" className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary flex items-center gap-1 mb-4 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
           Retour au panier
         </Link>
-        <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-[#1A1A1A] mb-1">
+        <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-text-muted mb-1">
           Commande
         </p>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-[#1A1A1A]">
+        <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-text-primary">
           Finaliser la commande
         </h1>
       </div>
@@ -476,36 +661,92 @@ export default function CheckoutClient({
         {/* ── Colonne principale ─────────────────── */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* ── 1. Informations client ── */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-card">
-            <div className="px-5 py-3.5 border-b border-[#E5E5E5] bg-[#F5F5F5] flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] uppercase tracking-wide">
-                Informations client
-              </h2>
+          {/* ── 1. Informations client + adresse de facturation ── */}
+          <section className="bg-white border border-border rounded-2xl overflow-hidden shadow-card">
+            <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
+                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
+                  Informations client
+                </h2>
+              </div>
+              <button type="button" onClick={() => setEditingInfo((v) => !v)}
+                className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary transition-colors">
+                {editingInfo ? "Fermer" : "Modifier"}
+              </button>
             </div>
-            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm font-[family-name:var(--font-roboto)]">
-              <InfoLine label="Société"   value={user.company} />
-              <InfoLine label="Contact"   value={`${user.firstName} ${user.lastName}`} />
-              <InfoLine label="Email"     value={user.email} />
-              <InfoLine label="Téléphone" value={user.phone} />
-              <InfoLine label="SIRET"     value={user.siret} mono />
-              {vatNumber && <InfoLine label="N° TVA" value={vatNumber} mono />}
-            </div>
+
+            {editingInfo ? (
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FieldInput id="bi-fn" label="Prenom" value={billingInfo.firstName} onChange={(v) => setBillingInfo((p) => ({ ...p, firstName: v }))} required />
+                  <FieldInput id="bi-ln" label="Nom" value={billingInfo.lastName} onChange={(v) => setBillingInfo((p) => ({ ...p, lastName: v }))} required />
+                </div>
+                <FieldInput id="bi-co" label="Societe" value={billingInfo.company} onChange={(v) => setBillingInfo((p) => ({ ...p, company: v }))} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FieldInput id="bi-email" label="Email" value={billingInfo.email} onChange={(v) => setBillingInfo((p) => ({ ...p, email: v }))} type="email" />
+                  <FieldInput id="bi-phone" label="Telephone" value={billingInfo.phone} onChange={(v) => setBillingInfo((p) => ({ ...p, phone: v }))} type="tel" />
+                </div>
+                <div className="border-t border-border pt-4 mt-2">
+                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-3">Adresse de facturation</p>
+                  <div className="space-y-4">
+                    <FieldInput id="bi-a1" label="Adresse" value={billingInfo.address1} onChange={(v) => setBillingInfo((p) => ({ ...p, address1: v }))} placeholder="12 rue des Fleurs" required />
+                    <FieldInput id="bi-a2" label="Complement" value={billingInfo.address2} onChange={(v) => setBillingInfo((p) => ({ ...p, address2: v }))} optional placeholder="Bat. A, porte 3" />
+                    <div className="grid grid-cols-2 gap-4">
+                      <FieldInput id="bi-zip" label="Code postal" value={billingInfo.zipCode} onChange={(v) => setBillingInfo((p) => ({ ...p, zipCode: v }))} required />
+                      <FieldInput id="bi-city" label="Ville" value={billingInfo.city} onChange={(v) => setBillingInfo((p) => ({ ...p, city: v }))} required />
+                    </div>
+                    <div>
+                      <label htmlFor="bi-country" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-1.5">Pays</label>
+                      <select id="bi-country" value={billingInfo.country} onChange={(e) => setBillingInfo((p) => ({ ...p, country: e.target.value }))} className="field-input w-full">
+                        {EU_COUNTRY_OPTIONS.map((c) => (
+                          <option key={c.code} value={c.code}>{c.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setEditingInfo(false)} className="btn-primary text-sm">
+                  Enregistrer
+                </button>
+              </div>
+            ) : (
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm font-[family-name:var(--font-roboto)]">
+                  <InfoLine label="Societe"   value={billingInfo.company} />
+                  <InfoLine label="Contact"   value={`${billingInfo.firstName} ${billingInfo.lastName}`} />
+                  <InfoLine label="Email"     value={billingInfo.email} />
+                  <InfoLine label="Telephone" value={billingInfo.phone} />
+                  <InfoLine label="SIRET"     value={user.siret} mono />
+                  {vatNumber && <InfoLine label="N° TVA" value={vatNumber} mono />}
+                </div>
+                {billingInfo.address1 && (
+                  <div className="border-t border-border pt-3">
+                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">Adresse de facturation</p>
+                    <p className="text-sm text-text-primary font-[family-name:var(--font-roboto)]">
+                      {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""}
+                    </p>
+                    <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)]">
+                      {billingInfo.zipCode} {billingInfo.city}, {EU_COUNTRY_OPTIONS.find((c) => c.code === billingInfo.country)?.label ?? billingInfo.country}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* ── 2. Adresse de livraison ── */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-card">
-            <div className="px-5 py-3.5 border-b border-[#E5E5E5] bg-[#F5F5F5] flex items-center justify-between">
+          <section className="bg-white border border-border rounded-2xl overflow-hidden shadow-card">
+            <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">2</span>
-                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] uppercase tracking-wide">
+                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
                   Adresse de livraison
                 </h2>
               </div>
               {!showAddressForm && (
                 <button type="button" onClick={() => setShowAddressForm(true)}
-                  className="text-xs font-[family-name:var(--font-roboto)] text-[#555555] hover:text-[#333333] transition-colors flex items-center gap-1">
+                  className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
@@ -514,44 +755,71 @@ export default function CheckoutClient({
               )}
             </div>
             <div className="p-5 space-y-3">
+              {/* Option: meme adresse que facturation */}
+              {billingInfo.address1 && billingInfo.zipCode && billingInfo.city && (
+                <label className="flex items-center gap-2.5 p-3 border border-border rounded-xl text-sm font-[family-name:var(--font-roboto)] text-text-primary cursor-pointer hover:bg-bg-secondary transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={sameAsBilling}
+                    onChange={(e) => handleSameAsBilling(e.target.checked)}
+                    className="accent-[#1A1A1A] w-4 h-4"
+                  />
+                  Utiliser l&apos;adresse de facturation comme adresse de livraison
+                </label>
+              )}
+
               {/* Liste adresses existantes */}
               {!showAddressForm && addresses.map((addr) => (
-                <button
-                  key={addr.id}
-                  type="button"
-                  onClick={() => setSelectedAddrId(addr.id)}
-                  className={`w-full text-left border rounded-xl p-4 transition-all ${
-                    selectedAddrId === addr.id
-                      ? "border-[#1A1A1A] bg-[#F5F5F5] shadow-[0_0_0_2px_rgba(26,26,26,0.1)]"
-                      : "border-[#E5E5E5] bg-white hover:border-[#555555]"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center ${
-                      selectedAddrId === addr.id ? "border-[#1A1A1A]" : "border-[#999999]"
-                    }`}>
-                      {selectedAddrId === addr.id && (
-                        <div className="w-2 h-2 rounded-full bg-[#1A1A1A]" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#1A1A1A]">
-                        {addr.label}
-                        {addr.isDefault && (
-                          <span className="ml-2 text-[10px] font-normal bg-[#F5F5F5] text-[#333333] px-1.5 py-0.5 rounded-full">
-                            Par défaut
-                          </span>
+                <div key={addr.id} className={`border rounded-xl p-4 transition-all ${
+                  selectedAddrId === addr.id
+                    ? "border-[#1A1A1A] bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.1)]"
+                    : "border-border bg-white hover:border-[#9CA3AF]"
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAddrId(addr.id)}
+                    className="w-full text-left"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center ${
+                        selectedAddrId === addr.id ? "border-[#1A1A1A]" : "border-[#9CA3AF]"
+                      }`}>
+                        {selectedAddrId === addr.id && (
+                          <div className="w-2 h-2 rounded-full bg-[#1A1A1A]" />
                         )}
-                      </p>
-                      <p className="text-xs text-[#555555] font-[family-name:var(--font-roboto)] mt-0.5">
-                        {addr.firstName} {addr.lastName}{addr.company ? ` · ${addr.company}` : ""}
-                      </p>
-                      <p className="text-xs text-[#999999] font-[family-name:var(--font-roboto)]">
-                        {addr.address1}{addr.address2 ? `, ${addr.address2}` : ""} — {addr.zipCode} {addr.city}, {addr.country}
-                      </p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+                          {addr.firstName} {addr.lastName}
+                          {addr.isDefault && (
+                            <span className="ml-2 text-[10px] font-normal bg-bg-secondary text-text-secondary px-1.5 py-0.5 rounded-full">
+                              Par defaut
+                            </span>
+                          )}
+                        </p>
+                        {addr.company && (
+                          <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] mt-0.5">{addr.company}</p>
+                        )}
+                        <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                          {addr.address1}{addr.address2 ? `, ${addr.address2}` : ""} — {addr.zipCode} {addr.city}, {addr.country}
+                        </p>
+                      </div>
                     </div>
+                  </button>
+                  <div className="flex justify-end mt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteAddress(addr.id)}
+                      disabled={isPending}
+                      className="text-[11px] text-text-muted hover:text-error font-[family-name:var(--font-roboto)] transition-colors flex items-center gap-1"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                      </svg>
+                      Supprimer
+                    </button>
                   </div>
-                </button>
+                </div>
               ))}
 
               {/* Formulaire nouvelle adresse */}
@@ -564,7 +832,7 @@ export default function CheckoutClient({
               )}
 
               {addresses.length === 0 && !showAddressForm && (
-                <p className="text-sm text-[#999999] font-[family-name:var(--font-roboto)] text-center py-4">
+                <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-4">
                   Aucune adresse enregistrée.
                 </p>
               )}
@@ -572,22 +840,22 @@ export default function CheckoutClient({
           </section>
 
           {/* ── 3. Mode de livraison ── */}
-          <section className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-card">
-            <div className="px-5 py-3.5 border-b border-[#E5E5E5] bg-[#F5F5F5] flex items-center gap-2">
+          <section className="bg-white border border-border rounded-2xl overflow-hidden shadow-card">
+            <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center gap-2">
               <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">3</span>
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] uppercase tracking-wide">
+              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Mode de livraison
               </h2>
             </div>
             <div className="p-5 space-y-3">
               {!selectedAddr && (
-                <p className="text-sm text-[#999999] font-[family-name:var(--font-roboto)] text-center py-3">
+                <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-3">
                   Sélectionnez une adresse de livraison pour voir les transporteurs disponibles.
                 </p>
               )}
 
               {selectedAddr && carriersLoading && (
-                <div className="flex items-center justify-center py-8 gap-3 text-[#999999]">
+                <div className="flex items-center justify-center py-8 gap-3 text-text-muted">
                   <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -597,13 +865,13 @@ export default function CheckoutClient({
               )}
 
               {selectedAddr && !carriersLoading && carriersError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm rounded-lg font-[family-name:var(--font-roboto)]">
+                <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm rounded-lg font-[family-name:var(--font-roboto)]">
                   {carriersError}
                 </div>
               )}
 
               {selectedAddr && !carriersLoading && !carriersError && carriers.length === 0 && (
-                <p className="text-sm text-[#999999] font-[family-name:var(--font-roboto)] text-center py-3">
+                <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-3">
                   Aucun transporteur disponible pour cette adresse.
                 </p>
               )}
@@ -622,39 +890,39 @@ export default function CheckoutClient({
 
         {/* ── Récapitulatif ───────────────────────── */}
         <div>
-          <div className="bg-white border border-[#E5E5E5] rounded-2xl shadow-card overflow-hidden sticky top-24">
-            <div className="px-5 py-3.5 border-b border-[#E5E5E5] bg-[#F5F5F5]">
-              <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] uppercase tracking-wide">
+          <div className="bg-white border border-border rounded-2xl shadow-card overflow-hidden sticky top-24">
+            <div className="px-5 py-3.5 border-b border-border bg-bg-secondary">
+              <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Récapitulatif
               </h3>
             </div>
 
             {/* Articles */}
-            <div className="px-5 py-4 space-y-2 border-b border-[#E5E5E5]">
+            <div className="px-5 py-4 space-y-2 border-b border-border">
               {cart.items.map((item) => {
                 const price     = computeUnitPrice(item.saleOption);
                 const lineTotal = price * item.quantity;
                 return (
                   <div key={item.id} className="flex items-start gap-2 text-xs font-[family-name:var(--font-roboto)]">
-                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#F5F5F5] shrink-0">
+                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-bg-secondary shrink-0">
                       {item.saleOption.productColor.images[0]?.path ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={item.saleOption.productColor.images[0].path}
                           alt={item.saleOption.productColor.product.name}
                           className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full bg-[#F5F5F5]" />
+                        <div className="w-full h-full bg-bg-secondary" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[#1A1A1A] font-medium line-clamp-1">{item.saleOption.productColor.product.name}</p>
-                      <p className="text-[#999999]">
+                      <p className="text-text-primary font-medium line-clamp-1">{item.saleOption.productColor.product.name}</p>
+                      <p className="text-text-muted">
                         {item.saleOption.productColor.color.name}
                         {item.saleOption.saleType === "PACK" ? ` · ×${item.saleOption.packQuantity}` : ""}
                         {" "}× {item.quantity}
                       </p>
                     </div>
-                    <span className="text-[#1A1A1A] font-semibold shrink-0">{lineTotal.toFixed(2)} €</span>
+                    <span className="text-text-primary font-semibold shrink-0">{lineTotal.toFixed(2)} €</span>
                   </div>
                 );
               })}
@@ -662,68 +930,126 @@ export default function CheckoutClient({
 
             {/* Totaux */}
             <div className="px-5 py-4 space-y-2 text-sm font-[family-name:var(--font-roboto)]">
-              <div className="flex justify-between text-[#555555]">
+              <div className="flex justify-between text-text-secondary">
                 <span>Sous-total HT</span>
-                <span className="font-medium text-[#1A1A1A]">{subtotalHT.toFixed(2)} €</span>
+                <span className="font-medium text-text-primary">{subtotalHT.toFixed(2)} €</span>
               </div>
-              <div className="flex justify-between text-[#555555]">
-                <span>TVA <span className="text-xs text-[#999999]">({tvaLabel})</span></span>
-                <span className="font-medium text-[#1A1A1A]">
+              <div className="flex justify-between text-text-secondary">
+                <span>TVA <span className="text-xs text-text-muted">({tvaLabel})</span></span>
+                <span className="font-medium text-text-primary">
                   {selectedAddr ? `${tvaAmount.toFixed(2)} €` : "—"}
                 </span>
               </div>
-              <div className="flex justify-between text-[#555555]">
+              <div className="flex justify-between text-text-secondary">
                 <span>Livraison</span>
-                <span className="font-medium text-[#1A1A1A]">
+                <span className="font-medium text-text-primary">
                   {selectedCarrier
                     ? selectedCarrier.price === 0 ? "Gratuit" : `${selectedCarrier.price.toFixed(2)} €`
                     : "—"}
                 </span>
               </div>
 
-              <div className="border-t border-[#E5E5E5] pt-3 flex justify-between items-center mt-2">
-                <span className="font-semibold text-[#1A1A1A]">Total TTC</span>
-                <span className="font-[family-name:var(--font-poppins)] font-semibold text-lg text-[#1A1A1A]">
+              <div className="border-t border-border pt-3 flex justify-between items-center mt-2">
+                <span className="font-semibold text-text-primary">Total TTC</span>
+                <span className="font-[family-name:var(--font-poppins)] font-semibold text-lg text-text-primary">
                   {canProceed ? `${totalTTC.toFixed(2)} €` : "—"}
                 </span>
               </div>
             </div>
 
-            {/* Bouton validation commande */}
+            {/* Paiement Stripe */}
             <div className="px-5 pb-5 space-y-3">
-              {orderError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-[family-name:var(--font-roboto)] px-3 py-2 rounded-lg">
-                  {orderError}
+              {(orderError || stripeError) && (
+                <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] text-xs font-[family-name:var(--font-roboto)] px-3 py-2 rounded-lg">
+                  {orderError || stripeError}
                 </div>
               )}
-              <button
-                type="button"
-                disabled={!canProceed || isPending}
-                onClick={handlePlaceOrder}
-                className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-                title={canProceed ? undefined : "Sélectionnez une adresse et un transporteur"}
-              >
-                {isPending ? (
-                  <>
-                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Validation en cours…
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                        d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Valider la commande
-                  </>
-                )}
-              </button>
-              <p className="text-xs text-[#999999] font-[family-name:var(--font-roboto)] text-center">
-                Paiement par virement — notre équipe vous contactera
-              </p>
+
+              {!canProceed && (
+                <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] text-center py-2">
+                  Sélectionnez une adresse et un transporteur pour procéder au paiement.
+                </p>
+              )}
+
+              {/* Bouton pour lancer le paiement — visible tant que le formulaire Stripe n'est pas affiché */}
+              {canProceed && !clientSecret && !stripeLoading && (
+                <button
+                  type="button"
+                  onClick={handleInitiatePayment}
+                  className="btn-primary w-full justify-center"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                      d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+                  </svg>
+                  Procéder au paiement — {totalTTC.toFixed(2)} €
+                </button>
+              )}
+
+              {canProceed && stripeLoading && (
+                <div className="flex items-center justify-center py-4 gap-2 text-text-muted">
+                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span className="text-xs font-[family-name:var(--font-roboto)]">Préparation du paiement…</span>
+                </div>
+              )}
+
+              {canProceed && clientSecret && (
+                <>
+                  <div className="border-t border-border pt-3">
+                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-3">
+                      Paiement sécurisé
+                    </p>
+                  </div>
+                  <Elements
+                    stripe={stripePromise}
+                    options={{
+                      clientSecret,
+                      appearance: {
+                        theme: "stripe",
+                        variables: {
+                          colorPrimary: "#1A1A1A",
+                          colorBackground: "#FFFFFF",
+                          colorText: "#1A1A1A",
+                          colorDanger: "#DC2626",
+                          fontFamily: "var(--font-roboto), system-ui, sans-serif",
+                          borderRadius: "8px",
+                        },
+                      },
+                      locale: "fr",
+                    }}
+                  >
+                    <StripePaymentForm
+                      onSuccess={handlePaymentSuccess}
+                      onProcessing={handlePaymentProcessing}
+                      onError={setStripeError}
+                      disabled={isPending}
+                    />
+                  </Elements>
+                </>
+              )}
+
+              {isPending && (
+                <div className="flex items-center justify-center py-2 gap-2 text-text-muted">
+                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span className="text-xs font-[family-name:var(--font-roboto)]">Création de la commande…</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-center gap-1.5 pt-1">
+                <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                  Paiement sécurisé par Stripe
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -739,9 +1065,8 @@ export default function CheckoutClient({
 function InfoLine({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-semibold text-[#999999] uppercase tracking-wider">{label}</span>
-      <span className={`text-[#1A1A1A] ${mono ? "font-mono text-xs" : "text-sm"}`}>{value}</span>
+      <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">{label}</span>
+      <span className={`text-text-primary ${mono ? "font-mono text-xs" : "text-sm"}`}>{value}</span>
     </div>
   );
 }
-
