@@ -386,7 +386,7 @@ export default function PublicSidebar() {
             {/* Links */}
             <nav className="flex-1 px-4 py-4 overflow-y-auto space-y-1">
               <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-[family-name:var(--font-roboto)] px-3 pb-1 pt-2">
-                Boutique
+                {t("shop")}
               </p>
               {NAV_LINKS.map((link) => (
                 <Link
@@ -433,7 +433,7 @@ export default function PublicSidebar() {
               {/* Language switcher in mobile drawer */}
               <div className="px-3 pt-4">
                 <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-[family-name:var(--font-roboto)] pb-2">
-                  Langue / Language
+                  {t("language")}
                 </p>
                 <LanguageSwitcher currentLocale={locale} />
               </div>
@@ -485,8 +485,8 @@ export default function PublicSidebar() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
             </svg>
-            <span className="font-semibold text-[#F59E0B]">Mode aperçu admin</span>
-            <span className="text-white/60 hidden sm:inline">— Vous naviguez comme un client.</span>
+            <span className="font-semibold text-[#F59E0B]">{t("adminPreview")}</span>
+            <span className="text-white/60 hidden sm:inline">— {t("adminPreviewDesc")}</span>
           </div>
           <form action={disableAdminPreview}>
             <button

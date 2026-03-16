@@ -5,6 +5,7 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import FavoriteToggle from "@/components/client/FavoriteToggle";
+import { getTranslations } from "next-intl/server";
 
 export const metadata: Metadata = {
   title: "Mes favoris — Beli & Jolie",
@@ -14,6 +15,8 @@ export const metadata: Metadata = {
 export default async function FavorisPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/connexion?callbackUrl=/favoris");
+
+  const t = await getTranslations("favorites");
 
   const favorites = await prisma.favorite.findMany({
     where: { userId: session.user.id },
@@ -48,15 +51,15 @@ export default async function FavorisPage() {
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A]">
-            Mes favoris
+            {t("title")}
           </h1>
           <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-0.5">
-            {favorites.length} produit{favorites.length !== 1 ? "s" : ""} enregistre{favorites.length !== 1 ? "s" : ""}
+            {favorites.length !== 1 ? t("count_plural", { count: favorites.length }) : t("count", { count: favorites.length })}
           </p>
         </div>
         {favorites.length > 0 && (
           <Link href="/produits" className="inline-flex items-center px-4 py-2 border border-[#E5E5E5] rounded-lg text-xs font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors shrink-0">
-            Voir le catalogue
+            {t("viewCatalogue")}
           </Link>
         )}
       </div>
@@ -68,13 +71,13 @@ export default async function FavorisPage() {
               d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
           </svg>
           <p className="font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] mb-1">
-            Aucun produit en favori
+            {t("empty")}
           </p>
           <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF] mb-6">
-            Ajoutez des produits a vos favoris en cliquant sur le coeur depuis le catalogue.
+            {t("emptyDesc")}
           </p>
           <Link href="/produits" className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1A1A1A] text-white text-sm font-[family-name:var(--font-roboto)] font-medium rounded-lg hover:bg-[#333] transition-colors">
-            Decouvrir le catalogue
+            {t("browseCatalogue")}
           </Link>
         </div>
       ) : (
@@ -111,7 +114,7 @@ export default async function FavorisPage() {
                   {/* Badge stock */}
                   {color && color.stock === 0 && (
                     <span className="absolute top-2 left-2 bg-[#1A1A1A]/80 text-white text-[10px] font-[family-name:var(--font-roboto)] font-medium px-2 py-0.5 rounded-full">
-                      Rupture
+                      {t("outOfStock")}
                     </span>
                   )}
 
@@ -137,11 +140,11 @@ export default async function FavorisPage() {
                     <div className="mt-3 flex items-end justify-between gap-2">
                       <div>
                         <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
-                          {color.unitPrice.toFixed(2)} € <span className="text-xs font-normal text-[#9CA3AF]">/ unite</span>
+                          {color.unitPrice.toFixed(2)} {"\u20AC"} <span className="text-xs font-normal text-[#9CA3AF]">{t("perUnit")}</span>
                         </p>
                         {hasPack && packQty && (
                           <p className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF]">
-                            Pack x{packQty} — {(color.unitPrice * packQty).toFixed(2)} €
+                            {t("packOf", { qty: packQty })} — {(color.unitPrice * packQty).toFixed(2)} {"\u20AC"}
                           </p>
                         )}
                       </div>
@@ -150,7 +153,7 @@ export default async function FavorisPage() {
                         href={`/produits/${product.id}`}
                         className="inline-flex items-center px-3 py-1.5 bg-[#1A1A1A] text-white text-xs font-[family-name:var(--font-roboto)] font-medium rounded-lg hover:bg-[#333] transition-colors shrink-0"
                       >
-                        Voir
+                        {t("viewProduct")}
                       </Link>
                     </div>
                   )}

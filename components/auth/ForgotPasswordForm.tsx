@@ -1,9 +1,11 @@
 "use client";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 
 type State = "idle" | "loading" | "sent";
 
 export default function ForgotPasswordForm() {
+  const t = useTranslations("auth.forgotPassword");
   const [email, setEmail] = useState("");
   const [state, setState] = useState<State>("idle");
   const [error, setError] = useState("");
@@ -11,7 +13,7 @@ export default function ForgotPasswordForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) {
-      setError("Veuillez saisir votre email.");
+      setError(t("emailRequired"));
       return;
     }
     setState("loading");
@@ -24,13 +26,13 @@ export default function ForgotPasswordForm() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Une erreur est survenue.");
+        setError(data.error ?? t("error"));
         setState("idle");
       } else {
         setState("sent");
       }
     } catch {
-      setError("Une erreur réseau est survenue.");
+      setError(t("networkError"));
       setState("idle");
     }
   }
@@ -38,21 +40,21 @@ export default function ForgotPasswordForm() {
   return (
     <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
       <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A] mb-2">
-        Mot de passe oublié
+        {t("title")}
       </h1>
       <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-6">
-        Entrez votre email, nous vous enverrons un lien de réinitialisation.
+        {t("subtitle")}
       </p>
 
       {state === "sent" ? (
         <div className="rounded-xl bg-green-50 border border-green-200 text-green-700 px-4 py-4 text-sm font-[family-name:var(--font-roboto)]">
-          Un email vous a été envoyé si ce compte existe. Vérifiez votre boîte de réception.
+          {t("sentMessage")}
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="field-label">
-              Adresse email
+              {t("email")}
             </label>
             <input
               id="email"
@@ -61,7 +63,7 @@ export default function ForgotPasswordForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="field-input"
-              placeholder="votre@email.com"
+              placeholder={t("emailPlaceholder")}
               disabled={state === "loading"}
               required
             />
@@ -76,7 +78,7 @@ export default function ForgotPasswordForm() {
             disabled={state === "loading"}
             className="btn-primary w-full"
           >
-            {state === "loading" ? "Envoi en cours..." : "Envoyer le lien"}
+            {state === "loading" ? t("loading") : t("submit")}
           </button>
         </form>
       )}

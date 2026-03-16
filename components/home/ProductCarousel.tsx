@@ -2,6 +2,8 @@
 
 import { useRef } from "react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { useProductTranslation } from "@/hooks/useProductTranslation";
 
 interface ColorData {
   id: string;
@@ -29,6 +31,10 @@ interface Props {
 }
 
 function CarouselCard({ product }: { product: CarouselProduct }) {
+  const t = useTranslations("products");
+  const tProduct = useTranslations("product");
+  const { tp, tc: translateCat } = useProductTranslation();
+
   const primaryColor =
     product.colors.find((c) => c.isPrimary) ?? product.colors[0];
   const image = primaryColor?.firstImage;
@@ -70,7 +76,7 @@ function CarouselCard({ product }: { product: CarouselProduct }) {
           {/* Coloris badge */}
           {product.colors.length > 1 && (
             <span className="absolute top-2.5 right-2.5 bg-bg-primary text-text-muted text-[10px] font-[family-name:var(--font-roboto)] px-2 py-0.5 rounded-full border border-border">
-              {product.colors.length} coloris
+              {t("colors", { count: product.colors.length })}
             </span>
           )}
         </div>
@@ -84,7 +90,7 @@ function CarouselCard({ product }: { product: CarouselProduct }) {
             {product.colors.slice(0, 6).map((c) => (
               <span
                 key={c.id}
-                title={c.name}
+                title={tp(c.name)}
                 className="w-[18px] h-[18px] rounded-full border border-border"
                 style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
               />
@@ -94,12 +100,12 @@ function CarouselCard({ product }: { product: CarouselProduct }) {
 
         <Link href={`/produits/${product.id}`}>
           <p className="font-[family-name:var(--font-roboto)] font-semibold text-sm text-text-primary line-clamp-2 leading-snug hover:text-text-secondary transition-colors">
-            {product.name}
+            {tp(product.name)}
           </p>
         </Link>
 
         <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-          {product.category}
+          {translateCat(product.category)}
         </p>
 
         <div className="flex items-baseline gap-1 mt-auto">
@@ -107,7 +113,7 @@ function CarouselCard({ product }: { product: CarouselProduct }) {
             {minPrice.toFixed(2)} &euro;
           </span>
           <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-            / unite
+            {tProduct("perUnit")}
           </span>
         </div>
       </div>
@@ -122,6 +128,7 @@ export default function ProductCarousel({
   viewMoreLabel = "Voir plus",
   variant = "white",
 }: Props) {
+  const tCommon = useTranslations("common");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   function scroll(dir: "left" | "right") {
@@ -150,7 +157,7 @@ export default function ProductCarousel({
             <button
               onClick={() => scroll("left")}
               className="p-1.5 rounded-full border border-border bg-bg-primary hover:bg-bg-dark hover:border-bg-dark hover:text-text-inverse text-text-secondary transition-colors"
-              aria-label="Precedent"
+              aria-label={tCommon("previous")}
             >
               <svg
                 className="w-4 h-4"
@@ -169,7 +176,7 @@ export default function ProductCarousel({
             <button
               onClick={() => scroll("right")}
               className="p-1.5 rounded-full border border-border bg-bg-primary hover:bg-bg-dark hover:border-bg-dark hover:text-text-inverse text-text-secondary transition-colors"
-              aria-label="Suivant"
+              aria-label={tCommon("next")}
             >
               <svg
                 className="w-4 h-4"

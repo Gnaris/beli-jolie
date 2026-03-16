@@ -1,12 +1,14 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 
 interface Props {
   token: string;
 }
 
 export default function ResetPasswordForm({ token }: Props) {
+  const t = useTranslations("auth.resetPassword");
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -17,10 +19,10 @@ export default function ResetPasswordForm({ token }: Props) {
     return (
       <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A] mb-4">
-          Lien invalide
+          {t("invalidToken")}
         </h1>
         <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
-          Ce lien de réinitialisation est invalide ou a expiré. Veuillez faire une nouvelle demande.
+          {t("invalidTokenDesc")}
         </p>
       </div>
     );
@@ -30,11 +32,11 @@ export default function ResetPasswordForm({ token }: Props) {
     e.preventDefault();
     setError("");
     if (password.length < 8) {
-      setError("Le mot de passe doit contenir au moins 8 caractères.");
+      setError(t("passwordHint"));
       return;
     }
     if (password !== confirm) {
-      setError("Les mots de passe ne correspondent pas.");
+      setError(t("mismatch"));
       return;
     }
     setLoading(true);
@@ -46,13 +48,13 @@ export default function ResetPasswordForm({ token }: Props) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Une erreur est survenue.");
+        setError(data.error ?? t("error"));
         setLoading(false);
       } else {
         router.push("/connexion?reset=success");
       }
     } catch {
-      setError("Une erreur réseau est survenue.");
+      setError(t("networkError"));
       setLoading(false);
     }
   }
@@ -60,16 +62,16 @@ export default function ResetPasswordForm({ token }: Props) {
   return (
     <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
       <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A] mb-2">
-        Nouveau mot de passe
+        {t("title")}
       </h1>
       <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-6">
-        Choisissez un nouveau mot de passe sécurisé (minimum 8 caractères).
+        {t("subtitle")}
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label htmlFor="password" className="field-label">
-            Nouveau mot de passe
+            {t("password")}
           </label>
           <input
             id="password"
@@ -77,7 +79,7 @@ export default function ResetPasswordForm({ token }: Props) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="field-input"
-            placeholder="Minimum 8 caractères"
+            placeholder={t("passwordPlaceholder")}
             disabled={loading}
             minLength={8}
             required
@@ -86,7 +88,7 @@ export default function ResetPasswordForm({ token }: Props) {
 
         <div>
           <label htmlFor="confirm" className="field-label">
-            Confirmer le mot de passe
+            {t("confirm")}
           </label>
           <input
             id="confirm"
@@ -94,7 +96,7 @@ export default function ResetPasswordForm({ token }: Props) {
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             className="field-input"
-            placeholder="Répétez le mot de passe"
+            placeholder={t("confirmPlaceholder")}
             disabled={loading}
             minLength={8}
             required
@@ -110,7 +112,7 @@ export default function ResetPasswordForm({ token }: Props) {
           disabled={loading}
           className="btn-primary w-full"
         >
-          {loading ? "Enregistrement..." : "Enregistrer le mot de passe"}
+          {loading ? t("loading") : t("submit")}
         </button>
       </form>
     </div>

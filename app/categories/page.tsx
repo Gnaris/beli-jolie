@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -10,6 +11,7 @@ export const metadata: Metadata = {
 };
 
 export default async function CategoriesPage() {
+  const t = await getTranslations("categoriesPage");
   const categories = await prisma.category.findMany({
     orderBy: { name: "asc" },
     include: {
@@ -27,10 +29,10 @@ export default async function CategoriesPage() {
         <div className="bg-bg-primary border-b border-border">
           <div className="container-site py-8">
             <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary">
-              Categories
+              {t("title")}
             </h1>
             <p className="mt-1 text-sm text-text-muted font-[family-name:var(--font-roboto)]">
-              Explorez nos {categories.length} categories de bijoux.
+              {t("subtitle", { count: categories.length })}
             </p>
           </div>
         </div>
@@ -38,7 +40,7 @@ export default async function CategoriesPage() {
         <main className="container-site py-8">
           {categories.length === 0 ? (
             <div className="text-center py-20 text-text-muted font-[family-name:var(--font-roboto)]">
-              Aucune categorie disponible pour l&apos;instant.
+              {t("empty")}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -57,7 +59,9 @@ export default async function CategoriesPage() {
                         {cat.name}
                       </h2>
                       <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
-                        {cat._count.products} produit{cat._count.products !== 1 ? "s" : ""}
+                        {cat._count.products <= 1
+                          ? t("products", { count: cat._count.products })
+                          : t("products_plural", { count: cat._count.products })}
                       </p>
                     </div>
                     <svg

@@ -8,6 +8,7 @@ import CancelOrderButton from "@/components/client/CancelOrderButton";
 import SuccessToast from "@/components/client/SuccessToast";
 import BankTransferDetails from "@/components/client/BankTransferDetails";
 import { STATUS_CONFIG, getTrackingUrl } from "@/app/(client)/commandes/page";
+import { getTranslations } from "next-intl/server";
 
 export const metadata: Metadata = {
   title: "Detail commande — Beli & Jolie",
@@ -26,6 +27,8 @@ export default async function CommandeDetailPage({
   const session = await getServerSession(authOptions);
   if (!session) redirect("/connexion?callbackUrl=/commandes");
 
+  const t = await getTranslations("orders");
+
   const order = await prisma.order.findFirst({
     where: { id, userId: session.user.id },
     include: { items: { orderBy: { createdAt: "asc" } } },
@@ -41,10 +44,10 @@ export default async function CommandeDetailPage({
 
   // Etapes de suivi
   const steps: { status: string; label: string; done: boolean }[] = [
-    { status: "PENDING",    label: "Commande recue",  done: true },
-    { status: "PROCESSING", label: "En preparation",  done: ["PROCESSING", "SHIPPED", "DELIVERED"].includes(order.status) },
-    { status: "SHIPPED",    label: "Expediee",        done: ["SHIPPED", "DELIVERED"].includes(order.status) },
-    { status: "DELIVERED",  label: "Livree",          done: order.status === "DELIVERED" },
+    { status: "PENDING",    label: t("statusReceived"),       done: true },
+    { status: "PROCESSING", label: t("statuses.PROCESSING"),  done: ["PROCESSING", "SHIPPED", "DELIVERED"].includes(order.status) },
+    { status: "SHIPPED",    label: t("statuses.SHIPPED"),     done: ["SHIPPED", "DELIVERED"].includes(order.status) },
+    { status: "DELIVERED",  label: t("statuses.DELIVERED"),   done: order.status === "DELIVERED" },
   ];
   const isCancelled = order.status === "CANCELLED";
 
@@ -54,7 +57,7 @@ export default async function CommandeDetailPage({
 
       {/* Fil d'Ariane */}
       <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF]">
-        <Link href="/commandes" className="hover:text-[#1A1A1A] transition-colors">Mes commandes</Link>
+        <Link href="/commandes" className="hover:text-[#1A1A1A] transition-colors">{t("title")}</Link>
         <span>/</span>
         <span className="text-[#1A1A1A] font-medium">{order.orderNumber}</span>
       </div>
@@ -70,7 +73,7 @@ export default async function CommandeDetailPage({
         <div className="flex items-center gap-3">
           <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-[family-name:var(--font-roboto)] font-medium ${cfg.bgClass} ${cfg.textClass}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-            {cfg.label}
+            {t(`statuses.${order.status}`)}
           </span>
           {order.status === "PENDING" && (
             <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} />
@@ -78,7 +81,7 @@ export default async function CommandeDetailPage({
         </div>
       </div>
 
-      {/* Bandeau virement en attente + coordonnées bancaires */}
+      {/* Bandeau virement en attente + coordonnees bancaires */}
       {(awaiting_transfer === "1" || order.paymentStatus === "awaiting_transfer") && (
         <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-5">
           <div className="flex items-start gap-4">
@@ -89,11 +92,10 @@ export default async function CommandeDetailPage({
             </div>
             <div className="flex-1">
               <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#92400E]">
-                Virement bancaire en attente
+                {t("bankTransferPending")}
               </h3>
               <p className="text-xs font-[family-name:var(--font-roboto)] text-[#92400E] mt-1">
-                Veuillez effectuer le virement bancaire aux coordonnees ci-dessous.
-                La commande sera automatiquement validee des reception du virement (generalement sous 1 jour ouvre).
+                {t("bankTransferPendingDesc")}
               </p>
               <BankTransferDetails orderId={order.id} />
             </div>
@@ -105,7 +107,7 @@ export default async function CommandeDetailPage({
       {!isCancelled && (
         <div className="bg-white border border-[#E5E5E5] rounded-xl p-5">
           <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] mb-4">
-            Suivi de la commande
+            {t("orderProgress")}
           </h2>
           <div className="relative">
             {/* Barre de progression */}
@@ -144,7 +146,7 @@ export default async function CommandeDetailPage({
           {order.eeTrackingId && (
             <div className="mt-5 pt-4 border-t border-[#E5E5E5] flex flex-wrap items-center gap-3">
               <div>
-                <p className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF]">Numero de suivi</p>
+                <p className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF]">{t("trackingNumber")}</p>
                 <p className="font-mono text-sm font-medium text-[#1A1A1A] mt-0.5">{order.eeTrackingId}</p>
               </div>
               {trackingUrl && (
@@ -158,7 +160,7 @@ export default async function CommandeDetailPage({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                       d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                   </svg>
-                  Suivre sur {order.carrierName}
+                  {t("trackOn", { carrier: order.carrierName })}
                 </a>
               )}
             </div>
@@ -171,10 +173,10 @@ export default async function CommandeDetailPage({
         <div className="bg-white border border-[#E5E5E5] rounded-xl p-5 flex items-center justify-between gap-4">
           <div>
             <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
-              Facture
+              {t("invoice")}
             </h2>
             <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
-              Votre facture est disponible en telechargement
+              {t("invoiceAvailable")}
             </p>
           </div>
           <a
@@ -185,7 +187,7 @@ export default async function CommandeDetailPage({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
-            Telecharger la facture
+            {t("downloadInvoice")}
           </a>
         </div>
       )}
@@ -194,7 +196,7 @@ export default async function CommandeDetailPage({
       <div className="bg-white border border-[#E5E5E5] rounded-xl overflow-hidden">
         <div className="px-5 py-3.5 border-b border-[#E5E5E5]">
           <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
-            Articles ({order.items.reduce((s, i) => s + i.quantity, 0)})
+            {t("articleList")} ({order.items.reduce((s, i) => s + i.quantity, 0)})
           </h2>
         </div>
         <div className="divide-y divide-[#F0F0F0]">
@@ -225,11 +227,11 @@ export default async function CommandeDetailPage({
                   </span>
                   {item.size && (
                     <span className="text-[10px] bg-[#F7F7F8] text-[#6B6B6B] px-2 py-0.5 rounded-full font-[family-name:var(--font-roboto)]">
-                      T. {item.size}
+                      {t("sizeOption", { size: item.size })}
                     </span>
                   )}
                   <span className="text-[10px] bg-[#F7F7F8] text-[#6B6B6B] px-2 py-0.5 rounded-full font-[family-name:var(--font-roboto)]">
-                    {item.saleType === "PACK" ? `Lot x${item.packQty}` : "A l'unite"}
+                    {item.saleType === "PACK" ? t("packOption", { qty: item.packQty ?? 0 }) : t("unitOption")}
                   </span>
                 </div>
               </div>
@@ -238,7 +240,7 @@ export default async function CommandeDetailPage({
               <div className="text-right shrink-0">
                 <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">x{item.quantity}</p>
                 <p className="font-[family-name:var(--font-roboto)] font-semibold text-sm text-[#1A1A1A] mt-0.5">
-                  {item.lineTotal.toFixed(2)} €
+                  {item.lineTotal.toFixed(2)} {"\u20AC"}
                 </p>
               </div>
             </div>
@@ -248,25 +250,25 @@ export default async function CommandeDetailPage({
         {/* Totaux */}
         <div className="px-5 py-4 bg-[#F7F7F8] border-t border-[#E5E5E5] space-y-1.5">
           <div className="flex justify-between text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B]">
-            <span>Sous-total HT</span>
-            <span>{order.subtotalHT.toFixed(2)} €</span>
+            <span>{t("subtotalHT")}</span>
+            <span>{order.subtotalHT.toFixed(2)} {"\u20AC"}</span>
           </div>
           <div className="flex justify-between text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B]">
-            <span>Livraison ({order.carrierName})</span>
-            <span>{order.carrierPrice === 0 ? "Gratuit" : `${order.carrierPrice.toFixed(2)} €`}</span>
+            <span>{t("shippingCost")} ({order.carrierName})</span>
+            <span>{order.carrierPrice === 0 ? t("free") : `${order.carrierPrice.toFixed(2)} \u20AC`}</span>
           </div>
           <div className="flex justify-between text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B]">
-            <span>TVA ({(order.tvaRate * 100).toFixed(0)} %)</span>
-            <span>{order.tvaAmount.toFixed(2)} €</span>
+            <span>{t("tva")} ({(order.tvaRate * 100).toFixed(0)} %)</span>
+            <span>{order.tvaAmount.toFixed(2)} {"\u20AC"}</span>
           </div>
           {order.tvaRate === 0 && (
             <p className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-              TVA exoneree — autoliquidation ou hors UE
+              {t("tvaExemptDetail")}
             </p>
           )}
           <div className="flex justify-between font-[family-name:var(--font-poppins)] font-semibold text-base text-[#1A1A1A] pt-2 border-t border-[#E5E5E5]">
-            <span>Total TTC</span>
-            <span>{order.totalTTC.toFixed(2)} €</span>
+            <span>{t("totalTTC")}</span>
+            <span>{order.totalTTC.toFixed(2)} {"\u20AC"}</span>
           </div>
         </div>
       </div>
@@ -274,7 +276,7 @@ export default async function CommandeDetailPage({
       {/* -- Adresse de livraison -- */}
       <div className="bg-white border border-[#E5E5E5] rounded-xl p-5">
         <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] mb-3">
-          Adresse de livraison
+          {t("deliveryAddress")}
         </h2>
         <address className="not-italic text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] leading-relaxed">
           <p className="font-medium text-[#1A1A1A]">{order.shipFirstName} {order.shipLastName}</p>
@@ -289,14 +291,14 @@ export default async function CommandeDetailPage({
       {/* -- Infos client -- */}
       <div className="bg-white border border-[#E5E5E5] rounded-xl p-5">
         <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] mb-3">
-          Informations de facturation
+          {t("billingInfo")}
         </h2>
         <div className="text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] space-y-1">
           <p><span className="font-medium text-[#1A1A1A]">{order.clientCompany}</span></p>
           <p>{order.clientEmail}</p>
           <p>{order.clientPhone}</p>
-          <p className="text-xs text-[#9CA3AF]">SIRET : {order.clientSiret}</p>
-          {order.clientVatNumber && <p className="text-xs text-[#9CA3AF]">N\u00B0 TVA : {order.clientVatNumber}</p>}
+          <p className="text-xs text-[#9CA3AF]">{t("siretLabel")} {order.clientSiret}</p>
+          {order.clientVatNumber && <p className="text-xs text-[#9CA3AF]">{t("vatNumberLabel")} : {order.clientVatNumber}</p>}
         </div>
       </div>
 
@@ -305,7 +307,7 @@ export default async function CommandeDetailPage({
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
         </svg>
-        Retour a mes commandes
+        {t("backToOrders")}
       </Link>
     </div>
   );

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { removeFromCart, updateCartItem, clearCart } from "@/app/actions/client/cart";
 
 // ─────────────────────────────────────────────
@@ -76,6 +77,7 @@ function CartRow({
   isPending: boolean;
 }) {
   const t = useTranslations("cart");
+  const { tp, tc } = useProductTranslation();
   const opt = item.saleOption;
   const product = opt.productColor.product;
   const image = opt.productColor.images[0]?.path ?? null;
@@ -90,7 +92,7 @@ function CartRow({
         <div className="w-20 h-20 rounded-xl overflow-hidden bg-bg-tertiary border border-border">
           {image ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={image} alt={product.name} className="w-full h-full object-cover" />
+            <img src={image} alt={tp(product.name)} className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -106,13 +108,13 @@ function CartRow({
       <div className="flex-1 min-w-0 space-y-1">
         <Link href={`/produits/${product.id}`}
           className="text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary hover:text-text-secondary transition-colors line-clamp-2">
-          {product.name}
+          {tp(product.name)}
         </Link>
         <p className="text-xs font-mono text-text-muted">{product.reference}</p>
         <div className="flex flex-wrap gap-1.5 mt-1">
           <span className="text-xs bg-bg-tertiary text-text-secondary px-2 py-0.5 rounded-full border border-border"
             style={{ borderLeftColor: opt.productColor.color.hex ?? undefined }}>
-            {opt.productColor.color.name}
+            {tp(opt.productColor.color.name)}
           </span>
           {opt.saleType === "PACK" && (
             <span className="text-xs bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
@@ -184,6 +186,7 @@ function CartRow({
 
 export default function CartPageClient({ cart, minOrderHT }: Props) {
   const t       = useTranslations("cart");
+  const { tc: translateCat } = useProductTranslation();
   const router  = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showClearModal, setShowClearModal] = useState(false);
@@ -342,7 +345,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
               {/* En-tête catégorie */}
               <div className="px-5 py-3 border-b border-border bg-bg-tertiary">
                 <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
-                  {category}
+                  {translateCat(category)}
                 </h2>
               </div>
               <div className="px-5">

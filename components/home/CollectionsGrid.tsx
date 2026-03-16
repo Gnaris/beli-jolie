@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 
 interface CollectionItem {
   id: string;
@@ -11,6 +14,9 @@ interface Props {
 }
 
 export default function CollectionsGrid({ collections }: Props) {
+  const t = useTranslations("home");
+  const tc = useTranslations("common");
+
   if (collections.length === 0) return null;
 
   return (
@@ -19,13 +25,13 @@ export default function CollectionsGrid({ collections }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
-            Nos collections
+            {t("collections")}
           </h2>
           <Link
             href="/collections"
             className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors font-[family-name:var(--font-roboto)]"
           >
-            Voir toutes &rarr;
+            {tc("viewAll")} &rarr;
           </Link>
         </div>
 

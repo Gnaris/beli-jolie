@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -10,6 +11,7 @@ export const metadata: Metadata = {
 };
 
 export default async function CollectionsPage() {
+  const t = await getTranslations("collectionsPage");
   const collections = await prisma.collection.findMany({
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { products: true } } },
@@ -24,10 +26,12 @@ export default async function CollectionsPage() {
         <div className="bg-bg-primary border-b border-border">
           <div className="container-site py-8">
             <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary">
-              Collections
+              {t("title")}
             </h1>
             <p className="mt-1 text-sm text-text-muted font-[family-name:var(--font-roboto)]">
-              {collections.length} collection{collections.length !== 1 ? "s" : ""} disponible{collections.length !== 1 ? "s" : ""}
+              {collections.length <= 1
+                ? t("available", { count: collections.length })
+                : t("available_plural", { count: collections.length })}
             </p>
           </div>
         </div>
@@ -35,7 +39,7 @@ export default async function CollectionsPage() {
         <main className="container-site py-8">
           {collections.length === 0 ? (
             <div className="text-center py-20 text-text-muted font-[family-name:var(--font-roboto)]">
-              Aucune collection disponible pour l&apos;instant.
+              {t("empty")}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -71,7 +75,9 @@ export default async function CollectionsPage() {
                         {col.name}
                       </h2>
                       <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
-                        {col._count.products} produit{col._count.products !== 1 ? "s" : ""}
+                        {col._count.products <= 1
+                          ? t("products", { count: col._count.products })
+                          : t("products_plural", { count: col._count.products })}
                       </p>
                     </div>
                     <svg className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">

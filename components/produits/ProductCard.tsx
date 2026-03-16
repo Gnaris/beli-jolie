@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import FavoriteToggle from "@/components/client/FavoriteToggle";
+import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { addToCart } from "@/app/actions/client/cart";
 
 interface SaleOptionData {
@@ -42,6 +43,7 @@ export default function ProductCard({
 }: ProductCardProps) {
   const { data: session } = useSession();
   const router = useRouter();
+  const { tp, tc } = useProductTranslation();
   const [isPending, startTransition] = useTransition();
 
   const primaryColor = colors.find((c) => c.isPrimary) ?? colors[0];
@@ -137,7 +139,7 @@ export default function ProductCard({
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={image}
-              alt={name}
+              alt={tp(name)}
               className="w-full h-auto block transition-transform duration-300 group-hover:scale-[1.04]"
             />
           ) : (
@@ -190,7 +192,7 @@ export default function ProductCard({
                 <button
                   key={c.id}
                   type="button"
-                  title={c.name}
+                  title={tp(c.name)}
                   onClick={() => handleColorSelect(c)}
                   className={`w-[18px] h-[18px] rounded-full border-2 transition-all duration-100 ${
                     selectedColor?.id === c.id
@@ -205,12 +207,12 @@ export default function ProductCard({
 
           <Link href={`/produits/${id}`} className="block">
             <p className="font-[family-name:var(--font-roboto)] font-semibold text-sm text-text-primary line-clamp-2 leading-snug hover:text-text-secondary transition-colors">
-              {name}
+              {tp(name)}
             </p>
           </Link>
 
           <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-            {category}{subCategory && <> · {subCategory}</>}
+            {tc(category)}{subCategory && <> · {tc(subCategory)}</>}
           </p>
 
           {/* Tags */}
@@ -223,7 +225,7 @@ export default function ProductCard({
                   onClick={(e) => e.stopPropagation()}
                   className="text-[10px] px-2 py-0.5 rounded-full bg-bg-secondary text-text-muted border border-border-light font-[family-name:var(--font-roboto)] hover:bg-bg-tertiary transition-colors"
                 >
-                  {tag.name}
+                  {tp(tag.name)}
                 </Link>
               ))}
               {tags.length > 3 && (

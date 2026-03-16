@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { addToCart } from "@/app/actions/client/cart";
 
 interface SaleOptionData {
@@ -69,6 +71,7 @@ function computePrice(unitPrice: number, opt: SaleOptionData): number {
 }
 
 function RelatedCard({ product }: { product: RelatedProduct }) {
+  const { tp } = useProductTranslation();
   return (
     <Link
       href={`/produits/${product.id}`}
@@ -79,7 +82,7 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={product.primaryImage}
-            alt={product.name}
+            alt={tp(product.name)}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
         ) : (
@@ -94,7 +97,7 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
       <div className="p-3.5">
         <p className="text-xs font-mono text-text-muted">{product.reference}</p>
         <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] mt-0.5 line-clamp-2">
-          {product.name}
+          {tp(product.name)}
         </p>
         <p className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-text-primary mt-1">
           {product.minPrice.toFixed(2)} €
@@ -109,6 +112,8 @@ export default function ProductDetail({
   compositions, dimensions, similarProducts,
 }: ProductDetailProps) {
   const router = useRouter();
+  const t = useTranslations("product");
+  const { tp, tc } = useProductTranslation();
   const [isPending, startTransition]          = useTransition();
   const primaryColor = colors.find((c) => c.isPrimary) ?? colors[0];
   const [selected, setSelected]               = useState<ColorData>(primaryColor);
@@ -147,11 +152,11 @@ export default function ProductDetail({
   }
 
   const dimRows: { label: string; value: number }[] = [
-    { label: "Longueur",     value: dimensions.length! },
-    { label: "Largeur",      value: dimensions.width! },
-    { label: "Hauteur",      value: dimensions.height! },
-    { label: "Diametre",     value: dimensions.diameter! },
-    { label: "Circonference", value: dimensions.circumference! },
+    { label: t("length"),        value: dimensions.length! },
+    { label: t("width"),         value: dimensions.width! },
+    { label: t("height"),        value: dimensions.height! },
+    { label: t("diameter"),      value: dimensions.diameter! },
+    { label: t("circumference"), value: dimensions.circumference! },
   ].filter((d) => d.value != null && d.value > 0);
 
   return (
@@ -168,7 +173,7 @@ export default function ProductDetail({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={displayedImage}
-                alt={`${name} — ${displayed.name}`}
+                alt={`${tp(name)} — ${tp(displayed.name)}`}
                 className="w-full h-full object-cover transition-all duration-300"
               />
             ) : (
@@ -196,7 +201,7 @@ export default function ProductDetail({
                 <img
                   key={i}
                   src={img.path}
-                  alt={`${name} ${i + 1}`}
+                  alt={`${tp(name)} ${i + 1}`}
                   onMouseEnter={() => setHoveredImageIdx(i)}
                   onMouseLeave={() => setHoveredImageIdx(null)}
                   onClick={() => setActiveImageIdx(i)}
@@ -222,13 +227,13 @@ export default function ProductDetail({
           <div>
             <p className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-text-primary">
               {maxPrice.toFixed(2)} €
-              <span className="text-sm text-text-muted font-normal ml-1">/ unite</span>
+              <span className="text-sm text-text-muted font-normal ml-1">{t("perUnit")}</span>
             </p>
           </div>
 
           {/* Nom */}
           <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary leading-snug">
-            {name}
+            {tp(name)}
           </h1>
 
           {/* Mots cles */}
@@ -240,7 +245,7 @@ export default function ProductDetail({
                   href={`/produits?tag=${tag.id}`}
                   className="text-xs px-3 py-1 rounded-full bg-bg-secondary text-text-secondary border border-border font-[family-name:var(--font-roboto)] hover:bg-bg-tertiary transition-colors"
                 >
-                  {tag.name}
+                  {tp(tag.name)}
                 </Link>
               ))}
             </div>
@@ -250,14 +255,14 @@ export default function ProductDetail({
           {colors.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
-                Couleur — <span className="font-normal text-text-primary">{displayed.name}</span>
+                {t("color")} — <span className="font-normal text-text-primary">{tp(displayed.name)}</span>
               </p>
               <div className="flex gap-2.5 flex-wrap">
                 {colors.map((c) => (
                   <button
                     key={c.id}
                     type="button"
-                    title={c.name}
+                    title={tp(c.name)}
                     onMouseEnter={() => setHoveredColor(c)}
                     onMouseLeave={() => setHoveredColor(null)}
                     onClick={() => handleColorClick(c)}
@@ -275,11 +280,11 @@ export default function ProductDetail({
 
           {/* Breadcrumb categorie */}
           <div className="flex items-center gap-2 flex-wrap text-sm font-[family-name:var(--font-roboto)] text-text-muted">
-            <span>{category}</span>
+            <span>{tc(category)}</span>
             {subCategories.map((sc) => (
               <span key={sc} className="flex items-center gap-2">
                 <span>/</span>
-                <span>{sc}</span>
+                <span>{tc(sc)}</span>
               </span>
             ))}
           </div>
@@ -288,17 +293,17 @@ export default function ProductDetail({
           <div className="border-t border-border pt-5 space-y-5">
             <div>
               <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider mb-2">
-                Description
+                {t("description")}
               </p>
               <p className="text-sm text-text-primary font-[family-name:var(--font-roboto)] leading-relaxed">
-                {description}
+                {tp(description)}
               </p>
             </div>
 
             {compositions.length > 0 && (
               <div>
                 <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider mb-2">
-                  Composition
+                  {t("composition")}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {compositions.map((comp) => (
@@ -306,7 +311,7 @@ export default function ProductDetail({
                       key={comp.name}
                       className="inline-flex items-center gap-1 text-xs bg-bg-tertiary text-text-primary px-2.5 py-1 rounded-full font-[family-name:var(--font-roboto)] border border-border"
                     >
-                      {comp.name}
+                      {tp(comp.name)}
                       <span className="text-text-secondary">— {comp.percentage}%</span>
                     </span>
                   ))}
@@ -317,7 +322,7 @@ export default function ProductDetail({
             {dimRows.length > 0 && (
               <div>
                 <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider mb-2">
-                  Dimensions
+                  {t("dimensions")}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {dimRows.map((d) => (
@@ -338,7 +343,7 @@ export default function ProductDetail({
           {selected.saleOptions.length > 0 && (
             <div className="border-t border-border pt-5 space-y-3">
               <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
-                Options de commande — {selected.name}
+                {t("orderOptions")} — {tp(selected.name)}
               </p>
               {selected.saleOptions.map((opt) => {
                 const price     = computePrice(selected.unitPrice, opt);
@@ -360,19 +365,19 @@ export default function ProductDetail({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] flex items-center flex-wrap gap-1.5">
-                          {opt.saleType === "UNIT" ? "A l'unite" : `Par paquet de ${opt.packQuantity}`}
+                          {opt.saleType === "UNIT" ? t("unitOption") : t("packOption", { qty: opt.packQuantity })}
                           {opt.size && (
                             <span className="text-xs font-normal bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
-                              Taille {opt.size}
+                              {t("sizeLabel", { size: opt.size })}
                             </span>
                           )}
                         </p>
                         <p className="text-xs text-text-muted mt-0.5 font-[family-name:var(--font-roboto)]">
                           {effectiveStock > 0
-                            ? <span className="text-text-secondary">&#10003; {effectiveStock} disponible{effectiveStock !== 1 ? "s" : ""}</span>
-                            : <span className="text-text-primary">Rupture de stock</span>
+                            ? <span className="text-text-secondary">&#10003; {effectiveStock} {effectiveStock !== 1 ? t("available_plural") : t("available")}</span>
+                            : <span className="text-text-primary">{t("outOfStock")}</span>
                           }
-                          {" · "}{selected.weight} kg / unite
+                          {" · "}{selected.weight} {t("kgPerUnit")}
                         </p>
                       </div>
                       <div className="text-right shrink-0">
@@ -428,14 +433,14 @@ export default function ProductDetail({
                             <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
-                            Ajoute !
+                            {t("added")}
                           </>
                         ) : (
                           <>
                             <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
                             </svg>
-                            Ajouter au panier
+                            {t("addToCart")}
                           </>
                         )}
                       </button>
@@ -452,7 +457,7 @@ export default function ProductDetail({
       {similarProducts.length > 0 && (
         <section className="mt-16 border-t border-border pt-12">
           <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary mb-6 section-title">
-            Produits similaires
+            {t("similar")}
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {similarProducts.map((p) => (
@@ -471,7 +476,7 @@ export default function ProductDetail({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={zoomedSrc}
-            alt="Apercu"
+            alt={t("preview")}
             onClick={(e) => e.stopPropagation()}
             className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl rounded-xl"
           />

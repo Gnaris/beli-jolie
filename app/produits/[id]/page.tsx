@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getLocale } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { getProductTranslation } from "@/lib/translate";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -63,6 +63,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     name: product.name,
     description: product.description,
   });
+  const tProducts = await getTranslations("products");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function toRelated(p: any) {
@@ -87,7 +88,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
             {/* Fil d'Ariane */}
             <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-8">
               <Link href="/produits" className="hover:text-text-primary transition-colors">
-                Produits
+                {tProducts("breadcrumb")}
               </Link>
               <span className="text-border">/</span>
               <Link href={`/produits?cat=${product.categoryId}`} className="hover:text-text-primary transition-colors">

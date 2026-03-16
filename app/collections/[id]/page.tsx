@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -18,6 +19,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function CollectionDetailPage({ params }: PageProps) {
+  const t = await getTranslations("collectionDetail");
   const { id } = await params;
 
   const collection = await prisma.collection.findUnique({
@@ -69,7 +71,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
           <div className="container-site py-6">
             <div className="flex items-center gap-2 text-xs text-text-muted font-[family-name:var(--font-roboto)] mb-2">
               <Link href="/collections" className="hover:text-text-primary transition-colors">
-                Collections
+                {t("breadcrumb")}
               </Link>
               <span>/</span>
               <span className="text-text-primary">{collection.name}</span>
@@ -78,7 +80,9 @@ export default async function CollectionDetailPage({ params }: PageProps) {
               {collection.name}
             </h1>
             <p className="mt-1 text-sm text-text-muted font-[family-name:var(--font-roboto)]">
-              {collection.products.length} produit{collection.products.length !== 1 ? "s" : ""}
+              {collection.products.length <= 1
+                ? t("products", { count: collection.products.length })
+                : t("products_plural", { count: collection.products.length })}
             </p>
           </div>
         </div>
@@ -86,7 +90,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
         <main className="container-site py-8">
           {collection.products.length === 0 ? (
             <div className="text-center py-20 text-text-muted font-[family-name:var(--font-roboto)]">
-              Cette collection ne contient pas encore de produits.
+              {t("empty")}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">

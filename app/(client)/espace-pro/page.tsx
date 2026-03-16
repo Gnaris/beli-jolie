@@ -5,18 +5,11 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AccountEditor from "@/components/client/AccountEditor";
+import { getTranslations } from "next-intl/server";
 
 export const metadata: Metadata = {
   title: "Tableau de bord — Beli & Jolie",
   robots: { index: false, follow: false },
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  PENDING: "En attente",
-  PROCESSING: "En preparation",
-  SHIPPED: "Expediee",
-  DELIVERED: "Livree",
-  CANCELLED: "Annulee",
 };
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
@@ -81,6 +74,8 @@ export default async function DashboardPage() {
   if (!session) redirect("/connexion");
 
   const userId = session.user.id;
+  const t = await getTranslations("account");
+  const tOrders = await getTranslations("orders");
 
   const [user, orders, favorites, cart] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
@@ -206,10 +201,10 @@ export default async function DashboardPage() {
           {/* En-tete */}
           <div>
             <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A]">
-              Bonjour, {user.firstName}
+              {t("greeting", { name: user.firstName })}
             </h1>
             <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-0.5">
-              {user.company} — Membre depuis le {formattedDate}
+              {user.company} — {t("memberSince", { date: formattedDate })}
             </p>
           </div>
 
@@ -219,12 +214,12 @@ export default async function DashboardPage() {
               <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${user.status === "PENDING" ? "bg-[#F59E0B]" : "bg-[#EF4444]"}`} />
               <div>
                 <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold">
-                  {user.status === "PENDING" ? "En attente de validation" : "Demande refusee"}
+                  {user.status === "PENDING" ? t("pendingValidation") : t("rejected")}
                 </p>
                 <p className="text-sm font-[family-name:var(--font-roboto)] opacity-80 mt-0.5">
                   {user.status === "PENDING"
-                    ? "Votre dossier est en cours d'examen. Vous recevrez une confirmation sous 48h ouvrees."
-                    : "Votre demande n'a pas ete acceptee. Contactez-nous pour plus d'informations."}
+                    ? t("pendingValidationDesc")
+                    : t("rejectedDesc")}
                 </p>
               </div>
             </div>
@@ -233,9 +228,9 @@ export default async function DashboardPage() {
           {/* -- Stat cards -- */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
-              label="Commandes"
+              label={t("statsOrders")}
               value={totalOrders}
-              sub="au total"
+              sub={t("statsTotal")}
               icon={
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -244,9 +239,9 @@ export default async function DashboardPage() {
               }
             />
             <StatCard
-              label="Articles commandes"
+              label={t("statsItems")}
               value={totalItemsOrdered}
-              sub="pieces au total"
+              sub={t("statsPieces")}
               icon={
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -255,9 +250,9 @@ export default async function DashboardPage() {
               }
             />
             <StatCard
-              label="Total depense"
-              value={`${totalSpent.toFixed(2)} €`}
-              sub="TTC, livraison incluse"
+              label={t("statsSpent")}
+              value={`${totalSpent.toFixed(2)} \u20AC`}
+              sub={t("statsInclShipping")}
               icon={
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -266,9 +261,9 @@ export default async function DashboardPage() {
               }
             />
             <StatCard
-              label="Panier"
+              label={t("statsCart")}
               value={cartItemCount}
-              sub={cartItemCount > 0 ? "articles en attente" : "panier vide"}
+              sub={cartItemCount > 0 ? t("statsCartPending") : t("statsCartEmpty")}
               icon={
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -284,10 +279,10 @@ export default async function DashboardPage() {
             <div className="bg-white rounded-xl border border-[#E5E5E5] p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
-                  Commandes (6 derniers mois)
+                  {t("chartTitle")}
                 </h2>
                 <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors">
-                  Voir tout
+                  {t("viewAll")}
                 </Link>
               </div>
               <BarChart data={monthlyData} />
@@ -297,15 +292,15 @@ export default async function DashboardPage() {
             <div className="bg-white rounded-xl border border-[#E5E5E5] p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
-                  Produits les plus commandes
+                  {t("topProducts")}
                 </h2>
                 <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors">
-                  Voir tout
+                  {t("viewAll")}
                 </Link>
               </div>
               {topProducts.length === 0 ? (
                 <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF] py-6 text-center">
-                  Aucune commande pour le moment
+                  {t("noOrdersYet")}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -342,19 +337,19 @@ export default async function DashboardPage() {
           <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[#E5E5E5] flex items-center justify-between">
               <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
-                Commandes recentes
+                {t("recentOrders")}
               </h2>
               <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors">
-                Voir toutes les commandes
+                {t("viewAllOrders")}
               </Link>
             </div>
             {recentOrders.length === 0 ? (
               <div className="p-8 text-center">
                 <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF]">
-                  Aucune commande pour le moment
+                  {t("noOrdersYet")}
                 </p>
                 <Link href="/produits" className="inline-flex mt-4 justify-center text-xs px-4 py-2 bg-[#1A1A1A] text-white rounded-lg font-[family-name:var(--font-roboto)] font-medium hover:bg-[#333] transition-colors">
-                  Voir le catalogue
+                  {t("viewCatalogue")}
                 </Link>
               </div>
             ) : (
@@ -374,16 +369,16 @@ export default async function DashboardPage() {
                           </span>
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-[family-name:var(--font-roboto)] font-medium ${cfg.bg} ${cfg.text}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                            {STATUS_LABEL[order.status]}
+                            {tOrders(`statuses.${order.status}`)}
                           </span>
                         </div>
                         <p className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF] mt-0.5">
-                          {date} — {totalQty} article{totalQty > 1 ? "s" : ""}
+                          {date} — {totalQty} {totalQty > 1 ? tOrders("items_plural") : tOrders("items")}
                         </p>
                       </div>
                       <div className="text-right">
                         <p className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
-                          {order.totalTTC.toFixed(2)} €
+                          {order.totalTTC.toFixed(2)} {"\u20AC"}
                         </p>
                       </div>
                     </div>
@@ -397,19 +392,19 @@ export default async function DashboardPage() {
           <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[#E5E5E5] flex items-center justify-between">
               <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
-                Favoris
+                {t("myFavorites")}
               </h2>
               <Link href="/favoris" className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors">
-                Voir tous les favoris
+                {t("viewAllFavorites")}
               </Link>
             </div>
             {favorites.length === 0 ? (
               <div className="p-8 text-center">
                 <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF]">
-                  Aucun produit en favori
+                  {t("noFavorites")}
                 </p>
                 <Link href="/produits" className="inline-flex mt-4 justify-center text-xs px-4 py-2 bg-[#1A1A1A] text-white rounded-lg font-[family-name:var(--font-roboto)] font-medium hover:bg-[#333] transition-colors">
-                  Decouvrir le catalogue
+                  {t("discoverCatalogue")}
                 </Link>
               </div>
             ) : (
@@ -444,7 +439,7 @@ export default async function DashboardPage() {
                       </p>
                       {primaryColor && (
                         <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] mt-0.5">
-                          {primaryColor.unitPrice.toFixed(2)} €
+                          {primaryColor.unitPrice.toFixed(2)} {"\u20AC"}
                         </p>
                       )}
                     </Link>
@@ -472,17 +467,19 @@ export default async function DashboardPage() {
           <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden sticky top-24">
             <div className="px-6 py-4 border-b border-[#E5E5E5]">
               <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
-                Historique des achats
+                {t("purchaseHistory")}
               </h2>
               <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
-                {allOrderedProducts.length} produit{allOrderedProducts.length > 1 ? "s" : ""} commande{allOrderedProducts.length > 1 ? "s" : ""}
+                {allOrderedProducts.length > 1
+                  ? t("productsOrdered_plural", { count: allOrderedProducts.length })
+                  : t("productsOrdered", { count: allOrderedProducts.length })}
               </p>
             </div>
 
             {allOrderedProducts.length === 0 ? (
               <div className="p-8 text-center">
                 <p className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-                  Aucun produit commande
+                  {t("noPurchases")}
                 </p>
               </div>
             ) : (
@@ -524,7 +521,9 @@ export default async function DashboardPage() {
                             x{product.totalQty}
                           </span>
                           <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] bg-white px-2 py-0.5 rounded-full">
-                            {product.orderCount} commande{product.orderCount > 1 ? "s" : ""}
+                            {product.orderCount > 1
+                              ? t("orderCount_plural", { count: product.orderCount })
+                              : t("orderCount", { count: product.orderCount })}
                           </span>
                         </div>
                       </div>

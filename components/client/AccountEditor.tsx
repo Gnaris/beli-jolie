@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import { updateProfile } from "@/app/actions/client/profile";
 
 interface AccountEditorProps {
@@ -17,6 +18,7 @@ interface AccountEditorProps {
 }
 
 export default function AccountEditor({ user }: AccountEditorProps) {
+  const t = useTranslations("account");
   const [editing, setEditing] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [success, setSuccess] = useState(false);
@@ -31,7 +33,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
 
   function handleSave() {
     if (!firstName.trim() || !lastName.trim() || !company.trim() || !phone.trim()) {
-      setError("Veuillez remplir tous les champs obligatoires.");
+      setError(t("fieldsRequired"));
       return;
     }
     setError("");
@@ -42,7 +44,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
       } catch {
-        setError("Erreur lors de la mise a jour.");
+        setError(t("updateError"));
       }
     });
   }
@@ -59,19 +61,19 @@ export default function AccountEditor({ user }: AccountEditorProps) {
   }
 
   const fields = [
-    { label: "Prenom", value: firstName, setter: setFirstName, required: true },
-    { label: "Nom", value: lastName, setter: setLastName, required: true },
-    { label: "Societe", value: company, setter: setCompany, required: true },
-    { label: "Telephone", value: phone, setter: setPhone, required: true },
-    { label: "Adresse", value: address, setter: setAddress, required: false },
-    { label: "N° TVA", value: vatNumber, setter: setVatNumber, required: false, mono: true },
+    { label: t("firstName"), value: firstName, setter: setFirstName, required: true },
+    { label: t("lastName"), value: lastName, setter: setLastName, required: true },
+    { label: t("company"), value: company, setter: setCompany, required: true },
+    { label: t("phone"), value: phone, setter: setPhone, required: true },
+    { label: t("address"), value: address, setter: setAddress, required: false },
+    { label: t("vatNumber"), value: vatNumber, setter: setVatNumber, required: false, mono: true },
   ];
 
   return (
     <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden">
       <div className="px-5 py-3.5 border-b border-[#E5E5E5] flex items-center justify-between">
         <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
-          Mon compte
+          {t("profileSection")}
         </h2>
         <div className="flex items-center gap-2">
           {success && (
@@ -79,7 +81,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
-              Enregistre
+              {t("saved")}
             </span>
           )}
           {!editing ? (
@@ -91,7 +93,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
               </svg>
-              Modifier
+              {t("edit")}
             </button>
           ) : (
             <div className="flex items-center gap-2">
@@ -101,14 +103,14 @@ export default function AccountEditor({ user }: AccountEditorProps) {
                 disabled={isPending}
                 className="text-xs font-[family-name:var(--font-roboto)] font-medium bg-[#1A1A1A] text-white px-3 py-1.5 rounded-lg hover:bg-[#333] transition-colors disabled:opacity-50"
               >
-                {isPending ? "..." : "Enregistrer"}
+                {isPending ? "..." : t("save")}
               </button>
               <button
                 type="button"
                 onClick={handleCancel}
                 className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors"
               >
-                Annuler
+                {t("cancel")}
               </button>
             </div>
           )}
@@ -122,10 +124,10 @@ export default function AccountEditor({ user }: AccountEditorProps) {
       )}
 
       <div className="divide-y divide-[#F0F0F0]">
-        {/* Email + SIRET (non éditable) */}
+        {/* Email + SIRET (non editable) */}
         {[
-          { label: "Email", value: user.email },
-          { label: "SIRET", value: user.siret, mono: true },
+          { label: t("email"), value: user.email },
+          { label: t("siret"), value: user.siret, mono: true },
         ].map(({ label, value, mono }) => (
           <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
             <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#9CA3AF] uppercase tracking-wider w-24 shrink-0">
@@ -137,7 +139,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
           </div>
         ))}
 
-        {/* Champs éditables */}
+        {/* Champs editables */}
         {fields.map(({ label, value, setter, required, mono }) => (
           <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
             <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#9CA3AF] uppercase tracking-wider w-24 shrink-0">
@@ -153,7 +155,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
               />
             ) : (
               <span className={`text-sm text-[#1A1A1A] ${mono ? "font-mono" : "font-[family-name:var(--font-roboto)]"}`}>
-                {value || <span className="text-[#9CA3AF] italic">Non renseigne</span>}
+                {value || <span className="text-[#9CA3AF] italic">{t("notProvided")}</span>}
               </span>
             )}
           </div>
