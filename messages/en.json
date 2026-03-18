@@ -54,6 +54,9 @@
       "kbisRequired": "The Kbis file is required.",
       "kbisInvalidFormat": "Invalid format. Accepted: PDF, JPG, PNG (max 5 MB).",
       "kbisTooBig": "File exceeds the 5 MB limit.",
+      "sectionMessage": "Your message",
+      "message": "Message to our team",
+      "messagePlaceholder": "Tell us about your business, your needs, or any information useful for reviewing your application...",
       "password": "Password",
       "passwordHint": "Min 8 characters, 1 uppercase, 1 digit",
       "confirm": "Confirm password",
@@ -128,7 +131,9 @@
     "bestsellersMore": "See more",
     "viewAll": "See all products",
     "collections": "Our Collections",
-    "collectionsDesc": "Discover our themed collections"
+    "collectionsDesc": "Discover our themed collections",
+    "deals": "Great Deals",
+    "dealsMore": "See all deals"
   },
   "brand": {
     "steelTitle": "304 Stainless Steel",
@@ -179,6 +184,10 @@
     "filterMax": "Max",
     "filterBestseller": "Best sellers",
     "filterNew": "New arrivals",
+    "filterPromo": "On sale",
+    "filterOrdered": "Previously ordered",
+    "filterNotOrdered": "Never ordered",
+    "hideOutOfStock": "Hide out-of-stock products",
     "resetFilters": "Reset filters",
     "activeFilters": "Active filters",
     "results": "results",
@@ -187,7 +196,16 @@
     "loadMore": "Load more",
     "loading": "Loading...",
     "breadcrumb": "Products",
-    "colors": "{count} colors"
+    "colors": "{count} colors",
+    "filterSearch": "Search",
+    "filterSearchPlaceholder": "Name, ref., tag...",
+    "filterAllSubcategories": "All",
+    "filterAllTags": "All tags",
+    "filterFeatured": "Featured",
+    "filtersLabel": "Filters",
+    "productCount": "{count} product",
+    "productCount_plural": "{count} products",
+    "allProductsShown": "All products displayed ({count})"
   },
   "product": {
     "ref": "Ref.",
@@ -228,7 +246,16 @@
     "height": "Height",
     "diameter": "Diameter",
     "circumference": "Circumference",
-    "preview": "Preview"
+    "preview": "Preview",
+    "badgeBestSeller": "Best-Seller",
+    "badgeNew": "New",
+    "colorCount": "{count} colors",
+    "add": "Add",
+    "errorNoOption": "Sale option unavailable.",
+    "errorAddToCart": "Error, please try again.",
+    "packAutoDistribution": "Enter in units — automatic pack distribution",
+    "promo": "Sale",
+    "htUnit": "excl. tax / unit"
   },
   "cart": {
     "title": "My Cart",
@@ -447,7 +474,9 @@
     "from": "From",
     "packOf": "Pack x{qty}",
     "outOfStock": "Out of stock",
-    "perUnit": "/ unit"
+    "perUnit": "/ unit",
+    "noResults": "No results",
+    "noResultsDesc": "None of your favorites match the selected filters."
   },
   "cancelOrder": {
     "confirmTitle": "Cancel {orderNumber}?",

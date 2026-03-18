@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import { prisma } from "@/lib/prisma";
 import { registerSchema } from "@/lib/validations/auth";
 import { notifyNewClientRegistration } from "@/lib/notifications";
+import { cookies } from "next/headers";
 
 /**
  * POST /api/auth/register
@@ -25,15 +26,16 @@ export async function POST(request: NextRequest) {
 
     // Extraction des champs texte
     const rawData = {
-      firstName:       formData.get("firstName") as string,
-      lastName:        formData.get("lastName") as string,
-      company:         formData.get("company") as string,
-      email:           formData.get("email") as string,
-      phone:           formData.get("phone") as string,
-      siret:           formData.get("siret") as string,
-      vatNumber:       (formData.get("vatNumber") as string | null) || undefined,
-      password:        formData.get("password") as string,
-      confirmPassword: formData.get("confirmPassword") as string,
+      firstName:           formData.get("firstName") as string,
+      lastName:            formData.get("lastName") as string,
+      company:             formData.get("company") as string,
+      email:               formData.get("email") as string,
+      phone:               formData.get("phone") as string,
+      siret:               formData.get("siret") as string,
+      vatNumber:           (formData.get("vatNumber") as string | null) || undefined,
+      password:            formData.get("password") as string,
+      confirmPassword:     formData.get("confirmPassword") as string,
+      registrationMessage: (formData.get("registrationMessage") as string | null) || undefined,
     };
 
     // Validation Zod
@@ -69,51 +71,66 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Gestion du fichier Kbis ────────────────────────────────────────
+    // ── Gestion du fichier Kbis (optionnel) ──────────────────────────
     const kbisFile = formData.get("kbis") as File | null;
+    let kbisPath: string | null = null;
 
-    if (!kbisFile || kbisFile.size === 0) {
-      return NextResponse.json(
-        { error: "Le fichier Kbis est obligatoire." },
-        { status: 400 }
-      );
+    if (kbisFile && kbisFile.size > 0) {
+      // Vérification du type de fichier (PDF ou image)
+      const allowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+      if (!allowedTypes.includes(kbisFile.type)) {
+        return NextResponse.json(
+          { error: "Le Kbis doit être au format PDF, JPG ou PNG." },
+          { status: 400 }
+        );
+      }
+
+      // Limite de taille : 5 Mo
+      const MAX_SIZE = 5 * 1024 * 1024;
+      if (kbisFile.size > MAX_SIZE) {
+        return NextResponse.json(
+          { error: "Le fichier Kbis ne doit pas dépasser 5 Mo." },
+          { status: 400 }
+        );
+      }
+
+      // Création du dossier de stockage si nécessaire
+      const uploadDir = path.join(process.cwd(), "private", "uploads", "kbis");
+      await fs.mkdir(uploadDir, { recursive: true });
+
+      // Nom de fichier sécurisé et unique
+      const ext = kbisFile.name.split(".").pop()?.toLowerCase() ?? "pdf";
+      const safeSiret = data.siret.replace(/\D/g, "");
+      const timestamp = Date.now();
+      const filename = `kbis_${safeSiret}_${timestamp}.${ext}`;
+      const filepath = path.join(uploadDir, filename);
+
+      // Écriture du fichier sur le disque
+      const buffer = Buffer.from(await kbisFile.arrayBuffer());
+      await fs.writeFile(filepath, buffer);
+
+      // Chemin relatif stocké en base (ne jamais exposer le chemin absolu)
+      kbisPath = `private/uploads/kbis/${filename}`;
     }
 
-    // Vérification du type de fichier (PDF ou image)
-    const allowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
-    if (!allowedTypes.includes(kbisFile.type)) {
-      return NextResponse.json(
-        { error: "Le Kbis doit être au format PDF, JPG ou PNG." },
-        { status: 400 }
-      );
+    // ── Vérification code d'accès invité ──────────────────────────────
+    const cookieStore = await cookies();
+    const accessCodeCookie = cookieStore.get("bj_access_code")?.value;
+    let autoApproved = false;
+
+    if (accessCodeCookie) {
+      const accessCode = await prisma.accessCode.findUnique({
+        where: { code: accessCodeCookie },
+      });
+      if (
+        accessCode &&
+        accessCode.isActive &&
+        !accessCode.usedBy &&
+        new Date() <= accessCode.expiresAt
+      ) {
+        autoApproved = true;
+      }
     }
-
-    // Limite de taille : 5 Mo
-    const MAX_SIZE = 5 * 1024 * 1024;
-    if (kbisFile.size > MAX_SIZE) {
-      return NextResponse.json(
-        { error: "Le fichier Kbis ne doit pas dépasser 5 Mo." },
-        { status: 400 }
-      );
-    }
-
-    // Création du dossier de stockage si nécessaire
-    const uploadDir = path.join(process.cwd(), "private", "uploads", "kbis");
-    await fs.mkdir(uploadDir, { recursive: true });
-
-    // Nom de fichier sécurisé et unique
-    const ext = kbisFile.name.split(".").pop()?.toLowerCase() ?? "pdf";
-    const safeSiret = data.siret.replace(/\D/g, "");
-    const timestamp = Date.now();
-    const filename = `kbis_${safeSiret}_${timestamp}.${ext}`;
-    const filepath = path.join(uploadDir, filename);
-
-    // Écriture du fichier sur le disque
-    const buffer = Buffer.from(await kbisFile.arrayBuffer());
-    await fs.writeFile(filepath, buffer);
-
-    // Chemin relatif stocké en base (ne jamais exposer le chemin absolu)
-    const kbisPath = `private/uploads/kbis/${filename}`;
 
     // ── Création de l'utilisateur ──────────────────────────────────────
 
@@ -122,40 +139,59 @@ export async function POST(request: NextRequest) {
 
     const newUser = await prisma.user.create({
       data: {
-        email:     data.email.toLowerCase().trim(),
-        password:  hashedPassword,
-        firstName: data.firstName.trim(),
-        lastName:  data.lastName.trim(),
-        company:   data.company.trim(),
-        phone:     data.phone.trim(),
-        siret:     data.siret.trim(),
-        vatNumber: data.vatNumber?.trim() || null,
+        email:               data.email.toLowerCase().trim(),
+        password:            hashedPassword,
+        firstName:           data.firstName.trim(),
+        lastName:            data.lastName.trim(),
+        company:             data.company.trim(),
+        phone:               data.phone.trim(),
+        siret:               data.siret.trim(),
+        vatNumber:           data.vatNumber?.trim() || null,
         kbisPath,
-        role:      "CLIENT",
-        status:    "PENDING", // L'admin devra valider le compte
+        registrationMessage: data.registrationMessage?.trim() || null,
+        role:                "CLIENT",
+        status:              autoApproved ? "APPROVED" : "PENDING",
       },
     });
 
-    // Notification admin (email + Kbis en pièce jointe) — non bloquant
+    // ── Marquer le code d'accès comme utilisé ──────────────────────────
+    if (autoApproved && accessCodeCookie) {
+      await prisma.accessCode.update({
+        where: { code: accessCodeCookie },
+        data: {
+          usedBy: newUser.id,
+          usedByName: `${newUser.firstName} ${newUser.lastName}`,
+          usedAt: new Date(),
+        },
+      });
+    }
+
+    // Notification admin (email + Kbis en pièce jointe si fourni) — non bloquant
     notifyNewClientRegistration({
-      firstName: newUser.firstName,
-      lastName:  newUser.lastName,
-      company:   newUser.company,
-      email:     newUser.email,
-      phone:     newUser.phone,
-      siret:     newUser.siret,
-      kbisPath:  newUser.kbisPath,
+      firstName:           newUser.firstName,
+      lastName:            newUser.lastName,
+      company:             newUser.company,
+      email:               newUser.email,
+      phone:               newUser.phone,
+      siret:               newUser.siret,
+      kbisPath:            newUser.kbisPath ?? undefined,
+      registrationMessage: newUser.registrationMessage ?? undefined,
     }).catch((err) =>
       console.error("[POST /api/auth/register] Notification échouée :", err)
     );
 
-    return NextResponse.json(
-      {
-        message:
-          "Votre demande d'accès a bien été enregistrée. Notre équipe va examiner votre dossier et vous contactera par email.",
-      },
-      { status: 201 }
-    );
+    const message = autoApproved
+      ? "Votre compte a été créé et activé automatiquement. Vous pouvez vous connecter dès maintenant."
+      : "Votre demande d'accès a bien été enregistrée. Notre équipe va examiner votre dossier et vous contactera par email.";
+
+    const response = NextResponse.json({ message, autoApproved }, { status: 201 });
+
+    // Supprimer le cookie access code après inscription
+    if (autoApproved) {
+      response.cookies.set("bj_access_code", "", { maxAge: 0, path: "/" });
+    }
+
+    return response;
   } catch (error) {
     console.error("[POST /api/auth/register]", error);
     return NextResponse.json(

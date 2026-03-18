@@ -3,13 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useTranslations } from "next-intl";
 import ProductCard from "./ProductCard";
 
-type SaleOptionItem = {
+type VariantItem = {
   id:           string;
   saleType:     "UNIT" | "PACK";
   packQuantity: number | null;
   size:         string | null;
+  unitPrice:    number;
+  stock:        number;
+  discountType?: "PERCENT" | "AMOUNT" | null;
+  discountValue?: number | null;
 };
 
 type ProductItem = {
@@ -22,31 +27,45 @@ type ProductItem = {
   subCategories: { name: string }[];
   tags:          { tag: { id: string; name: string } }[];
   colors: {
-    id:        string;
-    unitPrice: number;
-    isPrimary: boolean;
-    color:     { name: string; hex: string | null };
-    images:    { path: string }[];
-    saleOptions: SaleOptionItem[];
+    colorId:    string;
+    name:       string;
+    hex:        string | null;
+    firstImage: string | null;
+    unitPrice:  number;
+    isPrimary:  boolean;
+    totalStock: number;
+    variants:   VariantItem[];
   }[];
 };
+
+interface ClientDiscountInfo {
+  discountType: "PERCENT" | "AMOUNT";
+  discountValue: number;
+}
 
 interface Props {
   initialProducts: ProductItem[];
   initialHasMore:  boolean;
+  clientDiscount?: ClientDiscountInfo | null;
 }
 
-export default function ProductsInfiniteScroll({ initialProducts, initialHasMore }: Props) {
+export default function ProductsInfiniteScroll({ initialProducts, initialHasMore, clientDiscount }: Props) {
+  const t = useTranslations("products");
   const searchParams = useSearchParams();
   const { data: session } = useSession();
   const q          = searchParams.get("q")          ?? "";
   const cat        = searchParams.get("cat")        ?? "";
   const subcat     = searchParams.get("subcat")     ?? "";
   const collection = searchParams.get("collection") ?? "";
-  const colorId    = searchParams.get("color")      ?? "";
+  const colorParam = searchParams.get("color")       ?? "";
+  const filteredColorIds = colorParam ? colorParam.split(",").filter(Boolean) : [];
   const tagId      = searchParams.get("tag")        ?? "";
   const bestseller = searchParams.get("bestseller") ?? "";
   const isNew      = searchParams.get("new")        ?? "";
+  const promo      = searchParams.get("promo")      ?? "";
+  const ordered    = searchParams.get("ordered")    ?? "";
+  const notOrdered = searchParams.get("notOrdered") ?? "";
+  const hideOos    = searchParams.get("hideOos")    ?? "";
   const minPrice   = searchParams.get("minPrice")   ?? "";
   const maxPrice   = searchParams.get("maxPrice")   ?? "";
 
@@ -59,15 +78,17 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
   // Fetch favorites client-side once (CLIENT role only)
   useEffect(() => {
     if (session?.user?.role !== "CLIENT") return;
-    fetch("/api/favorites")
+    const controller = new AbortController();
+    fetch("/api/favorites", { signal: controller.signal })
       .then((r) => r.json())
       .then((data: { ids: string[] }) => setFavoriteIds(new Set(data.ids)))
       .catch(() => {});
+    return () => controller.abort();
   }, [session]);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<() => void>(() => {});
-  const filtersKey  = `${q}||${cat}||${subcat}||${collection}||${colorId}||${tagId}||${bestseller}||${isNew}||${minPrice}||${maxPrice}`;
+  const filtersKey  = `${q}||${cat}||${subcat}||${collection}||${colorParam}||${tagId}||${bestseller}||${isNew}||${promo}||${ordered}||${notOrdered}||${hideOos}||${minPrice}||${maxPrice}`;
   const prevFilters = useRef(filtersKey);
 
   // Reset when filters change
@@ -98,10 +119,14 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
     if (cat)        params.set("cat",        cat);
     if (subcat)     params.set("subcat",     subcat);
     if (collection) params.set("collection", collection);
-    if (colorId)    params.set("color",      colorId);
+    if (colorParam) params.set("color",      colorParam);
     if (tagId)      params.set("tag",        tagId);
     if (bestseller) params.set("bestseller", bestseller);
     if (isNew)      params.set("new",        isNew);
+    if (promo)      params.set("promo",      promo);
+    if (ordered)    params.set("ordered",    ordered);
+    if (notOrdered) params.set("notOrdered", notOrdered);
+    if (hideOos)    params.set("hideOos",    hideOos);
     if (minPrice)   params.set("minPrice",   minPrice);
     if (maxPrice)   params.set("maxPrice",   maxPrice);
     params.set("page", String(nextPage));
@@ -141,10 +166,10 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
           </svg>
         </div>
         <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">
-          Aucun produit trouve
+          {t("noResults")}
         </p>
         <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
-          Essayez de modifier vos criteres de recherche.
+          {t("noResultsHint")}
         </p>
       </div>
     );
@@ -165,20 +190,9 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
             isBestSeller={product.isBestSeller}
             isNew={product.createdAt ? new Date(product.createdAt) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : false}
             tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
-            colors={product.colors.map((c) => ({
-              id:         c.id,
-              hex:        c.color.hex,
-              name:       c.color.name,
-              firstImage: c.images[0]?.path ?? null,
-              unitPrice:  c.unitPrice,
-              isPrimary:  c.isPrimary,
-              saleOptions: c.saleOptions.map((o) => ({
-                id:           o.id,
-                saleType:     o.saleType,
-                packQuantity: o.packQuantity,
-                size:         o.size,
-              })),
-            }))}
+            colors={product.colors}
+            clientDiscount={clientDiscount}
+            filteredColorIds={filteredColorIds}
           />
         ))}
       </div>
@@ -194,7 +208,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
       {!hasMore && products.length > 0 && (
         <p className="text-center text-sm text-text-muted font-[family-name:var(--font-roboto)] py-4">
-          Tous les produits sont affiches ({products.length})
+          {t("allProductsShown", { count: products.length })}
         </p>
       )}
     </>

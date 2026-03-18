@@ -90,6 +90,7 @@ export async function placeOrder(
       select: {
         firstName: true, lastName: true, company: true,
         email: true, phone: true, siret: true, vatNumber: true,
+        discountType: true, discountValue: true, freeShipping: true,
       },
     }),
     prisma.cart.findUnique({
@@ -97,15 +98,10 @@ export async function placeOrder(
       include: {
         items: {
           include: {
-            saleOption: {
+            variant: {
               include: {
-                productColor: {
-                  include: {
-                    product: { include: { category: true } },
-                    color:   true,
-                    images:  { orderBy: { order: "asc" }, take: 1 },
-                  },
-                },
+                product: { include: { category: true } },
+                color:   true,
               },
             },
           },
@@ -118,6 +114,29 @@ export async function placeOrder(
   if (!user)    return { success: false, error: "Utilisateur introuvable." };
   if (!cart || cart.items.length === 0) return { success: false, error: "Panier vide." };
   if (!address) return { success: false, error: "Adresse de livraison introuvable." };
+
+  // ── Fetch images for each cart item via ProductColorImage ─────────────────
+  const pairs = [
+    ...new Map(
+      cart.items.map((item) => [
+        `${item.variant.productId}__${item.variant.colorId}`,
+        { productId: item.variant.productId, colorId: item.variant.colorId },
+      ])
+    ).values(),
+  ];
+
+  const allImages = await prisma.productColorImage.findMany({
+    where: {
+      OR: pairs.map((p) => ({ productId: p.productId, colorId: p.colorId })),
+    },
+    orderBy: { order: "asc" },
+  });
+
+  const imagesByKey = new Map<string, string>();
+  for (const img of allImages) {
+    const key = `${img.productId}__${img.colorId}`;
+    if (!imagesByKey.has(key)) imagesByKey.set(key, img.path);
+  }
 
   // ── Vérifier le paiement Stripe côté serveur ───────────────────────────────
   let paymentIntent;
@@ -143,33 +162,50 @@ export async function placeOrder(
 
   // ── 2. Calculs ─────────────────────────────────────────────────────────
 
-  function computeUnitPrice(opt: (typeof cartItems)[0]["saleOption"]): number {
-    const { unitPrice } = opt.productColor;
-    const base = opt.saleType === "UNIT" ? unitPrice : unitPrice * (opt.packQuantity ?? 1);
-    if (!opt.discountType || !opt.discountValue) return base;
-    if (opt.discountType === "PERCENT") return Math.max(0, base * (1 - opt.discountValue / 100));
-    return Math.max(0, base - opt.discountValue);
+  function computeUnitPrice(variant: (typeof cartItems)[0]["variant"]): number {
+    const base = variant.saleType === "UNIT"
+      ? variant.unitPrice
+      : variant.unitPrice * (variant.packQuantity ?? 1);
+    if (!variant.discountType || !variant.discountValue) return base;
+    if (variant.discountType === "PERCENT") return Math.max(0, base * (1 - variant.discountValue / 100));
+    return Math.max(0, base - variant.discountValue);
   }
 
   const subtotalHT = cart.items.reduce(
-    (s, item) => s + computeUnitPrice(item.saleOption) * item.quantity, 0
+    (s, item) => s + computeUnitPrice(item.variant) * item.quantity, 0
   );
 
-  // Vérification minimum commande
+  // Remise commerciale client
+  const clientDiscountType  = user.discountType  ?? null;
+  const clientDiscountValue = user.discountValue ?? null;
+  const clientFreeShipping  = user.freeShipping;
+
+  const clientDiscountAmt = (() => {
+    if (!clientDiscountType || !clientDiscountValue) return 0;
+    if (clientDiscountType === "PERCENT")
+      return Math.min(subtotalHT, subtotalHT * (clientDiscountValue / 100));
+    return Math.min(subtotalHT, clientDiscountValue);
+  })();
+  const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
+
+  // Vérification minimum commande (sur le sous-total avant remise, remise = avantage commercial)
   const minConfig = await prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } });
   const minHT = minConfig ? parseFloat(minConfig.value) : 0;
   if (minHT > 0 && subtotalHT < minHT) {
     return { success: false, error: `Montant minimum de commande non atteint. Minimum requis : ${minHT.toFixed(2)} € HT.` };
   }
 
-  const tvaAmount  = subtotalHT * input.tvaRate;
-  const totalTTC   = subtotalHT + tvaAmount + input.carrierPrice;
+  // Livraison offerte : on ignore le prix carrier passé par le client
+  const effectiveCarrierPrice = clientFreeShipping ? 0 : input.carrierPrice;
+
+  const tvaAmount = subtotalAfterDiscount * input.tvaRate;
+  const totalTTC  = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
 
   const totalWeightKg = cart.items.reduce((s, item) => {
-    const units = item.saleOption.saleType === "PACK"
-      ? (item.saleOption.packQuantity ?? 1) * item.quantity
+    const units = item.variant.saleType === "PACK"
+      ? (item.variant.packQuantity ?? 1) * item.quantity
       : item.quantity;
-    return s + item.saleOption.productColor.weight * units;
+    return s + item.variant.weight * units;
   }, 0);
 
   // ── 3. Créer la commande en base ─────────────────────────────────────────
@@ -177,15 +213,16 @@ export async function placeOrder(
   const orderNumber = await generateOrderNumber();
 
   const orderItems: OrderItemPDF[] = cart.items.map((item) => {
-    const unitPrice = computeUnitPrice(item.saleOption);
+    const unitPrice = computeUnitPrice(item.variant);
+    const imgKey = `${item.variant.productId}__${item.variant.colorId}`;
     return {
-      productName: item.saleOption.productColor.product.name,
-      productRef:  item.saleOption.productColor.product.reference,
-      colorName:   item.saleOption.productColor.color.name,
-      saleType:    item.saleOption.saleType,
-      packQty:     item.saleOption.packQuantity,
-      size:        item.saleOption.size,
-      imagePath:   item.saleOption.productColor.images[0]?.path ?? null,
+      productName: item.variant.product.name,
+      productRef:  item.variant.product.reference,
+      colorName:   item.variant.color.name,
+      saleType:    item.variant.saleType,
+      packQty:     item.variant.packQuantity,
+      size:        item.variant.size,
+      imagePath:   imagesByKey.get(imgKey) ?? null,
       unitPrice,
       quantity:    item.quantity,
       lineTotal:   unitPrice * item.quantity,
@@ -219,10 +256,15 @@ export async function placeOrder(
       // Transporteur
       carrierId:    input.carrierId,
       carrierName:  input.carrierName,
-      carrierPrice: input.carrierPrice,
+      carrierPrice: effectiveCarrierPrice,
+      // Remise commerciale client
+      clientDiscountType:  clientDiscountType,
+      clientDiscountValue: clientDiscountValue,
+      clientDiscountAmt,
+      clientFreeShipping,
       // TVA
       tvaRate:    input.tvaRate,
-      subtotalHT,
+      subtotalHT: subtotalAfterDiscount,
       tvaAmount,
       totalTTC,
       // Items

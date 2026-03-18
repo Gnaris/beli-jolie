@@ -20,6 +20,7 @@ export default function RegisterForm() {
     vatNumber: "",
     password: "",
     confirmPassword: "",
+    registrationMessage: "",
   });
 
   const [kbisFile, setKbisFile]           = useState<File | null>(null);
@@ -29,6 +30,7 @@ export default function RegisterForm() {
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading]             = useState(false);
   const [showPassword, setShowPassword]   = useState(false);
+  const [autoApproved, setAutoApproved]   = useState(false);
   const fileInputRef                      = useRef<HTMLInputElement>(null);
 
   function handleChange(field: keyof typeof fields, value: string) {
@@ -71,16 +73,11 @@ export default function RegisterForm() {
       return;
     }
 
-    if (!kbisFile) {
-      setKbisError(t("kbisRequired"));
-      return;
-    }
-
     setLoading(true);
     try {
       const formData = new FormData();
       Object.entries(fields).forEach(([key, val]) => formData.append(key, val));
-      formData.append("kbis", kbisFile);
+      if (kbisFile) formData.append("kbis", kbisFile);
 
       const res = await fetch("/api/auth/register", { method: "POST", body: formData });
       const json = await res.json();
@@ -89,6 +86,7 @@ export default function RegisterForm() {
         setGlobalError(json.error ?? t("kbisRequired"));
         return;
       }
+      setAutoApproved(json.autoApproved === true);
       setSuccessMessage(json.message);
     } catch {
       setGlobalError(t("kbisRequired"));
@@ -112,8 +110,8 @@ export default function RegisterForm() {
           <p className="font-[family-name:var(--font-roboto)] text-text-muted text-sm leading-relaxed mb-8">
             {successMessage}
           </p>
-          <Link href="/" className="btn-primary justify-center">
-            {t("backHome")}
+          <Link href={autoApproved ? "/connexion" : "/"} className="btn-primary justify-center">
+            {autoApproved ? "Se connecter" : t("backHome")}
           </Link>
         </div>
       </div>
@@ -209,7 +207,8 @@ export default function RegisterForm() {
                 {/* Kbis upload */}
                 <div>
                   <label htmlFor="kbis" className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1.5">
-                    {t("kbis")} <span className="text-text-muted">*</span>
+                    {t("kbis")}{" "}
+                    <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
                   </label>
                   <div
                     className={`border-2 border-dashed rounded-lg transition-colors cursor-pointer ${
@@ -241,6 +240,34 @@ export default function RegisterForm() {
                   </div>
                   {kbisError && <p className="text-xs text-error mt-1 font-[family-name:var(--font-roboto)]" role="alert">{kbisError}</p>}
                 </div>
+              </div>
+            </div>
+
+            {/* Section Message */}
+            <div className="border-t border-border pt-6">
+              <p className="text-[11px] font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-widest mb-3">
+                {t("sectionMessage")}
+              </p>
+              <div>
+                <label htmlFor="registrationMessage" className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1.5">
+                  {t("message")}{" "}
+                  <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
+                </label>
+                <textarea
+                  id="registrationMessage"
+                  value={fields.registrationMessage}
+                  onChange={(e) => handleChange("registrationMessage", e.target.value)}
+                  placeholder={t("messagePlaceholder")}
+                  maxLength={2000}
+                  rows={5}
+                  className={`field-input resize-y min-h-[120px] ${fieldErrors.registrationMessage ? "border-error" : ""}`}
+                />
+                <p className="text-xs text-text-muted mt-1 font-[family-name:var(--font-roboto)]">
+                  {fields.registrationMessage.length}/2000
+                </p>
+                {fieldErrors.registrationMessage && (
+                  <p className="text-xs text-error mt-1">{fieldErrors.registrationMessage}</p>
+                )}
               </div>
             </div>
 

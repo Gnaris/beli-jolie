@@ -14,7 +14,9 @@ export async function GET() {
   }
 
   const products = await prisma.product.findMany({
+    where: { status: "ONLINE" },
     orderBy: { name: "asc" },
+    take: 500, // Pagination: limit to 500 products max
     select: {
       id:        true,
       name:      true,
@@ -22,25 +24,37 @@ export async function GET() {
       colors: {
         select: {
           id:        true,
+          colorId:   true,
           isPrimary: true,
           color:     { select: { name: true, hex: true } },
-          images:    { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
         },
       },
     },
   });
 
-  const shaped = products.map((p) => ({
-    id:        p.id,
-    name:      p.name,
-    reference: p.reference,
-    colors:    p.colors.map((pc) => ({
-      id:     pc.id,
-      name:   pc.color.name,
-      hex:    pc.color.hex,
-      images: pc.images,
-    })),
-  }));
+  // Fetch one image per (productId, colorId)
+  const productIds = products.map((p) => p.id);
+  const colorImages = productIds.length > 0
+    ? await prisma.productColorImage.findMany({ where: { productId: { in: productIds } }, orderBy: { order: "asc" } })
+    : [];
+  const imageMap = new Map<string, Map<string, string>>();
+  for (const img of colorImages) {
+    if (!imageMap.has(img.productId)) imageMap.set(img.productId, new Map());
+    const cm = imageMap.get(img.productId)!;
+    if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
+  }
+
+  // Deduplicate colors by colorId
+  const shaped = products.map((p) => {
+    const colorMap = new Map<string, { id: string; name: string; hex: string | null; images: { path: string }[] }>();
+    for (const pc of p.colors) {
+      if (!colorMap.has(pc.colorId)) {
+        const path = imageMap.get(p.id)?.get(pc.colorId);
+        colorMap.set(pc.colorId, { id: pc.colorId, name: pc.color.name, hex: pc.color.hex, images: path ? [{ path }] : [] });
+      }
+    }
+    return { id: p.id, name: p.name, reference: p.reference, colors: [...colorMap.values()] };
+  });
 
   return NextResponse.json(shaped);
 }

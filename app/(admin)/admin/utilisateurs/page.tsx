@@ -20,10 +20,27 @@ const STATUS_CONFIG: Record<UserStatus, { label: string; className: string }> = 
 /** Filtres disponibles avec leur label */
 const FILTERS: { value: string; label: string }[] = [
   { value: "ALL",      label: "Tous" },
+  { value: "ONLINE",   label: "En ligne" },
   { value: "PENDING",  label: "En attente" },
   { value: "APPROVED", label: "Approuvés" },
   { value: "REJECTED", label: "Rejetés" },
 ];
+
+/** Threshold for "online" status: 2 minutes */
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
+
+/** Format relative time for last activity */
+function formatLastSeen(lastSeenAt: Date | null): string | null {
+  if (!lastSeenAt) return null;
+  const diff = Date.now() - new Date(lastSeenAt).getTime();
+  if (diff < ONLINE_THRESHOLD_MS) return "En ligne";
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return `Il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Il y a ${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `Il y a ${days}j`;
+}
 
 /**
  * Page liste des clients — /admin/utilisateurs
@@ -42,14 +59,22 @@ export default async function UtilisateursPage({
   const { status } = await searchParams;
   const filterStatus = status || "ALL";
 
+  const now = Date.now(); // eslint-disable-line react-compiler/react-compiler
+  const onlineThreshold = new Date(now - ONLINE_THRESHOLD_MS);
+
   // Construction du filtre Prisma selon l'onglet actif
-  const whereClause =
-    filterStatus === "ALL"
+  const isOnlineFilter = filterStatus === "ONLINE";
+  const whereClause = isOnlineFilter
+    ? {
+        role: "CLIENT" as const,
+        activity: { lastSeenAt: { gte: onlineThreshold } },
+      }
+    : filterStatus === "ALL"
       ? { role: "CLIENT" as const }
       : { role: "CLIENT" as const, status: filterStatus as UserStatus };
 
   // Récupération des clients + comptages par statut
-  const [clients, pendingCount, approvedCount, rejectedCount, totalCount] =
+  const [clients, pendingCount, approvedCount, rejectedCount, totalCount, onlineCount] =
     await Promise.all([
       prisma.user.findMany({
         where: whereClause,
@@ -64,16 +89,29 @@ export default async function UtilisateursPage({
           siret: true,
           status: true,
           createdAt: true,
+          activity: {
+            select: {
+              lastSeenAt: true,
+              currentPage: true,
+            },
+          },
         },
       }),
       prisma.user.count({ where: { role: "CLIENT", status: "PENDING" } }),
       prisma.user.count({ where: { role: "CLIENT", status: "APPROVED" } }),
       prisma.user.count({ where: { role: "CLIENT", status: "REJECTED" } }),
       prisma.user.count({ where: { role: "CLIENT" } }),
+      prisma.user.count({
+        where: {
+          role: "CLIENT",
+          activity: { lastSeenAt: { gte: onlineThreshold } },
+        },
+      }),
     ]);
 
   const counts: Record<string, number> = {
     ALL:      totalCount,
+    ONLINE:   onlineCount,
     PENDING:  pendingCount,
     APPROVED: approvedCount,
     REJECTED: rejectedCount,
@@ -115,6 +153,7 @@ export default async function UtilisateursPage({
               href={filter.value === "ALL"
                 ? "/admin/utilisateurs"
                 : `/admin/utilisateurs?status=${filter.value}`}
+              prefetch={false}
               className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-[family-name:var(--font-roboto)] font-medium rounded-md transition-all ${
                 isActive
                   ? "bg-bg-primary text-text-primary shadow-sm"
@@ -122,12 +161,20 @@ export default async function UtilisateursPage({
               }`}
             >
               {filter.label}
+              {filter.value === "ONLINE" && count > 0 && (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22C55E] opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22C55E]" />
+                </span>
+              )}
               <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-semibold ${
                 filter.value === "PENDING" && count > 0
                   ? "bg-warning text-white"
-                  : isActive
-                    ? "bg-bg-tertiary text-text-secondary"
-                    : "text-text-muted"
+                  : filter.value === "ONLINE" && count > 0
+                    ? "bg-[#22C55E] text-white"
+                    : isActive
+                      ? "bg-bg-tertiary text-text-secondary"
+                      : "text-text-muted"
               }`}>
                 {count}
               </span>
@@ -157,6 +204,10 @@ export default async function UtilisateursPage({
               day: "2-digit", month: "short", year: "numeric",
             });
             const initials = `${client.firstName[0] ?? ""}${client.lastName[0] ?? ""}`.toUpperCase();
+            const isOnline = client.activity?.lastSeenAt
+              ? new Date(client.activity.lastSeenAt).getTime() > onlineThreshold.getTime()
+              : false;
+            const lastSeenLabel = formatLastSeen(client.activity?.lastSeenAt ?? null);
             return (
               <Link
                 key={client.id}
@@ -164,23 +215,28 @@ export default async function UtilisateursPage({
                 className="card card-hover block p-4 sm:p-5 group"
               >
                 <div className="flex items-center gap-4">
-                  {/* Avatar */}
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                    client.status === "PENDING"
-                      ? "bg-[#FEF3C7]"
-                      : client.status === "REJECTED"
-                        ? "bg-[#FEE2E2]"
-                        : "bg-bg-tertiary"
-                  }`}>
-                    <span className={`text-xs font-bold font-[family-name:var(--font-roboto)] ${
+                  {/* Avatar with online indicator */}
+                  <div className="relative shrink-0">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
                       client.status === "PENDING"
-                        ? "text-[#92400E]"
+                        ? "bg-[#FEF3C7]"
                         : client.status === "REJECTED"
-                          ? "text-[#991B1B]"
-                          : "text-text-secondary"
+                          ? "bg-[#FEE2E2]"
+                          : "bg-bg-tertiary"
                     }`}>
-                      {initials}
-                    </span>
+                      <span className={`text-xs font-bold font-[family-name:var(--font-roboto)] ${
+                        client.status === "PENDING"
+                          ? "text-[#92400E]"
+                          : client.status === "REJECTED"
+                            ? "text-[#991B1B]"
+                            : "text-text-secondary"
+                      }`}>
+                        {initials}
+                      </span>
+                    </div>
+                    {isOnline && (
+                      <span className="absolute -bottom-0.5 -right-0.5 block h-3 w-3 rounded-full bg-[#22C55E] ring-2 ring-white" />
+                    )}
                   </div>
 
                   {/* Infos principales */}
@@ -200,6 +256,14 @@ export default async function UtilisateursPage({
 
                   {/* Details desktop */}
                   <div className="hidden md:flex items-center gap-6 shrink-0">
+                    {lastSeenLabel && (
+                      <div className="text-right">
+                        <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] uppercase tracking-wider">Activite</p>
+                        <p className={`text-sm font-[family-name:var(--font-roboto)] ${isOnline ? "text-[#22C55E] font-medium" : "text-text-secondary"}`}>
+                          {lastSeenLabel}
+                        </p>
+                      </div>
+                    )}
                     <div className="text-right">
                       <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] uppercase tracking-wider">Email</p>
                       <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] truncate max-w-[200px]">{client.email}</p>

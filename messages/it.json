@@ -54,6 +54,9 @@
       "kbisRequired": "Il file Kbis è obbligatorio.",
       "kbisInvalidFormat": "Formato non valido. Accettati: PDF, JPG, PNG (max 5 MB).",
       "kbisTooBig": "Il file supera il limite di 5 MB.",
+      "sectionMessage": "Il tuo messaggio",
+      "message": "Messaggio al nostro team",
+      "messagePlaceholder": "Presenta la tua attività, le tue esigenze o qualsiasi informazione utile per la revisione della tua richiesta...",
       "password": "Password",
       "passwordHint": "Min. 8 caratteri, 1 maiuscola, 1 cifra",
       "confirm": "Conferma password",
@@ -128,7 +131,9 @@
     "bestsellersMore": "Vedi di più",
     "viewAll": "Vedi tutti i prodotti",
     "collections": "Le nostre collezioni",
-    "collectionsDesc": "Scopri le nostre collezioni tematiche"
+    "collectionsDesc": "Scopri le nostre collezioni tematiche",
+    "deals": "Buone offerte",
+    "dealsMore": "Vedi tutte le offerte"
   },
   "brand": {
     "steelTitle": "Acciaio inossidabile 304",
@@ -179,6 +184,10 @@
     "filterMax": "Max",
     "filterBestseller": "I più venduti",
     "filterNew": "Novità",
+    "filterPromo": "In promozione",
+    "filterOrdered": "Già ordinato",
+    "filterNotOrdered": "Mai ordinato",
+    "hideOutOfStock": "Nascondi prodotti esauriti",
     "resetFilters": "Reimposta filtri",
     "activeFilters": "Filtri attivi",
     "results": "risultati",
@@ -187,7 +196,16 @@
     "loadMore": "Carica altri",
     "loading": "Caricamento...",
     "breadcrumb": "Prodotti",
-    "colors": "{count} colori"
+    "colors": "{count} colori",
+    "filterSearch": "Ricerca",
+    "filterSearchPlaceholder": "Nome, rif., tag...",
+    "filterAllSubcategories": "Tutti",
+    "filterAllTags": "Tutte le parole chiave",
+    "filterFeatured": "In evidenza",
+    "filtersLabel": "Filtri",
+    "productCount": "{count} prodotto",
+    "productCount_plural": "{count} prodotti",
+    "allProductsShown": "Tutti i prodotti visualizzati ({count})"
   },
   "product": {
     "ref": "Rif.",
@@ -228,7 +246,16 @@
     "height": "Altezza",
     "diameter": "Diametro",
     "circumference": "Circonferenza",
-    "preview": "Anteprima"
+    "preview": "Anteprima",
+    "badgeBestSeller": "Più venduto",
+    "badgeNew": "Nuovo",
+    "colorCount": "{count} colori",
+    "add": "Aggiungi",
+    "errorNoOption": "Opzione di vendita non disponibile.",
+    "errorAddToCart": "Errore, riprova.",
+    "packAutoDistribution": "Inserire in unità — distribuzione automatica in pacchi",
+    "promo": "Promo",
+    "htUnit": "IVA esclusa / unità"
   },
   "cart": {
     "title": "Il mio carrello",
@@ -447,7 +474,9 @@
     "from": "Da",
     "packOf": "Pack x{qty}",
     "outOfStock": "Esaurito",
-    "perUnit": "/ unità"
+    "perUnit": "/ unità",
+    "noResults": "Nessun risultato",
+    "noResultsDesc": "Nessuno dei tuoi preferiti corrisponde ai filtri selezionati."
   },
   "cancelOrder": {
     "confirmTitle": "Annullare {orderNumber}?",

@@ -8,35 +8,48 @@ import { NextRequest, NextResponse } from "next/server";
  */
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
+  const exactRef = request.nextUrl.searchParams.get("exactRef") === "1";
   if (q.length < 2) return NextResponse.json({ results: [] });
 
   const products = await prisma.product.findMany({
     where: {
-      OR: [
-        { reference: { contains: q } },
-        { name: { contains: q } },
-        { description: { contains: q } },
-        { category: { name: { contains: q } } },
-        { tags: { some: { tag: { name: { contains: q.toLowerCase() } } } } },
-      ],
+      status: "ONLINE",
+      ...(exactRef
+        ? { reference: { equals: q.toUpperCase() } }
+        : {
+            OR: [
+              { reference: { contains: q } },
+              { name: { contains: q } },
+              { description: { contains: q } },
+              { category: { name: { contains: q } } },
+              { tags: { some: { tag: { name: { contains: q.toLowerCase() } } } } },
+            ],
+          }),
     },
     take: 8,
     orderBy: { createdAt: "desc" },
     select: {
-      id: true,
-      name: true,
+      id:       true,
+      name:     true,
       reference: true,
       category: { select: { name: true } },
       colors: {
         orderBy: { isPrimary: "desc" },
-        select: {
-          unitPrice: true,
-          images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
-        },
-        take: 1,
+        select:  { unitPrice: true },
+        take:    1,
       },
     },
   });
+
+  // Fetch first image per product
+  const productIds = products.map((p) => p.id);
+  const firstImages = productIds.length > 0
+    ? await prisma.productColorImage.findMany({ where: { productId: { in: productIds } }, orderBy: { order: "asc" } })
+    : [];
+  const firstImageMap = new Map<string, string>();
+  for (const img of firstImages) {
+    if (!firstImageMap.has(img.productId)) firstImageMap.set(img.productId, img.path);
+  }
 
   // Sort by relevance: reference match first, then name, then others
   const qLower = q.toLowerCase();
@@ -55,7 +68,7 @@ export async function GET(request: NextRequest) {
     name: p.name,
     reference: p.reference,
     category: p.category.name,
-    image: p.colors[0]?.images[0]?.path ?? null,
+    image: firstImageMap.get(p.id) ?? null,
     price: p.colors[0]?.unitPrice ?? null,
   }));
 

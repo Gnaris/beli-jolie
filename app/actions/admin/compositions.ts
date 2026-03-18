@@ -23,6 +23,45 @@ export async function updateComposition(id: string, formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
   await prisma.composition.update({ where: { id }, data: { name } });
+
+  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+    const val = (formData.get(`name_${locale}`) as string)?.trim();
+    if (val) {
+      await prisma.compositionTranslation.upsert({
+        where: { compositionId_locale: { compositionId: id, locale } },
+        update: { name: val },
+        create: { compositionId: id, locale, name: val },
+      });
+    } else {
+      await prisma.compositionTranslation.deleteMany({ where: { compositionId: id, locale } });
+    }
+  }
+
+  revalidatePath("/admin/compositions");
+}
+
+export async function updateCompositionDirect(
+  id: string,
+  name: string,
+  translations: Record<string, string>
+) {
+  await requireAdmin();
+  if (!name.trim()) throw new Error("Le nom est requis.");
+  await prisma.composition.update({ where: { id }, data: { name: name.trim() } });
+
+  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+    const val = translations[locale]?.trim();
+    if (val) {
+      await prisma.compositionTranslation.upsert({
+        where: { compositionId_locale: { compositionId: id, locale } },
+        update: { name: val },
+        create: { compositionId: id, locale, name: val },
+      });
+    } else {
+      await prisma.compositionTranslation.deleteMany({ where: { compositionId: id, locale } });
+    }
+  }
+
   revalidatePath("/admin/compositions");
 }
 

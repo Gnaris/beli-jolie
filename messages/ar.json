@@ -54,6 +54,9 @@
       "kbisRequired": "ملف Kbis مطلوب.",
       "kbisInvalidFormat": "صيغة غير صالحة. المقبول: PDF، JPG، PNG (حد أقصى 5 ميجابايت).",
       "kbisTooBig": "الملف يتجاوز حد 5 ميجابايت.",
+      "sectionMessage": "رسالتك",
+      "message": "رسالة إلى فريقنا",
+      "messagePlaceholder": "قدّم نشاطك التجاري وحاجاتك أو أي معلومات مفيدة لدراسة ملفك...",
       "password": "كلمة المرور",
       "passwordHint": "8 أحرف على الأقل، حرف كبير، رقم واحد",
       "confirm": "تأكيد كلمة المرور",
@@ -128,7 +131,9 @@
     "bestsellersMore": "عرض المزيد",
     "viewAll": "عرض جميع المنتجات",
     "collections": "مجموعاتنا",
-    "collectionsDesc": "اكتشف مجموعاتنا المتنوعة"
+    "collectionsDesc": "اكتشف مجموعاتنا المتنوعة",
+    "deals": "صفقات رائعة",
+    "dealsMore": "عرض جميع العروض"
   },
   "brand": {
     "steelTitle": "ستانلس ستيل 304",
@@ -179,6 +184,10 @@
     "filterMax": "الحد الأقصى",
     "filterBestseller": "الأكثر مبيعاً",
     "filterNew": "وصل حديثاً",
+    "filterPromo": "عروض",
+    "filterOrdered": "تم طلبه سابقاً",
+    "filterNotOrdered": "لم يُطلب من قبل",
+    "hideOutOfStock": "إخفاء المنتجات غير المتوفرة",
     "resetFilters": "إعادة تعيين الفلاتر",
     "activeFilters": "الفلاتر النشطة",
     "results": "نتائج",
@@ -187,7 +196,16 @@
     "loadMore": "تحميل المزيد",
     "loading": "جاري التحميل...",
     "breadcrumb": "المنتجات",
-    "colors": "{count} ألوان"
+    "colors": "{count} ألوان",
+    "filterSearch": "بحث",
+    "filterSearchPlaceholder": "الاسم، المرجع، الوسم...",
+    "filterAllSubcategories": "الكل",
+    "filterAllTags": "كل الكلمات المفتاحية",
+    "filterFeatured": "مميز",
+    "filtersLabel": "الفلاتر",
+    "productCount": "{count} منتج",
+    "productCount_plural": "{count} منتجات",
+    "allProductsShown": "جميع المنتجات معروضة ({count})"
   },
   "product": {
     "ref": "المرجع",
@@ -228,7 +246,16 @@
     "height": "الارتفاع",
     "diameter": "القطر",
     "circumference": "المحيط",
-    "preview": "معاينة"
+    "preview": "معاينة",
+    "badgeBestSeller": "الأكثر مبيعاً",
+    "badgeNew": "جديد",
+    "colorCount": "{count} ألوان",
+    "add": "إضافة",
+    "errorNoOption": "خيار البيع غير متاح.",
+    "errorAddToCart": "خطأ، يرجى المحاولة مجدداً.",
+    "packAutoDistribution": "أدخل بالوحدات — توزيع تلقائي على الحزم",
+    "promo": "تخفيض",
+    "htUnit": "بدون ضريبة / وحدة"
   },
   "cart": {
     "title": "سلتي",
@@ -447,7 +474,9 @@
     "from": "ابتداءً من",
     "packOf": "حزمة x{qty}",
     "outOfStock": "غير متوفر",
-    "perUnit": "/ وحدة"
+    "perUnit": "/ وحدة",
+    "noResults": "لا توجد نتائج",
+    "noResultsDesc": "لا يوجد في مفضلتك ما يطابق الفلاتر المحددة."
   },
   "cancelOrder": {
     "confirmTitle": "إلغاء {orderNumber}؟",

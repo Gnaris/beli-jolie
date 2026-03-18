@@ -73,8 +73,6 @@ const EN: Dict = {
   "anneaux": "rings",
   "boucle d'oreille": "earring",
   "boucles d'oreilles": "earrings",
-  "boucle d'oreille": "earring",
-  "boucles d'oreilles": "earrings",
   "pendentif": "pendant",
   "pendentifs": "pendants",
   "pendantes": "drop earrings",
@@ -218,7 +216,6 @@ const EN: Dict = {
   "yin yang": "yin yang",
   "om": "om",
   "lotus": "lotus",
-  "rose": "rose",
   "dauphin": "dolphin",
   "chat": "cat",
   "chien": "dog",
@@ -249,7 +246,6 @@ const EN: Dict = {
   "grise": "gray",
   "marron": "brown",
   "beige": "beige",
-  "turquoise": "turquoise",
   "multicolore": "multicolor",
 
   // Connectors

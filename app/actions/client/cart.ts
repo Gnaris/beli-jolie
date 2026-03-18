@@ -34,19 +34,14 @@ export async function getCart() {
     include: {
       items: {
         include: {
-          saleOption: {
+          variant: {
             include: {
-              productColor: {
+              product: {
                 include: {
-                  product: {
-                    include: {
-                      category: true,
-                    },
-                  },
-                  color: true,
-                  images: { orderBy: { order: "asc" }, take: 1 },
+                  category: true,
                 },
               },
+              color: true,
             },
           },
         },
@@ -55,7 +50,42 @@ export async function getCart() {
     },
   });
 
-  return cart;
+  if (!cart) return null;
+
+  // Fetch images per (productId, colorId) pair
+  const pairs = [
+    ...new Map(
+      cart.items.map((item) => [
+        `${item.variant.productId}__${item.variant.colorId}`,
+        { productId: item.variant.productId, colorId: item.variant.colorId },
+      ])
+    ).values(),
+  ];
+
+  const images = await prisma.productColorImage.findMany({
+    where: {
+      OR: pairs.map((p) => ({ productId: p.productId, colorId: p.colorId })),
+    },
+    orderBy: { order: "asc" },
+  });
+
+  // Group images by "productId__colorId"
+  const imagesByKey = new Map<string, typeof images>();
+  for (const img of images) {
+    const key = `${img.productId}__${img.colorId}`;
+    const list = imagesByKey.get(key) ?? [];
+    list.push(img);
+    imagesByKey.set(key, list);
+  }
+
+  // Attach first image to each item
+  const itemsWithImages = cart.items.map((item) => {
+    const key = `${item.variant.productId}__${item.variant.colorId}`;
+    const imgs = imagesByKey.get(key) ?? [];
+    return { ...item, variantImages: imgs };
+  });
+
+  return { ...cart, items: itemsWithImages };
 }
 
 // ─────────────────────────────────────────────
@@ -79,22 +109,41 @@ export async function getCartCount(): Promise<number> {
 // Ajouter / incrémenter un article
 // ─────────────────────────────────────────────
 
-export async function addToCart(saleOptionId: string, quantity: number = 1) {
+export async function addToCart(variantId: string, quantity: number = 1) {
   const userId = await requireClient();
+
+  // Validate stock before adding
+  const variant = await prisma.productColor.findUnique({
+    where: { id: variantId },
+    select: { stock: true, saleType: true, packQuantity: true },
+  });
+  if (!variant) throw new Error("Variante introuvable.");
+
+  const effectiveStock = variant.saleType === "PACK" && variant.packQuantity
+    ? Math.floor(variant.stock / variant.packQuantity)
+    : variant.stock;
+
+  if (effectiveStock <= 0) throw new Error("Ce produit est en rupture de stock.");
+
   const cart = await getOrCreateCart(userId);
 
   const existing = await prisma.cartItem.findUnique({
-    where: { cartId_saleOptionId: { cartId: cart.id, saleOptionId } },
+    where: { cartId_variantId: { cartId: cart.id, variantId } },
   });
+
+  const newQty = (existing?.quantity ?? 0) + quantity;
+  if (newQty > effectiveStock) {
+    throw new Error(`Stock insuffisant. Disponible : ${effectiveStock}.`);
+  }
 
   if (existing) {
     await prisma.cartItem.update({
       where: { id: existing.id },
-      data: { quantity: existing.quantity + quantity },
+      data: { quantity: newQty },
     });
   } else {
     await prisma.cartItem.create({
-      data: { cartId: cart.id, saleOptionId, quantity },
+      data: { cartId: cart.id, variantId, quantity },
     });
   }
 
@@ -111,12 +160,20 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
   // Vérifier que l'item appartient bien à l'utilisateur
   const item = await prisma.cartItem.findFirst({
     where: { id: cartItemId, cart: { userId } },
+    include: { variant: { select: { stock: true, saleType: true, packQuantity: true } } },
   });
   if (!item) throw new Error("Article introuvable.");
 
   if (quantity <= 0) {
     await prisma.cartItem.delete({ where: { id: cartItemId } });
   } else {
+    const v = item.variant;
+    const effectiveStock = v.saleType === "PACK" && v.packQuantity
+      ? Math.floor(v.stock / v.packQuantity)
+      : v.stock;
+    if (quantity > effectiveStock) {
+      throw new Error(`Stock insuffisant. Disponible : ${effectiveStock}.`);
+    }
     await prisma.cartItem.update({
       where: { id: cartItemId },
       data: { quantity },

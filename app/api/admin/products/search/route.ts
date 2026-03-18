@@ -16,16 +16,20 @@ export async function GET(request: NextRequest) {
 
   const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
   const exclude = request.nextUrl.searchParams.get("exclude") ?? "";
+  const exactRef = request.nextUrl.searchParams.get("exactRef") === "1";
 
   if (q.length < 1) return NextResponse.json({ products: [] });
 
   const products = await prisma.product.findMany({
     where: {
       ...(exclude && { NOT: { id: exclude } }),
-      OR: [
-        { reference: { contains: q } },
-        { name: { contains: q } },
-      ],
+      ...(exactRef
+        ? { reference: { equals: q.toUpperCase() } }
+        : { OR: [
+            { reference: { contains: q } },
+            { name: { contains: q } },
+          ] }
+      ),
     },
     take: 12,
     orderBy: { name: "asc" },
@@ -34,22 +38,25 @@ export async function GET(request: NextRequest) {
       name: true,
       reference: true,
       category: { select: { name: true } },
-      colors: {
-        orderBy: { isPrimary: "desc" },
-        select: {
-          images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
-        },
-        take: 1,
-      },
     },
   });
+
+  // Get first image for each product
+  const productIds = products.map((p) => p.id);
+  const firstImages = productIds.length > 0
+    ? await prisma.productColorImage.findMany({ where: { productId: { in: productIds } }, orderBy: { order: "asc" } })
+    : [];
+  const firstImageMap = new Map<string, string>();
+  for (const img of firstImages) {
+    if (!firstImageMap.has(img.productId)) firstImageMap.set(img.productId, img.path);
+  }
 
   const results = products.map((p) => ({
     id: p.id,
     name: p.name,
     reference: p.reference,
     category: p.category.name,
-    image: p.colors[0]?.images[0]?.path ?? null,
+    image: firstImageMap.get(p.id) ?? null,
   }));
 
   return NextResponse.json({ products: results });

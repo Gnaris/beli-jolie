@@ -1,7 +1,7 @@
 "use server";
 
 import { getServerSession } from "next-auth";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -36,6 +36,7 @@ export async function createCategory(formData: FormData) {
     data: { name, slug: toSlug(name) },
   });
   revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
   revalidatePath("/admin/produits");
 }
 
@@ -43,6 +44,7 @@ export async function deleteCategory(id: string) {
   await requireAdmin();
   await prisma.category.delete({ where: { id } });
   revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
   revalidatePath("/admin/produits");
 }
 
@@ -60,6 +62,7 @@ export async function createSubCategory(formData: FormData) {
     data: { name, slug: toSlug(name), categoryId },
   });
   revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
   revalidatePath("/admin/produits");
 }
 
@@ -67,4 +70,109 @@ export async function deleteSubCategory(id: string) {
   await requireAdmin();
   await prisma.subCategory.delete({ where: { id } });
   revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+}
+
+export async function updateCategoryDirect(
+  id: string,
+  name: string,
+  translations: Record<string, string>
+) {
+  await requireAdmin();
+  if (!name.trim()) throw new Error("Le nom est requis.");
+  await prisma.category.update({ where: { id }, data: { name: name.trim(), slug: toSlug(name.trim()) } });
+
+  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+    const val = translations[locale]?.trim();
+    if (val) {
+      await prisma.categoryTranslation.upsert({
+        where: { categoryId_locale: { categoryId: id, locale } },
+        update: { name: val },
+        create: { categoryId: id, locale, name: val },
+      });
+    } else {
+      await prisma.categoryTranslation.deleteMany({ where: { categoryId: id, locale } });
+    }
+  }
+
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+  revalidatePath("/admin/produits");
+}
+
+export async function updateSubCategoryDirect(
+  id: string,
+  name: string,
+  translations: Record<string, string>
+) {
+  await requireAdmin();
+  if (!name.trim()) throw new Error("Le nom est requis.");
+  await prisma.subCategory.update({ where: { id }, data: { name: name.trim(), slug: toSlug(name.trim()) } });
+
+  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+    const val = translations[locale]?.trim();
+    if (val) {
+      await prisma.subCategoryTranslation.upsert({
+        where: { subCategoryId_locale: { subCategoryId: id, locale } },
+        update: { name: val },
+        create: { subCategoryId: id, locale, name: val },
+      });
+    } else {
+      await prisma.subCategoryTranslation.deleteMany({ where: { subCategoryId: id, locale } });
+    }
+  }
+
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+  revalidatePath("/admin/produits");
+}
+
+export async function updateCategory(id: string, formData: FormData) {
+  await requireAdmin();
+  const name = (formData.get("name") as string)?.trim();
+  if (!name) throw new Error("Le nom est requis.");
+
+  await prisma.category.update({ where: { id }, data: { name, slug: toSlug(name) } });
+
+  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+    const val = (formData.get(`name_${locale}`) as string)?.trim();
+    if (val) {
+      await prisma.categoryTranslation.upsert({
+        where: { categoryId_locale: { categoryId: id, locale } },
+        update: { name: val },
+        create: { categoryId: id, locale, name: val },
+      });
+    } else {
+      await prisma.categoryTranslation.deleteMany({ where: { categoryId: id, locale } });
+    }
+  }
+
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+  revalidatePath("/admin/produits");
+}
+
+export async function updateSubCategory(id: string, formData: FormData) {
+  await requireAdmin();
+  const name = (formData.get("name") as string)?.trim();
+  if (!name) throw new Error("Le nom est requis.");
+
+  await prisma.subCategory.update({ where: { id }, data: { name, slug: toSlug(name) } });
+
+  for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+    const val = (formData.get(`name_${locale}`) as string)?.trim();
+    if (val) {
+      await prisma.subCategoryTranslation.upsert({
+        where: { subCategoryId_locale: { subCategoryId: id, locale } },
+        update: { name: val },
+        create: { subCategoryId: id, locale, name: val },
+      });
+    } else {
+      await prisma.subCategoryTranslation.deleteMany({ where: { subCategoryId: id, locale } });
+    }
+  }
+
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+  revalidatePath("/admin/produits");
 }

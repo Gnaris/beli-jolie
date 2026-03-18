@@ -56,6 +56,8 @@ export default function PublicSidebar() {
 
   const [mobileOpen, setMobileOpen]       = useState(false);
   const [cartCount, setCartCount]         = useState(0);
+  const [prevCount, setPrevCount]         = useState(0);
+  const [badgeBounce, setBadgeBounce]     = useState(false);
   const [scrolled, setScrolled]           = useState(false);
   const [isAdminPreview, setIsAdminPreview] = useState(false);
   const [previewPending] = useTransition();
@@ -88,6 +90,7 @@ export default function PublicSidebar() {
   const [searchLoading, setSearchLoading] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -110,15 +113,18 @@ export default function PublicSidebar() {
     }
     setSearchLoading(true);
     debounceRef.current = setTimeout(async () => {
+      searchAbortRef.current?.abort();
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
       try {
-        const res = await fetch(`/api/products/search?q=${encodeURIComponent(value.trim())}`);
+        const res = await fetch(`/api/products/search?q=${encodeURIComponent(value.trim())}`, { signal: controller.signal });
         const data = await res.json();
         setSearchResults(data.results ?? []);
         setShowResults(true);
       } catch {
-        setSearchResults([]);
+        if (!controller.signal.aborted) setSearchResults([]);
       } finally {
-        setSearchLoading(false);
+        if (!controller.signal.aborted) setSearchLoading(false);
       }
     }, 300);
   }
@@ -145,12 +151,22 @@ export default function PublicSidebar() {
   const initials     = company ? company.slice(0, 2).toUpperCase() : "?";
 
   useEffect(() => {
-    if (showClientUI) {
-      fetch("/api/cart/count")
-        .then((r) => r.json())
-        .then((d) => setCartCount(d.count ?? 0))
-        .catch(() => {});
-    }
+    if (!showClientUI) return;
+    const controller = new AbortController();
+    fetch("/api/cart/count", { signal: controller.signal })
+      .then((r) => r.json())
+      .then((d) => {
+        const newCount = d.count ?? 0;
+        setCartCount(newCount);
+        if (newCount !== prevCount && newCount > 0) {
+          setBadgeBounce(true);
+          setTimeout(() => setBadgeBounce(false), 500);
+          setPrevCount(newCount);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showClientUI]);
 
   useEffect(() => {
@@ -175,9 +191,9 @@ export default function PublicSidebar() {
           {/* Logo */}
           <Link
             href="/"
-            className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary tracking-tight shrink-0"
+            className="relative font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary tracking-tight shrink-0 group shimmer-overlay overflow-hidden"
           >
-            Beli & Jolie
+            Beli &amp; Jolie
           </Link>
 
           {/* Desktop nav */}
@@ -186,26 +202,32 @@ export default function PublicSidebar() {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors font-[family-name:var(--font-roboto)] ${
+                className={`relative px-3 py-1.5 text-sm rounded-md transition-colors font-[family-name:var(--font-roboto)] group/navlink ${
                   isActive(link.href)
-                    ? "bg-bg-tertiary text-text-primary font-medium"
+                    ? "text-text-primary font-medium"
                     : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
                 }`}
               >
                 {link.label}
+                {isActive(link.href) && (
+                  <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-text-primary rounded-full animate-slide-in" />
+                )}
               </Link>
             ))}
             {showClientUI && CLIENT_LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors font-[family-name:var(--font-roboto)] ${
+                className={`relative px-3 py-1.5 text-sm rounded-md transition-colors font-[family-name:var(--font-roboto)] ${
                   isActive(link.href)
-                    ? "bg-bg-tertiary text-text-primary font-medium"
+                    ? "text-text-primary font-medium"
                     : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
                 }`}
               >
                 {link.label}
+                {isActive(link.href) && (
+                  <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-text-primary rounded-full animate-slide-in" />
+                )}
               </Link>
             ))}
           </nav>
@@ -310,7 +332,7 @@ export default function PublicSidebar() {
               >
                 <IconCart />
                 {cartCount > 0 && (
-                  <span className="absolute top-1 right-1 w-4 h-4 bg-bg-dark text-text-inverse text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                  <span className={`absolute top-1 right-1 w-4 h-4 bg-bg-dark text-text-inverse text-[9px] font-bold rounded-full flex items-center justify-center leading-none${badgeBounce ? " animate-cart-bounce" : ""}`}>
                     {cartCount > 9 ? "9+" : cartCount}
                   </span>
                 )}

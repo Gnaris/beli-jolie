@@ -32,9 +32,9 @@ export async function GET(
               colors: {
                 select: {
                   id:        true,
+                  colorId:   true,
                   isPrimary: true,
                   color:     { select: { name: true, hex: true } },
-                  images:    { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
                 },
               },
             },
@@ -48,27 +48,44 @@ export async function GET(
     return NextResponse.json({ error: "Collection introuvable." }, { status: 404 });
   }
 
+  // Fetch images for products in collection
+  const colProductIds = collection.products.map((cp) => cp.product.id);
+  const colColorImages = colProductIds.length > 0
+    ? await prisma.productColorImage.findMany({ where: { productId: { in: colProductIds } }, orderBy: { order: "asc" } })
+    : [];
+  const colImageMap = new Map<string, Map<string, string>>();
+  for (const img of colColorImages) {
+    if (!colImageMap.has(img.productId)) colImageMap.set(img.productId, new Map());
+    const cm = colImageMap.get(img.productId)!;
+    if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
+  }
+
   // Reshape for the client
   const shaped = {
     id:    collection.id,
     name:  collection.name,
     image: collection.image,
-    products: collection.products.map((cp) => ({
-      productId: cp.productId,
-      colorId:   cp.colorId,
-      position:  cp.position,
-      product: {
-        id:        cp.product.id,
-        name:      cp.product.name,
-        reference: cp.product.reference,
-        colors:    cp.product.colors.map((pc) => ({
-          id:     pc.id,
-          name:   pc.color.name,
-          hex:    pc.color.hex,
-          images: pc.images,
-        })),
-      },
-    })),
+    products: collection.products.map((cp) => {
+      // Deduplicate colors by colorId
+      const colorMap = new Map<string, { id: string; name: string; hex: string | null; images: { path: string }[] }>();
+      for (const pc of cp.product.colors) {
+        if (!colorMap.has(pc.colorId)) {
+          const path = colImageMap.get(cp.product.id)?.get(pc.colorId);
+          colorMap.set(pc.colorId, { id: pc.colorId, name: pc.color.name, hex: pc.color.hex, images: path ? [{ path }] : [] });
+        }
+      }
+      return {
+        productId: cp.productId,
+        colorId:   cp.colorId,
+        position:  cp.position,
+        product: {
+          id:        cp.product.id,
+          name:      cp.product.name,
+          reference: cp.product.reference,
+          colors:    [...colorMap.values()],
+        },
+      };
+    }),
   };
 
   return NextResponse.json(shaped);

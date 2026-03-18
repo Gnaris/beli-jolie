@@ -9,7 +9,31 @@ import { NextRequest, NextResponse } from "next/server";
  * - /boutique/*   → réservé aux CLIENT et ADMIN approuvés
  * - /connexion    → redirige vers / si déjà connecté
  * - /inscription  → redirige vers / si déjà connecté
+ * - maintenance   → redirige toutes les routes vers /maintenance sauf admin/auth
  */
+
+// ── Cache maintenance status (module-level, resets every ~30s) ──────────────
+let maintenanceCache: { value: boolean; timestamp: number } | null = null;
+const CACHE_TTL_MS = 30_000;
+
+async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
+  const now = Date.now();
+  if (maintenanceCache && now - maintenanceCache.timestamp < CACHE_TTL_MS) {
+    return maintenanceCache.value;
+  }
+  try {
+    const res = await fetch(new URL("/api/site-status", requestUrl).toString(), {
+      cache: "no-store",
+    });
+    const data = (await res.json()) as { maintenance: boolean };
+    maintenanceCache = { value: !!data.maintenance, timestamp: now };
+    return maintenanceCache.value;
+  } catch {
+    // On failure don't block access
+    return false;
+  }
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -22,6 +46,26 @@ export async function middleware(request: NextRequest) {
   const isAuthenticated = !!token;
   const isAdmin = token?.role === "ADMIN";
   const previewMode = request.cookies.get("bj_admin_preview")?.value === "1";
+  const hasAccessCode = !!request.cookies.get("bj_access_code")?.value;
+
+  // ── Maintenance mode ────────────────────────────────────────────────
+  // Always bypass: /maintenance itself, /admin/*, /api/site-status, auth pages
+  const bypassMaintenance =
+    pathname === "/maintenance" ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/api/site-status") ||
+    pathname.startsWith("/connexion") ||
+    pathname.startsWith("/inscription") ||
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/access-code");
+
+  if (!bypassMaintenance) {
+    const inMaintenance = await getMaintenanceStatus(request.url);
+    if (inMaintenance && !isAdmin) {
+      return NextResponse.redirect(new URL("/maintenance", request.url));
+    }
+  }
 
   // ── Routes publiques uniquement si NON connecté ────────────────────
   if (pathname.startsWith("/connexion") || pathname.startsWith("/inscription")) {
@@ -71,15 +115,24 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── Routes produits + commandes (protégées) ──────────────────────────
-  if (pathname.startsWith("/produits") || pathname.startsWith("/commandes")) {
+  // ── Routes produits (accessible avec code d'accès invité) ────────────
+  if (pathname.startsWith("/produits")) {
+    if (!isAuthenticated && !hasAccessCode) {
+      const loginUrl = new URL("/connexion", request.url);
+      loginUrl.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    return NextResponse.next();
+  }
+
+  // ── Routes commandes (protégées, inscription obligatoire) ──────────
+  if (pathname.startsWith("/commandes")) {
     if (!isAuthenticated) {
       const loginUrl = new URL("/connexion", request.url);
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    // Un admin redirigé vers son panel sur /commandes, sauf en mode preview
-    if (pathname.startsWith("/commandes") && isAdmin && !previewMode) {
+    if (isAdmin && !previewMode) {
       return NextResponse.redirect(new URL("/admin", request.url));
     }
     return NextResponse.next();
@@ -90,12 +143,10 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/admin/:path*",
-    "/espace-pro/:path*",
-    "/produits/:path*",
-    "/commandes/:path*",
-    "/panier/:path*",
-    "/connexion",
-    "/inscription",
+    /*
+     * Match all request paths except static files and images.
+     * This allows the maintenance check to run on all pages.
+     */
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
   ],
 };

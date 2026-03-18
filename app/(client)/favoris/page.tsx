@@ -1,168 +1,280 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import FavoriteToggle from "@/components/client/FavoriteToggle";
-import { getTranslations } from "next-intl/server";
+import SearchFilters from "@/components/produits/SearchFilters";
+import ProductCard from "@/components/produits/ProductCard";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Mes favoris — Beli & Jolie",
   robots: { index: false, follow: false },
 };
 
-export default async function FavorisPage() {
+interface PageProps {
+  searchParams: Promise<{
+    q?: string; cat?: string; subcat?: string;
+    collection?: string; color?: string; tag?: string;
+    bestseller?: string; new?: string;
+    minPrice?: string; maxPrice?: string;
+    exactRef?: string;
+  }>;
+}
+
+const NEW_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
+
+export default async function FavorisPage({ searchParams }: PageProps) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/connexion?callbackUrl=/favoris");
 
-  const t = await getTranslations("favorites");
+  const [tFav, tProd] = await Promise.all([
+    getTranslations("favorites"),
+    getTranslations("products"),
+  ]);
 
-  const favorites = await prisma.favorite.findMany({
-    where: { userId: session.user.id },
-    include: {
-      product: {
-        select: {
-          id: true,
-          name: true,
-          reference: true,
-          category: { select: { name: true } },
-          colors: {
-            orderBy: { isPrimary: "desc" },
-            select: {
-              id: true,
-              unitPrice: true,
-              stock: true,
-              color: { select: { name: true, hex: true } },
-              images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
-              saleOptions: { select: { saleType: true, packQuantity: true }, take: 2 },
-            },
-            take: 1,
+  const {
+    q = "", cat = "", subcat = "",
+    collection = "", color: colorId = "", tag: tagId = "",
+    bestseller, new: isNewParam,
+    minPrice: minPriceParam, maxPrice: maxPriceParam,
+    exactRef: exactRefParam,
+  } = await searchParams;
+
+  const bestseller_ = bestseller === "1";
+  const isNew_      = isNewParam === "1";
+  const minPrice    = minPriceParam ? parseFloat(minPriceParam) : null;
+  const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
+  const exactRef    = exactRefParam === "1";
+
+  // Build the product filter (mirrors /produits logic)
+  const productWhere: Record<string, unknown> = {
+    ...(q && exactRef
+      ? { reference: { equals: q.toUpperCase() } }
+      : q
+        ? {
+            OR: [
+              { name:      { contains: q } },
+              { reference: { contains: q } },
+              { tags: { some: { tag: { name: { contains: q.toLowerCase() } } } } },
+            ],
+          }
+        : {}),
+    ...(cat        && { categoryId: cat }),
+    ...(subcat     && { subCategories: { some: { id: subcat } } }),
+    ...(collection && { collections: { some: { collectionId: collection } } }),
+    ...(colorId    && { colors: { some: { colorId } } }),
+    ...(tagId      && { tags: { some: { tagId } } }),
+    ...(bestseller_ && { isBestSeller: true }),
+    ...(isNew_      && { createdAt: { gte: new Date(Date.now() - NEW_THRESHOLD_MS) } }),
+    ...((minPrice !== null || maxPrice !== null) && {
+      colors: {
+        some: {
+          unitPrice: {
+            ...(minPrice !== null && { gte: minPrice }),
+            ...(maxPrice !== null && { lte: maxPrice }),
           },
         },
       },
-    },
-    orderBy: { createdAt: "desc" },
+    }),
+  };
+
+  const [rawFavorites, totalCount, categories, collections, colors, tags] = await Promise.all([
+    prisma.favorite.findMany({
+      where: { userId: session.user.id, product: productWhere },
+      include: {
+        product: {
+          include: {
+            category:      { select: { name: true } },
+            subCategories: { select: { name: true }, take: 1 },
+            tags:          { include: { tag: { select: { id: true, name: true } } } },
+            colors: {
+              orderBy: { isPrimary: "desc" },
+              select: {
+                id:           true,
+                colorId:      true,
+                unitPrice:    true,
+                stock:        true,
+                isPrimary:    true,
+                saleType:     true,
+                packQuantity: true,
+                size:         true,
+                color:        { select: { name: true, hex: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.favorite.count({ where: { userId: session.user.id, product: productWhere } }),
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      include: { subCategories: { orderBy: { name: "asc" } } },
+    }),
+    prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.color.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, hex: true } }),
+    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
+
+  // Fetch first images per (productId, colorId)
+  const favProductIds = rawFavorites.map((f) => f.product.id);
+  const favColorImages = favProductIds.length > 0
+    ? await prisma.productColorImage.findMany({ where: { productId: { in: favProductIds } }, orderBy: { order: "asc" } })
+    : [];
+  const favImageMap = new Map<string, Map<string, string>>();
+  for (const img of favColorImages) {
+    if (!favImageMap.has(img.productId)) favImageMap.set(img.productId, new Map());
+    const cm = favImageMap.get(img.productId)!;
+    if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
+  }
+
+  // Group variants by colorId
+  const favorites = rawFavorites.map((fav) => {
+    const p = fav.product;
+    const colorMap = new Map<string, {
+      colorId: string; name: string; hex: string | null;
+      firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
+      variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null; unitPrice: number; stock: number }[];
+    }>();
+    for (const v of p.colors) {
+      if (!colorMap.has(v.colorId)) {
+        colorMap.set(v.colorId, {
+          colorId: v.colorId, name: v.color.name, hex: v.color.hex,
+          firstImage: favImageMap.get(p.id)?.get(v.colorId) ?? null,
+          unitPrice: v.unitPrice, isPrimary: v.isPrimary, totalStock: 0, variants: [],
+        });
+      }
+      const cd = colorMap.get(v.colorId)!;
+      cd.unitPrice = Math.min(cd.unitPrice, v.unitPrice);
+      cd.totalStock += v.stock ?? 0;
+      if (v.isPrimary) cd.isPrimary = true;
+      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, size: v.size ?? null, unitPrice: v.unitPrice, stock: v.stock ?? 0 });
+    }
+    return { ...fav, product: { ...p, colors: [...colorMap.values()] } };
   });
 
+  const now = Date.now();
+
   return (
-    <div className="p-6 md:p-8 max-w-5xl">
-      {/* En-tete */}
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A]">
-            {t("title")}
+    <>
+      {/* En-tête page */}
+      <div className="bg-bg-primary border-b border-border">
+        <div className="container-site py-6">
+          <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
+            {tFav("title")}
           </h1>
-          <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-0.5">
-            {favorites.length !== 1 ? t("count_plural", { count: favorites.length }) : t("count", { count: favorites.length })}
+          <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+            {totalCount !== 1 ? tFav("count_plural", { count: totalCount }) : tFav("count", { count: totalCount })}
           </p>
         </div>
-        {favorites.length > 0 && (
-          <Link href="/produits" className="inline-flex items-center px-4 py-2 border border-[#E5E5E5] rounded-lg text-xs font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors shrink-0">
-            {t("viewCatalogue")}
-          </Link>
-        )}
       </div>
 
-      {favorites.length === 0 ? (
-        <div className="bg-white border border-[#E5E5E5] rounded-xl p-12 text-center">
-          <svg className="w-12 h-12 text-[#E5E5E5] mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-          </svg>
-          <p className="font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] mb-1">
-            {t("empty")}
-          </p>
-          <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF] mb-6">
-            {t("emptyDesc")}
-          </p>
-          <Link href="/produits" className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1A1A1A] text-white text-sm font-[family-name:var(--font-roboto)] font-medium rounded-lg hover:bg-[#333] transition-colors">
-            {t("browseCatalogue")}
-          </Link>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {favorites.map((fav) => {
-            const product = fav.product;
-            const color = product.colors[0];
-            const img = color?.images[0]?.path;
-            const hasPack = color?.saleOptions.some((o) => o.saleType === "PACK");
-            const packQty = color?.saleOptions.find((o) => o.saleType === "PACK")?.packQuantity;
+      <div className="py-6 pl-3 pr-4 sm:pl-4 sm:pr-6 lg:pr-8">
+        <div className="flex gap-5">
+          {/* Sidebar filtres — desktop */}
+          <aside className="hidden lg:block w-60 shrink-0">
+            <Suspense>
+              <SearchFilters
+                basePath="/favoris"
+                categories={categories}
+                collections={collections}
+                colors={colors}
+                tags={tags}
+                totalCount={totalCount}
+              />
+            </Suspense>
+          </aside>
 
-            return (
-              <div
-                key={fav.id}
-                className="bg-white border border-[#E5E5E5] rounded-xl overflow-hidden group hover:shadow-[0_8px_32px_rgba(0,0,0,0.08)] transition-shadow"
-              >
-                {/* Image */}
-                <div className="relative aspect-square bg-[#EFEFEF]">
-                  {img ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={img}
-                      alt={product.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <svg className="w-10 h-10 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
-                      </svg>
-                    </div>
-                  )}
+          {/* Contenu principal */}
+          <div className="flex-1 min-w-0 space-y-5">
+            {/* Barre mobile : filtres + compteur */}
+            <div className="lg:hidden">
+              <Suspense>
+                <SearchFilters
+                  basePath="/favoris"
+                  categories={categories}
+                  collections={collections}
+                  colors={colors}
+                  tags={tags}
+                  totalCount={totalCount}
+                  mobileMode
+                />
+              </Suspense>
+            </div>
 
-                  {/* Badge stock */}
-                  {color && color.stock === 0 && (
-                    <span className="absolute top-2 left-2 bg-[#1A1A1A]/80 text-white text-[10px] font-[family-name:var(--font-roboto)] font-medium px-2 py-0.5 rounded-full">
-                      {t("outOfStock")}
-                    </span>
-                  )}
-
-                  {/* Bouton retirer favori */}
-                  <div className="absolute top-2 right-2">
-                    <FavoriteToggle productId={product.id} isFavorite={true} />
-                  </div>
-                </div>
-
-                {/* Infos */}
-                <div className="p-4">
-                  <p className="text-[11px] font-[family-name:var(--font-roboto)] text-[#9CA3AF] uppercase tracking-wider mb-1">
-                    {product.category.name} . {product.reference}
-                  </p>
-                  <Link
-                    href={`/produits/${product.id}`}
-                    className="font-[family-name:var(--font-roboto)] font-medium text-[#1A1A1A] text-sm hover:text-[#6B6B6B] transition-colors line-clamp-2"
-                  >
-                    {product.name}
-                  </Link>
-
-                  {color && (
-                    <div className="mt-3 flex items-end justify-between gap-2">
-                      <div>
-                        <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
-                          {color.unitPrice.toFixed(2)} {"\u20AC"} <span className="text-xs font-normal text-[#9CA3AF]">{t("perUnit")}</span>
-                        </p>
-                        {hasPack && packQty && (
-                          <p className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF]">
-                            {t("packOf", { qty: packQty })} — {(color.unitPrice * packQty).toFixed(2)} {"\u20AC"}
-                          </p>
-                        )}
-                      </div>
-
-                      <Link
-                        href={`/produits/${product.id}`}
-                        className="inline-flex items-center px-3 py-1.5 bg-[#1A1A1A] text-white text-xs font-[family-name:var(--font-roboto)] font-medium rounded-lg hover:bg-[#333] transition-colors shrink-0"
-                      >
-                        {t("viewProduct")}
-                      </Link>
-                    </div>
-                  )}
-                </div>
+            {/* Grille produits ou état vide */}
+            {favorites.length === 0 ? (
+              <div className="bg-white border border-[#E5E5E5] rounded-xl p-12 text-center">
+                <svg
+                  className="w-12 h-12 text-[#E5E5E5] mx-auto mb-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"
+                  />
+                </svg>
+                {totalCount === 0 && !q && !cat && !subcat && !collection && !colorId && !tagId && !bestseller_ && !isNew_ && minPrice === null && maxPrice === null ? (
+                  <>
+                    <p className="font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] mb-1">
+                      {tFav("empty")}
+                    </p>
+                    <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF] mb-6">
+                      {tFav("emptyDesc")}
+                    </p>
+                    <Link
+                      href="/produits"
+                      className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1A1A1A] text-white text-sm font-[family-name:var(--font-roboto)] font-medium rounded-lg hover:bg-[#333] transition-colors"
+                    >
+                      {tFav("browseCatalogue")}
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] mb-1">
+                      {tFav("noResults")}
+                    </p>
+                    <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF] mb-6">
+                      {tFav("noResultsDesc")}
+                    </p>
+                    <Link
+                      href="/favoris"
+                      className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1A1A1A] text-white text-sm font-[family-name:var(--font-roboto)] font-medium rounded-lg hover:bg-[#333] transition-colors"
+                    >
+                      {tProd("resetFilters")}
+                    </Link>
+                  </>
+                )}
               </div>
-            );
-          })}
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                {favorites.map(({ product }) => (
+                  <ProductCard
+                    key={product.id}
+                    id={product.id}
+                    name={product.name}
+                    reference={product.reference}
+                    category={product.category.name}
+                    subCategory={product.subCategories[0]?.name ?? null}
+                    colors={product.colors}
+                    tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
+                    isFavorite={true}
+                    isBestSeller={product.isBestSeller}
+                    isNew={product.createdAt.getTime() > now - NEW_THRESHOLD_MS}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      )}
-    </div>
+      </div>
+    </>
   );
 }

@@ -54,6 +54,9 @@
       "kbisRequired": "Die Kbis-Datei ist erforderlich.",
       "kbisInvalidFormat": "Ungültiges Format. Akzeptiert: PDF, JPG, PNG (max. 5 MB).",
       "kbisTooBig": "Datei überschreitet das Limit von 5 MB.",
+      "sectionMessage": "Ihre Nachricht",
+      "message": "Nachricht an unser Team",
+      "messagePlaceholder": "Stellen Sie Ihr Unternehmen, Ihre Bedürfnisse oder nützliche Informationen für die Prüfung Ihres Antrags vor...",
       "password": "Passwort",
       "passwordHint": "Min. 8 Zeichen, 1 Großbuchstabe, 1 Ziffer",
       "confirm": "Passwort bestätigen",
@@ -128,7 +131,9 @@
     "bestsellersMore": "Mehr anzeigen",
     "viewAll": "Alle Produkte anzeigen",
     "collections": "Unsere Kollektionen",
-    "collectionsDesc": "Entdecken Sie unsere Themenkollektionen"
+    "collectionsDesc": "Entdecken Sie unsere Themenkollektionen",
+    "deals": "Gute Angebote",
+    "dealsMore": "Alle Angebote ansehen"
   },
   "brand": {
     "steelTitle": "Edelstahl 304",
@@ -179,6 +184,10 @@
     "filterMax": "Max",
     "filterBestseller": "Bestseller",
     "filterNew": "Neuheiten",
+    "filterPromo": "Im Angebot",
+    "filterOrdered": "Bereits bestellt",
+    "filterNotOrdered": "Nie bestellt",
+    "hideOutOfStock": "Nicht vorrätige Produkte ausblenden",
     "resetFilters": "Filter zurücksetzen",
     "activeFilters": "Aktive Filter",
     "results": "Ergebnisse",
@@ -187,7 +196,16 @@
     "loadMore": "Mehr laden",
     "loading": "Wird geladen...",
     "breadcrumb": "Produkte",
-    "colors": "{count} Farben"
+    "colors": "{count} Farben",
+    "filterSearch": "Suche",
+    "filterSearchPlaceholder": "Name, Ref., Tag...",
+    "filterAllSubcategories": "Alle",
+    "filterAllTags": "Alle Stichworte",
+    "filterFeatured": "Empfohlen",
+    "filtersLabel": "Filter",
+    "productCount": "{count} Produkt",
+    "productCount_plural": "{count} Produkte",
+    "allProductsShown": "Alle Produkte angezeigt ({count})"
   },
   "product": {
     "ref": "Ref.",
@@ -228,7 +246,16 @@
     "height": "Höhe",
     "diameter": "Durchmesser",
     "circumference": "Umfang",
-    "preview": "Vorschau"
+    "preview": "Vorschau",
+    "badgeBestSeller": "Bestseller",
+    "badgeNew": "Neu",
+    "colorCount": "{count} Farben",
+    "add": "Hinzufügen",
+    "errorNoOption": "Verkaufsoption nicht verfügbar.",
+    "errorAddToCart": "Fehler, bitte erneut versuchen.",
+    "packAutoDistribution": "In Einheiten eingeben — automatische Paketverteilung",
+    "promo": "Aktion",
+    "htUnit": "netto / Stück"
   },
   "cart": {
     "title": "Mein Warenkorb",
@@ -447,7 +474,9 @@
     "from": "Ab",
     "packOf": "Paket x{qty}",
     "outOfStock": "Nicht verfügbar",
-    "perUnit": "/ Stück"
+    "perUnit": "/ Stück",
+    "noResults": "Keine Ergebnisse",
+    "noResultsDesc": "Keines Ihrer Favoriten entspricht den ausgewählten Filtern."
   },
   "cancelOrder": {
     "confirmTitle": "{orderNumber} stornieren?",

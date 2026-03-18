@@ -38,13 +38,13 @@ export default function BrandInfoSection() {
                 key={BRAND_KEYS[i]}
                 className={`flex flex-col items-center text-center gap-4 ${i < blocks.length - 1 ? "md:border-r md:border-border md:pr-8" : ""}`}
               >
-                <div className="w-12 h-12 rounded-xl bg-bg-secondary flex items-center justify-center text-text-secondary">
+                <div className="w-12 h-12 rounded-xl bg-bg-secondary flex items-center justify-center text-text-secondary animate-zoom-fade stagger-2">
                   {block.icon}
                 </div>
-                <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
+                <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary animate-slide-up">
                   {block.title}
                 </h3>
-                <p className="text-sm text-text-muted leading-relaxed font-[family-name:var(--font-roboto)]">
+                <p className="text-sm text-text-muted leading-relaxed font-[family-name:var(--font-roboto)] animate-slide-right stagger-4">
                   {block.description}
                 </p>
               </div>

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
@@ -11,32 +12,32 @@ import { removeFromCart, updateCartItem, clearCart } from "@/app/actions/client/
 // Types (miroir du retour de getCart())
 // ─────────────────────────────────────────────
 
-interface SaleOptionData {
+interface VariantData {
   id: string;
+  productId: string;
+  colorId: string;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   size: string | null;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
-  productColor: {
-    unitPrice: number;
-    weight: number;
-    stock: number;
-    color: { name: string; hex: string | null };
-    images: { path: string }[];
-    product: {
-      id: string;
-      name: string;
-      reference: string;
-      category: { name: string };
-    };
+  unitPrice: number;
+  weight: number;
+  stock: number;
+  color: { name: string; hex: string | null };
+  product: {
+    id: string;
+    name: string;
+    reference: string;
+    category: { name: string };
   };
 }
 
 interface CartItemData {
   id: string;
   quantity: number;
-  saleOption: SaleOptionData;
+  variant: VariantData;
+  variantImages: { path: string }[];
 }
 
 interface CartData {
@@ -53,12 +54,11 @@ interface Props {
 // Calcul prix
 // ─────────────────────────────────────────────
 
-function computeUnitPrice(opt: SaleOptionData): number {
-  const { unitPrice } = opt.productColor;
-  const base = opt.saleType === "UNIT" ? unitPrice : unitPrice * (opt.packQuantity ?? 1);
-  if (!opt.discountType || !opt.discountValue) return base;
-  if (opt.discountType === "PERCENT") return Math.max(0, base * (1 - opt.discountValue / 100));
-  return Math.max(0, base - opt.discountValue);
+function computeUnitPrice(v: VariantData): number {
+  const base = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
+  if (!v.discountType || !v.discountValue) return base;
+  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - v.discountValue / 100));
+  return Math.max(0, base - v.discountValue);
 }
 
 // ─────────────────────────────────────────────
@@ -78,12 +78,12 @@ function CartRow({
 }) {
   const t = useTranslations("cart");
   const { tp, tc } = useProductTranslation();
-  const opt = item.saleOption;
-  const product = opt.productColor.product;
-  const image = opt.productColor.images[0]?.path ?? null;
-  const unitPrice = computeUnitPrice(opt);
+  const v = item.variant;
+  const product = v.product;
+  const image = item.variantImages[0]?.path ?? null;
+  const unitPrice = computeUnitPrice(v);
   const lineTotal = unitPrice * item.quantity;
-  const packUnits = opt.saleType === "PACK" ? (opt.packQuantity ?? 1) * item.quantity : item.quantity;
+  const packUnits = v.saleType === "PACK" ? (v.packQuantity ?? 1) * item.quantity : item.quantity;
 
   return (
     <div className="flex gap-4 py-5 border-b border-border last:border-0">
@@ -91,8 +91,7 @@ function CartRow({
       <Link href={`/produits/${product.id}`} className="shrink-0">
         <div className="w-20 h-20 rounded-xl overflow-hidden bg-bg-tertiary border border-border">
           {image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={image} alt={tp(product.name)} className="w-full h-full object-cover" />
+            <Image src={image} alt={tp(product.name)} width={80} height={80} sizes="80px" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,21 +112,21 @@ function CartRow({
         <p className="text-xs font-mono text-text-muted">{product.reference}</p>
         <div className="flex flex-wrap gap-1.5 mt-1">
           <span className="text-xs bg-bg-tertiary text-text-secondary px-2 py-0.5 rounded-full border border-border"
-            style={{ borderLeftColor: opt.productColor.color.hex ?? undefined }}>
-            {tp(opt.productColor.color.name)}
+            style={{ borderLeftColor: v.color.hex ?? undefined }}>
+            {tp(v.color.name)}
           </span>
-          {opt.saleType === "PACK" && (
+          {v.saleType === "PACK" && (
             <span className="text-xs bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
-              {t("packLabel")} {opt.packQuantity}
+              {t("packLabel")} {v.packQuantity}
             </span>
           )}
-          {opt.size && (
+          {v.size && (
             <span className="text-xs bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
-              {t("sizeLabel")} {opt.size}
+              {t("sizeLabel")} {v.size}
             </span>
           )}
         </div>
-        {opt.saleType === "PACK" && (
+        {v.saleType === "PACK" && (
           <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
             {packUnits} {t("totalUnits")}
           </p>
@@ -140,7 +139,7 @@ function CartRow({
           {lineTotal.toFixed(2)} €
         </p>
         <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-          {unitPrice.toFixed(2)} € {opt.saleType === "UNIT" ? t("perUnit") : t("perPack")}
+          {unitPrice.toFixed(2)} € {v.saleType === "UNIT" ? t("perUnit") : t("perPack")}
         </p>
 
         {/* Quantité */}
@@ -203,16 +202,16 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
   // Grouper par catégorie
   const grouped: Record<string, CartItemData[]> = {};
   (cart?.items ?? []).forEach((item) => {
-    const cat = item.saleOption.productColor.product.category.name;
+    const cat = item.variant.product.category.name;
     if (!grouped[cat]) grouped[cat] = [];
     grouped[cat].push(item);
   });
 
   const allItems    = cart?.items ?? [];
-  const subtotal    = allItems.reduce((s, item) => s + computeUnitPrice(item.saleOption) * item.quantity, 0);
+  const subtotal    = allItems.reduce((s, item) => s + computeUnitPrice(item.variant) * item.quantity, 0);
   const totalUnits  = allItems.reduce((s, item) => {
-    const units = item.saleOption.saleType === "PACK"
-      ? (item.saleOption.packQuantity ?? 1) * item.quantity
+    const units = item.variant.saleType === "PACK"
+      ? (item.variant.packQuantity ?? 1) * item.quantity
       : item.quantity;
     return s + units;
   }, 0);

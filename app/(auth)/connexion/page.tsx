@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import LoginForm from "@/components/auth/LoginForm";
+import AccessCodeForm from "@/components/auth/AccessCodeForm";
 
 export const metadata: Metadata = {
   title: "Connexion — Espace Professionnel",
@@ -26,6 +27,16 @@ export default function ConnexionPage() {
           Mot de passe oublié ?
         </a>
       </p>
+
+      {/* Séparateur */}
+      <div className="flex items-center gap-3 my-6">
+        <div className="flex-1 border-t border-border" />
+        <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">ou</span>
+        <div className="flex-1 border-t border-border" />
+      </div>
+
+      {/* Code d'accès invité */}
+      <AccessCodeForm />
     </div>
   );
 }

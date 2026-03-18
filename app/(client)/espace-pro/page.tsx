@@ -96,8 +96,8 @@ export default async function DashboardPage() {
             reference: true,
             colors: {
               orderBy: { isPrimary: "desc" },
-              select: { unitPrice: true, images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 } },
-              take: 1,
+              select:  { colorId: true, unitPrice: true },
+              take:    1,
             },
           },
         },
@@ -112,6 +112,16 @@ export default async function DashboardPage() {
   ]);
 
   if (!user) redirect("/connexion");
+
+  // Fetch first image for favorited products
+  const favProductIds = favorites.map((f) => f.product.id);
+  const favFirstImages = favProductIds.length > 0
+    ? await prisma.productColorImage.findMany({ where: { productId: { in: favProductIds } }, orderBy: { order: "asc" } })
+    : [];
+  const favFirstImageMap = new Map<string, string>();
+  for (const img of favFirstImages) {
+    if (!favFirstImageMap.has(img.productId)) favFirstImageMap.set(img.productId, img.path);
+  }
 
   /* -- Stats -- */
   const totalOrders = orders.length;
@@ -411,7 +421,7 @@ export default async function DashboardPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-[#F0F0F0]">
                 {favorites.map((fav) => {
                   const primaryColor = fav.product.colors[0];
-                  const img = primaryColor?.images[0]?.path;
+                  const img = favFirstImageMap.get(fav.product.id);
                   return (
                     <Link
                       key={fav.id}

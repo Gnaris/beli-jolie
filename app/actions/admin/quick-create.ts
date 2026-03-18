@@ -21,18 +21,37 @@ function toSlug(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
+/** Build translation createMany data from a names map (skips the "fr" key — that's the canonical name) */
+function buildTranslations(names: Record<string, string>, idKey: string, idValue: string) {
+  return Object.entries(names)
+    .filter(([locale, val]) => locale !== "fr" && val.trim())
+    .map(([locale, val]) => ({
+      [idKey]: idValue,
+      locale,
+      name: val.trim(),
+    }));
+}
+
 export async function createColorQuick(
-  name: string,
+  names: Record<string, string>,
   hex: string | null
 ): Promise<{ id: string; name: string; hex: string | null }> {
   await requireAdmin();
-  const trimmedName = name.trim();
-  if (!trimmedName) throw new Error("Le nom est requis.");
+  const frName = names["fr"]?.trim();
+  if (!frName) throw new Error("Le nom en français est requis.");
 
   const color = await prisma.color.create({
-    data: { name: trimmedName, hex: hex || null },
+    data: { name: frName, hex: hex || null },
     select: { id: true, name: true, hex: true },
   });
+
+  const translationData = buildTranslations(names, "colorId", color.id);
+  if (translationData.length > 0) {
+    await prisma.colorTranslation.createMany({
+      data: translationData as { colorId: string; locale: string; name: string }[],
+      skipDuplicates: true,
+    });
+  }
 
   revalidatePath("/admin/couleurs");
   revalidatePath("/admin/produits/nouveau");
@@ -40,16 +59,24 @@ export async function createColorQuick(
 }
 
 export async function createCategoryQuick(
-  name: string
+  names: Record<string, string>
 ): Promise<{ id: string; name: string; subCategories: { id: string; name: string }[] }> {
   await requireAdmin();
-  const trimmedName = name.trim();
-  if (!trimmedName) throw new Error("Le nom est requis.");
+  const frName = names["fr"]?.trim();
+  if (!frName) throw new Error("Le nom en français est requis.");
 
   const category = await prisma.category.create({
-    data: { name: trimmedName, slug: toSlug(trimmedName) },
+    data: { name: frName, slug: toSlug(frName) },
     select: { id: true, name: true, subCategories: { select: { id: true, name: true } } },
   });
+
+  const translationData = buildTranslations(names, "categoryId", category.id);
+  if (translationData.length > 0) {
+    await prisma.categoryTranslation.createMany({
+      data: translationData as { categoryId: string; locale: string; name: string }[],
+      skipDuplicates: true,
+    });
+  }
 
   revalidatePath("/admin/categories");
   revalidatePath("/admin/produits");
@@ -57,36 +84,76 @@ export async function createCategoryQuick(
 }
 
 export async function createCompositionQuick(
-  name: string
+  names: Record<string, string>
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
-  const trimmedName = name.trim();
-  if (!trimmedName) throw new Error("Le nom est requis.");
+  const frName = names["fr"]?.trim();
+  if (!frName) throw new Error("Le nom en français est requis.");
 
   const composition = await prisma.composition.create({
-    data: { name: trimmedName },
+    data: { name: frName },
     select: { id: true, name: true },
   });
+
+  const translationData = buildTranslations(names, "compositionId", composition.id);
+  if (translationData.length > 0) {
+    await prisma.compositionTranslation.createMany({
+      data: translationData as { compositionId: string; locale: string; name: string }[],
+      skipDuplicates: true,
+    });
+  }
 
   revalidatePath("/admin/compositions");
   return composition;
 }
 
 export async function createSubCategoryQuick(
-  name: string,
+  names: Record<string, string>,
   categoryId: string
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
-  const trimmedName = name.trim();
-  if (!trimmedName) throw new Error("Le nom est requis.");
+  const frName = names["fr"]?.trim();
+  if (!frName) throw new Error("Le nom en français est requis.");
   if (!categoryId) throw new Error("Catégorie parente requise.");
 
   const subCategory = await prisma.subCategory.create({
-    data: { name: trimmedName, slug: toSlug(trimmedName), categoryId },
+    data: { name: frName, slug: toSlug(frName), categoryId },
     select: { id: true, name: true },
   });
+
+  const translationData = buildTranslations(names, "subCategoryId", subCategory.id);
+  if (translationData.length > 0) {
+    await prisma.subCategoryTranslation.createMany({
+      data: translationData as { subCategoryId: string; locale: string; name: string }[],
+      skipDuplicates: true,
+    });
+  }
 
   revalidatePath("/admin/categories");
   revalidatePath("/admin/produits");
   return subCategory;
+}
+
+export async function createTagQuick(
+  names: Record<string, string>
+): Promise<{ id: string; name: string }> {
+  await requireAdmin();
+  const frName = names["fr"]?.trim();
+  if (!frName) throw new Error("Le nom en français est requis.");
+
+  const tag = await prisma.tag.create({
+    data: { name: frName },
+    select: { id: true, name: true },
+  });
+
+  const translationData = buildTranslations(names, "tagId", tag.id);
+  if (translationData.length > 0) {
+    await prisma.tagTranslation.createMany({
+      data: translationData as { tagId: string; locale: string; name: string }[],
+      skipDuplicates: true,
+    });
+  }
+
+  revalidatePath("/admin/produits");
+  return tag;
 }

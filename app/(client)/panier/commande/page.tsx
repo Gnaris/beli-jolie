@@ -22,13 +22,16 @@ export default async function CommandePage() {
     prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
-        firstName: true,
-        lastName:  true,
-        company:   true,
-        email:     true,
-        phone:     true,
-        siret:     true,
-        vatNumber: true,
+        firstName:     true,
+        lastName:      true,
+        company:       true,
+        email:         true,
+        phone:         true,
+        siret:         true,
+        vatNumber:     true,
+        discountType:  true,
+        discountValue: true,
+        freeShipping:  true,
       },
     }),
     prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
@@ -40,15 +43,13 @@ export default async function CommandePage() {
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
   if (minOrderHT > 0) {
     const subtotalHT = cart.items.reduce((sum, item) => {
-      const { unitPrice } = item.saleOption.productColor;
-      const base = item.saleOption.saleType === "UNIT"
-        ? unitPrice
-        : unitPrice * (item.saleOption.packQuantity ?? 1);
+      const v = item.variant;
+      const base = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
       let price = base;
-      if (item.saleOption.discountType && item.saleOption.discountValue) {
-        price = item.saleOption.discountType === "PERCENT"
-          ? Math.max(0, base * (1 - item.saleOption.discountValue / 100))
-          : Math.max(0, base - item.saleOption.discountValue);
+      if (v.discountType && v.discountValue) {
+        price = v.discountType === "PERCENT"
+          ? Math.max(0, base * (1 - v.discountValue / 100))
+          : Math.max(0, base - v.discountValue);
       }
       return sum + price * item.quantity;
     }, 0);
@@ -60,6 +61,11 @@ export default async function CommandePage() {
       cart={cart as Parameters<typeof CheckoutClient>[0]["cart"]}
       addresses={addresses}
       user={user!}
+      clientDiscount={{
+        discountType:  user!.discountType ?? null,
+        discountValue: user!.discountValue ?? null,
+        freeShipping:  user!.freeShipping,
+      }}
     />
   );
 }

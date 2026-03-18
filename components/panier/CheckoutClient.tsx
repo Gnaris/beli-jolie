@@ -18,26 +18,26 @@ const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
 // Types
 // ─────────────────────────────────────────────
 
-interface SaleOptionData {
+interface VariantData {
   id: string;
+  productId: string;
+  colorId: string;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   size: string | null;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
-  productColor: {
-    unitPrice: number;
-    weight: number;
-    color: { name: string };
-    images: { path: string }[];
-    product: { id: string; name: string; reference: string; category: { name: string } };
-  };
+  unitPrice: number;
+  weight: number;
+  color: { name: string };
+  product: { id: string; name: string; reference: string; category: { name: string } };
 }
 
 interface CartItemData {
   id: string;
   quantity: number;
-  saleOption: SaleOptionData;
+  variant: VariantData;
+  variantImages: { path: string }[];
 }
 
 interface CartData {
@@ -68,6 +68,12 @@ interface UserInfo {
   phone: string;
   siret: string;
   vatNumber: string | null;
+}
+
+interface ClientDiscount {
+  discountType:  "PERCENT" | "AMOUNT" | null;
+  discountValue: number | null;
+  freeShipping:  boolean;
 }
 
 interface Carrier {
@@ -127,12 +133,11 @@ function getTvaLabel(rate: number, address: Address | null, vatNumber: string | 
 // Calcul prix
 // ─────────────────────────────────────────────
 
-function computeUnitPrice(opt: SaleOptionData): number {
-  const { unitPrice } = opt.productColor;
-  const base = opt.saleType === "UNIT" ? unitPrice : unitPrice * (opt.packQuantity ?? 1);
-  if (!opt.discountType || !opt.discountValue) return base;
-  if (opt.discountType === "PERCENT") return Math.max(0, base * (1 - opt.discountValue / 100));
-  return Math.max(0, base - opt.discountValue);
+function computeUnitPrice(v: VariantData): number {
+  const base = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
+  if (!v.discountType || !v.discountValue) return base;
+  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - v.discountValue / 100));
+  return Math.max(0, base - v.discountValue);
 }
 
 // ─────────────────────────────────────────────
@@ -402,10 +407,12 @@ export default function CheckoutClient({
   cart,
   addresses: initialAddresses,
   user,
+  clientDiscount,
 }: {
   cart: CartData;
   addresses: Address[];
   user: UserInfo;
+  clientDiscount?: ClientDiscount;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -456,18 +463,28 @@ export default function CheckoutClient({
 
   // Totaux
   const subtotalHT = cart.items.reduce(
-    (s, item) => s + computeUnitPrice(item.saleOption) * item.quantity, 0
+    (s, item) => s + computeUnitPrice(item.variant) * item.quantity, 0
   );
-  const shippingCost = selectedCarrier?.price ?? 0;
-  const tvaAmount    = subtotalHT * tvaRate;
-  const totalTTC     = subtotalHT + tvaAmount + shippingCost;
+
+  // Remise commerciale client
+  const clientDiscountAmt = (() => {
+    if (!clientDiscount?.discountType || !clientDiscount.discountValue) return 0;
+    if (clientDiscount.discountType === "PERCENT")
+      return Math.min(subtotalHT, subtotalHT * (clientDiscount.discountValue / 100));
+    return Math.min(subtotalHT, clientDiscount.discountValue);
+  })();
+  const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
+
+  const effectiveCarrierPrice = clientDiscount?.freeShipping ? 0 : (selectedCarrier?.price ?? 0);
+  const tvaAmount = subtotalAfterDiscount * tvaRate;
+  const totalTTC  = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
 
   // Poids total (pour Easy-Express)
   const totalWeightKg = cart.items.reduce((s, item) => {
-    const units = item.saleOption.saleType === "PACK"
-      ? (item.saleOption.packQuantity ?? 1) * item.quantity
+    const units = item.variant.saleType === "PACK"
+      ? (item.variant.packQuantity ?? 1) * item.quantity
       : item.quantity;
-    return s + item.saleOption.productColor.weight * units;
+    return s + item.variant.weight * units;
   }, 0);
 
   // Charger les transporteurs quand l'adresse change
@@ -564,7 +581,7 @@ export default function CheckoutClient({
           addressId:    selectedAddr!.id,
           carrierId:    selectedCarrier!.id,
           carrierName:  selectedCarrier!.name,
-          carrierPrice: selectedCarrier!.price,
+          carrierPrice: effectiveCarrierPrice,
           tvaRate,
         }),
       });
@@ -598,7 +615,7 @@ export default function CheckoutClient({
         carrierId:             selectedCarrier!.id,
         transactionId,
         carrierName:           selectedCarrier!.name,
-        carrierPrice:          selectedCarrier!.price,
+        carrierPrice:          effectiveCarrierPrice,
         tvaRate,
         stripePaymentIntentId: piId,
       });
@@ -620,7 +637,7 @@ export default function CheckoutClient({
           carrierId:             selectedCarrier!.id,
           transactionId,
           carrierName:           selectedCarrier!.name,
-          carrierPrice:          selectedCarrier!.price,
+          carrierPrice:          effectiveCarrierPrice,
           tvaRate,
           stripePaymentIntentId: piId,
         });
@@ -900,25 +917,25 @@ export default function CheckoutClient({
             {/* Articles */}
             <div className="px-5 py-4 space-y-2 border-b border-border">
               {cart.items.map((item) => {
-                const price     = computeUnitPrice(item.saleOption);
+                const price     = computeUnitPrice(item.variant);
                 const lineTotal = price * item.quantity;
                 return (
                   <div key={item.id} className="flex items-start gap-2 text-xs font-[family-name:var(--font-roboto)]">
                     <div className="w-8 h-8 rounded-lg overflow-hidden bg-bg-secondary shrink-0">
-                      {item.saleOption.productColor.images[0]?.path ? (
+                      {item.variantImages[0]?.path ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={item.saleOption.productColor.images[0].path}
-                          alt={item.saleOption.productColor.product.name}
+                        <img src={item.variantImages[0]!.path}
+                          alt={item.variant.product.name}
                           className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full bg-bg-secondary" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-text-primary font-medium line-clamp-1">{item.saleOption.productColor.product.name}</p>
+                      <p className="text-text-primary font-medium line-clamp-1">{item.variant.product.name}</p>
                       <p className="text-text-muted">
-                        {item.saleOption.productColor.color.name}
-                        {item.saleOption.saleType === "PACK" ? ` · ×${item.saleOption.packQuantity}` : ""}
+                        {item.variant.color.name}
+                        {item.variant.saleType === "PACK" ? ` · ×${item.variant.packQuantity}` : ""}
                         {" "}× {item.quantity}
                       </p>
                     </div>
@@ -934,6 +951,29 @@ export default function CheckoutClient({
                 <span>Sous-total HT</span>
                 <span className="font-medium text-text-primary">{subtotalHT.toFixed(2)} €</span>
               </div>
+
+              {/* Remise commerciale */}
+              {clientDiscountAmt > 0 && (
+                <div className="flex justify-between text-[#16A34A]">
+                  <span className="flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M17 17h.01M7 17h.01M17 7h.01M3 12h18M12 3v18" />
+                    </svg>
+                    Remise{clientDiscount?.discountType === "PERCENT" && clientDiscount.discountValue
+                      ? ` (${clientDiscount.discountValue}%)`
+                      : ""}
+                  </span>
+                  <span className="font-medium">-{clientDiscountAmt.toFixed(2)} €</span>
+                </div>
+              )}
+
+              {clientDiscountAmt > 0 && (
+                <div className="flex justify-between text-text-secondary">
+                  <span>Sous-total après remise</span>
+                  <span className="font-medium text-text-primary">{subtotalAfterDiscount.toFixed(2)} €</span>
+                </div>
+              )}
+
               <div className="flex justify-between text-text-secondary">
                 <span>TVA <span className="text-xs text-text-muted">({tvaLabel})</span></span>
                 <span className="font-medium text-text-primary">
@@ -942,9 +982,11 @@ export default function CheckoutClient({
               </div>
               <div className="flex justify-between text-text-secondary">
                 <span>Livraison</span>
-                <span className="font-medium text-text-primary">
+                <span className={`font-medium ${clientDiscount?.freeShipping && selectedCarrier ? "text-[#16A34A]" : "text-text-primary"}`}>
                   {selectedCarrier
-                    ? selectedCarrier.price === 0 ? "Gratuit" : `${selectedCarrier.price.toFixed(2)} €`
+                    ? (clientDiscount?.freeShipping
+                        ? "Offerte"
+                        : selectedCarrier.price === 0 ? "Gratuit" : `${selectedCarrier.price.toFixed(2)} €`)
                     : "—"}
                 </span>
               </div>

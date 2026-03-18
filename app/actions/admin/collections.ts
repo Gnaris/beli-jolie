@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 
 async function requireAdmin() {
@@ -58,6 +58,7 @@ export async function createCollection(formData: FormData) {
   });
 
   revalidatePath("/admin/collections");
+  revalidateTag("collections", "default");
   revalidatePath("/collections");
   return { success: true, id: collection.id };
 }
@@ -87,6 +88,7 @@ export async function updateCollection(id: string, formData: FormData) {
   });
 
   revalidatePath("/admin/collections");
+  revalidateTag("collections", "default");
   revalidatePath(`/admin/collections/${id}/modifier`);
   revalidatePath("/collections");
   revalidatePath(`/collections/${id}`);
@@ -102,6 +104,7 @@ export async function deleteCollection(id: string) {
   await prisma.collection.delete({ where: { id } });
 
   revalidatePath("/admin/collections");
+  revalidateTag("collections", "default");
   revalidatePath("/collections");
   return { success: true };
 }

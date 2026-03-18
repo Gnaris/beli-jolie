@@ -1,28 +1,40 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import FavoriteToggle from "@/components/client/FavoriteToggle";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
+import { useTranslations } from "next-intl";
 import { addToCart } from "@/app/actions/client/cart";
 
-interface SaleOptionData {
+interface VariantData {
   id: string;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   size: string | null;
+  unitPrice: number;
+  stock: number;
+  discountType?: "PERCENT" | "AMOUNT" | null;
+  discountValue?: number | null;
 }
 
 interface ColorData {
-  id: string;
+  colorId: string;
   hex: string | null;
   name: string;
   firstImage: string | null;
   unitPrice: number;
   isPrimary: boolean;
-  saleOptions: SaleOptionData[];
+  totalStock: number;
+  variants: VariantData[];
+}
+
+export interface ClientDiscountInfo {
+  discountType: "PERCENT" | "AMOUNT";
+  discountValue: number;
 }
 
 interface ProductCardProps {
@@ -36,42 +48,108 @@ interface ProductCardProps {
   isFavorite?: boolean;
   isBestSeller?: boolean;
   isNew?: boolean;
+  clientDiscount?: ClientDiscountInfo | null;
+  filteredColorIds?: string[];
+}
+
+function computeVariantPrice(v: VariantData): number {
+  const base = v.unitPrice;
+  if (!v.discountType || !v.discountValue) return base;
+  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - v.discountValue / 100));
+  return Math.max(0, base - v.discountValue);
+}
+
+function applyClientDiscount(price: number, discount: ClientDiscountInfo | null | undefined): number {
+  if (!discount) return price;
+  if (discount.discountType === "PERCENT") return Math.max(0, price * (1 - discount.discountValue / 100));
+  return Math.max(0, price - discount.discountValue);
 }
 
 export default function ProductCard({
-  id, name, reference, category, subCategory, colors, tags = [], isFavorite = false, isBestSeller = false, isNew = false,
+  id, name, reference, category, subCategory, colors, tags = [], isFavorite = false, isBestSeller = false, isNew = false, clientDiscount, filteredColorIds = [],
 }: ProductCardProps) {
   const { data: session } = useSession();
   const router = useRouter();
   const { tp, tc } = useProductTranslation();
+  const t = useTranslations("product");
   const [isPending, startTransition] = useTransition();
 
+  // If color filters are active, auto-select the first matching color
   const primaryColor = colors.find((c) => c.isPrimary) ?? colors[0];
-  const [selectedColor, setSelectedColor] = useState<ColorData>(primaryColor ?? colors[0]);
+  const filteredMatch = filteredColorIds.length > 0
+    ? colors.find((c) => filteredColorIds.includes(c.colorId))
+    : null;
+  const initialColor = filteredMatch ?? primaryColor ?? colors[0];
+  const [selectedColor, setSelectedColor] = useState<ColorData>(initialColor);
   const [quantity, setQuantity] = useState(1);
   const [addedMsg, setAddedMsg] = useState("");
   const [addError, setAddError] = useState("");
+  const [showSparkles, setShowSparkles] = useState(false);
 
-  const displayed   = selectedColor ?? primaryColor;
-  const image       = displayed?.firstImage;
-  const displayPrice = displayed?.unitPrice ?? Math.min(...colors.map((c) => c.unitPrice));
+  // Re-sync selected color when filtered color IDs change
+  const filteredKey = filteredColorIds.join(",");
+  const prevFilteredKey = useRef(filteredKey);
+  if (prevFilteredKey.current !== filteredKey) {
+    prevFilteredKey.current = filteredKey;
+    if (filteredColorIds.length > 0) {
+      const match = colors.find((c) => filteredColorIds.includes(c.colorId));
+      if (match) setSelectedColor(match);
+    }
+  }
 
-  // Detect sizes for selected color's UNIT options
-  const unitOptions = displayed?.saleOptions.filter((o) => o.saleType === "UNIT") ?? [];
-  // All pack options sorted by packQuantity descending (largest first for greedy algorithm)
-  const packOptions = (displayed?.saleOptions.filter((o) => o.saleType === "PACK") ?? [])
+  useEffect(() => {
+    if (addedMsg) {
+      setShowSparkles(true);
+      const t = setTimeout(() => setShowSparkles(false), 800);
+      return () => clearTimeout(t);
+    }
+  }, [addedMsg]);
+
+  const displayed = selectedColor ?? primaryColor;
+  const image = displayed?.firstImage;
+
+  // Compute prices with product discount
+  const basePrice = displayed?.unitPrice ?? Math.min(...colors.map((c) => c.unitPrice));
+  const minVariantPrice = displayed?.variants?.length
+    ? Math.min(...displayed.variants.map((v) => computeVariantPrice(v)))
+    : basePrice;
+  const hasProductDiscount = minVariantPrice < basePrice;
+
+  // Apply client discount on top
+  const priceAfterProductDiscount = minVariantPrice;
+  const finalPrice = applyClientDiscount(priceAfterProductDiscount, clientDiscount);
+  const hasClientDiscount = !!clientDiscount && finalPrice < priceAfterProductDiscount;
+
+  // Display logic
+  const showStrikethrough = hasProductDiscount || hasClientDiscount;
+  const strikethroughPrice = hasClientDiscount ? priceAfterProductDiscount : basePrice;
+  const displayedFinalPrice = hasClientDiscount ? finalPrice : priceAfterProductDiscount;
+
+  // Check if any variant in this product has a discount
+  const anyVariantHasDiscount = colors.some((c) =>
+    c.variants.some((v) => v.discountType && v.discountValue && v.discountValue > 0)
+  );
+
+  // Detect sizes for selected color's UNIT variants
+  const unitOptions = displayed?.variants.filter((v) => v.saleType === "UNIT") ?? [];
+  const packOptions = (displayed?.variants.filter((v) => v.saleType === "PACK") ?? [])
     .sort((a, b) => (b.packQuantity ?? 0) - (a.packQuantity ?? 0));
-  const hasSizes    = unitOptions.some((o) => o.size);
-  const uniqueSizes = [...new Set(unitOptions.filter((o) => o.size).map((o) => o.size!))];
+  const hasSizes = unitOptions.some((v) => v.size);
+  const uniqueSizes = [...new Set(unitOptions.filter((v) => v.size).map((v) => v.size!))];
 
   const [selectedSize, setSelectedSize] = useState<string>(uniqueSizes[0] ?? "");
+
+  // Stock check: is selected color entirely out of stock?
+  const selectedColorOutOfStock = (displayed?.totalStock ?? 0) <= 0;
+  // All colors out of stock?
+  const allOutOfStock = colors.every((c) => (c.totalStock ?? 0) <= 0);
 
   function handleColorSelect(c: ColorData) {
     setSelectedColor(c);
     setAddedMsg("");
     setAddError("");
-    const newUnitOpts = c.saleOptions.filter((o) => o.saleType === "UNIT");
-    const newSizes = [...new Set(newUnitOpts.filter((o) => o.size).map((o) => o.size!))];
+    const newUnitOpts = c.variants.filter((v) => v.saleType === "UNIT");
+    const newSizes = [...new Set(newUnitOpts.filter((v) => v.size).map((v) => v.size!))];
     setSelectedSize(newSizes[0] ?? "");
   }
 
@@ -81,14 +159,18 @@ export default function ProductCard({
       return;
     }
 
-    const qty = Math.max(1, quantity);
-    const opts = displayed?.saleOptions ?? [];
+    if (selectedColorOutOfStock) {
+      setAddError(t("outOfStock"));
+      return;
+    }
 
-    // Find UNIT option (matching size if applicable)
+    const qty = Math.max(1, quantity);
+    const opts = displayed?.variants ?? [];
+
     const unitOpt = hasSizes && selectedSize
-      ? opts.find((o) => o.saleType === "UNIT" && o.size === selectedSize)
-      : opts.find((o) => o.saleType === "UNIT");
-    const sortedPacks = (opts.filter((o) => o.saleType === "PACK"))
+      ? opts.find((v) => v.saleType === "UNIT" && v.size === selectedSize)
+      : opts.find((v) => v.saleType === "UNIT");
+    const sortedPacks = (opts.filter((v) => v.saleType === "PACK"))
       .sort((a, b) => (b.packQuantity ?? 0) - (a.packQuantity ?? 0));
 
     setAddedMsg("");
@@ -97,7 +179,6 @@ export default function ProductCard({
     startTransition(async () => {
       try {
         if (sortedPacks.length > 0) {
-          // Greedy split: largest pack first, then smaller packs, then units
           let remaining = qty;
           for (const pack of sortedPacks) {
             if (!pack.packQuantity) continue;
@@ -111,7 +192,6 @@ export default function ProductCard({
             if (unitOpt) {
               await addToCart(unitOpt.id, remaining);
             } else {
-              // No unit option: round up with smallest pack
               const smallestPack = sortedPacks[sortedPacks.length - 1];
               await addToCart(smallestPack.id, 1);
             }
@@ -119,28 +199,34 @@ export default function ProductCard({
         } else if (unitOpt) {
           await addToCart(unitOpt.id, qty);
         } else {
-          setAddError("Option de vente indisponible.");
+          setAddError(t("errorNoOption"));
           return;
         }
-        setAddedMsg("Ajoute !");
+        setAddedMsg(t("added"));
         setTimeout(() => setAddedMsg(""), 2500);
       } catch {
-        setAddError("Erreur, veuillez reessayer.");
+        setAddError(t("errorAddToCart"));
       }
     });
   }
 
+  // Count badges on the left to position ref badge
+  const badgeCount = (allOutOfStock ? 1 : 0) + (isBestSeller ? 1 : 0) + (isNew ? 1 : 0) + (anyVariantHasDiscount ? 1 : 0);
+
   return (
-    <article className="group card card-hover overflow-hidden flex flex-col">
+    <article className="group card card-hover overflow-hidden flex flex-col animate-zoom-fade">
       {/* Image */}
       <Link href={`/produits/${id}`} className="block">
         <div className="bg-bg-tertiary relative overflow-hidden">
           {image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <Image
               src={image}
               alt={tp(name)}
+              width={400}
+              height={400}
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
               className="w-full h-auto block transition-transform duration-300 group-hover:scale-[1.04]"
+              loading="lazy"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
@@ -151,22 +237,42 @@ export default function ProductCard({
             </div>
           )}
 
+          {/* Badge Rupture */}
+          {allOutOfStock && (
+            <span className="absolute top-2 left-2 z-10 bg-[#6B6B6B] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide">
+              {t("outOfStock")}
+            </span>
+          )}
+
           {/* Badge Best-Seller */}
           {isBestSeller && (
-            <span className="absolute top-2 left-2 z-10 bg-[#F59E0B] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide">
-              Best-Seller
+            <span className={`absolute ${allOutOfStock ? "top-10" : "top-2"} left-2 z-10 bg-[#F59E0B] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide`}>
+              {t("badgeBestSeller")}
             </span>
           )}
 
           {/* Badge Nouveauté */}
-          {isNew && (
-            <span className={`absolute ${isBestSeller ? "top-10" : "top-2"} left-2 z-10 bg-[#3B82F6] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide`}>
-              Nouveauté
-            </span>
-          )}
+          {isNew && (() => {
+            const prevBadges = (allOutOfStock ? 1 : 0) + (isBestSeller ? 1 : 0);
+            return (
+              <span className={`absolute ${prevBadges >= 2 ? "top-[4.5rem]" : prevBadges === 1 ? "top-10" : "top-2"} left-2 z-10 bg-[#3B82F6] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide`}>
+                {t("badgeNew")}
+              </span>
+            );
+          })()}
+
+          {/* Badge Promo */}
+          {anyVariantHasDiscount && (() => {
+            const prevBadges = (allOutOfStock ? 1 : 0) + (isBestSeller ? 1 : 0) + (isNew ? 1 : 0);
+            return (
+              <span className={`absolute ${prevBadges >= 3 ? "top-[6.5rem]" : prevBadges === 2 ? "top-[4.5rem]" : prevBadges === 1 ? "top-10" : "top-2"} left-2 z-10 bg-[#EF4444] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide`}>
+                {t("promo")}
+              </span>
+            );
+          })()}
 
           {/* Badge reference */}
-          <span className={`absolute ${isBestSeller && isNew ? "top-[4.5rem]" : (isBestSeller || isNew) ? "top-10" : "top-2"} left-2 bg-bg-primary text-text-muted text-[9px] font-mono px-1.5 py-0.5 rounded-full border border-border`}>
+          <span className={`absolute ${badgeCount >= 3 ? "top-[6.5rem]" : badgeCount === 2 ? "top-[4.5rem]" : badgeCount === 1 ? "top-10" : "top-2"} left-2 bg-bg-primary text-text-muted text-[9px] font-mono px-1.5 py-0.5 rounded-full border border-border`}>
             {reference}
           </span>
 
@@ -174,10 +280,21 @@ export default function ProductCard({
           <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
             {colors.length > 1 && (
               <span className="bg-bg-primary text-text-muted text-[9px] font-[family-name:var(--font-roboto)] px-1.5 py-0.5 rounded-full border border-border">
-                {colors.length} coloris
+                {t("colorCount", { count: colors.length })}
               </span>
             )}
             <FavoriteToggle productId={id} isFavorite={isFavorite} />
+          </div>
+
+          {/* Shimmer overlay on hover */}
+          <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500" aria-hidden="true">
+            <div
+              className="absolute inset-0"
+              style={{
+                background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%)",
+                animation: "shimmer 1.5s ease-in-out",
+              }}
+            />
           </div>
         </div>
       </Link>
@@ -190,14 +307,16 @@ export default function ProductCard({
             <div className="flex items-center gap-1.5 flex-wrap">
               {colors.map((c) => (
                 <button
-                  key={c.id}
+                  key={c.colorId}
                   type="button"
                   title={tp(c.name)}
                   onClick={() => handleColorSelect(c)}
                   className={`w-[18px] h-[18px] rounded-full border-2 transition-all duration-100 ${
-                    selectedColor?.id === c.id
+                    selectedColor?.colorId === c.colorId
                       ? "border-text-primary scale-110"
-                      : "border-border hover:border-border-dark"
+                      : filteredColorIds.includes(c.colorId)
+                        ? "border-text-primary/50 ring-1 ring-black/10"
+                        : "border-border hover:border-border-dark"
                   }`}
                   style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
                 />
@@ -239,11 +358,21 @@ export default function ProductCard({
 
         {/* Prix + pack */}
         <div>
-          <div className="flex items-baseline gap-1">
-            <span className="font-[family-name:var(--font-poppins)] font-semibold text-lg text-text-primary">
-              {displayPrice.toFixed(2)} &euro;
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            {showStrikethrough && (
+              <span className="font-[family-name:var(--font-roboto)] text-xs text-text-muted line-through">
+                {strikethroughPrice.toFixed(2)} &euro;
+              </span>
+            )}
+            {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
+              <span className="text-[10px] font-[family-name:var(--font-roboto)] text-[#EF4444] font-medium">
+                -{clientDiscount.discountValue}%
+              </span>
+            )}
+            <span className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${showStrikethrough ? "text-[#EF4444]" : "text-text-primary"}`}>
+              {displayedFinalPrice.toFixed(2)} &euro;
             </span>
-            <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">/ unite</span>
+            <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">{t("htUnit")}</span>
           </div>
           {packOptions.length > 0 && (
             <p className="text-[11px] text-text-secondary font-[family-name:var(--font-roboto)] mt-0.5">
@@ -254,7 +383,6 @@ export default function ProductCard({
 
         {/* Add to cart */}
         <div className="mt-auto space-y-2">
-          {/* Taille si necessaire */}
           {hasSizes && uniqueSizes.length > 0 && (
             <select
               value={selectedSize}
@@ -262,13 +390,12 @@ export default function ProductCard({
               className="field-input w-full text-sm"
             >
               {uniqueSizes.map((s) => (
-                <option key={s} value={s}>Taille {s}</option>
+                <option key={s} value={s}>{t("sizeLabel", { size: s })}</option>
               ))}
             </select>
           )}
 
           <div className="flex items-center gap-2">
-            {/* Quantite */}
             <div className="flex items-center border border-border rounded-lg overflow-hidden">
               <button
                 type="button"
@@ -289,34 +416,57 @@ export default function ProductCard({
               >+</button>
             </div>
 
-            {/* Bouton ajouter */}
-            <button
-              type="button"
-              onClick={handleAddToCart}
-              disabled={isPending}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-text-inverse text-xs font-[family-name:var(--font-roboto)] font-medium py-2.5 px-3 rounded-lg transition-colors duration-200 disabled:opacity-60 ${
-                addedMsg ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
-              }`}
-            >
-              {isPending ? (
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : addedMsg ? (
-                <>
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Ajoute !
-                </>
-              ) : (
-                <>
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-                  </svg>
-                  Ajouter
-                </>
+            <div className="relative flex-1">
+              <button
+                type="button"
+                onClick={handleAddToCart}
+                disabled={isPending || selectedColorOutOfStock}
+                className={`w-full flex items-center justify-center gap-1.5 text-text-inverse text-xs font-[family-name:var(--font-roboto)] font-medium py-2.5 px-3 rounded-lg transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${
+                  addedMsg ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
+                }`}
+              >
+                {isPending ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : selectedColorOutOfStock ? (
+                  <span className="text-xs">{t("outOfStock")}</span>
+                ) : addedMsg ? (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                    </svg>
+                    {addedMsg}
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                    </svg>
+                    {t("add")}
+                  </>
+                )}
+              </button>
+
+              {showSparkles && (
+                <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg" aria-hidden="true">
+                  {[...Array(6)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="absolute animate-sparkle-pop"
+                      style={{
+                        left: `${15 + i * 14}%`,
+                        top: `${20 + (i % 2) * 50}%`,
+                        animationDelay: `${i * 0.08}s`,
+                      }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="#22C55E">
+                        <polygon points="12,2 14.5,9 22,9 16,14 18.5,21 12,17 5.5,21 8,14 2,9 9.5,9" />
+                      </svg>
+                    </div>
+                  ))}
+                </div>
               )}
-            </button>
+            </div>
           </div>
 
           {addError && (
@@ -325,7 +475,7 @@ export default function ProductCard({
 
           {packOptions.length > 0 && (
             <p className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)]">
-              Saisir en unites — repartition automatique en packs
+              {t("packAutoDistribution")}
             </p>
           )}
         </div>

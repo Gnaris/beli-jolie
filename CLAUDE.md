@@ -50,13 +50,14 @@ STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ## Architecture
 
 ### Route Groups
-The app uses three Next.js route groups with separate layouts:
+The app uses three Next.js route groups plus direct public routes:
 
 | Group | Path | Who can access |
 |---|---|---|
 | `(auth)` | `/connexion`, `/inscription` | Unauthenticated only (redirects if logged in) |
 | `(admin)` | `/admin/*` | ADMIN role only |
-| `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*` | CLIENT role (APPROVED) only |
+| `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*`, `/favoris` | CLIENT role (APPROVED) only |
+| *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public |
 
 Route protection is handled **twice**: in `middleware.ts` (edge, fast) and in each group `layout.tsx` (server-side fallback).
 
@@ -71,10 +72,14 @@ Route protection is handled **twice**: in `middleware.ts` (edge, fast) and in ea
 Products have a nested structure — read this before touching product code:
 ```
 Product
-  └── ProductColor[]          (one per color variant)
-        ├── SaleOption[]       (UNIT and/or PACK, max 2 per color)
-        │     └── unitPrice, weight, stock, discountType, discountValue, size, packQuantity
-        └── ProductImage[]     (max 5, shared between UNIT+PACK of same color)
+  ├── ProductColor[]          (one per color variant)
+  │     ├── SaleOption[]       (UNIT and/or PACK, max 2 per color)
+  │     │     └── unitPrice, weight, stock, discountType, discountValue, size, packQuantity
+  │     └── ProductImage[]     (max 5, shared between UNIT+PACK of same color)
+  ├── ProductTranslation[]    (locale: "en"|"ar"|"zh"|"de"|"es"|"it" — auto-translated name+description)
+  ├── ProductSimilar[]        (M2M self-relation for "you may also like")
+  ├── ProductComposition[]    (material + percentage, e.g. 85% acier)
+  └── ProductTag[]            (tags for search)
 ```
 Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied.
 
@@ -98,6 +103,23 @@ Order
 | Kbis documents | `private/uploads/kbis/` | ADMIN via `/api/admin/kbis/[filename]` |
 | Invoices | `private/uploads/invoices/` | ADMIN or owner client via API |
 
+### Additional DB Models
+- **`Favorite`** — user saves products; `@@unique([userId, productId])`
+- **`SiteConfig`** — key/value store (e.g. `min_order_ht`); managed via `/admin/parametres`
+- **`PasswordResetToken`** — 1-hour tokens for the forgot-password flow; `used` flag prevents replay
+- **`ProductTranslation`** — auto-generated translations stored per `[productId, locale]`; locales: `fr` (default), `en`, `ar`, `zh`, `de`, `es`, `it`
+
+### Internationalisation (i18n)
+- **next-intl** with cookie-based locale (`bj_locale`, 1-year TTL); default `fr`
+- RTL locales: `ar`
+- Message files in `messages/[locale].json`
+- Server action `setLocale()` in `app/actions/client/locale.ts` switches locale + revalidates layout
+- `ProductTranslation` table stores AI-generated product name/description per locale
+
+### Admin Preview Mode
+Admins can browse the public site as a logged-in visitor via cookie `bj_admin_preview=1` (8h TTL).
+Actions: `enableAdminPreview()` / `disableAdminPreview()` in `app/actions/admin/preview-mode.ts`.
+
 ### Server Actions
 All mutations go through Server Actions in `app/actions/`. Each action calls `requireAdmin()` or `requireAuth()` (verifies session server-side) before doing anything. Actions call `revalidatePath()` to bust the Next.js cache.
 
@@ -116,6 +138,11 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Admin mobile**: `AdminMobileNav.tsx` — hamburger + slide-in drawer with all nav links
 - **3D Hero**: `JewelryScene.tsx` loaded via `JewelrySceneLoader.tsx` (client wrapper for `ssr: false`)
 - **Product form**: `ProductForm.tsx` — 4 separate blocks (fiche produit, mots-clés, dimensions, composition)
+
+### Password Reset Flow
+- Client: `POST /api/auth/forgot-password` → creates `PasswordResetToken`, sends email with link
+- Link: `/reinitialiser-mot-de-passe?token=xxx` → `POST /api/auth/reset-password`
+- Admin password reset: via `/admin/parametres` → `AdminPasswordResetButton` sends email to admin address
 
 ### Important Gotchas
 - `ssr: false` with `next/dynamic` is NOT allowed in Server Components → use a `"use client"` wrapper

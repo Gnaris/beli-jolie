@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
+import Image from "next/image";
 import { prisma } from "@/lib/prisma";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -34,11 +35,15 @@ export default async function CollectionDetailPage({ params }: PageProps) {
               subCategories: { select: { name: true }, take: 1 },
               colors: {
                 select: {
-                  id:        true,
-                  unitPrice: true,
-                  isPrimary: true,
-                  color:     { select: { name: true, hex: true } },
-                  images:    { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
+                  id:           true,
+                  colorId:      true,
+                  unitPrice:    true,
+                  stock:        true,
+                  isPrimary:    true,
+                  saleType:     true,
+                  packQuantity: true,
+                  size:         true,
+                  color:        { select: { name: true, hex: true } },
                 },
               },
             },
@@ -50,6 +55,18 @@ export default async function CollectionDetailPage({ params }: PageProps) {
 
   if (!collection) notFound();
 
+  // Fetch images for all products in collection
+  const colProductIds = collection.products.map((cp) => cp.product.id);
+  const colColorImages = colProductIds.length > 0
+    ? await prisma.productColorImage.findMany({ where: { productId: { in: colProductIds } }, orderBy: { order: "asc" } })
+    : [];
+  const colImageMap = new Map<string, Map<string, string>>();
+  for (const img of colColorImages) {
+    if (!colImageMap.has(img.productId)) colImageMap.set(img.productId, new Map());
+    const cm = colImageMap.get(img.productId)!;
+    if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
+  }
+
   return (
     <div className="min-h-screen">
       <PublicSidebar />
@@ -59,12 +76,14 @@ export default async function CollectionDetailPage({ params }: PageProps) {
         <div className="bg-bg-primary border-b border-border">
           {/* Cover image */}
           {collection.image && (
-            <div className="h-48 md:h-64 overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+            <div className="h-48 md:h-64 overflow-hidden relative">
+              <Image
                 src={collection.image}
                 alt={collection.name}
-                className="w-full h-full object-cover"
+                fill
+                sizes="100vw"
+                className="object-cover"
+                priority
               />
             </div>
           )}
@@ -97,21 +116,30 @@ export default async function CollectionDetailPage({ params }: PageProps) {
               {collection.products.map((cp) => {
                 const p = cp.product;
 
-                // Use the chosen color for this collection, or primary
-                const chosenColor = cp.colorId
-                  ? p.colors.find((c) => c.id === cp.colorId)
-                  : null;
-
-                // Build colors array with chosen color marked as primary
-                const colors = p.colors.map((c) => ({
-                  id:          c.id,
-                  hex:         c.color.hex,
-                  name:        c.color.name,
-                  firstImage:  c.images[0]?.path ?? null,
-                  unitPrice:   c.unitPrice,
-                  isPrimary:   cp.colorId ? c.id === cp.colorId : c.isPrimary,
-                  saleOptions: [] as { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null }[],
-                }));
+                // Group variants by colorId
+                const colorMap = new Map<string, {
+                  colorId: string; name: string; hex: string | null;
+                  firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
+                  variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null; unitPrice: number; stock: number }[];
+                }>();
+                for (const v of p.colors) {
+                  if (!colorMap.has(v.colorId)) {
+                    colorMap.set(v.colorId, {
+                      colorId: v.colorId, name: v.color.name, hex: v.color.hex,
+                      firstImage: colImageMap.get(p.id)?.get(v.colorId) ?? null,
+                      unitPrice: v.unitPrice,
+                      isPrimary: cp.colorId ? v.colorId === cp.colorId : v.isPrimary,
+                      totalStock: 0,
+                      variants: [],
+                    });
+                  }
+                  const cd = colorMap.get(v.colorId)!;
+                  cd.unitPrice = Math.min(cd.unitPrice, v.unitPrice);
+                  cd.totalStock += v.stock ?? 0;
+                  if (cp.colorId ? v.colorId === cp.colorId : v.isPrimary) cd.isPrimary = true;
+                  cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, size: v.size ?? null, unitPrice: v.unitPrice, stock: v.stock ?? 0 });
+                }
+                const colors = [...colorMap.values()];
 
                 return (
                   <ProductCard

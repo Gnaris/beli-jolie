@@ -34,11 +34,7 @@ export async function POST(req: Request) {
       include: {
         items: {
           include: {
-            saleOption: {
-              include: {
-                productColor: true,
-              },
-            },
+            variant: true,
           },
         },
       },
@@ -46,7 +42,7 @@ export async function POST(req: Request) {
     prisma.shippingAddress.findFirst({ where: { id: addressId, userId } }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { company: true, email: true, stripeCustomerId: true },
+      select: { company: true, email: true, stripeCustomerId: true, discountType: true, discountValue: true, freeShipping: true },
     }),
   ]);
 
@@ -59,22 +55,32 @@ export async function POST(req: Request) {
 
   // Recalculer le total côté serveur (sécurité)
   const cartItems = cart.items;
-  type SaleOpt = (typeof cartItems)[0]["saleOption"];
+  type Variant = (typeof cartItems)[0]["variant"];
 
-  function computeUnitPrice(opt: SaleOpt): number {
-    const { unitPrice } = opt.productColor;
-    const base = opt.saleType === "UNIT" ? unitPrice : unitPrice * (opt.packQuantity ?? 1);
-    if (!opt.discountType || !opt.discountValue) return base;
-    if (opt.discountType === "PERCENT") return Math.max(0, base * (1 - opt.discountValue / 100));
-    return Math.max(0, base - opt.discountValue);
+  function computeUnitPrice(v: Variant): number {
+    const base = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
+    if (!v.discountType || !v.discountValue) return base;
+    if (v.discountType === "PERCENT") return Math.max(0, base * (1 - v.discountValue / 100));
+    return Math.max(0, base - v.discountValue);
   }
 
   const subtotalHT = cartItems.reduce(
-    (s, item) => s + computeUnitPrice(item.saleOption) * item.quantity,
+    (s, item) => s + computeUnitPrice(item.variant) * item.quantity,
     0
   );
-  const tvaAmount = subtotalHT * tvaRate;
-  const totalTTC = subtotalHT + tvaAmount + carrierPrice;
+
+  // Remise commerciale client
+  const clientDiscountAmt = (() => {
+    if (!user?.discountType || !user.discountValue) return 0;
+    if (user.discountType === "PERCENT")
+      return Math.min(subtotalHT, subtotalHT * (user.discountValue / 100));
+    return Math.min(subtotalHT, user.discountValue);
+  })();
+  const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
+  const effectiveCarrierPrice = user?.freeShipping ? 0 : carrierPrice;
+
+  const tvaAmount = subtotalAfterDiscount * tvaRate;
+  const totalTTC = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
 
   const amountCents = Math.round(totalTTC * 100);
 

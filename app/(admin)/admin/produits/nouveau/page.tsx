@@ -21,7 +21,7 @@ export default async function NouveauProduitPage() {
   ]);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
+    <div className="max-w-[1600px] mx-auto space-y-8">
       <div>
         <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-2">
           <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>

@@ -1,11 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
-import {
-  createCategory,
-  deleteCategory,
-} from "@/app/actions/admin/categories";
+import { deleteCategory } from "@/app/actions/admin/categories";
 import DeleteButton from "@/components/admin/categories/DeleteButton";
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
+import EntityCreateButton from "@/components/admin/EntityCreateButton";
 
 export const metadata: Metadata = {
   title: "Catégories",
@@ -15,7 +13,11 @@ export default async function CategoriesPage() {
   const categories = await prisma.category.findMany({
     orderBy: { name: "asc" },
     include: {
-      subCategories: { orderBy: { name: "asc" } },
+      subCategories: {
+        orderBy: { name: "asc" },
+        include: { translations: true },
+      },
+      translations: true,
       _count: { select: { products: true } },
     },
   });
@@ -32,26 +34,15 @@ export default async function CategoriesPage() {
         </p>
       </div>
 
-      {/* Formulaire création catégorie */}
-      <div className="bg-white border border-[#E5E5E5] rounded-xl p-5">
-        <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3 font-[family-name:var(--font-roboto)]">
-          Nouvelle categorie
-        </p>
-        <form action={createCategory} className="flex gap-2">
-          <input
-            type="text"
-            name="name"
-            placeholder="Nom de la categorie..."
-            required
-            className="flex-1 field-input"
-          />
-          <button
-            type="submit"
-            className="btn-primary whitespace-nowrap"
-          >
-            Ajouter
-          </button>
-        </form>
+      {/* Création catégorie */}
+      <div className="bg-white border border-[#E5E5E5] rounded-xl p-5 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">Nouvelle catégorie</p>
+          <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+            Saisissez le nom dans toutes les langues souhaitées.
+          </p>
+        </div>
+        <EntityCreateButton type="category" label="+ Créer une catégorie" />
       </div>
 
       {/* Gestionnaire catégories + sous-catégories */}
@@ -59,7 +50,12 @@ export default async function CategoriesPage() {
         id: c.id,
         name: c.name,
         productCount: c._count.products,
-        subCategories: c.subCategories.map((s) => ({ id: s.id, name: s.name })),
+        translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
+        subCategories: c.subCategories.map((s) => ({
+          id: s.id,
+          name: s.name,
+          translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
+        })),
       }))} />
 
       {/* Zone suppression catégories */}

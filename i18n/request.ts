@@ -1,9 +1,9 @@
 import { getRequestConfig } from "next-intl/server";
 import { cookies } from "next/headers";
+import { VALID_LOCALES, type Locale } from "./locales";
 
-export const VALID_LOCALES = ["fr", "en", "ar", "zh", "de", "es", "it"] as const;
-export type Locale = (typeof VALID_LOCALES)[number];
-export const RTL_LOCALES: Locale[] = ["ar"];
+export { VALID_LOCALES, LOCALE_LABELS, LOCALE_FULL_NAMES, RTL_LOCALES } from "./locales";
+export type { Locale } from "./locales";
 
 function isValidLocale(locale: string): locale is Locale {
   return VALID_LOCALES.includes(locale as Locale);

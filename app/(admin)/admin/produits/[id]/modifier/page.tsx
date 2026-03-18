@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
-import type { ColorState } from "@/components/admin/products/ColorVariantManager";
+import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 
@@ -18,16 +18,13 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, allProducts, tags] = await Promise.all([
+  const [product, categories, colors, compositions, allProducts, tags, existingTranslations, colorImagesDb] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
         colors: {
-          include: {
-            color: true,
-            saleOptions: { orderBy: { saleType: "asc" } },
-            images:      { orderBy: { order: "asc" } },
-          },
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          include: { color: true },
         },
         compositions: {
           include: { composition: true },
@@ -44,7 +41,6 @@ export default async function ModifierProduitPage({
                 category: { select: { name: true } },
                 colors: {
                   orderBy: { isPrimary: "desc" },
-                  select: { images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 } },
                   take: 1,
                 },
               },
@@ -65,35 +61,58 @@ export default async function ModifierProduitPage({
       select:  { id: true, name: true, reference: true },
     }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.productTranslation.findMany({
+      where:  { productId: id },
+      select: { locale: true, name: true, description: true },
+    }),
+    prisma.productColorImage.findMany({
+      where:   { productId: id },
+      orderBy: { order: "asc" },
+    }),
   ]);
 
   if (!product) notFound();
 
-  const initialColors: ColorState[] = product.colors.map((pc) => ({
-    tempId:       uid(),
-    colorId:      pc.colorId,
-    colorName:    pc.color.name,
-    colorHex:     pc.color.hex ?? "#9CA3AF",
-    unitPrice:    String(pc.unitPrice),
-    weight:       String(pc.weight),
-    stock:        String((pc as unknown as { stock?: number }).stock ?? 0),
-    isPrimary:    pc.isPrimary,
-    saleOptions:  pc.saleOptions.map((opt) => ({
-      tempId:        uid(),
-      saleType:      opt.saleType,
-      packQuantity:  opt.packQuantity != null ? String(opt.packQuantity) : "",
-      size:          opt.size ?? "",
-      discountType:  (opt.discountType ?? "") as "" | "PERCENT" | "AMOUNT",
-      discountValue: opt.discountValue != null ? String(opt.discountValue) : "",
-    })),
-    imagePreviews: pc.images.map((img) => img.path),
-    imageFiles:    [],
-    uploadedPaths: pc.images.map((img) => img.path),
-    uploading:     false,
+  // Map ProductColor rows → flat VariantState[]
+  const initialVariants: VariantState[] = product.colors.map((pc) => ({
+    tempId:        uid(),
+    dbId:          pc.id,
+    colorId:       pc.colorId,
+    colorName:     pc.color.name,
+    colorHex:      pc.color.hex ?? "#9CA3AF",
+    unitPrice:     String(pc.unitPrice),
+    weight:        String(pc.weight),
+    stock:         String(pc.stock ?? 0),
+    isPrimary:     pc.isPrimary,
+    saleType:      pc.saleType,
+    packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
+    size:          pc.size ?? "",
+    discountType:  (pc.discountType ?? "") as "" | "PERCENT" | "AMOUNT",
+    discountValue: pc.discountValue != null ? String(pc.discountValue) : "",
   }));
 
+  // Group ProductColorImage by unique colorId → ColorImageState[]
+  const colorImageMap = new Map<string, ColorImageState>();
+  for (const img of colorImagesDb) {
+    if (!colorImageMap.has(img.colorId)) {
+      const colorMeta = product.colors.find((pc) => pc.colorId === img.colorId);
+      colorImageMap.set(img.colorId, {
+        colorId:       img.colorId,
+        colorName:     colorMeta?.color.name ?? img.colorId,
+        colorHex:      colorMeta?.color.hex ?? "#9CA3AF",
+        imagePreviews: [],
+        uploadedPaths: [],
+        uploading:     false,
+      });
+    }
+    const entry = colorImageMap.get(img.colorId)!;
+    entry.imagePreviews.push(img.path);
+    entry.uploadedPaths.push(img.path);
+  }
+  const initialColorImages: ColorImageState[] = [...colorImageMap.values()];
+
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
+    <div className="max-w-[1600px] mx-auto space-y-8">
       <div>
         <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-2">
           <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
@@ -124,7 +143,8 @@ export default async function ModifierProduitPage({
           description:       product.description,
           categoryId:        product.categoryId,
           subCategoryIds:    product.subCategories.map((sc) => sc.id),
-          colors:            initialColors,
+          variants:          initialVariants,
+          colorImages:       initialColorImages,
           compositions:      product.compositions.map((c) => ({
             compositionId: c.compositionId,
             percentage:    String(c.percentage),
@@ -135,10 +155,12 @@ export default async function ModifierProduitPage({
             name: sp.similar.name,
             reference: sp.similar.reference,
             category: sp.similar.category.name,
-            image: sp.similar.colors[0]?.images[0]?.path ?? null,
+            image: null,
           })),
           tagNames:          product.tags.map((t) => t.tag.name),
           isBestSeller:      product.isBestSeller,
+          status:            product.status,
+          translations:      existingTranslations,
           dimLength:        product.dimensionLength != null ? String(product.dimensionLength) : "",
           dimWidth:         product.dimensionWidth != null ? String(product.dimensionWidth) : "",
           dimHeight:        product.dimensionHeight != null ? String(product.dimensionHeight) : "",

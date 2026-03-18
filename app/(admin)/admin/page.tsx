@@ -5,7 +5,7 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import DashboardParticlesLoader from "@/components/admin/dashboard/DashboardParticlesLoader";
-import DashboardCharts from "@/components/admin/dashboard/DashboardCharts";
+import DashboardChartsLoader from "@/components/admin/dashboard/DashboardChartsLoader";
 import type { MonthlyPoint, StatusPoint, TopProduct } from "@/components/admin/dashboard/DashboardCharts";
 
 export const metadata: Metadata = {
@@ -21,12 +21,16 @@ export default async function AdminDashboardPage() {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const startOf6MonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
+  const onlineThreshold = new Date(Date.now() - 2 * 60 * 1000); // 2 minutes
+
   // Fetch all data in parallel
   const [
     totalClients,
     pendingCount,
     approvedCount,
     rejectedCount,
+    onlineCount,
+    onlineUsers,
     latestPending,
     totalOrders,
     totalRevenueAgg,
@@ -42,6 +46,21 @@ export default async function AdminDashboardPage() {
     prisma.user.count({ where: { status: "PENDING" } }),
     prisma.user.count({ where: { status: "APPROVED", role: "CLIENT" } }),
     prisma.user.count({ where: { status: "REJECTED" } }),
+    prisma.user.count({
+      where: { role: "CLIENT", activity: { lastSeenAt: { gte: onlineThreshold } } },
+    }),
+    prisma.user.findMany({
+      where: { role: "CLIENT", activity: { lastSeenAt: { gte: onlineThreshold } } },
+      orderBy: { activity: { lastSeenAt: "desc" } },
+      take: 5,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        company: true,
+        activity: { select: { currentPage: true } },
+      },
+    }),
     prisma.user.findMany({
       where: { status: "PENDING" },
       orderBy: { createdAt: "desc" },
@@ -254,8 +273,55 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* ── CLIENTS EN LIGNE ── */}
+      {onlineCount > 0 && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22C55E] opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#22C55E]" />
+              </span>
+              <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
+                {onlineCount} client{onlineCount > 1 ? "s" : ""} en ligne
+              </h2>
+            </div>
+            <Link
+              href="/admin/utilisateurs?status=ONLINE"
+              className="text-sm text-text-secondary hover:text-text-primary font-[family-name:var(--font-roboto)] font-medium transition-colors underline underline-offset-2"
+            >
+              Voir tout
+            </Link>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {onlineUsers.map((u) => (
+              <Link
+                key={u.id}
+                href={`/admin/utilisateurs/${u.id}`}
+                className="flex items-center gap-2 bg-bg-secondary hover:bg-bg-tertiary rounded-lg px-3 py-2 transition-colors"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22C55E]" />
+                </span>
+                <span className="text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary">
+                  {u.firstName} {u.lastName}
+                </span>
+                <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                  {u.company}
+                </span>
+                {u.activity?.currentPage && (
+                  <span className="text-[11px] text-text-muted font-mono truncate max-w-[150px]">
+                    {u.activity.currentPage}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── CHARTS ── */}
-      <DashboardCharts
+      <DashboardChartsLoader
         monthlyData={monthlyData}
         statusDist={statusDist}
         topProducts={topProducts}

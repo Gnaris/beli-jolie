@@ -24,6 +24,11 @@ enum UserStatus {
   REJECTED
 }
 
+enum ClientDiscountType {
+  PERCENT  // remise en %
+  AMOUNT   // remise en €
+}
+
 model User {
   id        String     @id @default(cuid())
   email     String     @unique
@@ -33,19 +38,27 @@ model User {
   company   String
   phone     String
   siret     String     @unique
-  kbisPath  String
+  kbisPath  String?
+  registrationMessage String?  // Message libre lors de l'inscription
   address          String?    // Adresse de l'entreprise
   vatNumber        String?    // Numéro TVA intracommunautaire (ex: FR12345678901)
   stripeCustomerId String?    @unique // cus_xxx — requis pour le virement bancaire
   role             Role       @default(CLIENT)
   status           UserStatus @default(PENDING)
+  // Remise commerciale permanente
+  discountType     ClientDiscountType?  // null = pas de remise
+  discountValue    Float?               // % ou montant €
+  freeShipping     Boolean              @default(false)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  cart      Cart?
-  addresses ShippingAddress[]
-  orders    Order[]
-  favorites Favorite[]
+  cart          Cart?
+  addresses     ShippingAddress[]
+  orders        Order[]
+  favorites     Favorite[]
+  importDrafts  ImportDraft[]
+  accessCodes   AccessCode[]
+  activity      UserActivity?
 }
 
 // ─────────────────────────────────────────────
@@ -61,6 +74,7 @@ model Favorite {
   createdAt DateTime @default(now())
 
   @@unique([userId, productId])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────
@@ -77,44 +91,98 @@ enum DiscountType {
   AMOUNT  // Remise en €
 }
 
+enum ProductStatus {
+  OFFLINE // Hors ligne (brouillon)
+  ONLINE  // En ligne (visible sur le catalogue public)
+}
+
 // Catégorie principale (ex: Colliers, Bracelets)
 model Category {
-  id            String        @id @default(cuid())
-  name          String        @unique
-  slug          String        @unique
+  id            String                @id @default(cuid())
+  name          String                @unique
+  slug          String                @unique
   subCategories SubCategory[]
   products      Product[]
-  createdAt     DateTime      @default(now())
+  translations  CategoryTranslation[]
+  createdAt     DateTime              @default(now())
+}
+
+model CategoryTranslation {
+  id         String   @id @default(cuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  locale     String
+  name       String
+  createdAt  DateTime @default(now())
+
+  @@unique([categoryId, locale])
 }
 
 // Sous-catégorie (ex: Sautoir, Jonc)
 model SubCategory {
-  id         String    @id @default(cuid())
-  name       String
-  slug       String
-  categoryId String
-  category   Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  products   Product[] @relation("ProductSubCategories")
-  createdAt  DateTime  @default(now())
+  id           String                   @id @default(cuid())
+  name         String
+  slug         String
+  categoryId   String
+  category     Category                 @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  products     Product[]                @relation("ProductSubCategories")
+  translations SubCategoryTranslation[]
+  createdAt    DateTime                 @default(now())
 
   @@unique([name, categoryId])
 }
 
+model SubCategoryTranslation {
+  id            String      @id @default(cuid())
+  subCategoryId String
+  subCategory   SubCategory @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
+  locale        String
+  name          String
+  createdAt     DateTime    @default(now())
+
+  @@unique([subCategoryId, locale])
+}
+
 // Bibliothèque de couleurs réutilisables entre produits
 model Color {
-  id            String         @id @default(cuid())
-  name          String         @unique
+  id            String             @id @default(cuid())
+  name          String             @unique
   hex           String?
-  createdAt     DateTime       @default(now())
+  createdAt     DateTime           @default(now())
   productColors ProductColor[]
+  colorImages   ProductColorImage[]
+  translations  ColorTranslation[]
+}
+
+model ColorTranslation {
+  id        String   @id @default(cuid())
+  colorId   String
+  color     Color    @relation(fields: [colorId], references: [id], onDelete: Cascade)
+  locale    String
+  name      String
+  createdAt DateTime @default(now())
+
+  @@unique([colorId, locale])
 }
 
 // Bibliothèque de compositions (matériaux)
 model Composition {
-  id        String               @id @default(cuid())
-  name      String               @unique
-  createdAt DateTime             @default(now())
-  products  ProductComposition[]
+  id           String                  @id @default(cuid())
+  name         String                  @unique
+  createdAt    DateTime                @default(now())
+  products     ProductComposition[]
+  translations CompositionTranslation[]
+}
+
+model CompositionTranslation {
+  id            String      @id @default(cuid())
+  compositionId String
+  composition   Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
+  locale        String
+  name          String
+  createdAt     DateTime    @default(now())
+
+  @@unique([compositionId, locale])
 }
 
 // Liaison produit ↔ composition avec pourcentage
@@ -131,10 +199,22 @@ model ProductComposition {
 
 // Tags (mots-clés pour recherche)
 model Tag {
-  id        String       @id @default(cuid())
-  name      String       @unique
-  products  ProductTag[]
-  createdAt DateTime     @default(now())
+  id           String           @id @default(cuid())
+  name         String           @unique
+  products     ProductTag[]
+  translations TagTranslation[]
+  createdAt    DateTime         @default(now())
+}
+
+model TagTranslation {
+  id        String   @id @default(cuid())
+  tagId     String
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  locale    String
+  name      String
+  createdAt DateTime @default(now())
+
+  @@unique([tagId, locale])
 }
 
 model ProductTag {
@@ -156,12 +236,16 @@ model Product {
   category      Category             @relation(fields: [categoryId], references: [id])
   subCategories SubCategory[]        @relation("ProductSubCategories")
   colors        ProductColor[]
+  colorImages   ProductColorImage[]
   compositions  ProductComposition[]
   collections   CollectionProduct[]
   favorites     Favorite[]
   tags          ProductTag[]
   translations  ProductTranslation[]
+  catalogs      CatalogProduct[]
+  accessCodeViews AccessCodeView[]
   isBestSeller  Boolean              @default(false)
+  status        ProductStatus        @default(OFFLINE)
   // Produits similaires (M2M self)
   similarProducts ProductSimilar[]   @relation("PSim_A")
   similarTo       ProductSimilar[]   @relation("PSim_B")
@@ -175,6 +259,8 @@ model Product {
   updatedAt     DateTime             @updatedAt
 
   @@index([createdAt])
+  @@index([status])
+  @@index([categoryId, status])
 }
 
 // Traductions automatiques des produits
@@ -202,49 +288,43 @@ model ProductSimilar {
   @@id([productId, similarId])
 }
 
-// Variante couleur d'un produit — prix unitaire et poids partagés entre UNIT et PACK
+// Variante plate d'un produit (couleur + type de vente + prix + stock)
+// Une même couleur peut apparaître plusieurs fois (UNIT, PACK×12, PACK×24…)
 model ProductColor {
-  id          String              @id @default(cuid())
+  id          String       @id @default(cuid())
   productId   String
-  product     Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
   colorId     String
-  color       Color               @relation(fields: [colorId], references: [id])
-  unitPrice   Float               // Prix par unité HT — partagé entre UNIT et PACK
-  weight      Float               // Poids en kg (ex: 0.008)
-  stock       Int                 @default(0) // Stock commun à toutes les options de vente de cette couleur
-  isPrimary   Boolean             @default(false)
-  saleOptions SaleOption[]
-  images      ProductImage[]      // Max 5 images — partagées entre UNIT et PACK
-  collectionOverrides CollectionProduct[] // Apparitions dans des collections avec cette couleur
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-
-  @@unique([productId, colorId])
-}
-
-// Option de vente pour une couleur (unité ou paquet)
-model SaleOption {
-  id            String        @id @default(cuid())
-  colorId       String
-  productColor  ProductColor  @relation(fields: [colorId], references: [id], onDelete: Cascade)
-  saleType      SaleType      // UNIT ou PACK
-  packQuantity  Int?          // Quantité par paquet (null si UNIT)
-  size          String?       // Taille (ex: 17, 18, L, XL) — optionnel
+  color       Color        @relation(fields: [colorId], references: [id])
+  unitPrice   Float        // Prix par unité HT
+  weight      Float        // Poids en kg (ex: 0.008)
+  stock       Int          @default(0)
+  isPrimary   Boolean      @default(false)
+  saleType    SaleType     // UNIT ou PACK
+  packQuantity Int?        // Quantité par paquet (null si UNIT)
+  size        String?      // Taille (ex: 17, 18, L, XL) — optionnel
   discountType  DiscountType? // Type de remise (null = pas de remise)
   discountValue Float?        // Valeur de la remise
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  cartItems     CartItem[]
+  cartItems   CartItem[]
+  collectionOverrides CollectionProduct[] // Apparitions dans des collections avec cette couleur
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([productId, colorId])
 }
 
-// Image d'une variante couleur
-model ProductImage {
-  id        String       @id @default(cuid())
+// Images liées à un (produit, couleur) — partagées entre toutes les variantes de la même couleur
+model ProductColorImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   colorId   String
-  color     ProductColor @relation(fields: [colorId], references: [id], onDelete: Cascade)
-  path      String       // Chemin relatif depuis /public
-  order     Int          @default(0)
-  createdAt DateTime     @default(now())
+  color     Color    @relation(fields: [colorId], references: [id])
+  path      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId, colorId])
 }
 
 // ─────────────────────────────────────────────
@@ -261,18 +341,19 @@ model Cart {
   updatedAt DateTime   @updatedAt
 }
 
-// Ligne du panier — liée à une option de vente
+// Ligne du panier — liée directement à une variante plate
 model CartItem {
-  id           String     @id @default(cuid())
-  cartId       String
-  cart         Cart       @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  saleOptionId String
-  saleOption   SaleOption @relation(fields: [saleOptionId], references: [id])
-  quantity     Int        @default(1)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id        String       @id @default(cuid())
+  cartId    String
+  cart      Cart         @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   ProductColor @relation(fields: [variantId], references: [id])
+  quantity  Int          @default(1)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
-  @@unique([cartId, saleOptionId])
+  @@unique([cartId, variantId])
+  @@index([cartId])
 }
 
 // ─────────────────────────────────────────────
@@ -318,6 +399,12 @@ model Order {
   carrierId    String
   carrierName  String
   carrierPrice Float
+
+  // Remise commerciale client (snapshot au moment de la commande)
+  clientDiscountType  ClientDiscountType?
+  clientDiscountValue Float?
+  clientDiscountAmt   Float              @default(0)  // montant économisé en €
+  clientFreeShipping  Boolean            @default(false)
 
   // TVA
   tvaRate    Float  // ex: 0.20
@@ -391,6 +478,7 @@ model CollectionProduct {
   createdAt    DateTime      @default(now())
 
   @@unique([collectionId, productId])
+  @@index([collectionId])
 }
 
 // Adresse de livraison (plusieurs par utilisateur)
@@ -414,12 +502,104 @@ model ShippingAddress {
 }
 
 // ─────────────────────────────────────────────
+// Catalogues partageables
+// ─────────────────────────────────────────────
+
+enum CatalogStatus {
+  DRAFT      // Brouillon (non accessible via lien)
+  PUBLISHED  // Publié (accessible via lien)
+}
+
+model Catalog {
+  id             String           @id @default(cuid())
+  title          String
+  token          String           @unique @default(cuid()) // token public pour le lien
+  primaryColor   String           @default("#1A1A1A")      // couleur principale du catalogue
+  coverImagePath String?                                   // photo de fond du header (remplace la couleur)
+  status         CatalogStatus    @default(DRAFT)
+  products       CatalogProduct[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model CatalogProduct {
+  id              String   @id @default(cuid())
+  catalogId       String
+  catalog         Catalog  @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  position          Int      @default(0)
+  selectedColorId   String?  // Color.id sélectionné pour ce produit dans ce catalogue (null = couleur primaire par défaut)
+  selectedImagePath String?  // chemin image spécifique à afficher dans ce catalogue (null = première image de la couleur)
+  createdAt         DateTime @default(now())
+
+  @@unique([catalogId, productId])
+}
+
+// ─────────────────────────────────────────────
+// Codes d'accès invité
+// ─────────────────────────────────────────────
+
+model AccessCode {
+  id            String           @id @default(cuid())
+  code          String           @unique      // ex: BELI-A3X7
+  note          String?          @db.Text     // Note admin (à qui, pourquoi, etc.)
+  expiresAt     DateTime                      // Expiration (1 semaine par défaut)
+  isActive      Boolean          @default(true)
+
+  // Inscription via ce code
+  usedBy        String?                       // User.id du client inscrit
+  usedByName    String?                       // Nom complet du client inscrit
+  usedAt        DateTime?                     // Date d'inscription
+  user          User?            @relation(fields: [usedBy], references: [id], onDelete: SetNull)
+
+  // Tracking navigation
+  firstAccessAt DateTime?                     // Première utilisation pour naviguer
+  lastAccessAt  DateTime?                     // Dernier accès
+  views         AccessCodeView[]
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([code])
+  @@index([expiresAt])
+}
+
+model AccessCodeView {
+  id            String      @id @default(cuid())
+  accessCodeId  String
+  accessCode    AccessCode  @relation(fields: [accessCodeId], references: [id], onDelete: Cascade)
+  productId     String?
+  product       Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName   String?                      // Snapshot du nom produit
+  pageUrl       String                       // URL visitée
+  createdAt     DateTime    @default(now())
+
+  @@index([accessCodeId])
+  @@index([productId])
+}
+
+// ─────────────────────────────────────────────
+// Activité utilisateur (heartbeat en ligne)
+// ─────────────────────────────────────────────
+
+model UserActivity {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSeenAt  DateTime @default(now())
+  currentPage String?
+
+  @@index([lastSeenAt])
+}
+
+// ─────────────────────────────────────────────
 // Configuration du site (clé/valeur)
 // ─────────────────────────────────────────────
 
 model SiteConfig {
   key       String   @id
-  value     String
+  value     String   @db.Text
   updatedAt DateTime @updatedAt
 }
 
@@ -437,4 +617,37 @@ model PasswordResetToken {
 
   @@index([email])
   @@index([token])
+}
+
+// ─────────────────────────────────────────────
+// Import en masse (produits & images)
+// ─────────────────────────────────────────────
+
+enum ImportDraftType {
+  PRODUCTS
+  IMAGES
+}
+
+enum ImportDraftStatus {
+  PENDING
+  RESOLVED
+}
+
+model ImportDraft {
+  id          String            @id @default(cuid())
+  type        ImportDraftType
+  status      ImportDraftStatus @default(PENDING)
+  filename    String?
+  totalRows   Int               @default(0)
+  successRows Int               @default(0)
+  errorRows   Int               @default(0)
+  rows        Json              // Array of rows with errors + metadata
+  tempDir     String?           // For image drafts: temp directory path
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  adminId     String
+  admin       User              @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([createdAt])
 }

@@ -59,6 +59,11 @@ export const registerSchema = z.object({
     .regex(/[A-Z]/, "Le mot de passe doit contenir au moins une majuscule.")
     .regex(/[0-9]/, "Le mot de passe doit contenir au moins un chiffre."),
   confirmPassword: z.string().min(1, "Veuillez confirmer le mot de passe."),
+  registrationMessage: z
+    .string()
+    .max(2000, "Le message ne doit pas dépasser 2000 caractères.")
+    .optional()
+    .or(z.literal("")),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Les mots de passe ne correspondent pas.",
   path: ["confirmPassword"],

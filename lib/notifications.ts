@@ -20,7 +20,8 @@ interface NewClientInfo {
   email: string;
   phone: string;
   siret: string;
-  kbisPath: string; // chemin relatif stocké en base, ex: private/uploads/kbis/kbis_XXX.pdf
+  kbisPath?: string; // chemin relatif stocké en base, ex: private/uploads/kbis/kbis_XXX.pdf
+  registrationMessage?: string; // message libre saisi lors de l'inscription
 }
 
 export async function notifyNewClientRegistration(
@@ -41,9 +42,25 @@ export async function notifyNewClientRegistration(
     },
   });
 
-  // Chemin absolu du Kbis pour la pièce jointe
-  const kbisAbsolutePath = path.join(process.cwd(), client.kbisPath);
-  const kbisFilename = path.basename(client.kbisPath);
+  // Pièce jointe Kbis (optionnelle)
+  const attachments: { filename: string; path: string }[] = [];
+  if (client.kbisPath) {
+    attachments.push({
+      filename: path.basename(client.kbisPath),
+      path: path.join(process.cwd(), client.kbisPath),
+    });
+  }
+
+  const messageBlock = client.registrationMessage
+    ? `<tr>
+        <td style="padding:10px 14px;font-weight:bold;vertical-align:top;">Message</td>
+        <td style="padding:10px 14px;white-space:pre-wrap;">${client.registrationMessage}</td>
+       </tr>`
+    : "";
+
+  const kbisNote = client.kbisPath
+    ? `<p style="margin-top:16px;color:#475569;font-size:13px;">Le document Kbis est joint à cet email.</p>`
+    : `<p style="margin-top:16px;color:#F59E0B;font-size:13px;">Aucun Kbis fourni lors de l'inscription.</p>`;
 
   await transporter.sendMail({
     from: `"Beli & Jolie" <${GMAIL_USER}>`,
@@ -76,10 +93,9 @@ export async function notifyNewClientRegistration(
             <td style="padding:10px 14px;font-weight:bold;">SIRET</td>
             <td style="padding:10px 14px;">${client.siret}</td>
           </tr>
+          ${messageBlock}
         </table>
-        <p style="margin-top:16px;color:#475569;font-size:13px;">
-          Le document Kbis est joint à cet email.
-        </p>
+        ${kbisNote}
         <div style="margin-top:20px;">
           <a href="${process.env.NEXTAUTH_URL}/admin/utilisateurs"
              style="background:#0F3460;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">
@@ -91,11 +107,6 @@ export async function notifyNewClientRegistration(
         </p>
       </div>
     `,
-    attachments: [
-      {
-        filename: kbisFilename,
-        path: kbisAbsolutePath,
-      },
-    ],
+    attachments,
   });
 }

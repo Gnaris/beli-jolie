@@ -4,6 +4,9 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { RTL_LOCALES } from "@/i18n/request";
 import SessionProvider from "@/components/providers/SessionProvider";
+import AccessCodeTracker from "@/components/layout/AccessCodeTracker";
+import GuestBanner from "@/components/layout/GuestBanner";
+import HeartbeatTracker from "@/components/layout/HeartbeatTracker";
 import "./globals.css";
 
 /* ─────────────────────────────────────────────
@@ -77,7 +80,12 @@ export default async function RootLayout({
     >
       <body className="antialiased">
         <NextIntlClientProvider messages={messages}>
-          <SessionProvider>{children}</SessionProvider>
+          <SessionProvider>
+            <GuestBanner />
+            <AccessCodeTracker />
+            <HeartbeatTracker />
+            {children}
+          </SessionProvider>
         </NextIntlClientProvider>
       </body>
     </html>

@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 
@@ -11,6 +12,8 @@ interface ColorData {
   name: string;
   firstImage: string | null;
   unitPrice: number;
+  discountedPrice?: number;
+  hasDiscount?: boolean;
   isPrimary: boolean;
 }
 
@@ -22,15 +25,28 @@ export interface CarouselProduct {
   colors: ColorData[];
 }
 
+export interface ClientDiscountInfo {
+  discountType: "PERCENT" | "AMOUNT";
+  discountValue: number;
+}
+
 interface Props {
   title: string;
   products: CarouselProduct[];
   viewMoreHref: string;
   viewMoreLabel?: string;
   variant?: "white" | "gray";
+  clientDiscount?: ClientDiscountInfo | null;
+  showPromoBadge?: boolean;
 }
 
-function CarouselCard({ product }: { product: CarouselProduct }) {
+function applyClientDiscount(price: number, discount: ClientDiscountInfo | null | undefined): number {
+  if (!discount) return price;
+  if (discount.discountType === "PERCENT") return Math.max(0, price * (1 - discount.discountValue / 100));
+  return Math.max(0, price - discount.discountValue);
+}
+
+function CarouselCard({ product, clientDiscount, showPromoBadge }: { product: CarouselProduct; clientDiscount?: ClientDiscountInfo | null; showPromoBadge?: boolean }) {
   const t = useTranslations("products");
   const tProduct = useTranslations("product");
   const { tp, tc: translateCat } = useProductTranslation();
@@ -38,7 +54,23 @@ function CarouselCard({ product }: { product: CarouselProduct }) {
   const primaryColor =
     product.colors.find((c) => c.isPrimary) ?? product.colors[0];
   const image = primaryColor?.firstImage;
-  const minPrice = Math.min(...product.colors.map((c) => c.unitPrice));
+
+  // Compute prices: find min price across all colors
+  const minBasePrice = Math.min(...product.colors.map((c) => c.unitPrice));
+  const minDiscountedPrice = Math.min(...product.colors.map((c) => c.discountedPrice ?? c.unitPrice));
+  const hasProductDiscount = minDiscountedPrice < minBasePrice;
+
+  // Apply client discount on top of product-discounted price
+  const priceBeforeClient = minDiscountedPrice;
+  const finalPrice = applyClientDiscount(priceBeforeClient, clientDiscount);
+  const hasClientDiscount = !!clientDiscount && finalPrice < priceBeforeClient;
+
+  // The "original" price shown struck through = price before client discount (after product discount)
+  const showStrikethrough = hasClientDiscount || hasProductDiscount;
+  const strikethroughPrice = hasClientDiscount ? priceBeforeClient : minBasePrice;
+
+  // Any product with a discount variant
+  const anyColorHasDiscount = product.colors.some((c) => c.hasDiscount);
 
   return (
     <article className="group shrink-0 w-52 sm:w-60 card card-hover overflow-hidden flex flex-col">
@@ -46,11 +78,13 @@ function CarouselCard({ product }: { product: CarouselProduct }) {
         {/* Image */}
         <div className="aspect-square bg-bg-secondary relative overflow-hidden">
           {image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <Image
               src={image}
               alt={product.name}
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+              fill
+              sizes="240px"
+              className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+              loading="lazy"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
@@ -73,8 +107,16 @@ function CarouselCard({ product }: { product: CarouselProduct }) {
           <span className="absolute top-2.5 left-2.5 bg-bg-primary text-text-muted text-[10px] font-mono px-2 py-0.5 rounded-full border border-border">
             {product.reference}
           </span>
-          {/* Coloris badge */}
-          {product.colors.length > 1 && (
+
+          {/* Promo badge */}
+          {(showPromoBadge || anyColorHasDiscount) && hasProductDiscount && (
+            <span className="absolute top-2.5 right-2.5 bg-[#EF4444] text-white text-[10px] font-bold font-[family-name:var(--font-poppins)] px-2.5 py-0.5 rounded-full shadow-sm uppercase tracking-wide">
+              {tProduct("promo")}
+            </span>
+          )}
+
+          {/* Coloris badge — only if no promo badge */}
+          {product.colors.length > 1 && !(showPromoBadge || anyColorHasDiscount) && (
             <span className="absolute top-2.5 right-2.5 bg-bg-primary text-text-muted text-[10px] font-[family-name:var(--font-roboto)] px-2 py-0.5 rounded-full border border-border">
               {t("colors", { count: product.colors.length })}
             </span>
@@ -108,12 +150,23 @@ function CarouselCard({ product }: { product: CarouselProduct }) {
           {translateCat(product.category)}
         </p>
 
-        <div className="flex items-baseline gap-1 mt-auto">
-          <span className="font-[family-name:var(--font-poppins)] font-semibold text-base text-text-primary">
-            {minPrice.toFixed(2)} &euro;
+        {/* Prix */}
+        <div className="flex items-baseline gap-1.5 mt-auto flex-wrap">
+          {showStrikethrough && (
+            <span className="font-[family-name:var(--font-roboto)] text-xs text-text-muted line-through">
+              {strikethroughPrice.toFixed(2)} &euro;
+            </span>
+          )}
+          {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
+            <span className="text-[10px] font-[family-name:var(--font-roboto)] text-[#EF4444] font-medium">
+              -{clientDiscount.discountValue}%
+            </span>
+          )}
+          <span className={`font-[family-name:var(--font-poppins)] font-semibold text-base ${showStrikethrough ? "text-[#EF4444]" : "text-text-primary"}`}>
+            {(hasClientDiscount ? finalPrice : minDiscountedPrice).toFixed(2)} &euro;
           </span>
           <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-            {tProduct("perUnit")}
+            {tProduct("htUnit")}
           </span>
         </div>
       </div>
@@ -127,6 +180,8 @@ export default function ProductCarousel({
   viewMoreHref,
   viewMoreLabel = "Voir plus",
   variant = "white",
+  clientDiscount,
+  showPromoBadge,
 }: Props) {
   const tCommon = useTranslations("common");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -141,7 +196,7 @@ export default function ProductCarousel({
 
   return (
     <section
-      className={`py-12 ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"}`}
+      className={`py-12 animate-slide-up ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"}`}
     >
       <div className="container-site">
         {/* Header */}
@@ -207,7 +262,7 @@ export default function ProductCarousel({
           className="flex gap-3 overflow-x-auto pb-2 scroll-smooth no-scrollbar"
         >
           {products.map((p) => (
-            <CarouselCard key={p.id} product={p} />
+            <CarouselCard key={p.id} product={p} clientDiscount={clientDiscount} showPromoBadge={showPromoBadge} />
           ))}
         </div>
       </div>

@@ -54,6 +54,9 @@
       "kbisRequired": "Kbis文件为必填项。",
       "kbisInvalidFormat": "格式无效。可接受：PDF、JPG、PNG（最大5MB）。",
       "kbisTooBig": "文件超过5MB限制。",
+      "sectionMessage": "您的留言",
+      "message": "给我们团队的留言",
+      "messagePlaceholder": "介绍您的业务、需求或任何有助于审核您申请的信息...",
       "password": "密码",
       "passwordHint": "至少8个字符、1个大写字母、1个数字",
       "confirm": "确认密码",
@@ -128,7 +131,9 @@
     "bestsellersMore": "查看更多",
     "viewAll": "查看全部产品",
     "collections": "我们的系列",
-    "collectionsDesc": "探索我们的主题系列"
+    "collectionsDesc": "探索我们的主题系列",
+    "deals": "特价优惠",
+    "dealsMore": "查看所有优惠"
   },
   "brand": {
     "steelTitle": "304不锈钢",
@@ -179,6 +184,10 @@
     "filterMax": "最高",
     "filterBestseller": "热销产品",
     "filterNew": "新品上市",
+    "filterPromo": "促销中",
+    "filterOrdered": "已订购过",
+    "filterNotOrdered": "从未订购",
+    "hideOutOfStock": "隐藏缺货产品",
     "resetFilters": "重置筛选",
     "activeFilters": "当前筛选",
     "results": "个结果",
@@ -187,7 +196,16 @@
     "loadMore": "加载更多",
     "loading": "加载中...",
     "breadcrumb": "产品",
-    "colors": "{count}种颜色"
+    "colors": "{count}种颜色",
+    "filterSearch": "搜索",
+    "filterSearchPlaceholder": "名称、编号、标签...",
+    "filterAllSubcategories": "全部",
+    "filterAllTags": "所有标签",
+    "filterFeatured": "精选",
+    "filtersLabel": "筛选",
+    "productCount": "{count} 件商品",
+    "productCount_plural": "{count} 件商品",
+    "allProductsShown": "已显示全部商品 ({count})"
   },
   "product": {
     "ref": "编号",
@@ -228,7 +246,16 @@
     "height": "高度",
     "diameter": "直径",
     "circumference": "周长",
-    "preview": "预览"
+    "preview": "预览",
+    "badgeBestSeller": "畅销",
+    "badgeNew": "新品",
+    "colorCount": "{count}种颜色",
+    "add": "添加",
+    "errorNoOption": "销售选项不可用。",
+    "errorAddToCart": "出错，请重试。",
+    "packAutoDistribution": "以件为单位输入 — 自动分配到套装",
+    "promo": "促销",
+    "htUnit": "不含税 / 件"
   },
   "cart": {
     "title": "我的购物车",
@@ -447,7 +474,9 @@
     "from": "起",
     "packOf": "套装 x{qty}",
     "outOfStock": "缺货",
-    "perUnit": "/ 件"
+    "perUnit": "/ 件",
+    "noResults": "无结果",
+    "noResultsDesc": "您的收藏中没有符合所选筛选条件的商品。"
   },
   "cancelOrder": {
     "confirmTitle": "取消 {orderNumber}？",

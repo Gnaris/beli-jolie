@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 
+export const revalidate = 7200; // ISR: revalidate every 2 hours
+
 export const metadata: Metadata = {
   title: "Collections — Beli & Jolie",
   description: "Decouvrez nos collections de bijoux en acier inoxydable.",

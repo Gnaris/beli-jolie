@@ -31,14 +31,14 @@ export default function HeroBanner({ isLoggedIn, productCount }: HeroBannerProps
               <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37]" />
               {t("heroBadge")}
             </div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-4xl md:text-5xl font-semibold leading-[1.1] text-text-inverse mb-6 drop-shadow-lg">
+            <h1 className="font-[family-name:var(--font-poppins)] text-4xl md:text-5xl font-semibold leading-[1.1] text-text-inverse mb-6 drop-shadow-lg animate-slide-up">
               {t("heroTitle1")}<br />
               {t("heroTitle2")}
             </h1>
-            <p className="text-white/70 text-base leading-relaxed font-[family-name:var(--font-roboto)] mb-10 max-w-md">
+            <p className="text-white/70 text-base leading-relaxed font-[family-name:var(--font-roboto)] mb-10 max-w-md animate-slide-up stagger-2">
               {t("heroDesc", { count: productCount })}
             </p>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3 animate-zoom-fade stagger-4">
               {isLoggedIn ? (
                 <Link href="/produits" className="inline-flex items-center gap-2 bg-bg-primary text-text-primary text-sm font-medium px-6 py-2.5 rounded-lg hover:bg-bg-tertiary transition-colors font-[family-name:var(--font-roboto)] shadow-lg">
                   {t("heroCta")}

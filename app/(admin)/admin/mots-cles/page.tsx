@@ -9,6 +9,7 @@ export default async function MotsClesPage() {
     orderBy: { name: "asc" },
     include: {
       _count: { select: { products: true } },
+      translations: true,
     },
   });
 
@@ -22,7 +23,12 @@ export default async function MotsClesPage() {
       </div>
 
       <TagsManager
-        initialTags={tags.map((t) => ({ id: t.id, name: t.name, productCount: t._count.products }))}
+        initialTags={tags.map((t) => ({
+          id: t.id,
+          name: t.name,
+          productCount: t._count.products,
+          translations: Object.fromEntries(t.translations.map((tr) => [tr.locale, tr.name])),
+        }))}
       />
     </div>
   );

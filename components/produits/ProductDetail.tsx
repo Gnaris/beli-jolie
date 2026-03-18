@@ -2,13 +2,21 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { addToCart } from "@/app/actions/client/cart";
 
-interface SaleOptionData {
+interface VariantData {
   id: string;
+  colorId: string;
+  colorName: string;
+  colorHex: string | null;
+  unitPrice: number;
+  weight: number;
+  stock: number;
+  isPrimary: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   size: string | null;
@@ -16,16 +24,9 @@ interface SaleOptionData {
   discountValue: number | null;
 }
 
-interface ColorData {
-  id: string;
-  name: string;
-  hex: string | null;
-  unitPrice: number;
-  weight: number;
-  stock: number;
-  isPrimary: boolean;
+interface ColorImageData {
+  colorId: string;
   images: { path: string; order: number }[];
-  saleOptions: SaleOptionData[];
 }
 
 interface CompositionData {
@@ -50,6 +51,11 @@ interface RelatedProduct {
   minPrice: number;
 }
 
+export interface ClientDiscountInfo {
+  discountType: "PERCENT" | "AMOUNT";
+  discountValue: number;
+}
+
 interface ProductDetailProps {
   name: string;
   reference: string;
@@ -57,17 +63,19 @@ interface ProductDetailProps {
   category: string;
   subCategories: string[];
   tags: { id: string; name: string }[];
-  colors: ColorData[];
+  variants: VariantData[];
+  colorImages: ColorImageData[];
   compositions: CompositionData[];
   dimensions: DimensionsData;
   similarProducts: RelatedProduct[];
+  clientDiscount?: ClientDiscountInfo | null;
 }
 
-function computePrice(unitPrice: number, opt: SaleOptionData): number {
-  const total = opt.saleType === "UNIT" ? unitPrice : unitPrice * (opt.packQuantity ?? 1);
-  if (!opt.discountType || !opt.discountValue) return total;
-  if (opt.discountType === "PERCENT") return Math.max(0, total * (1 - opt.discountValue / 100));
-  return Math.max(0, total - opt.discountValue);
+function computePrice(v: VariantData): number {
+  const total = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
+  if (!v.discountType || !v.discountValue) return total;
+  if (v.discountType === "PERCENT") return Math.max(0, total * (1 - v.discountValue / 100));
+  return Math.max(0, total - v.discountValue);
 }
 
 function RelatedCard({ product }: { product: RelatedProduct }) {
@@ -79,11 +87,13 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
     >
       <div className="aspect-square bg-bg-tertiary overflow-hidden">
         {product.primaryImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={product.primaryImage}
             alt={tp(product.name)}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            fill
+            sizes="(max-width: 640px) 50vw, 25vw"
+            className="object-cover group-hover:scale-105 transition-transform duration-500"
+            loading="lazy"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
@@ -107,48 +117,72 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
   );
 }
 
+function applyClientDiscount(price: number, discount: ClientDiscountInfo | null | undefined): number {
+  if (!discount) return price;
+  if (discount.discountType === "PERCENT") return Math.max(0, price * (1 - discount.discountValue / 100));
+  return Math.max(0, price - discount.discountValue);
+}
+
 export default function ProductDetail({
-  name, reference, description, category, subCategories, tags, colors,
-  compositions, dimensions, similarProducts,
+  name, reference, description, category, subCategories, tags, variants,
+  colorImages, compositions, dimensions, similarProducts, clientDiscount,
 }: ProductDetailProps) {
   const router = useRouter();
   const t = useTranslations("product");
   const { tp, tc } = useProductTranslation();
-  const [isPending, startTransition]          = useTransition();
-  const primaryColor = colors.find((c) => c.isPrimary) ?? colors[0];
-  const [selected, setSelected]               = useState<ColorData>(primaryColor);
-  const [hoveredColor, setHoveredColor]       = useState<ColorData | null>(null);
-  const [activeImageIdx, setActiveImageIdx]   = useState(0);
-  const [hoveredImageIdx, setHoveredImageIdx] = useState<number | null>(null);
-  const [zoomedSrc, setZoomedSrc]             = useState<string | null>(null);
-  const [quantities, setQuantities]           = useState<Record<string, number>>({});
-  const [addedOptId, setAddedOptId]           = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
-  function handleAddToCart(saleOptionId: string, qty: number) {
+  // Unique colors derived from variants
+  const uniqueColors = [...new Map(
+    variants.map(v => [v.colorId, { id: v.colorId, name: v.colorName, hex: v.colorHex }])
+  ).values()];
+
+  const primaryColorId = variants.find(v => v.isPrimary)?.colorId ?? uniqueColors[0]?.id ?? "";
+
+  const [selectedColorId, setSelectedColorId]     = useState<string>(primaryColorId);
+  const [hoveredColorId, setHoveredColorId]       = useState<string | null>(null);
+  const [activeImageIdx, setActiveImageIdx]       = useState(0);
+  const [hoveredImageIdx, setHoveredImageIdx]     = useState<number | null>(null);
+  const [zoomedSrc, setZoomedSrc]                 = useState<string | null>(null);
+  const [quantities, setQuantities]               = useState<Record<string, number>>({});
+  const [addedOptId, setAddedOptId]               = useState<string | null>(null);
+
+  const selectedVariants = variants.filter(v => v.colorId === selectedColorId);
+  const selectedImgs     = colorImages.find(ci => ci.colorId === selectedColorId)?.images ?? [];
+  const displayedImgs    = hoveredColorId
+    ? colorImages.find(ci => ci.colorId === hoveredColorId)?.images ?? []
+    : selectedImgs;
+
+  const displayedImage = hoveredColorId
+    ? displayedImgs[0]?.path ?? null
+    : selectedImgs[hoveredImageIdx ?? activeImageIdx]?.path ?? null;
+
+  const displayedColorName = uniqueColors.find(c => c.id === (hoveredColorId ?? selectedColorId))?.name ?? "";
+
+  const minPrice = variants.length > 0 ? Math.min(...variants.map(v => computePrice(v))) : 0;
+  const minBasePrice = variants.length > 0 ? Math.min(...variants.map(v => v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1))) : 0;
+  const hasAnyProductDiscount = minPrice < minBasePrice;
+  const minPriceAfterClient = applyClientDiscount(minPrice, clientDiscount);
+  const hasClientDiscount = !!clientDiscount && minPriceAfterClient < minPrice;
+
+  function handleColorClick(colorId: string) {
+    setSelectedColorId(colorId);
+    setHoveredColorId(null);
+    setActiveImageIdx(0);
+    setHoveredImageIdx(null);
+  }
+
+  function handleAddToCart(variantId: string, qty: number) {
     startTransition(async () => {
       try {
-        await addToCart(saleOptionId, qty);
-        setAddedOptId(saleOptionId);
-        router.refresh(); // rafraichit le badge panier dans la Navbar
+        await addToCart(variantId, qty);
+        setAddedOptId(variantId);
+        router.refresh();
         setTimeout(() => setAddedOptId(null), 2000);
       } catch {
         router.push("/connexion");
       }
     });
-  }
-
-  const displayed = hoveredColor ?? selected;
-  const displayedImage = hoveredColor
-    ? hoveredColor.images[0]?.path ?? null
-    : selected.images[hoveredImageIdx ?? activeImageIdx]?.path ?? null;
-
-  const maxPrice = Math.max(...colors.map((c) => c.unitPrice));
-
-  function handleColorClick(c: ColorData) {
-    setSelected(c);
-    setHoveredColor(null);
-    setActiveImageIdx(0);
-    setHoveredImageIdx(null);
   }
 
   const dimRows: { label: string; value: number }[] = [
@@ -170,11 +204,13 @@ export default function ProductDetail({
             onClick={() => displayedImage && setZoomedSrc(displayedImage)}
           >
             {displayedImage ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <Image
                 src={displayedImage}
-                alt={`${tp(name)} — ${tp(displayed.name)}`}
-                className="w-full h-full object-cover transition-all duration-300"
+                alt={`${tp(name)} — ${tp(displayedColorName)}`}
+                fill
+                sizes="(max-width: 1024px) 100vw, 50vw"
+                className="object-contain transition-all duration-300"
+                priority
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
@@ -194,18 +230,20 @@ export default function ProductDetail({
             )}
           </div>
 
-          {selected.images.length > 1 && (
+          {selectedImgs.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {selected.images.map((img, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+              {selectedImgs.map((img, i) => (
+                <Image
                   key={i}
                   src={img.path}
                   alt={`${tp(name)} ${i + 1}`}
+                  width={64}
+                  height={64}
+                  sizes="64px"
                   onMouseEnter={() => setHoveredImageIdx(i)}
                   onMouseLeave={() => setHoveredImageIdx(null)}
                   onClick={() => setActiveImageIdx(i)}
-                  className={`w-16 h-16 object-cover rounded-lg cursor-pointer transition-all shrink-0 border-2 ${
+                  className={`w-16 h-16 object-contain rounded-lg cursor-pointer transition-all shrink-0 border-2 ${
                     activeImageIdx === i
                       ? "border-text-primary shadow-sm"
                       : "border-border hover:border-border-dark"
@@ -225,10 +263,22 @@ export default function ProductDetail({
 
           {/* Prix */}
           <div>
-            <p className="font-[family-name:var(--font-poppins)] text-3xl font-semibold text-text-primary">
-              {maxPrice.toFixed(2)} €
-              <span className="text-sm text-text-muted font-normal ml-1">{t("perUnit")}</span>
-            </p>
+            {(hasClientDiscount || hasAnyProductDiscount) && (
+              <p className="font-[family-name:var(--font-roboto)] text-sm text-text-muted line-through">
+                {(hasClientDiscount ? minPrice : minBasePrice).toFixed(2)} €
+              </p>
+            )}
+            <div className="flex items-baseline gap-2">
+              {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
+                <span className="text-sm font-[family-name:var(--font-roboto)] text-[#EF4444] font-medium">
+                  -{clientDiscount.discountValue}%
+                </span>
+              )}
+              <p className={`font-[family-name:var(--font-poppins)] text-3xl font-semibold ${(hasClientDiscount || hasAnyProductDiscount) ? "text-[#EF4444]" : "text-text-primary"}`}>
+                {(hasClientDiscount ? minPriceAfterClient : minPrice).toFixed(2)} €
+                <span className="text-sm text-text-muted font-normal ml-1">{t("htUnit")}</span>
+              </p>
+            </div>
           </div>
 
           {/* Nom */}
@@ -252,22 +302,22 @@ export default function ProductDetail({
           )}
 
           {/* Selecteur couleur */}
-          {colors.length > 0 && (
+          {uniqueColors.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
-                {t("color")} — <span className="font-normal text-text-primary">{tp(displayed.name)}</span>
+                {t("color")} — <span className="font-normal text-text-primary">{tp(displayedColorName)}</span>
               </p>
               <div className="flex gap-2.5 flex-wrap">
-                {colors.map((c) => (
+                {uniqueColors.map((c) => (
                   <button
                     key={c.id}
                     type="button"
                     title={tp(c.name)}
-                    onMouseEnter={() => setHoveredColor(c)}
-                    onMouseLeave={() => setHoveredColor(null)}
-                    onClick={() => handleColorClick(c)}
+                    onMouseEnter={() => setHoveredColorId(c.id)}
+                    onMouseLeave={() => setHoveredColorId(null)}
+                    onClick={() => handleColorClick(c.id)}
                     className={`w-8 h-8 rounded-full border-2 transition-all ${
-                      selected.id === c.id
+                      selectedColorId === c.id
                         ? "border-text-primary scale-110 shadow-md"
                         : "border-border hover:border-border-dark hover:scale-105"
                     }`}
@@ -340,35 +390,39 @@ export default function ProductDetail({
           </div>
 
           {/* Options de commande */}
-          {selected.saleOptions.length > 0 && (
+          {selectedVariants.length > 0 && (
             <div className="border-t border-border pt-5 space-y-3">
               <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
-                {t("orderOptions")} — {tp(selected.name)}
+                {t("orderOptions")} — {tp(displayedColorName)}
               </p>
-              {selected.saleOptions.map((opt) => {
-                const price     = computePrice(selected.unitPrice, opt);
-                const basePrice = opt.saleType === "UNIT"
-                  ? selected.unitPrice
-                  : selected.unitPrice * (opt.packQuantity ?? 1);
+              {selectedVariants.map((v) => {
+                const price     = computePrice(v);
+                const basePrice = v.saleType === "UNIT"
+                  ? v.unitPrice
+                  : v.unitPrice * (v.packQuantity ?? 1);
                 const hasDiscount    = price < basePrice;
-                const effectiveStock = opt.saleType === "PACK" && opt.packQuantity
-                  ? Math.floor(selected.stock / opt.packQuantity)
-                  : selected.stock;
-                const qty = quantities[opt.id] ?? 1;
+                const clientPrice    = applyClientDiscount(price, clientDiscount);
+                const hasClientDsc   = !!clientDiscount && clientPrice < price;
+                const anyDsc         = hasDiscount || hasClientDsc;
+                const effectiveStock = v.saleType === "PACK" && v.packQuantity
+                  ? Math.floor(v.stock / v.packQuantity)
+                  : v.stock;
+                const qty = quantities[v.id] ?? 1;
+                const displayPrice = hasClientDsc ? clientPrice : price;
 
                 return (
                   <div
-                    key={opt.id}
+                    key={v.id}
                     className="bg-bg-primary border border-border rounded-xl px-4 py-4 space-y-3 hover:border-border-dark transition-colors"
                   >
                     {/* Libelle + prix */}
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] flex items-center flex-wrap gap-1.5">
-                          {opt.saleType === "UNIT" ? t("unitOption") : t("packOption", { qty: opt.packQuantity })}
-                          {opt.size && (
+                          {v.saleType === "UNIT" ? t("unitOption") : t("packOption", { qty: v.packQuantity ?? 1 })}
+                          {v.size && (
                             <span className="text-xs font-normal bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
-                              {t("sizeLabel", { size: opt.size })}
+                              {t("sizeLabel", { size: v.size })}
                             </span>
                           )}
                         </p>
@@ -377,19 +431,27 @@ export default function ProductDetail({
                             ? <span className="text-text-secondary">&#10003; {effectiveStock} {effectiveStock !== 1 ? t("available_plural") : t("available")}</span>
                             : <span className="text-text-primary">{t("outOfStock")}</span>
                           }
-                          {" · "}{selected.weight} {t("kgPerUnit")}
+                          {" · "}{v.weight} {t("kgPerUnit")}
                         </p>
                       </div>
                       <div className="text-right shrink-0">
                         {hasDiscount && (
                           <p className="text-xs text-text-muted line-through">{basePrice.toFixed(2)} €</p>
                         )}
-                        <p className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${hasDiscount ? "text-accent-dark" : "text-text-primary"}`}>
-                          {price.toFixed(2)} €
+                        {hasClientDsc && (
+                          <div className="flex items-center gap-1 justify-end">
+                            <p className="text-xs text-text-muted line-through">{price.toFixed(2)} €</p>
+                            {clientDiscount?.discountType === "PERCENT" && (
+                              <span className="text-[10px] text-[#EF4444] font-medium">-{clientDiscount.discountValue}%</span>
+                            )}
+                          </div>
+                        )}
+                        <p className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
+                          {displayPrice.toFixed(2)} €
                         </p>
                         {qty > 1 && (
                           <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-                            = {(price * qty).toFixed(2)} € total
+                            = {(displayPrice * qty).toFixed(2)} € total
                           </p>
                         )}
                       </div>
@@ -400,7 +462,7 @@ export default function ProductDetail({
                       <div className="flex items-center border border-border rounded-lg overflow-hidden">
                         <button
                           type="button"
-                          onClick={() => setQuantities((q) => ({ ...q, [opt.id]: Math.max(1, (q[opt.id] ?? 1) - 1) }))}
+                          onClick={() => setQuantities((q) => ({ ...q, [v.id]: Math.max(1, (q[v.id] ?? 1) - 1) }))}
                           className="w-8 h-9 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
                         >−</button>
                         <input
@@ -409,26 +471,26 @@ export default function ProductDetail({
                           max={effectiveStock || undefined}
                           value={qty}
                           onChange={(e) => {
-                            const v = parseInt(e.target.value);
-                            if (!isNaN(v) && v >= 1) setQuantities((q) => ({ ...q, [opt.id]: v }));
+                            const val = parseInt(e.target.value);
+                            if (!isNaN(val) && val >= 1) setQuantities((q) => ({ ...q, [v.id]: val }));
                           }}
                           className="w-12 h-9 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-x border-border focus:outline-none bg-bg-primary"
                         />
                         <button
                           type="button"
-                          onClick={() => setQuantities((q) => ({ ...q, [opt.id]: (q[opt.id] ?? 1) + 1 }))}
+                          onClick={() => setQuantities((q) => ({ ...q, [v.id]: (q[v.id] ?? 1) + 1 }))}
                           className="w-8 h-9 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
                         >+</button>
                       </div>
                       <button
                         type="button"
                         disabled={effectiveStock === 0 || isPending}
-                        onClick={() => handleAddToCart(opt.id, qty)}
+                        onClick={() => handleAddToCart(v.id, qty)}
                         className={`flex-1 h-9 text-text-inverse text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg ${
-                          addedOptId === opt.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
+                          addedOptId === v.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
                         }`}
                       >
-                        {addedOptId === opt.id ? (
+                        {addedOptId === v.id ? (
                           <>
                             <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
