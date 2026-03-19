@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getCachedDashboardStats } from "@/lib/cached-data";
 import DashboardParticlesLoader from "@/components/admin/dashboard/DashboardParticlesLoader";
 import DashboardChartsLoader from "@/components/admin/dashboard/DashboardChartsLoader";
 import type { MonthlyPoint, StatusPoint, TopProduct } from "@/components/admin/dashboard/DashboardCharts";
@@ -16,35 +17,20 @@ export default async function AdminDashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
-  // Date helpers
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOf6MonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-
   const onlineThreshold = new Date(Date.now() - 2 * 60 * 1000); // 2 minutes
 
-  // Fetch all data in parallel
+  // Cached aggregate stats (5min TTL) + real-time queries in parallel
   const [
-    totalClients,
+    stats,
     pendingCount,
-    approvedCount,
     rejectedCount,
     onlineCount,
     onlineUsers,
     latestPending,
-    totalOrders,
-    totalRevenueAgg,
-    totalProducts,
-    totalCollections,
-    ordersThisMonth,
-    revenueThisMonthAgg,
-    recentOrders,
-    orderStatusRaw,
-    topProductsRaw,
   ] = await Promise.all([
-    prisma.user.count({ where: { role: "CLIENT" } }),
+    getCachedDashboardStats(),
     prisma.user.count({ where: { status: "PENDING" } }),
-    prisma.user.count({ where: { status: "APPROVED", role: "CLIENT" } }),
     prisma.user.count({ where: { status: "REJECTED" } }),
     prisma.user.count({
       where: { role: "CLIENT", activity: { lastSeenAt: { gte: onlineThreshold } } },
@@ -54,10 +40,7 @@ export default async function AdminDashboardPage() {
       orderBy: { activity: { lastSeenAt: "desc" } },
       take: 5,
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        company: true,
+        id: true, firstName: true, lastName: true, company: true,
         activity: { select: { currentPage: true } },
       },
     }),
@@ -66,57 +49,17 @@ export default async function AdminDashboardPage() {
       orderBy: { createdAt: "desc" },
       take: 5,
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        company: true,
-        email: true,
-        siret: true,
-        createdAt: true,
+        id: true, firstName: true, lastName: true, company: true,
+        email: true, siret: true, createdAt: true,
       },
-    }),
-    prisma.order.count(),
-    prisma.order.aggregate({
-      _sum: { totalTTC: true },
-      where: { status: { not: "CANCELLED" } },
-    }),
-    prisma.product.count(),
-    prisma.collection.count(),
-    prisma.order.count({
-      where: { createdAt: { gte: startOfMonth } },
-    }),
-    prisma.order.aggregate({
-      _sum: { totalTTC: true },
-      where: {
-        createdAt: { gte: startOfMonth },
-        status: { not: "CANCELLED" },
-      },
-    }),
-    // For monthly chart: last 6 months of orders
-    prisma.order.findMany({
-      where: {
-        createdAt: { gte: startOf6MonthsAgo },
-        status: { not: "CANCELLED" },
-      },
-      select: { createdAt: true, totalTTC: true },
-    }),
-    // Status distribution
-    prisma.order.groupBy({
-      by: ["status"],
-      _count: true,
-    }),
-    // Top 5 products
-    prisma.orderItem.groupBy({
-      by: ["productName"],
-      _sum: { quantity: true },
-      orderBy: { _sum: { quantity: "desc" } },
-      take: 5,
     }),
   ]);
 
-  // Compute scalar values (convert Decimal to Number)
-  const totalRevenue = Number(totalRevenueAgg._sum.totalTTC ?? 0);
-  const revenueThisMonth = Number(revenueThisMonthAgg._sum.totalTTC ?? 0);
+  const {
+    totalClients, approvedCount, totalOrders, totalRevenue,
+    totalProducts, totalCollections, ordersThisMonth, revenueThisMonth,
+    recentOrders, orderStatusRaw, topProductsRaw,
+  } = stats;
 
   // Build monthly chart data (6 months, oldest first)
   const monthLabels: { key: string; label: string }[] = [];
@@ -136,7 +79,7 @@ export default async function AdminDashboardPage() {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     if (monthlyMap[key]) {
       monthlyMap[key].orders += 1;
-      monthlyMap[key].revenue += Number(order.totalTTC ?? 0);
+      monthlyMap[key].revenue += order.totalTTC;
     }
   }
 
@@ -146,17 +89,11 @@ export default async function AdminDashboardPage() {
     revenue: Math.round(monthlyMap[key].revenue * 100) / 100,
   }));
 
-  // Status distribution
-  const statusDist: StatusPoint[] = orderStatusRaw.map((s) => ({
-    status: s.status,
-    count: s._count,
-  }));
+  // Status distribution (pre-mapped from cache)
+  const statusDist: StatusPoint[] = orderStatusRaw;
 
-  // Top products
-  const topProducts: TopProduct[] = topProductsRaw.map((p) => ({
-    name: p.productName,
-    qty: Number(p._sum.quantity ?? 0),
-  }));
+  // Top products (pre-mapped from cache)
+  const topProducts: TopProduct[] = topProductsRaw;
 
   // Today date label
   const todayLabel = now.toLocaleDateString("fr-FR", {

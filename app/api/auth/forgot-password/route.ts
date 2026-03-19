@@ -4,8 +4,9 @@ import { createPasswordResetToken, sendPasswordResetEmail } from "@/lib/password
 
 export async function POST(req: NextRequest) {
   try {
-    const { email } = await req.json();
-    if (!email || typeof email !== "string") {
+    const body = await req.json();
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Email requis." }, { status: 400 });
     }
     // Vérifier que l'utilisateur existe

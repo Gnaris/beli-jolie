@@ -63,7 +63,7 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
 
 async function fetchImages(productIds: string[]) {
   const colorImages = productIds.length > 0
-    ? await prisma.productColorImage.findMany({ where: { productId: { in: productIds } }, orderBy: { order: "asc" } })
+    ? await prisma.productColorImage.findMany({ where: { productId: { in: productIds } }, orderBy: { order: "asc" }, select: { productId: true, colorId: true, path: true } })
     : [];
   const imageMap = new Map<string, Map<string, string>>();
   for (const img of colorImages) {

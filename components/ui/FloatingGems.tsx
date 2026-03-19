@@ -40,19 +40,29 @@ function DiamondSVG({ size, color }: { size: number; color: string }) {
   );
 }
 
-function StarSVG({ size, color }: { size: number; color: string }) {
+// Pre-computed star points for each size used in GEMS to avoid hydration mismatches
+const STAR_POINTS: Record<number, string> = {};
+function getStarPoints(size: number): string {
+  if (STAR_POINTS[size]) return STAR_POINTS[size];
   const r = size / 2;
-  const points = Array.from({ length: 5 }, (_, i) => {
+  const pts = Array.from({ length: 5 }, (_, i) => {
     const outerAngle = (i * 4 * Math.PI) / 5 - Math.PI / 2;
     const innerAngle = ((i * 4 + 2) * Math.PI) / 5 - Math.PI / 2;
     return [
-      `${r + Math.cos(outerAngle) * r},${r + Math.sin(outerAngle) * r}`,
-      `${r + Math.cos(innerAngle) * r * 0.42},${r + Math.sin(innerAngle) * r * 0.42}`,
+      `${(r + Math.cos(outerAngle) * r).toFixed(2)},${(r + Math.sin(outerAngle) * r).toFixed(2)}`,
+      `${(r + Math.cos(innerAngle) * r * 0.42).toFixed(2)},${(r + Math.sin(innerAngle) * r * 0.42).toFixed(2)}`,
     ];
   }).flat().join(" ");
+  STAR_POINTS[size] = pts;
+  return pts;
+}
+// Pre-compute for all sizes used in GEMS
+[16, 14, 12, 18].forEach(getStarPoints);
+
+function StarSVG({ size, color }: { size: number; color: string }) {
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <polygon points={points} fill={color} />
+      <polygon points={getStarPoints(size)} fill={color} />
     </svg>
   );
 }

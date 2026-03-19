@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { clearAutoMaintenance } from "@/lib/health";
 import type { ProductDisplayConfig } from "@/lib/product-display";
 
 async function requireAdmin() {
@@ -37,6 +38,10 @@ export async function setMaintenanceMode(
       update: { value: String(enabled) },
       create: { key: "maintenance_mode", value: String(enabled) },
     });
+    // If admin disables maintenance, also clear the auto-maintenance flag
+    if (!enabled) {
+      clearAutoMaintenance();
+    }
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/api/site-status");

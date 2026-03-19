@@ -246,7 +246,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
       {/* Panneau de filtres déroulant */}
       {filtersOpen && (
         <div className="space-y-4 pt-3 border-t border-border">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
             {/* Catégorie — applies immediately */}
             <div>
               <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">

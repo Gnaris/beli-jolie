@@ -15,50 +15,60 @@ const STATUS_LABELS: Record<string, { label: string; badge: string }> = {
   CANCELLED:  { label: "Annulée",         badge: "badge badge-error" },
 };
 
+const PER_PAGE = 30;
+
 export default async function AdminCommandesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; q?: string }>;
+  searchParams: Promise<{ status?: string; q?: string; page?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
-  const { status, q } = await searchParams;
+  const { status, q, page: pageParam = "1" } = await searchParams;
+  const currentPage = Math.max(1, parseInt(pageParam));
 
-  const orders = await prisma.order.findMany({
-    where: {
-      ...(status ? { status: status as never } : {}),
-      ...(q
-        ? {
-            OR: [
-              { orderNumber: { contains: q } },
-              { clientCompany: { contains: q } },
-              { clientEmail: { contains: q } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id:            true,
-      orderNumber:   true,
-      status:        true,
-      clientCompany: true,
-      clientEmail:   true,
-      totalTTC:      true,
-      carrierName:   true,
-      eeTrackingId:  true,
-      createdAt:     true,
-      _count: { select: { items: true } },
-    },
-  });
+  const where = {
+    ...(status ? { status: status as never } : {}),
+    ...(q
+      ? {
+          OR: [
+            { orderNumber: { contains: q } },
+            { clientCompany: { contains: q } },
+            { clientEmail: { contains: q } },
+          ],
+        }
+      : {}),
+  };
 
-  const counts = await prisma.order.groupBy({
-    by: ["status"],
-    _count: true,
-  });
+  const [orders, total, counts] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (currentPage - 1) * PER_PAGE,
+      take: PER_PAGE,
+      select: {
+        id:            true,
+        orderNumber:   true,
+        status:        true,
+        clientCompany: true,
+        clientEmail:   true,
+        totalTTC:      true,
+        carrierName:   true,
+        eeTrackingId:  true,
+        createdAt:     true,
+        _count: { select: { items: true } },
+      },
+    }),
+    prisma.order.count({ where }),
+    prisma.order.groupBy({
+      by: ["status"],
+      _count: true,
+    }),
+  ]);
+
   const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count]));
-  const total = orders.length;
+  const totalPages = Math.ceil(total / PER_PAGE);
 
   return (
     <div className="space-y-6">
@@ -180,6 +190,36 @@ export default async function AdminCommandesPage({
               </Link>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-1">
+          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+            {(currentPage - 1) * PER_PAGE + 1}–{Math.min(currentPage * PER_PAGE, total)} sur {total}
+          </p>
+          <div className="flex items-center gap-1">
+            {currentPage > 1 && (
+              <Link
+                href={`/admin/commandes?${new URLSearchParams({ ...(status ? { status } : {}), ...(q ? { q } : {}), page: String(currentPage - 1) }).toString()}`}
+                className="px-3 py-1.5 text-xs font-[family-name:var(--font-roboto)] border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+              >
+                ← Préc.
+              </Link>
+            )}
+            <span className="px-3 py-1.5 text-xs font-[family-name:var(--font-roboto)] font-medium text-text-primary">
+              {currentPage} / {totalPages}
+            </span>
+            {currentPage < totalPages && (
+              <Link
+                href={`/admin/commandes?${new URLSearchParams({ ...(status ? { status } : {}), ...(q ? { q } : {}), page: String(currentPage + 1) }).toString()}`}
+                className="px-3 py-1.5 text-xs font-[family-name:var(--font-roboto)] border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+              >
+                Suiv. →
+              </Link>
+            )}
+          </div>
         </div>
       )}
     </div>

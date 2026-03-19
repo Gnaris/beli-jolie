@@ -8,6 +8,7 @@ import CancelOrderButton from "@/components/client/CancelOrderButton";
 import SuccessToast from "@/components/client/SuccessToast";
 import BankTransferDetails from "@/components/client/BankTransferDetails";
 import { STATUS_CONFIG, getTrackingUrl } from "@/app/(client)/commandes/page";
+import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
 
 export const metadata: Metadata = {
@@ -52,7 +53,8 @@ export default async function CommandeDetailPage({
   const isCancelled = order.status === "CANCELLED";
 
   return (
-    <div className="p-6 md:p-10 w-full space-y-6">
+    <div className="p-4 md:p-6 lg:p-10 w-full space-y-6 relative overflow-hidden">
+      <ScatteredDecorations variant="dense" seed={3} />
       <SuccessToast />
 
       {/* Fil d'Ariane */}

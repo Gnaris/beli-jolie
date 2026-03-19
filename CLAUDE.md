@@ -144,10 +144,30 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - Link: `/reinitialiser-mot-de-passe?token=xxx` → `POST /api/auth/reset-password`
 - Admin password reset: via `/admin/parametres` → `AdminPasswordResetButton` sends email to admin address
 
+### Caching Layer
+`lib/cached-data.ts` centralises all `unstable_cache` calls. Available cached functions:
+- `getCachedSiteConfig(key)` — per-key cache (5min TTL, tag: `site-config`)
+- `getCachedCategories/Collections/Colors/Tags` — reference data (5min)
+- `getCachedProductCount` — total product count (5min)
+- `getCachedBestsellerRefs(limit)` — top selling references (10min)
+- `getCachedAdminWarnings()` — admin sidebar warning counts (5min, tags: products/categories/colors/tags/compositions)
+- `getCachedDashboardStats()` — 11 aggregate queries for admin dashboard (5min, tags: orders/products/users)
+
+When adding new cached data: use `unstable_cache` from `next/cache`, always provide a unique cache key array and relevant tags. Call `revalidateTag()` in server actions that modify the underlying data.
+
+### Responsive & Accessibility Conventions
+- **Mobile-first**: always start from smallest breakpoint, add `sm:`/`md:`/`lg:` for larger screens
+- **Touch targets**: minimum 36×36px (ideally 44×44px) for all interactive elements — use `w-9 h-10` or larger on buttons
+- **`prefers-reduced-motion`**: all animations are disabled via a global `@media` rule in `globals.css`
+- **ARIA**: add `aria-label` on icon-only buttons, `aria-pressed` on toggles, `role="combobox"` on search inputs
+
 ### Important Gotchas
 - `ssr: false` with `next/dynamic` is NOT allowed in Server Components → use a `"use client"` wrapper
 - Zod v4: use `.issues` not `.errors` when accessing ZodError details
 - `PublicSidebar.tsx` is the actual visible header on public pages, not `Navbar.tsx`
+- `getCachedSiteConfig(key)` creates a unique cache entry per key — do NOT use a shared cache key for parameterised queries
+- Password strength rules (8 chars, 1 uppercase, 1 digit) must be enforced identically in registration AND password reset (both client and server)
+- Admin layout and auth layout use `getCachedSiteConfig` — never query `prisma.siteConfig` directly in layouts
 
 ### Key Libraries
 - **Next.js 16.1.6** (App Router, Server Components)

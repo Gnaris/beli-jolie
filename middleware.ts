@@ -12,9 +12,10 @@ import { NextRequest, NextResponse } from "next/server";
  * - maintenance   → redirige toutes les routes vers /maintenance sauf admin/auth
  */
 
-// ── Cache maintenance status (module-level, resets every ~30s) ──────────────
+// ── Cache maintenance status (module-level, resets every ~60s) ──────────────
+// Higher TTL = fewer internal HTTP calls under 100k visitors
 let maintenanceCache: { value: boolean; timestamp: number } | null = null;
-const CACHE_TTL_MS = 30_000;
+const CACHE_TTL_MS = 60_000;
 
 async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
   const now = Date.now();
@@ -25,12 +26,18 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
     const res = await fetch(new URL("/api/site-status", requestUrl).toString(), {
       cache: "no-store",
     });
+    if (!res.ok) {
+      maintenanceCache = { value: true, timestamp: now };
+      return true;
+    }
     const data = (await res.json()) as { maintenance: boolean };
     maintenanceCache = { value: !!data.maintenance, timestamp: now };
     return maintenanceCache.value;
   } catch {
-    // On failure don't block access
-    return false;
+    // On failure, assume maintenance — if the status endpoint is down,
+    // something is critically wrong (DB down, server error, etc.)
+    maintenanceCache = { value: true, timestamp: now };
+    return true;
   }
 }
 
@@ -58,7 +65,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/inscription") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/access-code");
+    pathname.startsWith("/api/access-code") ||
+    pathname.startsWith("/api/internal") ||
+    pathname.startsWith("/api/heartbeat") ||
+    pathname.startsWith("/api/cart");
 
   if (!bypassMaintenance) {
     const inMaintenance = await getMaintenanceStatus(request.url);
@@ -115,8 +125,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── Routes produits (accessible avec code d'accès invité) ────────────
-  if (pathname.startsWith("/produits")) {
+  // ── Routes publiques accessibles avec code d'accès invité ──────────
+  if (
+    pathname === "/" ||
+    pathname.startsWith("/produits") ||
+    pathname.startsWith("/collections") ||
+    pathname.startsWith("/categories")
+  ) {
     if (!isAuthenticated && !hasAccessCode) {
       const loginUrl = new URL("/connexion", request.url);
       loginUrl.searchParams.set("callbackUrl", pathname);

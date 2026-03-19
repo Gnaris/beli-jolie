@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { authOptions } from "@/lib/auth";
 import PublicSidebar from "@/components/layout/PublicSidebar";
+import Footer from "@/components/layout/Footer";
 
 export default async function ClientLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
@@ -15,11 +16,12 @@ export default async function ClientLayout({ children }: { children: React.React
   if (session.user.role === "ADMIN" && !isPreview) redirect("/admin");
 
   return (
-    <div className="min-h-screen bg-bg-secondary">
+    <div className="min-h-screen bg-bg-secondary flex flex-col">
       <PublicSidebar />
-      <main className={`min-h-[calc(100vh-64px)]${session.user.role === "ADMIN" && isPreview ? " pb-20" : ""}`}>
+      <main className={`flex-1${session.user.role === "ADMIN" && isPreview ? " pb-20" : ""}`}>
         {children}
       </main>
+      <Footer />
     </div>
   );
 }

@@ -196,7 +196,7 @@ export default function ProductCarousel({
 
   return (
     <section
-      className={`py-12 animate-slide-up ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"}`}
+      className={`py-16 lg:py-20 animate-slide-up ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"}`}
     >
       <div className="container-site">
         {/* Header */}

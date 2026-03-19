@@ -58,11 +58,20 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB per image
+
     const formData = await req.formData();
     const files = formData.getAll("images") as File[];
 
     if (files.length === 0) {
       return NextResponse.json({ error: "Aucune image fournie." }, { status: 400 });
+    }
+
+    const oversized = files.filter((f) => f.size > MAX_IMAGE_SIZE);
+    if (oversized.length > 0) {
+      return NextResponse.json({
+        error: `${oversized.length} image(s) dépassent la taille maximale de 5 Mo.`,
+      }, { status: 400 });
     }
 
     const allowedExts = [".jpg", ".jpeg", ".png", ".webp", ".gif"];

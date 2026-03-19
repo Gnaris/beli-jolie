@@ -41,10 +41,14 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // Fetch first image per product
+  // Fetch first image per product (only select needed fields)
   const productIds = products.map((p) => p.id);
   const firstImages = productIds.length > 0
-    ? await prisma.productColorImage.findMany({ where: { productId: { in: productIds } }, orderBy: { order: "asc" } })
+    ? await prisma.productColorImage.findMany({
+        where: { productId: { in: productIds } },
+        orderBy: { order: "asc" },
+        select: { productId: true, path: true },
+      })
     : [];
   const firstImageMap = new Map<string, string>();
   for (const img of firstImages) {

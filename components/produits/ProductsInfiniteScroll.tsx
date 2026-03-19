@@ -177,10 +177,10 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        {products.map((product) => (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 lg:gap-5">
+        {products.map((product, idx) => (
+          <div key={product.id} className="stagger-card">
           <ProductCard
-            key={product.id}
             id={product.id}
             name={product.name}
             reference={product.reference}
@@ -194,6 +194,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
             clientDiscount={clientDiscount}
             filteredColorIds={filteredColorIds}
           />
+          </div>
         ))}
       </div>
 

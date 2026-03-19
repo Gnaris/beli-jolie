@@ -125,7 +125,7 @@ export default async function AdminCommandeDetailPage({
               {order.items.map((item) => (
                 <div key={item.id} className="flex gap-4 px-5 py-4">
                   {/* Image */}
-                  <div className="w-16 h-16 shrink-0 bg-bg-tertiary border border-border rounded-lg overflow-hidden">
+                  <div className="w-12 h-12 sm:w-16 sm:h-16 shrink-0 bg-bg-tertiary border border-border rounded-lg overflow-hidden">
                     {item.imagePath ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={item.imagePath} alt={item.productName}

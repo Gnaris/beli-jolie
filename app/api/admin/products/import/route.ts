@@ -329,9 +329,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const MAX_IMPORT_SIZE = 10 * 1024 * 1024; // 10 MB
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     if (!file) return NextResponse.json({ error: "Aucun fichier fourni." }, { status: 400 });
+    if (file.size > MAX_IMPORT_SIZE) {
+      return NextResponse.json({ error: "Fichier trop volumineux (max 10 Mo)." }, { status: 400 });
+    }
 
     const filename = file.name.toLowerCase();
     const buffer = await file.arrayBuffer();

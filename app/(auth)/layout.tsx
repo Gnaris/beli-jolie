@@ -1,21 +1,24 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { prisma } from "@/lib/prisma";
+import { getCachedSiteConfig, getCachedProductCount } from "@/lib/cached-data";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 import FloatingGems from "@/components/ui/FloatingGems";
+import StaffAvailability from "@/components/auth/StaffAvailability";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
-  const [config, cookieStore] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "maintenance_mode" } }),
+  const [config, cookieStore, productCount] = await Promise.all([
+    getCachedSiteConfig("maintenance_mode"),
     cookies(),
+    getCachedProductCount(),
   ]);
   const currentLocale = cookieStore.get("bj_locale")?.value ?? "fr";
   const inMaintenance = config?.value === "true";
+  const formattedCount = new Intl.NumberFormat("fr-FR").format(productCount);
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-primary">
@@ -52,23 +55,73 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border lg:hidden">
         <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-bold text-text-primary animate-blur-in">
           Beli & Jolie
         </Link>
         <LanguageSwitcher currentLocale={currentLocale} />
       </div>
 
-      {/* Centered form */}
-      <main className="relative flex-1 flex items-center justify-center px-6 py-12">
-        <FloatingGems />
-        <div className="relative z-10 w-full flex items-center justify-center">
-          {children}
+      {/* Split layout: left brand panel (desktop) + right form */}
+      <main className="relative flex-1 flex">
+        {/* Left brand panel — desktop only */}
+        <div className="hidden lg:flex lg:w-[45%] xl:w-[40%] bg-bg-dark relative overflow-hidden flex-col justify-between p-10 xl:p-14">
+          {/* Background decorative elements */}
+          <div className="absolute inset-0 opacity-[0.03]">
+            <div className="absolute top-20 left-10 w-72 h-72 border border-white rounded-full" />
+            <div className="absolute bottom-32 right-8 w-48 h-48 border border-white rotate-45" />
+            <div className="absolute top-1/2 left-1/3 w-32 h-32 border border-white rounded-full" />
+          </div>
+
+          <div className="relative z-10">
+            <Link href="/" className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-white animate-blur-in">
+              Beli <span className="text-white/40">&</span> Jolie
+            </Link>
+          </div>
+
+          <div className="relative z-10 space-y-6">
+            <h2 className="font-[family-name:var(--font-poppins)] text-3xl xl:text-4xl font-semibold text-white leading-tight">
+              Votre partenaire<br />
+              <span className="text-white/50">bijoux B2B</span>
+            </h2>
+            <p className="text-white/40 text-sm leading-relaxed font-[family-name:var(--font-roboto)] max-w-xs">
+              Accédez à notre catalogue de bijoux en acier inoxydable. Prix grossiste, livraison rapide, qualité premium.
+            </p>
+            <div className="flex gap-8 pt-4">
+              {[
+                { value: formattedCount, label: "Références" },
+                { value: "100%", label: "Acier inox" },
+                { value: "B2B", label: "Professionnel" },
+              ].map((stat) => (
+                <div key={stat.label}>
+                  <p className="font-[family-name:var(--font-poppins)] text-lg font-bold text-white">{stat.value}</p>
+                  <p className="text-white/30 text-xs font-[family-name:var(--font-roboto)] mt-0.5">{stat.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Disponibilité staff */}
+            <div className="pt-2">
+              <StaffAvailability variant="dark" />
+            </div>
+          </div>
+
+          <div className="relative z-10 flex items-center gap-3">
+            <LanguageSwitcher currentLocale={currentLocale} />
+          </div>
+        </div>
+
+        {/* Right form panel */}
+        <div className="flex-1 relative flex items-center justify-center px-6 py-12">
+          <FloatingGems />
+          <div className="relative z-10 w-full flex items-center justify-center">
+            {children}
+          </div>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="px-6 py-4 border-t border-border text-center">
+      {/* Footer — mobile only */}
+      <footer className="px-6 py-4 border-t border-border text-center lg:hidden">
         <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
           Plateforme réservée aux professionnels revendeurs
         </p>

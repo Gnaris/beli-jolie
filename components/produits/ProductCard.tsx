@@ -237,44 +237,24 @@ export default function ProductCard({
             </div>
           )}
 
-          {/* Badge Rupture */}
-          {allOutOfStock && (
-            <span className="absolute top-2 left-2 z-10 bg-[#6B6B6B] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide">
-              {t("outOfStock")}
+          {/* Badges — max 2 priority badges + ref */}
+          <div className="absolute top-2 left-2 z-10 flex flex-col gap-1.5">
+            {(() => {
+              const badges: { label: string; bg: string }[] = [];
+              if (allOutOfStock) badges.push({ label: t("outOfStock"), bg: "bg-text-secondary" });
+              if (anyVariantHasDiscount) badges.push({ label: t("promo"), bg: "bg-error" });
+              if (isBestSeller) badges.push({ label: t("badgeBestSeller"), bg: "bg-warning" });
+              if (isNew) badges.push({ label: t("badgeNew"), bg: "bg-info" });
+              return badges.slice(0, 2).map((b) => (
+                <span key={b.label} className={`${b.bg} text-text-inverse text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-sm uppercase tracking-wide backdrop-blur-sm`}>
+                  {b.label}
+                </span>
+              ));
+            })()}
+            <span className="bg-bg-primary/80 backdrop-blur-sm text-text-muted text-[9px] font-mono px-1.5 py-0.5 rounded-full border border-border w-fit">
+              {reference}
             </span>
-          )}
-
-          {/* Badge Best-Seller */}
-          {isBestSeller && (
-            <span className={`absolute ${allOutOfStock ? "top-10" : "top-2"} left-2 z-10 bg-[#F59E0B] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide`}>
-              {t("badgeBestSeller")}
-            </span>
-          )}
-
-          {/* Badge Nouveauté */}
-          {isNew && (() => {
-            const prevBadges = (allOutOfStock ? 1 : 0) + (isBestSeller ? 1 : 0);
-            return (
-              <span className={`absolute ${prevBadges >= 2 ? "top-[4.5rem]" : prevBadges === 1 ? "top-10" : "top-2"} left-2 z-10 bg-[#3B82F6] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide`}>
-                {t("badgeNew")}
-              </span>
-            );
-          })()}
-
-          {/* Badge Promo */}
-          {anyVariantHasDiscount && (() => {
-            const prevBadges = (allOutOfStock ? 1 : 0) + (isBestSeller ? 1 : 0) + (isNew ? 1 : 0);
-            return (
-              <span className={`absolute ${prevBadges >= 3 ? "top-[6.5rem]" : prevBadges === 2 ? "top-[4.5rem]" : prevBadges === 1 ? "top-10" : "top-2"} left-2 z-10 bg-[#EF4444] text-white text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-md uppercase tracking-wide`}>
-                {t("promo")}
-              </span>
-            );
-          })()}
-
-          {/* Badge reference */}
-          <span className={`absolute ${badgeCount >= 3 ? "top-[6.5rem]" : badgeCount === 2 ? "top-[4.5rem]" : badgeCount === 1 ? "top-10" : "top-2"} left-2 bg-bg-primary text-text-muted text-[9px] font-mono px-1.5 py-0.5 rounded-full border border-border`}>
-            {reference}
-          </span>
+          </div>
 
           {/* Favori + coloris count */}
           <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
@@ -309,14 +289,16 @@ export default function ProductCard({
                 <button
                   key={c.colorId}
                   type="button"
+                  aria-label={tp(c.name)}
+                  aria-pressed={selectedColor?.colorId === c.colorId}
                   title={tp(c.name)}
                   onClick={() => handleColorSelect(c)}
-                  className={`w-[18px] h-[18px] rounded-full border-2 transition-all duration-100 ${
+                  className={`w-8 h-8 rounded-full border-2 transition-all duration-200 swatch-pulse ${
                     selectedColor?.colorId === c.colorId
                       ? "border-text-primary scale-110"
                       : filteredColorIds.includes(c.colorId)
                         ? "border-text-primary/50 ring-1 ring-black/10"
-                        : "border-border hover:border-border-dark"
+                        : "border-border hover:border-border-dark hover:scale-110"
                   }`}
                   style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
                 />
@@ -342,13 +324,13 @@ export default function ProductCard({
                   key={tag.id}
                   href={`/produits?tag=${tag.id}`}
                   onClick={(e) => e.stopPropagation()}
-                  className="text-[10px] px-2 py-0.5 rounded-full bg-bg-secondary text-text-muted border border-border-light font-[family-name:var(--font-roboto)] hover:bg-bg-tertiary transition-colors"
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-bg-secondary text-text-muted border border-border-light font-[family-name:var(--font-roboto)] hover:bg-bg-tertiary transition-colors"
                 >
                   {tp(tag.name)}
                 </Link>
               ))}
               {tags.length > 3 && (
-                <span className="text-[10px] px-1 py-0.5 text-text-muted font-[family-name:var(--font-roboto)]">
+                <span className="text-[11px] px-1 py-0.5 text-text-muted font-[family-name:var(--font-roboto)]">
                   +{tags.length - 3}
                 </span>
               )}
@@ -365,11 +347,11 @@ export default function ProductCard({
               </span>
             )}
             {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
-              <span className="text-[10px] font-[family-name:var(--font-roboto)] text-[#EF4444] font-medium">
+              <span className="text-[11px] font-[family-name:var(--font-roboto)] text-error font-medium">
                 -{clientDiscount.discountValue}%
               </span>
             )}
-            <span className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${showStrikethrough ? "text-[#EF4444]" : "text-text-primary"}`}>
+            <span className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${showStrikethrough ? "text-error" : "text-text-primary"}`}>
               {displayedFinalPrice.toFixed(2)} &euro;
             </span>
             <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">{t("htUnit")}</span>
@@ -399,20 +381,23 @@ export default function ProductCard({
             <div className="flex items-center border border-border rounded-lg overflow-hidden">
               <button
                 type="button"
+                aria-label={t("decrease") ?? "Diminuer"}
                 onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                className="w-8 h-9 flex items-center justify-center text-text-muted hover:bg-bg-secondary transition-colors text-lg font-light"
+                className="w-9 h-10 flex items-center justify-center text-text-muted hover:bg-bg-secondary transition-colors text-lg font-light"
               >&minus;</button>
               <input
                 type="number"
                 min={1}
                 value={quantity}
+                aria-label={t("quantity") ?? "Quantité"}
                 onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-10 h-9 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-0 focus:outline-none bg-transparent"
+                className="w-10 h-10 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-0 focus:outline-none bg-transparent"
               />
               <button
                 type="button"
+                aria-label={t("increase") ?? "Augmenter"}
                 onClick={() => setQuantity((q) => q + 1)}
-                className="w-8 h-9 flex items-center justify-center text-text-muted hover:bg-bg-secondary transition-colors text-lg font-light"
+                className="w-9 h-10 flex items-center justify-center text-text-muted hover:bg-bg-secondary transition-colors text-lg font-light"
               >+</button>
             </div>
 
@@ -421,8 +406,8 @@ export default function ProductCard({
                 type="button"
                 onClick={handleAddToCart}
                 disabled={isPending || selectedColorOutOfStock}
-                className={`w-full flex items-center justify-center gap-1.5 text-text-inverse text-xs font-[family-name:var(--font-roboto)] font-medium py-2.5 px-3 rounded-lg transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${
-                  addedMsg ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
+                className={`w-full flex items-center justify-center gap-1.5 text-text-inverse text-xs font-[family-name:var(--font-roboto)] font-medium py-3 px-3 rounded-lg transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${
+                  addedMsg ? "bg-accent-dark" : "bg-bg-dark hover:bg-primary-hover"
                 }`}
               >
                 {isPending ? (
@@ -470,11 +455,11 @@ export default function ProductCard({
           </div>
 
           {addError && (
-            <p className="text-[10px] text-error font-[family-name:var(--font-roboto)]">{addError}</p>
+            <p className="text-[11px] text-error font-[family-name:var(--font-roboto)]">{addError}</p>
           )}
 
           {packOptions.length > 0 && (
-            <p className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)]">
+            <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)]">
               {t("packAutoDistribution")}
             </p>
           )}

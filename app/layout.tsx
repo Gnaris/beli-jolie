@@ -79,6 +79,18 @@ export default async function RootLayout({
       className={`${poppins.variable} ${roboto.variable}`}
     >
       <body className="antialiased">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "Beli & Jolie",
+              description: "Grossiste BtoB en bijoux acier inoxydable pour professionnels.",
+              url: "https://beli-jolie.fr",
+            }),
+          }}
+        />
         <NextIntlClientProvider messages={messages}>
           <SessionProvider>
             <GuestBanner />

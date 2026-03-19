@@ -12,10 +12,13 @@ export default function DashboardParticles() {
     const width = mount.clientWidth;
     const height = mount.clientHeight;
 
+    // Mobile detection — reduce meshes, disable AA, cap DPR
+    const isMobile = width < 768;
+
     // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, alpha: true });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1 : 2));
     renderer.setClearColor(0x000000, 0);
     mount.appendChild(renderer.domElement);
 
@@ -24,11 +27,14 @@ export default function DashboardParticles() {
     const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100);
     camera.position.z = 4;
 
+    const torusCount = isMobile ? 15 : 40;
+    const octaCount = isMobile ? 8 : 20;
+
     // Meshes data
     const meshes: { mesh: THREE.Mesh; rx: number; ry: number; driftX: number; driftY: number; driftSpeed: number; initX: number; initY: number }[] = [];
 
-    // ~40 Torus (anneaux)
-    for (let i = 0; i < 40; i++) {
+    // Torus (anneaux)
+    for (let i = 0; i < torusCount; i++) {
       const radius = 0.2 + Math.random() * 0.6;
       const tube = 0.03 + Math.random() * 0.06;
       const geo = new THREE.TorusGeometry(radius, tube, 8, 24);
@@ -64,8 +70,8 @@ export default function DashboardParticles() {
       });
     }
 
-    // ~20 Octahedron (diamants)
-    for (let i = 0; i < 20; i++) {
+    // Octahedron (diamants)
+    for (let i = 0; i < octaCount; i++) {
       const size = 0.08 + Math.random() * 0.18;
       const geo = new THREE.OctahedronGeometry(size);
       const opacity = 0.2 + Math.random() * 0.2;

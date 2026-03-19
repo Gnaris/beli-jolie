@@ -9,6 +9,8 @@ import { getProductTranslation } from "@/lib/translate";
 import { getCachedSiteConfig } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
+import FloatingShapes from "@/components/ui/FloatingShapes";
+import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import ProductDetail from "@/components/produits/ProductDetail";
 
 interface PageProps {
@@ -17,53 +19,92 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const product = await prisma.product.findUnique({ where: { id }, select: { name: true } });
-  return { title: product ? `${product.name} — Beli & Jolie` : "Produit" };
+  const [product, firstImage] = await Promise.all([
+    prisma.product.findUnique({
+      where: { id },
+      select: {
+        name: true,
+        description: true,
+        reference: true,
+        category: { select: { name: true } },
+      },
+    }),
+    prisma.productColorImage.findFirst({
+      where: { productId: id },
+      orderBy: { order: "asc" },
+      select: { path: true },
+    }),
+  ]);
+
+  if (!product) return { title: "Produit introuvable" };
+
+  const title = `${product.name} — Beli & Jolie`;
+  const description = product.description.slice(0, 160).replace(/\n/g, " ");
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: "website",
+      siteName: "Beli & Jolie",
+      ...(firstImage && { images: [{ url: firstImage.path, width: 800, height: 800, alt: product.name }] }),
+    },
+    alternates: { canonical: `/produits/${id}` },
+  };
 }
 
 export default async function ProduitDetailPage({ params }: PageProps) {
   const { id } = await params;
 
-  const product = await prisma.product.findUnique({
-    where: { id, status: "ONLINE" },
-    include: {
-      category:      { select: { name: true } },
-      subCategories: { select: { name: true } },
-      tags:          { include: { tag: { select: { id: true, name: true } } } },
-      colors: {
-        include: {
-          color: { select: { name: true, hex: true } },
+  // Fetch product, session, config, and locale in parallel
+  const [product, session, stockVariantsConfig, locale] = await Promise.all([
+    prisma.product.findUnique({
+      where: { id, status: "ONLINE" },
+      include: {
+        category:      { select: { name: true } },
+        subCategories: { select: { name: true } },
+        tags:          { include: { tag: { select: { id: true, name: true } } } },
+        colors: {
+          include: {
+            color: { select: { name: true, hex: true } },
+          },
+          orderBy: { isPrimary: "desc" },
         },
-        orderBy: { isPrimary: "desc" },
-      },
-      compositions: {
-        include: { composition: { select: { name: true } } },
-        orderBy:  { percentage: "desc" },
-      },
-      similarProducts: {
-        include: {
-          similar: {
-            select: {
-              id:        true,
-              name:      true,
-              reference: true,
-              colors: {
-                orderBy: { isPrimary: "desc" },
-                take:    1,
-                select:  { colorId: true, unitPrice: true, color: { select: { name: true } } },
+        compositions: {
+          include: { composition: { select: { name: true } } },
+          orderBy:  { percentage: "desc" },
+        },
+        similarProducts: {
+          include: {
+            similar: {
+              select: {
+                id:        true,
+                name:      true,
+                reference: true,
+                colors: {
+                  orderBy: { isPrimary: "desc" },
+                  take:    1,
+                  select:  { colorId: true, unitPrice: true, color: { select: { name: true } } },
+                },
               },
             },
           },
         },
       },
-    },
-  });
+    }),
+    getServerSession(authOptions),
+    getCachedSiteConfig("show_out_of_stock_variants"),
+    getLocale(),
+  ]);
 
   if (!product) notFound();
 
   const similarProductIds = product.similarProducts.map((sp) => sp.similar.id);
 
-  const [colorImages, similarColorImages] = await Promise.all([
+  // Fetch images and client discount in parallel
+  const [colorImages, similarColorImages, clientDiscount] = await Promise.all([
     prisma.productColorImage.findMany({
       where:   { productId: id },
       orderBy: { order: "asc" },
@@ -74,6 +115,16 @@ export default async function ProduitDetailPage({ params }: PageProps) {
           orderBy: { order: "asc" },
         })
       : Promise.resolve([]),
+    session?.user?.id
+      ? prisma.user.findUnique({
+          where: { id: session.user.id },
+          select: { discountType: true, discountValue: true },
+        }).then((u) =>
+          u?.discountType && u.discountValue
+            ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: u.discountValue }
+            : null
+        )
+      : Promise.resolve(null),
   ]);
 
   // Group colorImages by colorId for ProductDetail
@@ -87,30 +138,11 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     images,
   }));
 
-  // Stock display config
-  const stockVariantsConfig = await getCachedSiteConfig("show_out_of_stock_variants");
-  const showOosVariants = stockVariantsConfig?.value !== "false";
-
   // Filter out OOS variants if config says so
+  const showOosVariants = stockVariantsConfig?.value !== "false";
   const filteredColors = showOosVariants
     ? product.colors
     : product.colors.filter((pc) => pc.stock > 0);
-
-  // Fetch client discount
-  const session = await getServerSession(authOptions);
-  const clientDiscount = session?.user?.id
-    ? await prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { discountType: true, discountValue: true },
-      }).then((u) =>
-        u?.discountType && u.discountValue
-          ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: u.discountValue }
-          : null
-      )
-    : null;
-
-  // Auto-translate product name & description
-  const locale = await getLocale();
   const translated = await getProductTranslation(product.id, locale as "fr" | "en" | "ar", {
     name: product.name,
     description: product.description,
@@ -132,12 +164,49 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     };
   }
 
+  // JSON-LD structured data for SEO
+  const primaryColor = filteredColors.find((c) => c.isPrimary) ?? filteredColors[0];
+  const minPrice = filteredColors.length > 0
+    ? Math.min(...filteredColors.map((c) => c.unitPrice))
+    : 0;
+  const firstImg = colorImages[0]?.path;
+  const productJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: translated.name,
+    description: translated.description.slice(0, 500),
+    sku: product.reference,
+    category: product.category.name,
+    ...(firstImg && { image: firstImg }),
+    offers: {
+      "@type": "Offer",
+      priceCurrency: "EUR",
+      price: minPrice.toFixed(2),
+      availability: primaryColor && primaryColor.stock > 0
+        ? "https://schema.org/InStock"
+        : "https://schema.org/OutOfStock",
+    },
+  };
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Produits", item: "https://beli-jolie.fr/produits" },
+      { "@type": "ListItem", position: 2, name: product.category.name, item: `https://beli-jolie.fr/produits?cat=${product.categoryId}` },
+      { "@type": "ListItem", position: 3, name: translated.name },
+    ],
+  };
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
+      <FloatingShapes />
       <PublicSidebar />
-      <div className="min-w-0">
-        <main className="min-h-screen bg-bg-secondary">
-          <div className="container-site py-10">
+      <div className="min-w-0 relative z-10">
+        <main className="min-h-screen bg-bg-secondary relative overflow-hidden">
+          <ScatteredDecorations variant="sparse" seed={200} />
+          <div className="container-site py-10 relative">
 
             {/* Fil d'Ariane */}
             <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-8">

@@ -531,7 +531,7 @@ export default function ProductForm({
           </h2>
 
           {/* Row 1 : Bloc principal (left) + Bloc mots clés (right) */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4">
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
 
             {/* ── BLOC PRINCIPAL ── */}
             <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
@@ -758,7 +758,7 @@ export default function ProductForm({
                   En millimètres (mm) — laisser vide si non applicable.
                 </p>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <Field label="Longueur">
                   <input type="number" min="0" step="0.1" value={dimLength} placeholder="—"
                     onChange={(e) => setDimLength(e.target.value)} className="field-input text-right" />
@@ -798,7 +798,7 @@ export default function ProductForm({
               </div>
 
               {localCompositions.length > 0 && (
-                <div className="flex gap-3 items-end">
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                   <div className="flex-1">
                     <select value={newCompId} onChange={(e) => setNewCompId(e.target.value)} className="field-input">
                       <option value="">— Choisir un matériau —</option>

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCachedSiteConfig } from "@/lib/cached-data";
+import { unstable_cache } from "next/cache";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -100,9 +101,28 @@ type ProductMinimal = {
  * Returns all online product IDs in the order defined by the display config.
  * Each section pulls products in order; products already placed in earlier
  * sections are skipped. Remaining products are shuffled with a daily seed.
+ *
+ * Cached for 10 minutes to avoid loading 78k products on every request.
  */
 export async function getOrderedProductIds(config: ProductDisplayConfig): Promise<string[]> {
-  const stockProductsConfig = await getCachedSiteConfig("show_out_of_stock_products");
+  // Cache key includes config hash so changes invalidate
+  const configHash = JSON.stringify(config.sections.map(s => `${s.type}-${s.quantity}-${s.categoryId ?? ""}-${s.tagId ?? ""}`));
+  return getCachedOrderedIds(configHash);
+}
+
+const getCachedOrderedIds = unstable_cache(
+  async (_configHash: string) => computeOrderedProductIds(),
+  ["ordered-product-ids"],
+  { revalidate: 600, tags: ["products", "orders"] }
+);
+
+async function computeOrderedProductIds(): Promise<string[]> {
+  // Re-parse config from DB inside cache function
+  const [configRow, stockProductsConfig] = await Promise.all([
+    getCachedSiteConfig("product_display_config"),
+    getCachedSiteConfig("show_out_of_stock_products"),
+  ]);
+  const config = parseDisplayConfig(configRow?.value);
   const showOosProducts = stockProductsConfig?.value !== "false";
 
   const allProducts: ProductMinimal[] = await prisma.product.findMany({

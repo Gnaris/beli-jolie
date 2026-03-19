@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AccountEditor from "@/components/client/AccountEditor";
+import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
 
 export const metadata: Metadata = {
@@ -28,10 +30,10 @@ function BarChart({ data }: { data: { label: string; value: number }[] }) {
       {data.map((d, i) => (
         <div key={i} className="flex-1 flex flex-col items-center gap-1">
           <div
-            className="w-full bg-[#1A1A1A] rounded-t-sm transition-all"
+            className="w-full bg-accent rounded-t-sm transition-all duration-300 hover:bg-accent-dark"
             style={{ height: `${Math.round((d.value / max) * 80)}px`, minHeight: d.value > 0 ? "4px" : "0" }}
           />
-          <span className="text-[9px] font-[family-name:var(--font-roboto)] text-[#9CA3AF] leading-none">
+          <span className="text-[9px] font-[family-name:var(--font-roboto)] text-text-muted leading-none">
             {d.label}
           </span>
         </div>
@@ -50,19 +52,19 @@ function StatCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-[#E5E5E5] p-5 flex items-start gap-4">
-      <div className="w-11 h-11 rounded-xl bg-[#F7F7F8] flex items-center justify-center text-[#1A1A1A] shrink-0">
+    <div className="bg-gradient-to-br from-bg-primary to-bg-secondary rounded-xl border border-border p-5 flex items-start gap-4 transition-all duration-300 hover:shadow-[0_8px_16px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 hover:border-accent/30">
+      <div className="w-12 h-12 rounded-xl bg-accent/5 border border-accent/15 flex items-center justify-center text-accent shrink-0">
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF] uppercase tracking-wider">
+        <p className="text-[11px] font-[family-name:var(--font-roboto)] text-text-muted uppercase tracking-wider font-bold">
           {label}
         </p>
-        <p className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-[#1A1A1A] mt-0.5">
+        <p className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary mt-0.5">
           {value}
         </p>
         {sub && (
-          <p className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF] mt-0.5">{sub}</p>
+          <p className="text-xs font-[family-name:var(--font-roboto)] text-text-muted mt-0.5">{sub}</p>
         )}
       </div>
     </div>
@@ -203,8 +205,9 @@ export default async function DashboardPage() {
   });
 
   return (
-    <div className="p-6 md:p-10 w-full">
-      <div className="flex gap-6">
+    <div className="p-4 md:p-6 lg:p-10 w-full relative overflow-hidden">
+      <ScatteredDecorations variant="sparse" seed={100} />
+      <div className="flex gap-6 relative">
         {/* -- Colonne principale (gauche) -- */}
         <div className="flex-1 min-w-0 space-y-6">
 
@@ -286,12 +289,12 @@ export default async function DashboardPage() {
           {/* -- Graphiques + Top produits -- */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Graphique commandes par mois */}
-            <div className="bg-white rounded-xl border border-[#E5E5E5] p-5">
+            <div className="bg-bg-primary rounded-xl border border-border p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
                   {t("chartTitle")}
                 </h2>
-                <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors">
+                <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-accent transition-colors">
                   {t("viewAll")}
                 </Link>
               </div>
@@ -299,17 +302,17 @@ export default async function DashboardPage() {
             </div>
 
             {/* Top produits commandes */}
-            <div className="bg-white rounded-xl border border-[#E5E5E5] p-5">
+            <div className="bg-bg-primary rounded-xl border border-border p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
                   {t("topProducts")}
                 </h2>
-                <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors">
+                <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-accent transition-colors">
                   {t("viewAll")}
                 </Link>
               </div>
               {topProducts.length === 0 ? (
-                <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF] py-6 text-center">
+                <p className="text-sm font-[family-name:var(--font-roboto)] text-text-muted py-6 text-center">
                   {t("noOrdersYet")}
                 </p>
               ) : (
@@ -429,12 +432,14 @@ export default async function DashboardPage() {
                       className="p-4 hover:bg-[#F7F7F8] transition-colors group"
                     >
                       {img ? (
-                        <div className="aspect-square bg-[#EFEFEF] rounded-xl overflow-hidden mb-2">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
+                        <div className="aspect-square bg-[#EFEFEF] rounded-xl overflow-hidden mb-2 relative">
+                          <Image
                             src={img}
                             alt={fav.product.name}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            fill
+                            sizes="(max-width: 640px) 50vw, 25vw"
+                            className="object-cover group-hover:scale-105 transition-transform duration-300"
+                            loading="lazy"
                           />
                         </div>
                       ) : (
@@ -502,13 +507,15 @@ export default async function DashboardPage() {
                       className="group bg-[#F7F7F8] rounded-xl overflow-hidden hover:shadow-md transition-all"
                     >
                       {/* Image large */}
-                      <div className="aspect-square bg-[#EFEFEF] overflow-hidden">
+                      <div className="aspect-square bg-[#EFEFEF] overflow-hidden relative">
                         {product.image ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
+                          <Image
                             src={product.image}
                             alt={product.name}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            fill
+                            sizes="(max-width: 1024px) 0vw, 220px"
+                            className="object-cover group-hover:scale-105 transition-transform duration-300"
+                            loading="lazy"
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">

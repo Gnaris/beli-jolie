@@ -1,18 +1,24 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef, useEffect } from "react";
 import { setMaintenanceMode } from "@/app/actions/admin/site-config";
 
 interface Props {
   currentValue: boolean;
+  isAuto?: boolean;
 }
 
-export default function MaintenanceModeToggle({ currentValue }: Props) {
+export default function MaintenanceModeToggle({ currentValue, isAuto = false }: Props) {
   const [enabled, setEnabled] = useState(currentValue);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingValue, setPendingValue] = useState<boolean | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+  }, []);
 
   function requestToggle(value: boolean) {
     setPendingValue(value);
@@ -36,7 +42,8 @@ export default function MaintenanceModeToggle({ currentValue }: Props) {
       } else {
         setMessage({ type: "error", text: result.error ?? "Une erreur est survenue." });
       }
-      setTimeout(() => setMessage(null), 5000);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setMessage(null), 5000);
     });
   }
 
@@ -80,7 +87,11 @@ export default function MaintenanceModeToggle({ currentValue }: Props) {
           className={`w-2 h-2 rounded-full ${enabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E]"}`}
         />
         <span className="font-[family-name:var(--font-roboto)] text-sm text-[#6B6B6B]">
-          {enabled ? "Maintenance active" : "Opérationnel"}
+          {enabled
+            ? isAuto
+              ? "Maintenance automatique (erreurs détectées)"
+              : "Maintenance active"
+            : "Opérationnel"}
         </span>
       </div>
 

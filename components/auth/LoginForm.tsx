@@ -61,7 +61,7 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-sm">
+    <div className="w-full max-w-sm bg-bg-primary rounded-xl border border-border p-6 md:p-8 shadow-lg">
       {/* Titre */}
       <div className="mb-8">
         <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-text-primary tracking-tight">
@@ -90,7 +90,7 @@ export default function LoginForm() {
         <div>
           <label
             htmlFor="email"
-            className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1.5"
+            className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5"
           >
             {t("email")}
           </label>
@@ -111,7 +111,7 @@ export default function LoginForm() {
           <div className="flex items-center justify-between mb-1.5">
             <label
               htmlFor="password"
-              className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary"
+              className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide"
             >
               {t("password")}
             </label>

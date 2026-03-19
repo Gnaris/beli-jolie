@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { fetchEasyExpressRates } from "@/lib/easy-express";
+import { z } from "zod";
+
+const carriersSchema = z.object({
+  zipCode: z.string().min(1),
+  country: z.string().min(2).max(3),
+  weightKg: z.number().min(0),
+});
 
 /**
  * POST /api/carriers
@@ -15,14 +22,19 @@ export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
 
-  let body: { zipCode: string; country: string; weightKg: number };
+  let raw: unknown;
   try {
-    body = await request.json();
+    raw = await request.json();
   } catch {
     return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
   }
 
-  const { zipCode, country, weightKg } = body;
+  const parsed = carriersSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
+  }
+
+  const { zipCode, country, weightKg } = parsed.data;
 
   // Si pas de clé API → fallback immédiat
   if (!process.env.EASY_EXPRESS_API_KEY) {

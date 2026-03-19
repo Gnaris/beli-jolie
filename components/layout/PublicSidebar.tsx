@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useTransition } from "react";
+import { useState, useEffect, useRef, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -178,6 +178,46 @@ export default function PublicSidebar() {
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
 
+  // ── Sliding bubble indicator ──
+  const navContainerRef = useRef<HTMLElement>(null);
+  const [bubble, setBubble] = useState<{ left: number; width: number } | null>(null);
+  const bubbleInitRef = useRef(false);
+
+  const allLinks = showClientUI ? [...NAV_LINKS, ...CLIENT_LINKS] : NAV_LINKS;
+
+  const updateBubble = useCallback(() => {
+    const container = navContainerRef.current;
+    if (!container) return;
+    const activeLink = container.querySelector<HTMLElement>("[data-nav-active='true']");
+    if (activeLink) {
+      const containerRect = container.getBoundingClientRect();
+      const linkRect = activeLink.getBoundingClientRect();
+      // Skip if nav is hidden (mobile)
+      if (containerRect.width === 0) return;
+      setBubble({
+        left: linkRect.left - containerRect.left,
+        width: linkRect.width,
+      });
+    } else {
+      setBubble(null);
+    }
+  }, []);
+
+  // Recalculate bubble on pathname change and on mount
+  useEffect(() => {
+    // Use rAF to ensure DOM has painted with correct active states
+    const raf = requestAnimationFrame(() => {
+      updateBubble();
+      bubbleInitRef.current = true;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [pathname, updateBubble, showClientUI]);
+
+  useEffect(() => {
+    window.addEventListener("resize", updateBubble);
+    return () => window.removeEventListener("resize", updateBubble);
+  }, [updateBubble]);
+
   return (
     <>
       {/* ===== TOP NAVBAR - fixed ===== */}
@@ -197,31 +237,28 @@ export default function PublicSidebar() {
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-1 flex-1">
-            {NAV_LINKS.map((link) => (
+          <nav ref={navContainerRef} className="hidden md:flex items-center gap-1 flex-1 relative">
+            {/* Sliding bubble indicator */}
+            <span
+              className="absolute top-0 h-full bg-bg-secondary/80 rounded-md pointer-events-none z-0"
+              style={{
+                left: bubble?.left ?? 0,
+                width: bubble?.width ?? 0,
+                opacity: bubble ? 1 : 0,
+                transition: bubbleInitRef.current
+                  ? "left 0.35s cubic-bezier(0.4, 0, 0.2, 1), width 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease"
+                  : "opacity 0.3s ease",
+              }}
+            />
+            {allLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`relative px-3 py-1.5 text-sm rounded-md transition-colors font-[family-name:var(--font-roboto)] group/navlink ${
+                data-nav-active={isActive(link.href) ? "true" : undefined}
+                className={`relative z-10 px-3 py-1.5 text-sm rounded-md transition-colors duration-200 font-[family-name:var(--font-roboto)] ${
                   isActive(link.href)
                     ? "text-text-primary font-medium"
-                    : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
-                }`}
-              >
-                {link.label}
-                {isActive(link.href) && (
-                  <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-text-primary rounded-full animate-slide-in" />
-                )}
-              </Link>
-            ))}
-            {showClientUI && CLIENT_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`relative px-3 py-1.5 text-sm rounded-md transition-colors font-[family-name:var(--font-roboto)] ${
-                  isActive(link.href)
-                    ? "text-text-primary font-medium"
-                    : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+                    : "text-text-secondary hover:text-text-primary"
                 }`}
               >
                 {link.label}
@@ -233,7 +270,7 @@ export default function PublicSidebar() {
           </nav>
 
           {/* Search bar (desktop only) */}
-          <div ref={searchRef} className="hidden lg:flex items-center relative w-72 z-20">
+          <div ref={searchRef} className="hidden md:flex items-center relative w-72 z-20">
             <form onSubmit={handleSearchSubmit} className="w-full">
               <div className="relative">
                 <input
@@ -242,6 +279,9 @@ export default function PublicSidebar() {
                   onChange={(e) => handleSearchChange(e.target.value)}
                   onFocus={() => { if (searchResults.length > 0) setShowResults(true); }}
                   placeholder={t("search")}
+                  aria-expanded={showResults}
+                  aria-autocomplete="list"
+                  role="combobox"
                   className="w-full bg-bg-secondary border border-border-light rounded-lg pl-9 pr-4 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-text-primary transition-colors"
                 />
                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -257,7 +297,7 @@ export default function PublicSidebar() {
 
             {/* Search results dropdown */}
             {showResults && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-lg overflow-hidden z-50 max-h-96 overflow-y-auto">
+              <div role="listbox" aria-label={t("searchResults")} className="absolute top-full left-0 right-0 mt-2 bg-bg-primary border border-border rounded-xl shadow-[0_10px_32px_rgba(0,0,0,0.15)] overflow-hidden z-50 max-h-96 overflow-y-auto animate-fadeIn">
                 {searchResults.length === 0 ? (
                   <div className="px-4 py-6 text-center">
                     <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
@@ -270,6 +310,7 @@ export default function PublicSidebar() {
                       <button
                         key={r.id}
                         type="button"
+                        role="option"
                         onClick={() => handleResultClick(r.id)}
                         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg-secondary transition-colors text-left border-b border-border-light last:border-b-0"
                       >
@@ -383,10 +424,10 @@ export default function PublicSidebar() {
       {mobileOpen && (
         <>
           <div
-            className="fixed inset-0 bg-black/40 z-50 md:hidden"
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 md:hidden animate-fadeIn"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="fixed inset-y-0 right-0 w-72 bg-bg-primary z-50 md:hidden flex flex-col shadow-2xl">
+          <div className="fixed inset-y-0 right-0 w-[calc(100%-3rem)] max-w-72 bg-bg-primary z-50 md:hidden flex flex-col shadow-2xl">
 
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
@@ -501,20 +542,20 @@ export default function PublicSidebar() {
 
       {/* ── Bandeau mode aperçu admin ── */}
       {session?.user?.role === "ADMIN" && isAdminPreview && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#1A1A1A] text-white px-4 py-3 flex items-center justify-between gap-4 shadow-[0_-2px_12px_rgba(0,0,0,0.3)]">
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-bg-dark text-text-inverse px-4 py-3 flex items-center justify-between gap-4 shadow-[0_-2px_12px_rgba(0,0,0,0.3)]">
           <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)]">
-            <svg className="w-4 h-4 text-[#F59E0B] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 text-warning shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
             </svg>
-            <span className="font-semibold text-[#F59E0B]">{t("adminPreview")}</span>
-            <span className="text-white/60 hidden sm:inline">— {t("adminPreviewDesc")}</span>
+            <span className="font-semibold text-warning">{t("adminPreview")}</span>
+            <span className="text-text-inverse/60 hidden sm:inline">— {t("adminPreviewDesc")}</span>
           </div>
           <form action={disableAdminPreview}>
             <button
               type="submit"
               disabled={previewPending}
-              className="text-xs font-[family-name:var(--font-roboto)] font-semibold bg-white text-[#1A1A1A] px-4 py-1.5 rounded-lg hover:bg-[#F0F0F0] transition-colors whitespace-nowrap disabled:opacity-60"
+              className="text-xs font-[family-name:var(--font-roboto)] font-semibold bg-bg-primary text-text-primary px-4 py-1.5 rounded-lg hover:bg-border-light transition-colors whitespace-nowrap disabled:opacity-60"
             >
               {previewPending ? "..." : t("backToAdmin")}
             </button>

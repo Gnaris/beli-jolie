@@ -4,10 +4,11 @@ import { useState, useRef } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { registerSchema } from "@/lib/validations/auth";
+import StaffAvailability from "@/components/auth/StaffAvailability";
 
 type FieldErrors = Partial<Record<string, string>>;
 
-export default function RegisterForm() {
+export default function RegisterForm({ productCount }: { productCount?: number }) {
   const t = useTranslations("auth.register");
 
   const [fields, setFields] = useState({
@@ -118,9 +119,19 @@ export default function RegisterForm() {
     );
   }
 
+  const formattedCount = productCount
+    ? new Intl.NumberFormat("fr-FR").format(productCount)
+    : null;
+
   return (
     <div className="w-full max-w-2xl">
       <div className="mb-8">
+        <div className="inline-flex items-center gap-2 bg-bg-dark text-text-inverse text-xs font-[family-name:var(--font-roboto)] font-semibold px-4 py-1.5 rounded-full mb-4 uppercase tracking-wider">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z" />
+          </svg>
+          Espace B2B
+        </div>
         <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-text-primary tracking-tight">
           {t("title")}
         </h1>
@@ -129,7 +140,30 @@ export default function RegisterForm() {
         </p>
       </div>
 
-      <div className="bg-bg-primary rounded-xl border border-border p-6 md:p-8 shadow-card">
+      {/* ── Stats B2B ── */}
+      <div className={`grid ${formattedCount ? "grid-cols-3" : "grid-cols-2"} gap-3 mb-6`}>
+        {formattedCount && (
+          <div className="bg-bg-primary rounded-xl border border-border p-4 text-center">
+            <p className="font-[family-name:var(--font-poppins)] text-xl font-bold text-text-primary">{formattedCount}</p>
+            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">références en ligne</p>
+          </div>
+        )}
+        <div className="bg-bg-primary rounded-xl border border-border p-4 text-center">
+          <p className="font-[family-name:var(--font-poppins)] text-xl font-bold text-text-primary">9h — 22h</p>
+          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">validation rapide</p>
+        </div>
+        <div className="bg-bg-primary rounded-xl border border-border p-4 text-center">
+          <p className="font-[family-name:var(--font-poppins)] text-xl font-bold text-text-primary">Prix HT</p>
+          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">tarifs grossiste</p>
+        </div>
+      </div>
+
+      {/* ── Disponibilité staff ── */}
+      <div className="mb-6">
+        <StaffAvailability />
+      </div>
+
+      <div className="bg-bg-primary rounded-xl border border-border p-6 md:p-8 shadow-lg">
         <form onSubmit={handleSubmit} noValidate encType="multipart/form-data">
 
           {globalError && (
@@ -177,7 +211,8 @@ export default function RegisterForm() {
             </div>
 
             {/* Section Informations légales */}
-            <div className="border-t border-border pt-6">
+            <div className="pt-6">
+              <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-6" />
               <p className="text-[11px] font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-widest mb-3">
                 {t("sectionLegal")}
               </p>
@@ -188,7 +223,7 @@ export default function RegisterForm() {
                   onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
 
                 <div>
-                  <label htmlFor="vatNumber" className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1.5">
+                  <label htmlFor="vatNumber" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
                     {t("vatNumber")}{" "}
                     <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
                   </label>
@@ -206,7 +241,7 @@ export default function RegisterForm() {
 
                 {/* Kbis upload */}
                 <div>
-                  <label htmlFor="kbis" className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1.5">
+                  <label htmlFor="kbis" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
                     {t("kbis")}{" "}
                     <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
                   </label>
@@ -244,12 +279,13 @@ export default function RegisterForm() {
             </div>
 
             {/* Section Message */}
-            <div className="border-t border-border pt-6">
+            <div className="pt-6">
+              <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-6" />
               <p className="text-[11px] font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-widest mb-3">
                 {t("sectionMessage")}
               </p>
               <div>
-                <label htmlFor="registrationMessage" className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1.5">
+                <label htmlFor="registrationMessage" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
                   {t("message")}{" "}
                   <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
                 </label>
@@ -272,13 +308,14 @@ export default function RegisterForm() {
             </div>
 
             {/* Section Sécurité */}
-            <div className="border-t border-border pt-6">
+            <div className="pt-6">
+              <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-6" />
               <p className="text-[11px] font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-widest mb-3">
                 {t("sectionSecurity")}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="password" className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1.5">
+                  <label htmlFor="password" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
                     {t("password")} <span className="text-text-muted">*</span>
                   </label>
                   <div className="relative">
@@ -343,7 +380,7 @@ function FormField({ id, label, type, value, error, placeholder, autoComplete, m
 }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-[13px] font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1.5">
+      <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
         {label} <span className="text-text-muted">*</span>
       </label>
       <input

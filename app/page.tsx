@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseDisplayConfig, fetchCarouselProducts } from "@/lib/product-display";
-import { getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedProductCount, getCachedBestsellerRefs } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
+import FloatingShapes from "@/components/ui/FloatingShapes";
+import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import BrandInfoSection from "@/components/home/BrandInfoSection";
 import CollectionsGrid from "@/components/home/CollectionsGrid";
 import ProductCarousel, { CarouselProduct } from "@/components/home/ProductCarousel";
@@ -103,11 +106,14 @@ const PRODUCT_SELECT = { id: true, name: true, reference: true, category: { sele
 // Page
 // ─────────────────────────────────────────────
 export default async function HomePage() {
-  const [session, t] = await Promise.all([
+  const [session, t, cookieStore] = await Promise.all([
     getServerSession(authOptions),
     getTranslations("home"),
+    cookies(),
   ]);
-  if (!session) redirect("/connexion");
+  const hasAccessCode = !!cookieStore.get("bj_access_code")?.value;
+  if (!session && !hasAccessCode) redirect("/connexion");
+  const isGuest = !session && hasAccessCode;
   const userId  = session?.user?.id;
 
   // ── Load display config ─────────────────────────────────────────────────────
@@ -115,14 +121,8 @@ export default async function HomePage() {
   const displayConfig = parseDisplayConfig(configRow?.value);
   const useCustomCarousels = displayConfig.homepageCarousels.length > 0;
 
-  // ── Fetch bestseller refs (shared between default and custom modes) ─────────
-  const bestsellerStats = await prisma.orderItem.groupBy({
-    by:      ["productRef"],
-    _sum:    { quantity: true },
-    orderBy: { _sum: { quantity: "desc" } },
-    take:    30,
-  });
-  const bestsellerRefs = bestsellerStats.map((s) => s.productRef);
+  // ── Fetch bestseller refs (cached — heavy groupBy on 78k products) ──────────
+  const bestsellerRefs = await getCachedBestsellerRefs(30);
 
   // ── Fetch client discount ──────────────────────────────────────────────────
   const clientDiscount = userId
@@ -138,7 +138,7 @@ export default async function HomePage() {
 
   // ── Fetch data ──────────────────────────────────────────────────────────────
   // Always fetch: collections, reassort, product count, promotions
-  const [collections, reassortProducts, productCount] = await Promise.all([
+  const [collections, reassortProducts, productCount, promoProducts] = await Promise.all([
     prisma.collection.findMany({
       orderBy: { createdAt: "desc" },
       take:    4,
@@ -170,24 +170,24 @@ export default async function HomePage() {
         })
       : Promise.resolve([]),
 
-    prisma.product.count({ where: { status: "ONLINE" } }),
-  ]);
+    getCachedProductCount(),
 
-  // Bonne affaire — produits avec au moins une variante en promotion
-  const promoProducts = await prisma.product.findMany({
-    where: {
-      status: "ONLINE",
-      colors: {
-        some: {
-          discountType: { not: null },
-          discountValue: { gt: 0 },
+    // Bonne affaire — produits avec au moins une variante en promotion
+    prisma.product.findMany({
+      where: {
+        status: "ONLINE",
+        colors: {
+          some: {
+            discountType: { not: null },
+            discountValue: { gt: 0 },
+          },
         },
       },
-    },
-    orderBy: { updatedAt: "desc" },
-    take: 20,
-    select: PRODUCT_SELECT,
-  });
+      orderBy: { updatedAt: "desc" },
+      take: 20,
+      select: PRODUCT_SELECT,
+    }),
+  ]);
 
   // ── Build carousel data ─────────────────────────────────────────────────────
   type CarouselData = { title: string; products: CarouselProduct[]; bg: string; href: string; label: string };
@@ -295,16 +295,18 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-bg-secondary">
+    <div className="min-h-screen bg-bg-secondary relative">
+      <FloatingShapes />
       <PublicSidebar />
 
-      <main>
+      <main className="relative z-10">
           {/* 1. Hero banner */}
-          <HeroBanner isLoggedIn={!!session} productCount={productCount} />
+          <HeroBanner isLoggedIn={!!session || isGuest} productCount={productCount} />
 
           {/* 2. Reassort — only if logged in */}
           {session && carouselReassort.length > 0 && (
-            <div className="bg-bg-secondary">
+            <div className="bg-bg-secondary relative overflow-hidden">
+              <ScatteredDecorations variant="dense" seed={1} />
               <ProductCarousel
                 title={t("reassortTitle")}
                 products={carouselReassort}
@@ -317,7 +319,8 @@ export default async function HomePage() {
 
           {/* 2b. Bonne affaire — produits en promotion */}
           {carouselPromo.length > 0 && (
-            <div className="bg-bg-primary">
+            <div className="bg-bg-primary relative overflow-hidden">
+              <ScatteredDecorations variant="sparse" seed={100} />
               <ProductCarousel
                 title={t("deals")}
                 products={carouselPromo}
@@ -331,7 +334,8 @@ export default async function HomePage() {
 
           {/* 3. Product carousels (custom or default) */}
           {carouselList.map((carousel, i) => (
-            <div key={i} className={carousel.bg}>
+            <div key={i} className={`${carousel.bg} relative overflow-hidden`}>
+              <ScatteredDecorations variant="sparse" seed={i + 10} />
               <ProductCarousel
                 title={carousel.title}
                 products={carousel.products}
@@ -343,10 +347,14 @@ export default async function HomePage() {
           ))}
 
           {/* 4. Brand info section */}
-          <BrandInfoSection />
+          <div className="relative overflow-hidden">
+            <ScatteredDecorations variant="dense" seed={200} />
+            <BrandInfoSection />
+          </div>
 
           {/* 5. Collections */}
-          <div className="bg-bg-primary">
+          <div className="bg-bg-primary relative overflow-hidden">
+            <ScatteredDecorations variant="sparse" seed={3} />
             <CollectionsGrid collections={collections} />
           </div>
       </main>

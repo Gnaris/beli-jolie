@@ -92,7 +92,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {} }: Pr
 
       {/* Slide-in drawer */}
       <nav
-        className={`fixed top-0 left-0 h-full w-[280px] bg-bg-primary border-r border-border z-50 transform transition-transform duration-200 ease-out lg:hidden ${
+        className={`fixed top-0 left-0 h-full w-[calc(100%-3rem)] max-w-[280px] bg-bg-primary border-r border-border z-50 transform transition-transform duration-200 ease-out lg:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >

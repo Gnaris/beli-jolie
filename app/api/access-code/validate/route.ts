@@ -38,18 +38,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ce code d'accès a déjà été utilisé pour une inscription." }, { status: 403 });
     }
 
-    // Marquer le premier accès si pas encore fait
-    if (!accessCode.firstAccessAt) {
-      await prisma.accessCode.update({
-        where: { id: accessCode.id },
-        data: { firstAccessAt: new Date() },
-      });
-    }
-
-    // Update last access
+    // Update access timestamps in a single query
+    const now = new Date();
     await prisma.accessCode.update({
       where: { id: accessCode.id },
-      data: { lastAccessAt: new Date() },
+      data: {
+        ...(!accessCode.firstAccessAt ? { firstAccessAt: now } : {}),
+        lastAccessAt: now,
+      },
     });
 
     // Set cookie et retourner success

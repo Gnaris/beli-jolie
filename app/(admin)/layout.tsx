@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getCachedAdminWarnings } from "@/lib/cached-data";
 import Link from "next/link";
 import type { Metadata } from "next";
 import LogoutButton from "@/components/admin/LogoutModal";
@@ -20,29 +20,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     ? session.user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
     : "A";
 
-  // Warning counts for sidebar badges
-  const NON_FR_LOCALES = ["en", "ar", "zh", "de", "es", "it"];
-
-  const [
-    totalProducts,
-    fullyTranslatedProducts,
+  // Warning counts for sidebar badges (cached 5min)
+  const {
+    untranslatedCount,
     unusedColorsCount,
     unusedCompositionsCount,
     unusedTagsCount,
     untranslatedCategoriesCount,
     untranslatedSubCategoriesCount,
-  ] = await Promise.all([
-    prisma.product.count(),
-    prisma.product.count({
-      where: { AND: NON_FR_LOCALES.map((locale) => ({ translations: { some: { locale } } })) },
-    }),
-    prisma.color.count({ where: { translations: { none: {} } } }),
-    prisma.composition.count({ where: { translations: { none: {} } } }),
-    prisma.tag.count({ where: { translations: { none: {} } } }),
-    prisma.category.count({ where: { translations: { none: {} } } }),
-    prisma.subCategory.count({ where: { translations: { none: {} } } }),
-  ]);
-  const untranslatedCount = totalProducts - fullyTranslatedProducts;
+  } = await getCachedAdminWarnings();
 
   const warningCounts: Record<string, { count: number; tooltip: string } | undefined> = {
     "/admin/produits":     untranslatedCount > 0       ? { count: untranslatedCount,       tooltip: `${untranslatedCount} produit${untranslatedCount > 1 ? "s" : ""} sans traduction` } : undefined,
@@ -145,7 +131,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           }}
         />
 
-        <main className="flex-1 p-6 md:p-8">
+        <main className="flex-1 p-4 md:p-6 lg:p-8">
           {children}
         </main>
       </div>

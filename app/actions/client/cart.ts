@@ -37,11 +37,15 @@ export async function getCart() {
           variant: {
             include: {
               product: {
-                include: {
-                  category: true,
+                select: {
+                  id: true,
+                  name: true,
+                  reference: true,
+                  status: true,
+                  category: { select: { name: true } },
                 },
               },
-              color: true,
+              color: { select: { id: true, name: true, hex: true } },
             },
           },
         },
@@ -67,6 +71,7 @@ export async function getCart() {
       OR: pairs.map((p) => ({ productId: p.productId, colorId: p.colorId })),
     },
     orderBy: { order: "asc" },
+    select: { productId: true, colorId: true, path: true, order: true },
   });
 
   // Group images by "productId__colorId"

@@ -232,7 +232,7 @@ function AddressForm({
       <FieldInput id="addr-co" label="Société" value={f.company} onChange={set("company")} optional />
       <FieldInput id="addr-a1" label="Adresse" value={f.address1} onChange={set("address1")} placeholder="12 rue des Fleurs" required />
       <FieldInput id="addr-a2" label="Complément" value={f.address2} onChange={set("address2")} optional placeholder="Bât. A, porte 3" />
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FieldInput id="addr-zip" label="Code postal" value={f.zipCode} onChange={set("zipCode")} required />
         <FieldInput id="addr-city" label="Ville" value={f.city} onChange={set("city")} required />
       </div>
@@ -253,7 +253,7 @@ function AddressForm({
       <FieldInput id="addr-phone" label="Téléphone" value={f.phone} onChange={set("phone")} type="tel" optional placeholder="0612345678" />
       <label className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary cursor-pointer">
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)}
-          className="accent-[#1A1A1A] w-4 h-4" />
+          className="accent-text-primary w-4 h-4" />
         Définir comme adresse par défaut
       </label>
       <div className="flex gap-3 pt-1">
@@ -285,14 +285,14 @@ function CarrierCard({
       onClick={onClick}
       className={`w-full text-left border rounded-xl p-4 flex items-center gap-4 transition-all ${
         selected
-          ? "border-[#1A1A1A] bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
-          : "border-border bg-white hover:border-[#9CA3AF]"
+          ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
+          : "border-border bg-bg-primary hover:border-text-muted"
       }`}
     >
       <div className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center ${
-        selected ? "border-[#1A1A1A]" : "border-[#9CA3AF]"
+        selected ? "border-text-primary" : "border-text-muted"
       }`}>
-        {selected && <div className="w-2.5 h-2.5 rounded-full bg-[#1A1A1A]" />}
+        {selected && <div className="w-2.5 h-2.5 rounded-full bg-text-primary" />}
       </div>
       <div className="flex-1">
         <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
@@ -375,7 +375,7 @@ function StripePaymentForm({
       <button
         type="submit"
         disabled={!stripe || !elements || processing || !ready || disabled}
-        className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+        className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200"
       >
         {processing ? (
           <>
@@ -491,6 +491,7 @@ export default function CheckoutClient({
   useEffect(() => {
     if (!selectedAddr) { setCarriers([]); return; }
 
+    const controller = new AbortController();
     setCarriersLoading(true);
     setCarriersError("");
     setSelectedCarrierId(null);
@@ -505,14 +506,17 @@ export default function CheckoutClient({
         weightKg:   totalWeightKg,
         subtotalHT,
       }),
+      signal: controller.signal,
     })
       .then((r) => r.json())
       .then((data) => {
         if (data.error) { setCarriersError(data.error); setCarriers([]); }
         else { setTransactionId(data.transactionId ?? ""); setCarriers(data.carriers ?? []); }
       })
-      .catch(() => setCarriersError("Impossible de charger les transporteurs."))
+      .catch((err) => { if (err.name !== "AbortError") setCarriersError("Impossible de charger les transporteurs."); })
       .finally(() => setCarriersLoading(false));
+
+    return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAddrId]);
 
@@ -673,16 +677,16 @@ export default function CheckoutClient({
         </h1>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
 
         {/* ── Colonne principale ─────────────────── */}
         <div className="lg:col-span-2 space-y-6">
 
           {/* ── 1. Informations client + adresse de facturation ── */}
-          <section className="bg-white border border-border rounded-2xl overflow-hidden shadow-card">
+          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-card">
             <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
+                <span className="w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-xs font-bold flex items-center justify-center shrink-0">1</span>
                 <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
                   Informations client
                 </h2>
@@ -709,7 +713,7 @@ export default function CheckoutClient({
                   <div className="space-y-4">
                     <FieldInput id="bi-a1" label="Adresse" value={billingInfo.address1} onChange={(v) => setBillingInfo((p) => ({ ...p, address1: v }))} placeholder="12 rue des Fleurs" required />
                     <FieldInput id="bi-a2" label="Complement" value={billingInfo.address2} onChange={(v) => setBillingInfo((p) => ({ ...p, address2: v }))} optional placeholder="Bat. A, porte 3" />
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FieldInput id="bi-zip" label="Code postal" value={billingInfo.zipCode} onChange={(v) => setBillingInfo((p) => ({ ...p, zipCode: v }))} required />
                       <FieldInput id="bi-city" label="Ville" value={billingInfo.city} onChange={(v) => setBillingInfo((p) => ({ ...p, city: v }))} required />
                     </div>
@@ -753,10 +757,10 @@ export default function CheckoutClient({
           </section>
 
           {/* ── 2. Adresse de livraison ── */}
-          <section className="bg-white border border-border rounded-2xl overflow-hidden shadow-card">
+          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-card">
             <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">2</span>
+                <span className="w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-xs font-bold flex items-center justify-center shrink-0">2</span>
                 <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
                   Adresse de livraison
                 </h2>
@@ -779,7 +783,7 @@ export default function CheckoutClient({
                     type="checkbox"
                     checked={sameAsBilling}
                     onChange={(e) => handleSameAsBilling(e.target.checked)}
-                    className="accent-[#1A1A1A] w-4 h-4"
+                    className="accent-text-primary w-4 h-4"
                   />
                   Utiliser l&apos;adresse de facturation comme adresse de livraison
                 </label>
@@ -789,8 +793,8 @@ export default function CheckoutClient({
               {!showAddressForm && addresses.map((addr) => (
                 <div key={addr.id} className={`border rounded-xl p-4 transition-all ${
                   selectedAddrId === addr.id
-                    ? "border-[#1A1A1A] bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.1)]"
-                    : "border-border bg-white hover:border-[#9CA3AF]"
+                    ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.1)]"
+                    : "border-border bg-bg-primary hover:border-text-muted"
                 }`}>
                   <button
                     type="button"
@@ -799,10 +803,10 @@ export default function CheckoutClient({
                   >
                     <div className="flex items-start gap-3">
                       <div className={`w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center ${
-                        selectedAddrId === addr.id ? "border-[#1A1A1A]" : "border-[#9CA3AF]"
+                        selectedAddrId === addr.id ? "border-text-primary" : "border-text-muted"
                       }`}>
                         {selectedAddrId === addr.id && (
-                          <div className="w-2 h-2 rounded-full bg-[#1A1A1A]" />
+                          <div className="w-2 h-2 rounded-full bg-text-primary" />
                         )}
                       </div>
                       <div className="min-w-0">
@@ -857,9 +861,9 @@ export default function CheckoutClient({
           </section>
 
           {/* ── 3. Mode de livraison ── */}
-          <section className="bg-white border border-border rounded-2xl overflow-hidden shadow-card">
+          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-card">
             <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center shrink-0">3</span>
+              <span className="w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-xs font-bold flex items-center justify-center shrink-0">3</span>
               <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Mode de livraison
               </h2>
@@ -907,7 +911,7 @@ export default function CheckoutClient({
 
         {/* ── Récapitulatif ───────────────────────── */}
         <div>
-          <div className="bg-white border border-border rounded-2xl shadow-card overflow-hidden sticky top-24">
+          <div className="bg-bg-primary border border-border rounded-2xl shadow-card overflow-hidden sticky top-24">
             <div className="px-5 py-3.5 border-b border-border bg-bg-secondary">
               <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Récapitulatif
@@ -954,7 +958,7 @@ export default function CheckoutClient({
 
               {/* Remise commerciale */}
               {clientDiscountAmt > 0 && (
-                <div className="flex justify-between text-[#16A34A]">
+                <div className="flex justify-between text-accent-dark">
                   <span className="flex items-center gap-1">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M17 17h.01M7 17h.01M17 7h.01M3 12h18M12 3v18" />
@@ -982,7 +986,7 @@ export default function CheckoutClient({
               </div>
               <div className="flex justify-between text-text-secondary">
                 <span>Livraison</span>
-                <span className={`font-medium ${clientDiscount?.freeShipping && selectedCarrier ? "text-[#16A34A]" : "text-text-primary"}`}>
+                <span className={`font-medium ${clientDiscount?.freeShipping && selectedCarrier ? "text-accent-dark" : "text-text-primary"}`}>
                   {selectedCarrier
                     ? (clientDiscount?.freeShipping
                         ? "Offerte"

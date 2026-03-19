@@ -86,10 +86,10 @@ function CartRow({
   const packUnits = v.saleType === "PACK" ? (v.packQuantity ?? 1) * item.quantity : item.quantity;
 
   return (
-    <div className="flex gap-4 py-5 border-b border-border last:border-0">
+    <div className="flex gap-3 sm:gap-4 py-5 border-b border-border last:border-0">
       {/* Image */}
       <Link href={`/produits/${product.id}`} className="shrink-0">
-        <div className="w-20 h-20 rounded-xl overflow-hidden bg-bg-tertiary border border-border">
+        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-bg-tertiary border border-border">
           {image ? (
             <Image src={image} alt={tp(product.name)} width={80} height={80} sizes="80px" className="w-full h-full object-cover" />
           ) : (
@@ -148,16 +148,16 @@ function CartRow({
             type="button"
             disabled={isPending}
             onClick={() => onQtyChange(item.id, item.quantity - 1)}
-            className="w-7 h-7 flex items-center justify-center text-text-secondary hover:bg-bg-tertiary transition-colors text-sm disabled:opacity-40"
+            className="w-9 h-9 flex items-center justify-center text-text-secondary hover:bg-bg-tertiary transition-colors text-sm disabled:opacity-40"
           >−</button>
-          <span className="w-8 h-7 flex items-center justify-center text-xs font-medium text-text-primary border-x border-border">
+          <span className="w-9 h-9 flex items-center justify-center text-xs font-medium text-text-primary border-x border-border">
             {item.quantity}
           </span>
           <button
             type="button"
             disabled={isPending}
             onClick={() => onQtyChange(item.id, item.quantity + 1)}
-            className="w-7 h-7 flex items-center justify-center text-text-secondary hover:bg-bg-tertiary transition-colors text-sm disabled:opacity-40"
+            className="w-9 h-9 flex items-center justify-center text-text-secondary hover:bg-bg-tertiary transition-colors text-sm disabled:opacity-40"
           >+</button>
         </div>
 
@@ -166,7 +166,7 @@ function CartRow({
           type="button"
           disabled={isPending}
           onClick={() => onRemove(item.id)}
-          className="text-xs text-text-muted hover:text-[#EF4444] transition-colors flex items-center gap-1 disabled:opacity-40"
+          className="text-xs text-text-muted hover:text-error transition-colors flex items-center gap-1 disabled:opacity-40"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -241,7 +241,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
         <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-text-primary mb-10">
           {t("title")}
         </h1>
-        <div className="max-w-md mx-auto text-center bg-white border border-border rounded-2xl p-12 shadow-card">
+        <div className="max-w-md mx-auto text-center bg-bg-primary border border-border rounded-2xl p-12 shadow-card">
           <svg className="w-14 h-14 text-text-muted mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
               d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
@@ -279,7 +279,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
           <button
             type="button"
             onClick={() => setShowClearModal(true)}
-            className="flex items-center gap-1.5 text-xs font-[family-name:var(--font-roboto)] text-text-muted hover:text-[#EF4444] transition-colors"
+            className="flex items-center gap-1.5 text-xs font-[family-name:var(--font-roboto)] text-text-muted hover:text-error transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -294,10 +294,10 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
       {showClearModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowClearModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl p-7 max-w-sm w-full border border-border">
+          <div className="relative bg-bg-primary rounded-2xl shadow-xl p-7 max-w-sm w-full border border-border">
             <div className="flex flex-col items-center text-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-[#FEE2E2] flex items-center justify-center">
-                <svg className="w-6 h-6 text-[#EF4444]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-12 h-12 rounded-full bg-error/10 flex items-center justify-center">
+                <svg className="w-6 h-6 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                 </svg>
@@ -323,7 +323,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
                   type="button"
                   onClick={handleClearCart}
                   disabled={isPending}
-                  className="flex-1 py-2.5 bg-[#EF4444] hover:bg-[#DC2626] rounded-lg text-sm font-[family-name:var(--font-roboto)] font-medium text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 py-2.5 bg-error hover:bg-error/90 rounded-lg text-sm font-[family-name:var(--font-roboto)] font-medium text-text-inverse transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isPending ? (
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -340,7 +340,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
         {/* ── Liste articles ─────────────────────── */}
         <div className="lg:col-span-2 space-y-6">
           {Object.entries(grouped).map(([category, items]) => (
-            <div key={category} className="bg-white border border-border rounded-2xl overflow-hidden shadow-card">
+            <div key={category} className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-card">
               {/* En-tête catégorie */}
               <div className="px-5 py-3 border-b border-border bg-bg-tertiary">
                 <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
@@ -364,7 +364,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
 
         {/* ── Récapitulatif ───────────────────────── */}
         <div className="space-y-4">
-          <div className="bg-white border border-border rounded-2xl p-5 shadow-card space-y-4 sticky top-24">
+          <div className="bg-bg-primary border border-border rounded-2xl p-5 shadow-[0_4px_12px_rgba(0,0,0,0.08)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.12)] transition-shadow duration-300 space-y-4 sticky top-24">
             <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
               Récapitulatif
             </h3>
@@ -398,13 +398,13 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs font-[family-name:var(--font-roboto)] text-text-muted">
                   <span>Minimum d&apos;achat HT</span>
-                  <span className={subtotal >= minOrderHT ? "text-[#22C55E] font-semibold" : "text-text-secondary"}>
+                  <span className={subtotal >= minOrderHT ? "text-accent font-semibold" : "text-text-secondary"}>
                     {subtotal.toFixed(2)} / {minOrderHT.toFixed(2)} €
                   </span>
                 </div>
-                <div className="h-1.5 bg-[#F0F0F0] rounded-full overflow-hidden">
+                <div className="h-2 bg-bg-tertiary rounded-full overflow-hidden border border-border">
                   <div
-                    className={`h-1.5 rounded-full transition-all duration-500 ${subtotal >= minOrderHT ? "bg-[#22C55E]" : "bg-[#F59E0B]"}`}
+                    className={`h-full rounded-full transition-all duration-500 ${subtotal >= minOrderHT ? "bg-gradient-to-r from-accent to-green-600 shadow-[0_0_8px_rgba(34,197,94,0.4)]" : "bg-gradient-to-r from-warning to-amber-600"}`}
                     style={{ width: `${Math.min(100, (subtotal / minOrderHT) * 100).toFixed(1)}%` }}
                   />
                 </div>
@@ -436,7 +436,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
                 setShowMinError(false);
                 router.push("/panier/commande");
               }}
-              className="btn-primary w-full justify-center"
+              className="btn-primary w-full justify-center hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200"
             >
               Passer la commande
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

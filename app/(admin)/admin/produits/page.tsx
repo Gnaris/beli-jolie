@@ -128,6 +128,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     ? await prisma.productColorImage.findMany({
         where:   { productId: { in: productIds } },
         orderBy: { order: "asc" },
+        select:  { productId: true, path: true },
       })
     : [];
   const firstImageMap = new Map<string, string>();

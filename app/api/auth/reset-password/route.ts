@@ -5,8 +5,8 @@ import bcrypt from "bcryptjs";
 export async function POST(req: NextRequest) {
   try {
     const { token, password } = await req.json();
-    if (!token || !password || password.length < 8) {
-      return NextResponse.json({ error: "Données invalides. Mot de passe minimum 8 caractères." }, { status: 400 });
+    if (!token || !password || password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      return NextResponse.json({ error: "Mot de passe invalide : 8 caractères min., 1 majuscule et 1 chiffre requis." }, { status: 400 });
     }
     const record = await prisma.passwordResetToken.findUnique({ where: { token } });
     if (!record || record.used || record.expiresAt < new Date()) {

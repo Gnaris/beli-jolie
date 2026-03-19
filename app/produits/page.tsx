@@ -8,11 +8,15 @@ import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display"
 import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
+import FloatingShapes from "@/components/ui/FloatingShapes";
+import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import SearchFilters from "@/components/produits/SearchFilters";
 import ProductsInfiniteScroll from "@/components/produits/ProductsInfiniteScroll";
 
 export const metadata: Metadata = {
-  title: "Catalogue — Beli & Jolie",
+  title: "Catalogue Bijoux Professionnels — Beli & Jolie",
+  description: "Parcourez notre catalogue de +78 000 bijoux en acier inoxydable. Prix grossiste, livraison rapide, qualité premium pour revendeurs.",
+  alternates: { canonical: "/produits" },
 };
 
 const PER_PAGE = 20;
@@ -26,6 +30,7 @@ const PRODUCT_INCLUDE = {
       id:            true,
       colorId:       true,
       unitPrice:     true,
+      stock:         true,
       isPrimary:     true,
       saleType:      true,
       packQuantity:  true,
@@ -56,21 +61,22 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
   return rawProducts.map((p: any) => {
     const colorMap = new Map<string, {
       colorId: string; name: string; hex: string | null;
-      firstImage: string | null; unitPrice: number; isPrimary: boolean;
-      variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null; unitPrice: number; discountType: "PERCENT" | "AMOUNT" | null; discountValue: number | null }[];
+      firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
+      variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null; unitPrice: number; stock: number; discountType: "PERCENT" | "AMOUNT" | null; discountValue: number | null }[];
     }>();
     for (const v of p.colors) {
       if (!colorMap.has(v.colorId)) {
         colorMap.set(v.colorId, {
           colorId: v.colorId, name: v.color.name, hex: v.color.hex,
           firstImage: imageMap.get(p.id)?.get(v.colorId) ?? null,
-          unitPrice: v.unitPrice, isPrimary: v.isPrimary, variants: [],
+          unitPrice: v.unitPrice, isPrimary: v.isPrimary, totalStock: 0, variants: [],
         });
       }
       const cd = colorMap.get(v.colorId)!;
       cd.unitPrice = Math.min(cd.unitPrice, v.unitPrice);
+      cd.totalStock += v.stock ?? 0;
       if (v.isPrimary) cd.isPrimary = true;
-      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, size: v.size ?? null, unitPrice: v.unitPrice, discountType: v.discountType ?? null, discountValue: v.discountValue ?? null });
+      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, size: v.size ?? null, unitPrice: v.unitPrice, stock: v.stock ?? 0, discountType: v.discountType ?? null, discountValue: v.discountValue ?? null });
     }
     return { ...p, colors: [...colorMap.values()] };
   });
@@ -242,12 +248,14 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-bg-secondary">
+    <div className="min-h-screen bg-bg-secondary relative">
+      <FloatingShapes />
       <PublicSidebar />
-      <main>
+      <main className="relative z-10">
       {/* En-tete page */}
-      <div className="bg-bg-primary border-b border-border">
-        <div className="container-site py-6">
+      <div className="bg-bg-primary border-b border-border relative overflow-hidden">
+        <ScatteredDecorations variant="sparse" seed={1} />
+        <div className="container-site py-6 relative">
           <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
             {t("title")}
           </h1>
@@ -257,7 +265,8 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      <div className="py-6 pl-3 pr-4 sm:pl-4 sm:pr-6 lg:pr-8">
+      <div className="py-6 pl-3 pr-4 sm:pl-4 sm:pr-6 lg:pr-8 relative overflow-hidden">
+        <ScatteredDecorations variant="dense" seed={100} />
         <div className="flex gap-5">
           {/* Sidebar filtres — desktop */}
           <aside className="hidden lg:block w-60 shrink-0">

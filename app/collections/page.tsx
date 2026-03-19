@@ -1,15 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
+import FloatingShapes from "@/components/ui/FloatingShapes";
+import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 
 export const revalidate = 7200; // ISR: revalidate every 2 hours
 
 export const metadata: Metadata = {
-  title: "Collections — Beli & Jolie",
-  description: "Decouvrez nos collections de bijoux en acier inoxydable.",
+  title: "Collections Bijoux — Beli & Jolie",
+  description: "Découvrez nos collections de bijoux en acier inoxydable. Sélections tendance pour revendeurs et boutiques professionnelles.",
+  alternates: { canonical: "/collections" },
 };
 
 export default async function CollectionsPage() {
@@ -20,13 +24,15 @@ export default async function CollectionsPage() {
   });
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative">
+      <FloatingShapes />
       <PublicSidebar />
 
-      <div className="min-w-0">
+      <div className="min-w-0 relative z-10">
         {/* Header */}
-        <div className="bg-bg-primary border-b border-border">
-          <div className="container-site py-8">
+        <div className="bg-bg-primary border-b border-border relative overflow-hidden">
+          <ScatteredDecorations variant="sparse" seed={2} />
+          <div className="container-site py-8 relative">
             <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary">
               {t("title")}
             </h1>
@@ -38,7 +44,8 @@ export default async function CollectionsPage() {
           </div>
         </div>
 
-        <main className="container-site py-8">
+        <main className="container-site py-8 relative overflow-hidden">
+          <ScatteredDecorations variant="sparse" seed={300} />
           {collections.length === 0 ? (
             <div className="text-center py-20 text-text-muted font-[family-name:var(--font-roboto)]">
               {t("empty")}
@@ -49,16 +56,18 @@ export default async function CollectionsPage() {
                 <Link
                   key={col.id}
                   href={`/collections/${col.id}`}
-                  className="group card card-hover overflow-hidden"
+                  className="group card overflow-hidden transition-all duration-300 hover:shadow-[0_12px_32px_rgba(0,0,0,0.12)] hover:-translate-y-1 hover:border-accent/30"
                 >
                   {/* Image */}
-                  <div className="aspect-[16/9] bg-bg-tertiary overflow-hidden">
+                  <div className="aspect-[16/9] bg-gradient-to-br from-bg-tertiary to-bg-secondary overflow-hidden relative">
                     {col.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <Image
                         src={col.image}
                         alt={col.name}
-                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        fill
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                        className="object-cover transition-transform duration-300 group-hover:scale-105"
+                        loading="lazy"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
@@ -73,7 +82,7 @@ export default async function CollectionsPage() {
                   {/* Info */}
                   <div className="px-4 py-3 flex items-center justify-between">
                     <div>
-                      <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-base group-hover:text-text-secondary transition-colors">
+                      <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-base group-hover:text-accent transition-colors">
                         {col.name}
                       </h2>
                       <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">

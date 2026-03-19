@@ -75,6 +75,7 @@ model Favorite {
 
   @@unique([userId, productId])
   @@index([userId])
+  @@index([productId])
 }
 
 // ─────────────────────────────────────────────
@@ -258,9 +259,14 @@ model Product {
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
-  @@index([createdAt])
-  @@index([status])
-  @@index([categoryId, status])
+  // Performance indexes for 78k+ products
+  @@index([status, createdAt])          // catalog listing (default sort)
+  @@index([status, updatedAt])          // "new" filter sort
+  @@index([categoryId, status])         // category filter
+  @@index([isBestSeller, status])       // bestseller filter
+  @@index([status, name])               // search by name
+  @@index([createdAt])                  // general date sorting
+  @@index([reference])                  // exact reference search
 }
 
 // Traductions automatiques des produits
@@ -276,6 +282,7 @@ model ProductTranslation {
 
   @@unique([productId, locale])
   @@index([productId])
+  @@index([locale])                     // admin warnings: count by locale
 }
 
 // Produits similaires (M2M self-relation)
@@ -311,6 +318,11 @@ model ProductColor {
   updatedAt   DateTime     @updatedAt
 
   @@index([productId, colorId])
+  @@index([productId, isPrimary])       // fast primary color lookup
+  @@index([colorId])                    // color filter queries
+  @@index([discountType, discountValue]) // promo filter
+  @@index([stock])                      // OOS filter
+  @@index([unitPrice])                  // price range filter
 }
 
 // Images liées à un (produit, couleur) — partagées entre toutes les variantes de la même couleur
@@ -354,6 +366,7 @@ model CartItem {
 
   @@unique([cartId, variantId])
   @@index([cartId])
+  @@index([variantId])                  // variant price change impact queries
 }
 
 // ─────────────────────────────────────────────
@@ -428,6 +441,10 @@ model Order {
 
   @@index([status])
   @@index([userId, createdAt])
+  @@index([userId, status])             // client order listing with status filter
+  @@index([paymentStatus])              // payment status queries
+  @@index([createdAt])                  // admin order listing
+  @@index([status, createdAt])          // admin filtered + paginated listing
 }
 
 // Ligne de commande (snapshot produit au moment de la commande)
@@ -449,6 +466,9 @@ model OrderItem {
   lineTotal   Float
 
   createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([productRef])                 // bestseller groupBy + reassort queries
 }
 
 // ─────────────────────────────────────────────

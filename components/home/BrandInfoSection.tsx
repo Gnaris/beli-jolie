@@ -29,27 +29,25 @@ export default function BrandInfoSection() {
   }));
 
   return (
-    <section className="py-16 bg-bg-secondary">
+    <section className="py-20 bg-bg-secondary">
       <div className="container-site">
-        <div className="card p-6 md:p-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-            {blocks.map((block, i) => (
-              <div
-                key={BRAND_KEYS[i]}
-                className={`flex flex-col items-center text-center gap-4 ${i < blocks.length - 1 ? "md:border-r md:border-border md:pr-8" : ""}`}
-              >
-                <div className="w-12 h-12 rounded-xl bg-bg-secondary flex items-center justify-center text-text-secondary animate-zoom-fade stagger-2">
-                  {block.icon}
-                </div>
-                <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary animate-slide-up">
-                  {block.title}
-                </h3>
-                <p className="text-sm text-text-muted leading-relaxed font-[family-name:var(--font-roboto)] animate-slide-right stagger-4">
-                  {block.description}
-                </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {blocks.map((block, i) => (
+            <div
+              key={BRAND_KEYS[i]}
+              className="group bg-bg-primary border border-border rounded-2xl p-8 text-center flex flex-col items-center gap-4 transition-all duration-300 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-1 hover:border-accent/30"
+            >
+              <div className="w-14 h-14 rounded-xl bg-accent/5 border border-accent/15 flex items-center justify-center text-accent animate-zoom-fade stagger-2">
+                {block.icon}
               </div>
-            ))}
-          </div>
+              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary animate-slide-up">
+                {block.title}
+              </h3>
+              <p className="text-sm text-text-muted leading-relaxed font-[family-name:var(--font-roboto)] max-w-[240px] animate-slide-right stagger-4">
+                {block.description}
+              </p>
+            </div>
+          ))}
         </div>
       </div>
     </section>

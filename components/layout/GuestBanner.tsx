@@ -1,39 +1,97 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 
+function getAccessCodeSnapshot() {
+  return document.cookie.includes("bj_access_code=");
+}
+
+function getAccessCodeServerSnapshot() {
+  return false;
+}
+
+function subscribeAccessCode(cb: () => void) {
+  document.addEventListener("visibilitychange", cb);
+  return () => document.removeEventListener("visibilitychange", cb);
+}
+
 /**
- * Bannière discrète affichée aux visiteurs naviguant avec un code d'accès invité.
- * Les invite à s'inscrire pour pouvoir commander.
+ * Bandeau en bas de page pour les visiteurs naviguant avec un code d'accès invité.
+ * Position absolute (ne cache pas le contenu). Peut être replié/déplié avec animation.
+ * Sur les pages auth : le bouton devient "Visiter le site".
  */
 export default function GuestBanner() {
   const { data: session } = useSession();
-  const [hasAccessCode, setHasAccessCode] = useState(false);
+  const pathname = usePathname();
+  const hasAccessCode = useSyncExternalStore(subscribeAccessCode, getAccessCodeSnapshot, getAccessCodeServerSnapshot);
+  const [collapsed, setCollapsed] = useState(false);
 
-  useEffect(() => {
-    const cookie = document.cookie
-      .split("; ")
-      .find((c) => c.startsWith("bj_access_code="));
-    setHasAccessCode(!!cookie);
-  }, []);
-
-  // Ne pas afficher si connecté ou pas de code d'accès
   if (session?.user || !hasAccessCode) return null;
 
+  const isAuthPage = pathname === "/connexion" || pathname === "/inscription";
+
   return (
-    <div className="bg-[#1A1A1A] text-white px-4 py-2.5 text-center sticky top-0 z-50">
-      <p className="text-xs sm:text-sm font-[family-name:var(--font-roboto)]">
-        Vous naviguez en mode invité.{" "}
-        <Link
-          href="/inscription"
-          className="underline font-medium hover:text-gray-300 transition-colors"
+    <div
+      className={`fixed bottom-0 left-0 right-0 z-50 transition-transform duration-500 ease-in-out ${
+        collapsed ? "translate-y-[calc(100%-44px)]" : "translate-y-0"
+      }`}
+    >
+      {/* Toggle — solidaire du bandeau, se déplace avec lui */}
+      <div className="flex justify-center">
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          className="bg-bg-dark text-text-inverse/70 hover:text-warning px-5 py-2 rounded-t-xl transition-colors duration-300"
+          aria-label={collapsed ? "Afficher le bandeau invité" : "Masquer le bandeau invité"}
         >
-          Créez votre compte
-        </Link>{" "}
-        pour accéder aux commandes et au panier.
-      </p>
+          <svg
+            className={`w-5 h-5 transition-transform duration-500 ease-in-out ${collapsed ? "rotate-180" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Banner */}
+      <div className="bg-bg-dark text-text-inverse px-5 py-4 sm:px-6 sm:py-5 flex items-center justify-between gap-4 shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-full bg-warning/15 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm sm:text-base font-semibold font-[family-name:var(--font-poppins)] text-warning">
+              Mode invit&#233;
+            </p>
+            <p className="text-xs sm:text-sm text-text-inverse/70 font-[family-name:var(--font-roboto)] hidden sm:block truncate">
+              Inscrivez-vous rapidement et sans v&#233;rification pour acc&#233;der compl&#232;tement au site.
+            </p>
+          </div>
+        </div>
+
+        <Link
+          href={isAuthPage ? "/" : "/inscription"}
+          className="text-sm font-[family-name:var(--font-roboto)] font-semibold bg-bg-primary text-text-primary px-5 py-2.5 rounded-xl hover:bg-bg-secondary transition-colors whitespace-nowrap shrink-0"
+        >
+          {isAuthPage ? (
+            <>
+              <span className="hidden sm:inline">Visiter le site</span>
+              <span className="sm:hidden">Visiter</span>
+            </>
+          ) : (
+            <>
+              S&apos;inscrire <span className="hidden sm:inline">&rarr;</span>
+            </>
+          )}
+        </Link>
+      </div>
     </div>
   );
 }

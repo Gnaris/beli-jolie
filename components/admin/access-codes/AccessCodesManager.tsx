@@ -164,13 +164,7 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
                         <span className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary tracking-wider">
                           {item.code}
                         </span>
-                        <span className={`${status.class} inline-flex items-center gap-1.5`}>
-                          {status.pulse && (
-                            <span className="relative flex h-2 w-2">
-                              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${status.pulse}`} />
-                              <span className={`relative inline-flex rounded-full h-2 w-2 ${status.pulse}`} />
-                            </span>
-                          )}
+                        <span className={`badge ${status.class}`}>
                           {status.label}
                         </span>
                         <button

@@ -4,10 +4,13 @@ import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
+import FloatingShapes from "@/components/ui/FloatingShapes";
+import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 
 export const metadata: Metadata = {
-  title: "Categories — Beli & Jolie",
-  description: "Parcourez nos categories et sous-categories de bijoux en acier inoxydable.",
+  title: "Catégories Bijoux — Beli & Jolie",
+  description: "Parcourez nos catégories de bijoux en acier inoxydable : colliers, bracelets, bagues, boucles d'oreilles. Prix grossiste professionnel.",
+  alternates: { canonical: "/categories" },
 };
 
 export default async function CategoriesPage() {
@@ -21,13 +24,15 @@ export default async function CategoriesPage() {
   });
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative">
+      <FloatingShapes />
       <PublicSidebar />
 
-      <div className="min-w-0">
+      <div className="min-w-0 relative z-10">
         {/* Page header */}
-        <div className="bg-bg-primary border-b border-border">
-          <div className="container-site py-8">
+        <div className="bg-bg-primary border-b border-border relative overflow-hidden">
+          <ScatteredDecorations variant="sparse" seed={3} />
+          <div className="container-site py-8 relative">
             <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary">
               {t("title")}
             </h1>
@@ -37,7 +42,8 @@ export default async function CategoriesPage() {
           </div>
         </div>
 
-        <main className="container-site py-8">
+        <main className="container-site py-8 relative overflow-hidden">
+          <ScatteredDecorations variant="sparse" seed={300} />
           {categories.length === 0 ? (
             <div className="text-center py-20 text-text-muted font-[family-name:var(--font-roboto)]">
               {t("empty")}
@@ -47,7 +53,7 @@ export default async function CategoriesPage() {
               {categories.map((cat) => (
                 <div
                   key={cat.id}
-                  className="card overflow-hidden"
+                  className="card overflow-hidden transition-all duration-300 hover:shadow-[0_8px_20px_rgba(0,0,0,0.1)] hover:border-accent/30"
                 >
                   {/* Category header */}
                   <Link
@@ -55,7 +61,7 @@ export default async function CategoriesPage() {
                     className="flex items-center justify-between px-5 py-4 hover:bg-bg-secondary transition-colors group"
                   >
                     <div>
-                      <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-base text-text-primary group-hover:text-text-secondary transition-colors">
+                      <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-base text-text-primary group-hover:text-accent transition-colors">
                         {cat.name}
                       </h2>
                       <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
@@ -81,7 +87,7 @@ export default async function CategoriesPage() {
                         <Link
                           key={sub.id}
                           href={`/produits?cat=${cat.id}&subcat=${sub.id}`}
-                          className="inline-flex items-center text-xs text-text-secondary bg-bg-tertiary hover:bg-bg-dark hover:text-text-inverse px-2.5 py-1 rounded-full transition-colors font-[family-name:var(--font-roboto)]"
+                          className="inline-flex items-center text-xs text-text-secondary bg-gradient-to-r from-bg-tertiary to-bg-secondary border border-border hover:bg-accent hover:text-text-inverse hover:border-accent px-3 py-1.5 rounded-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm font-[family-name:var(--font-roboto)]"
                         >
                           {sub.name}
                         </Link>

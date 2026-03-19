@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getCachedProductCount } from "@/lib/cached-data";
 import RegisterForm from "@/components/auth/RegisterForm";
 
 export const metadata: Metadata = {
@@ -10,6 +11,8 @@ export const metadata: Metadata = {
 /**
  * Page d'inscription BtoB
  */
-export default function InscriptionPage() {
-  return <RegisterForm />;
+export default async function InscriptionPage() {
+  const productCount = await getCachedProductCount();
+
+  return <RegisterForm productCount={productCount} />;
 }

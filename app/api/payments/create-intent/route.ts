@@ -34,7 +34,12 @@ export async function POST(req: Request) {
       include: {
         items: {
           include: {
-            variant: true,
+            variant: {
+              select: {
+                id: true, unitPrice: true, saleType: true, packQuantity: true,
+                weight: true, discountType: true, discountValue: true,
+              },
+            },
           },
         },
       },

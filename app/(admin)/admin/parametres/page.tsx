@@ -22,7 +22,9 @@ export default async function ParametresPage() {
   ]);
 
   const currentMinHT = minConfig ? parseFloat(minConfig.value) : 0;
-  const inMaintenance = maintenanceConfig?.value === "true";
+  const maintenanceValue = maintenanceConfig?.value ?? "false";
+  const inMaintenance = maintenanceValue === "true" || maintenanceValue === "auto";
+  const isAutoMaintenance = maintenanceValue === "auto";
   const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
   const showOutOfStockVariants = stockVariantsConfig?.value !== "false"; // default true
   const showOutOfStockProducts = stockProductsConfig?.value !== "false"; // default true
@@ -35,7 +37,7 @@ export default async function ParametresPage() {
       </div>
 
       {/* Bloc 1 — Mode maintenance */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <div className="flex items-start gap-3 mb-5">
           <div className="w-8 h-8 rounded-lg bg-[#FEF3C7] flex items-center justify-center flex-shrink-0 mt-0.5">
             <svg
@@ -68,10 +70,14 @@ export default async function ParametresPage() {
 
         {/* Active warning banner */}
         {inMaintenance && (
-          <div className="mb-5 rounded-lg bg-[#FEF3C7] border border-[#FDE68A] px-4 py-3 flex items-start gap-2">
+          <div className={`mb-5 rounded-lg px-4 py-3 flex items-start gap-2 ${
+            isAutoMaintenance
+              ? "bg-[#FEE2E2] border border-[#FECACA]"
+              : "bg-[#FEF3C7] border border-[#FDE68A]"
+          }`}>
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="w-4 h-4 text-[#D97706] flex-shrink-0 mt-0.5"
+              className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isAutoMaintenance ? "text-[#EF4444]" : "text-[#D97706]"}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -83,18 +89,29 @@ export default async function ParametresPage() {
                 d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
               />
             </svg>
-            <p className="text-sm text-[#92400E] font-[family-name:var(--font-roboto)]">
-              <strong>Maintenance active</strong> — Le site est actuellement inaccessible aux
-              clients. Pensez à la désactiver dès que vos opérations sont terminées.
+            <p className={`text-sm font-[family-name:var(--font-roboto)] ${isAutoMaintenance ? "text-[#B91C1C]" : "text-[#92400E]"}`}>
+              {isAutoMaintenance ? (
+                <>
+                  <strong>Maintenance automatique</strong> — Le système a détecté des erreurs
+                  critiques (connexion base de données ou erreurs serveur) et a activé la maintenance
+                  automatiquement. Le site se rétablira automatiquement quand le problème sera résolu,
+                  ou vous pouvez la désactiver manuellement.
+                </>
+              ) : (
+                <>
+                  <strong>Maintenance active</strong> — Le site est actuellement inaccessible aux
+                  clients. Pensez à la désactiver dès que vos opérations sont terminées.
+                </>
+              )}
             </p>
           </div>
         )}
 
-        <MaintenanceModeToggle currentValue={inMaintenance} />
+        <MaintenanceModeToggle currentValue={inMaintenance} isAuto={isAutoMaintenance} />
       </div>
 
       {/* Bloc 2 — Commande minimale */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
           Montant minimum de commande
         </h2>
@@ -106,7 +123,7 @@ export default async function ParametresPage() {
       </div>
 
       {/* Bloc 3 — Gestion des ruptures de stock */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <div className="flex items-start gap-3 mb-5">
           <div className="w-8 h-8 rounded-lg bg-[#FEE2E2] flex items-center justify-center flex-shrink-0 mt-0.5">
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#EF4444]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -129,7 +146,7 @@ export default async function ParametresPage() {
       </div>
 
       {/* Bloc 4 — Affichage des produits */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <div className="flex items-start gap-3 mb-5">
           <div className="w-8 h-8 rounded-lg bg-[#EDE9FE] flex items-center justify-center flex-shrink-0 mt-0.5">
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#7C3AED]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -155,7 +172,7 @@ export default async function ParametresPage() {
       </div>
 
       {/* Bloc 5 — Sécurité compte admin */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
           Mot de passe administrateur
         </h2>

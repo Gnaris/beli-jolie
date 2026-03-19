@@ -1,24 +1,52 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isAutoMaintenanceActive, attemptAutoRecovery, reportSuccess, reportCriticalError } from "@/lib/health";
 
-// Lightweight endpoint used by middleware to check maintenance mode.
-// Keep this fast — no auth, no heavy queries.
+/**
+ * Lightweight endpoint used by middleware to check maintenance mode.
+ * Now also detects DB failures and triggers auto-maintenance.
+ */
 export async function GET() {
+  // If auto-maintenance is active in memory, try recovery first
+  if (isAutoMaintenanceActive()) {
+    const recovered = await attemptAutoRecovery();
+    if (!recovered) {
+      return NextResponse.json(
+        { maintenance: true, auto: true },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
+  }
+
   try {
     const config = await prisma.siteConfig.findUnique({
       where: { key: "maintenance_mode" },
     });
+
+    // DB query succeeded — report success to circuit breaker
+    reportSuccess();
+
+    const value = config?.value;
+    // "true" = manual maintenance, "auto" = auto-triggered
+    const isMaintenance = value === "true" || value === "auto";
+
     return NextResponse.json(
-      { maintenance: config?.value === "true" },
+      { maintenance: isMaintenance, auto: value === "auto" },
       {
         headers: {
-          // Allow CDN/edge caching for max 30 seconds
           "Cache-Control": "public, s-maxage=30",
         },
       }
     );
-  } catch {
-    // On DB error, assume not in maintenance to avoid locking everyone out
-    return NextResponse.json({ maintenance: false });
+  } catch (err) {
+    // DB is unreachable — report critical error & enter maintenance
+    reportCriticalError("site-status");
+
+    console.error("[site-status] DB unreachable:", err instanceof Error ? err.message : err);
+
+    return NextResponse.json(
+      { maintenance: true, auto: true },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   }
 }

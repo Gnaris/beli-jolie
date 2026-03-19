@@ -31,7 +31,7 @@ export default function ResetPasswordForm({ token }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (password.length < 8) {
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
       setError(t("passwordHint"));
       return;
     }

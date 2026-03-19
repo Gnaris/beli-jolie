@@ -100,8 +100,8 @@ export async function placeOrder(
           include: {
             variant: {
               include: {
-                product: { include: { category: true } },
-                color:   true,
+                product: { select: { id: true, name: true, reference: true, status: true, category: { select: { name: true } } } },
+                color:   { select: { id: true, name: true, hex: true } },
               },
             },
           },

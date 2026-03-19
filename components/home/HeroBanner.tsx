@@ -13,16 +13,16 @@ export default function HeroBanner({ isLoggedIn, productCount }: HeroBannerProps
   const t = useTranslations("home");
 
   return (
-    <section className="bg-bg-dark relative overflow-hidden min-h-[600px] md:min-h-[650px]">
+    <section className="bg-bg-dark relative overflow-hidden min-h-[350px] sm:min-h-[500px] md:min-h-[650px]">
       {/* Three.js 3D jewelry animation — behind everything */}
       <div className="absolute inset-0">
         <JewelrySceneLoader />
       </div>
 
-      {/* Dark overlay — pointer-events-none so hover reaches the canvas */}
-      <div className="absolute inset-0 bg-[#1A1A1A]/70 pointer-events-none" />
+      {/* Dark overlay — diagonal gradient so 3D shines through */}
+      <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(26,26,26,0.55) 0%, rgba(26,26,26,0.25) 100%)" }} />
 
-      <div className="container-site py-24 md:py-32 relative z-10 pointer-events-none">
+      <div className="container-site py-14 sm:py-24 md:py-32 relative z-10 pointer-events-none">
         <div className="grid md:grid-cols-2 gap-12 items-center">
 
           {/* Text */}
@@ -40,16 +40,16 @@ export default function HeroBanner({ isLoggedIn, productCount }: HeroBannerProps
             </p>
             <div className="flex flex-wrap gap-3 animate-zoom-fade stagger-4">
               {isLoggedIn ? (
-                <Link href="/produits" className="inline-flex items-center gap-2 bg-bg-primary text-text-primary text-sm font-medium px-6 py-2.5 rounded-lg hover:bg-bg-tertiary transition-colors font-[family-name:var(--font-roboto)] shadow-lg">
+                <Link href="/produits" className="inline-flex items-center gap-2 bg-bg-primary text-text-primary text-sm font-medium px-6 py-3 rounded-lg hover:bg-bg-tertiary hover:-translate-y-0.5 transition-all duration-200 font-[family-name:var(--font-roboto)] shadow-lg hover:shadow-xl">
                   {t("heroCta")}
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
                 </Link>
               ) : (
                 <>
-                  <Link href="/connexion" className="inline-flex items-center gap-2 bg-bg-primary text-text-primary text-sm font-medium px-6 py-2.5 rounded-lg hover:bg-bg-tertiary transition-colors font-[family-name:var(--font-roboto)] shadow-lg">
+                  <Link href="/connexion" className="inline-flex items-center gap-2 bg-bg-primary text-text-primary text-sm font-medium px-6 py-3 rounded-lg hover:bg-bg-tertiary hover:-translate-y-0.5 transition-all duration-200 font-[family-name:var(--font-roboto)] shadow-lg hover:shadow-xl">
                     {t("heroAccess")}
                   </Link>
-                  <Link href="/inscription" className="inline-flex items-center gap-2 border border-white/25 text-text-inverse text-sm px-6 py-2.5 rounded-lg hover:bg-white/10 backdrop-blur-sm transition-colors font-[family-name:var(--font-roboto)]">
+                  <Link href="/inscription" className="inline-flex items-center gap-2 border border-white/25 text-text-inverse text-sm px-6 py-3 rounded-lg hover:bg-white/10 hover:-translate-y-0.5 backdrop-blur-sm transition-all duration-200 font-[family-name:var(--font-roboto)]">
                     {t("heroRegister")}
                   </Link>
                 </>

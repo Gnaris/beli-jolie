@@ -21,28 +21,28 @@ export default function CollectionsGrid({ collections }: Props) {
   if (collections.length === 0) return null;
 
   return (
-    <section className="py-12 bg-bg-primary">
+    <section className="py-16 bg-bg-primary">
       <div className="container-site">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-8">
           <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
             {t("collections")}
           </h2>
           <Link
             href="/collections"
-            className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors font-[family-name:var(--font-roboto)]"
+            className="text-sm font-medium text-text-secondary hover:text-accent transition-colors font-[family-name:var(--font-roboto)]"
           >
             {tc("viewAll")} &rarr;
           </Link>
         </div>
 
         {/* Grid 2x2 */}
-        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:gap-5">
           {collections.slice(0, 4).map((col, index) => (
             <Link
               key={col.id}
               href={`/collections/${col.id}`}
-              className="group relative aspect-[4/3] rounded-xl overflow-hidden bg-bg-tertiary animate-zoom-fade"
+              className="group relative aspect-[4/3] rounded-2xl overflow-hidden bg-bg-tertiary shadow-[0_2px_8px_rgba(0,0,0,0.06)] hover:shadow-[0_12px_32px_rgba(0,0,0,0.12)] hover:-translate-y-1 transition-all duration-300 animate-zoom-fade"
               style={{ animationDelay: `${index * 0.1}s` }}
             >
               {col.image ? (

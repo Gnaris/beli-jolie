@@ -47,21 +47,16 @@ export const authOptions: NextAuthOptions = {
           where: { email: credentials.email.toLowerCase().trim() },
         });
 
+        // Generic message to prevent user enumeration
+        const INVALID_CREDENTIALS = "Identifiants incorrects ou compte non activé.";
+
         if (!user) {
-          throw new Error("Aucun compte trouvé avec cet email.");
+          throw new Error(INVALID_CREDENTIALS);
         }
 
         // Vérification du statut du compte
-        if (user.status === "PENDING") {
-          throw new Error(
-            "Votre compte est en attente de validation par notre équipe. Vous recevrez un email de confirmation."
-          );
-        }
-
-        if (user.status === "REJECTED") {
-          throw new Error(
-            "Votre demande de compte a été refusée. Contactez-nous pour plus d'informations."
-          );
+        if (user.status === "PENDING" || user.status === "REJECTED") {
+          throw new Error(INVALID_CREDENTIALS);
         }
 
         // Vérification du mot de passe
@@ -71,7 +66,7 @@ export const authOptions: NextAuthOptions = {
         );
 
         if (!passwordMatch) {
-          throw new Error("Mot de passe incorrect.");
+          throw new Error(INVALID_CREDENTIALS);
         }
 
         // Retour de l'utilisateur (sans le mot de passe)

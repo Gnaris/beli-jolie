@@ -147,6 +147,8 @@ export default function ProductDetail({
   const [quantities, setQuantities]               = useState<Record<string, number>>({});
   const [addedOptId, setAddedOptId]               = useState<string | null>(null);
 
+  // Image display (no animation on switch)
+
   const selectedVariants = variants.filter(v => v.colorId === selectedColorId);
   const selectedImgs     = colorImages.find(ci => ci.colorId === selectedColorId)?.images ?? [];
   const displayedImgs    = hoveredColorId
@@ -166,10 +168,16 @@ export default function ProductDetail({
   const hasClientDiscount = !!clientDiscount && minPriceAfterClient < minPrice;
 
   function handleColorClick(colorId: string) {
+    if (colorId === selectedColorId) return;
     setSelectedColorId(colorId);
     setHoveredColorId(null);
     setActiveImageIdx(0);
     setHoveredImageIdx(null);
+  }
+
+  function handleImageClick(idx: number) {
+    if (idx === activeImageIdx) return;
+    setActiveImageIdx(idx);
   }
 
   function handleAddToCart(variantId: string, qty: number) {
@@ -195,23 +203,25 @@ export default function ProductDetail({
 
   return (
     <>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-10 lg:gap-16">
 
         {/* -- Images -------------------------------------------------- */}
-        <div className="space-y-4">
+        <div className="space-y-4 animate-zoom-fade">
           <div
             className="aspect-square bg-bg-tertiary overflow-hidden relative cursor-zoom-in rounded-xl"
             onClick={() => displayedImage && setZoomedSrc(displayedImage)}
           >
             {displayedImage ? (
-              <Image
-                src={displayedImage}
-                alt={`${tp(name)} — ${tp(displayedColorName)}`}
-                fill
-                sizes="(max-width: 1024px) 100vw, 50vw"
-                className="object-contain transition-all duration-300"
-                priority
-              />
+              <div className="absolute inset-0">
+                <Image
+                  src={displayedImage}
+                  alt={`${tp(name)} — ${tp(displayedColorName)}`}
+                  fill
+                  sizes="(max-width: 1024px) 100vw, 50vw"
+                  className="object-contain"
+                  priority
+                />
+              </div>
             ) : (
               <div className="w-full h-full flex items-center justify-center">
                 <svg className="w-16 h-16 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -221,7 +231,7 @@ export default function ProductDetail({
               </div>
             )}
             {displayedImage && (
-              <div className="absolute bottom-3 right-3 bg-white/70 backdrop-blur-sm text-text-secondary p-1.5 rounded-lg">
+              <div className="absolute bottom-3 right-3 bg-white/70 backdrop-blur-sm text-text-secondary p-1.5 rounded-lg transition-opacity duration-300">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6" />
@@ -233,29 +243,33 @@ export default function ProductDetail({
           {selectedImgs.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {selectedImgs.map((img, i) => (
-                <Image
-                  key={i}
-                  src={img.path}
-                  alt={`${tp(name)} ${i + 1}`}
-                  width={64}
-                  height={64}
-                  sizes="64px"
-                  onMouseEnter={() => setHoveredImageIdx(i)}
-                  onMouseLeave={() => setHoveredImageIdx(null)}
-                  onClick={() => setActiveImageIdx(i)}
-                  className={`w-16 h-16 object-contain rounded-lg cursor-pointer transition-all shrink-0 border-2 ${
-                    activeImageIdx === i
-                      ? "border-text-primary shadow-sm"
-                      : "border-border hover:border-border-dark"
-                  }`}
-                />
+                <div key={i} className="relative shrink-0">
+                  <Image
+                    src={img.path}
+                    alt={`${tp(name)} ${i + 1}`}
+                    width={72}
+                    height={72}
+                    sizes="72px"
+                    onMouseEnter={() => setHoveredImageIdx(i)}
+                    onMouseLeave={() => setHoveredImageIdx(null)}
+                    onClick={() => handleImageClick(i)}
+                    className={`w-[4.5rem] h-[4.5rem] object-contain rounded-lg cursor-pointer transition-all duration-200 border-2 ${
+                      activeImageIdx === i
+                        ? "border-text-primary shadow-sm scale-105"
+                        : "border-border hover:border-border-dark hover:scale-105"
+                    }`}
+                  />
+                  {activeImageIdx === i && (
+                    <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-text-primary rounded-full animate-thumb-select" />
+                  )}
+                </div>
               ))}
             </div>
           )}
         </div>
 
         {/* -- Infos produit ------------------------------------------- */}
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6 animate-slide-up">
           {/* Reference */}
           <span className="font-mono text-xs bg-bg-tertiary text-text-secondary px-2.5 py-1 rounded-full border border-border inline-block">
             {reference}
@@ -316,13 +330,17 @@ export default function ProductDetail({
                     onMouseEnter={() => setHoveredColorId(c.id)}
                     onMouseLeave={() => setHoveredColorId(null)}
                     onClick={() => handleColorClick(c.id)}
-                    className={`w-8 h-8 rounded-full border-2 transition-all ${
+                    className={`relative w-8 h-8 rounded-full border-2 transition-all duration-300 swatch-pulse ${
                       selectedColorId === c.id
                         ? "border-text-primary scale-110 shadow-md"
-                        : "border-border hover:border-border-dark hover:scale-105"
+                        : "border-border hover:border-border-dark hover:scale-110"
                     }`}
                     style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
-                  />
+                  >
+                    {selectedColorId === c.id && (
+                      <span className="absolute inset-[-4px] rounded-full border-2 border-text-primary/30 animate-pulse-ring pointer-events-none" />
+                    )}
+                  </button>
                 ))}
               </div>
             </div>
@@ -413,7 +431,7 @@ export default function ProductDetail({
                 return (
                   <div
                     key={v.id}
-                    className="bg-bg-primary border border-border rounded-xl px-4 py-4 space-y-3 hover:border-border-dark transition-colors"
+                    className="bg-bg-primary border border-border rounded-xl px-3 py-3 sm:px-4 sm:py-4 space-y-3 hover:border-border-dark transition-colors"
                   >
                     {/* Libelle + prix */}
                     <div className="flex items-start justify-between gap-3">
@@ -462,31 +480,34 @@ export default function ProductDetail({
                       <div className="flex items-center border border-border rounded-lg overflow-hidden">
                         <button
                           type="button"
+                          aria-label="Diminuer la quantité"
                           onClick={() => setQuantities((q) => ({ ...q, [v.id]: Math.max(1, (q[v.id] ?? 1) - 1) }))}
-                          className="w-8 h-9 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
+                          className="w-9 h-10 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
                         >−</button>
                         <input
                           type="number"
                           min={1}
                           max={effectiveStock || undefined}
                           value={qty}
+                          aria-label="Quantité"
                           onChange={(e) => {
                             const val = parseInt(e.target.value);
                             if (!isNaN(val) && val >= 1) setQuantities((q) => ({ ...q, [v.id]: val }));
                           }}
-                          className="w-12 h-9 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-x border-border focus:outline-none bg-bg-primary"
+                          className="w-12 h-10 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-x border-border focus:outline-none bg-bg-primary"
                         />
                         <button
                           type="button"
+                          aria-label="Augmenter la quantité"
                           onClick={() => setQuantities((q) => ({ ...q, [v.id]: (q[v.id] ?? 1) + 1 }))}
-                          className="w-8 h-9 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
+                          className="w-9 h-10 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
                         >+</button>
                       </div>
                       <button
                         type="button"
                         disabled={effectiveStock === 0 || isPending}
                         onClick={() => handleAddToCart(v.id, qty)}
-                        className={`flex-1 h-9 text-text-inverse text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg ${
+                        className={`flex-1 h-10 text-text-inverse text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg ${
                           addedOptId === v.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
                         }`}
                       >
@@ -522,8 +543,10 @@ export default function ProductDetail({
             {t("similar")}
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {similarProducts.map((p) => (
-              <RelatedCard key={p.id} product={p} />
+            {similarProducts.map((p, i) => (
+              <div key={p.id} className="animate-zoom-fade" style={{ animationDelay: `${i * 0.08}s` }}>
+                <RelatedCard product={p} />
+              </div>
             ))}
           </div>
         </section>
@@ -532,7 +555,7 @@ export default function ProductDetail({
       {/* Lightbox */}
       {zoomedSrc && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-lightbox-in"
           onClick={() => setZoomedSrc(null)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -540,12 +563,12 @@ export default function ProductDetail({
             src={zoomedSrc}
             alt={t("preview")}
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl rounded-xl"
+            className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl rounded-xl animate-lightbox-img-in"
           />
           <button
             type="button"
             onClick={() => setZoomedSrc(null)}
-            className="absolute top-4 right-4 w-9 h-9 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center text-xl backdrop-blur-sm"
+            className="absolute top-4 right-4 w-9 h-9 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center text-xl backdrop-blur-sm transition-transform hover:scale-110 animate-zoom-fade"
           >
             ×
           </button>
