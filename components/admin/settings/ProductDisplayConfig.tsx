@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { updateProductDisplayConfig } from "@/app/actions/admin/site-config";
+import { useToast } from "@/components/ui/Toast";
+import CustomSelect from "@/components/ui/CustomSelect";
 import type {
   ProductDisplayConfig as Config,
   DisplaySection,
@@ -46,7 +48,7 @@ export default function ProductDisplayConfig({ config, categories, collections, 
   const [homepageEnabled, setHomepageEnabled] = useState(config.homepageCarousels.length > 0);
   const [carousels, setCarousels]     = useState<HomepageCarousel[]>(config.homepageCarousels);
   const [isPending, startTransition]  = useTransition();
-  const [message, setMessage]         = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const toast = useToast();
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [addCarouselOpen, setAddCarouselOpen] = useState(false);
 
@@ -150,11 +152,11 @@ export default function ProductDisplayConfig({ config, categories, collections, 
         homepageCarousels: homepageEnabled ? carousels : [],
       };
       const result = await updateProductDisplayConfig(newConfig);
-      setMessage(result.success
-        ? { type: "success", text: "Configuration enregistrée." }
-        : { type: "error",   text: result.error ?? "Erreur." }
-      );
-      setTimeout(() => setMessage(null), 4000);
+      if (result.success) {
+        toast.success("Configuration enregistrée");
+      } else {
+        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      }
     });
   }
 
@@ -236,26 +238,24 @@ export default function ProductDisplayConfig({ config, categories, collections, 
             <>
               <div className="flex-1 min-w-[140px]">
                 <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Catégorie</label>
-                <select
+                <CustomSelect
                   value={section.categoryId ?? ""}
-                  onChange={e => {
-                    const cat = categories.find(c => c.id === e.target.value);
-                    updateSection(section.id, { categoryId: e.target.value, categoryName: cat?.name ?? "" });
+                  onChange={v => {
+                    const cat = categories.find(c => c.id === v);
+                    updateSection(section.id, { categoryId: v, categoryName: cat?.name ?? "" });
                   }}
-                  className="field-input !py-1.5 text-sm"
-                >
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                  options={categories.map(c => ({ value: c.id, label: c.name }))}
+                  size="sm"
+                />
               </div>
               <div>
                 <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Tri</label>
-                <select
+                <CustomSelect
                   value={section.sortBy ?? "random"}
-                  onChange={e => updateSection(section.id, { sortBy: e.target.value as "new" | "bestseller" | "random" })}
-                  className="field-input !py-1.5 text-sm"
-                >
-                  {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
+                  onChange={v => updateSection(section.id, { sortBy: v as "new" | "bestseller" | "random" })}
+                  options={SORT_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+                  size="sm"
+                />
               </div>
             </>
           )}
@@ -292,16 +292,15 @@ export default function ProductDisplayConfig({ config, categories, collections, 
           {section.type === "tag" && (
             <div className="flex-1 min-w-[140px]">
               <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Mot-clé</label>
-              <select
+              <CustomSelect
                 value={section.tagId ?? ""}
-                onChange={e => {
-                  const tag = tags.find(t => t.id === e.target.value);
-                  updateSection(section.id, { tagId: e.target.value, tagName: tag?.name ?? "" });
+                onChange={v => {
+                  const tag = tags.find(t => t.id === v);
+                  updateSection(section.id, { tagId: v, tagName: tag?.name ?? "" });
                 }}
-                className="field-input !py-1.5 text-sm"
-              >
-                {tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+                options={tags.map(t => ({ value: t.id, label: t.name }))}
+                size="sm"
+              />
             </div>
           )}
         </div>
@@ -344,13 +343,12 @@ export default function ProductDisplayConfig({ config, categories, collections, 
           {/* Type */}
           <div>
             <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Type</label>
-            <select
+            <CustomSelect
               value={carousel.type}
-              onChange={e => updateCarousel(carousel.id, { type: e.target.value as HomepageCarousel["type"] })}
-              className="field-input !py-1.5 text-sm"
-            >
-              {SECTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
+              onChange={v => updateCarousel(carousel.id, { type: v as HomepageCarousel["type"] })}
+              options={SECTION_TYPES.map(t => ({ value: t.value, label: t.label }))}
+              size="sm"
+            />
           </div>
 
           {/* Title */}
@@ -381,16 +379,15 @@ export default function ProductDisplayConfig({ config, categories, collections, 
           {carousel.type === "category" && (
             <div className="min-w-[140px]">
               <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Catégorie</label>
-              <select
+              <CustomSelect
                 value={carousel.categoryId ?? ""}
-                onChange={e => {
-                  const cat = categories.find(c => c.id === e.target.value);
-                  updateCarousel(carousel.id, { categoryId: e.target.value, categoryName: cat?.name ?? "" });
+                onChange={v => {
+                  const cat = categories.find(c => c.id === v);
+                  updateCarousel(carousel.id, { categoryId: v, categoryName: cat?.name ?? "" });
                 }}
-                className="field-input !py-1.5 text-sm"
-              >
-                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+                options={categories.map(c => ({ value: c.id, label: c.name }))}
+                size="sm"
+              />
             </div>
           )}
 
@@ -423,16 +420,15 @@ export default function ProductDisplayConfig({ config, categories, collections, 
           {carousel.type === "tag" && (
             <div className="min-w-[140px]">
               <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Mot-clé</label>
-              <select
+              <CustomSelect
                 value={carousel.tagId ?? ""}
-                onChange={e => {
-                  const tag = tags.find(t => t.id === e.target.value);
-                  updateCarousel(carousel.id, { tagId: e.target.value, tagName: tag?.name ?? "" });
+                onChange={v => {
+                  const tag = tags.find(t => t.id === v);
+                  updateCarousel(carousel.id, { tagId: v, tagName: tag?.name ?? "" });
                 }}
-                className="field-input !py-1.5 text-sm"
-              >
-                {tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+                options={tags.map(t => ({ value: t.id, label: t.name }))}
+                size="sm"
+              />
             </div>
           )}
         </div>
@@ -608,17 +604,10 @@ export default function ProductDisplayConfig({ config, categories, collections, 
       </div>
 
       {/* ── Save ──────────────────────────────────────────────────────────── */}
-      <div className="border-t border-[#E5E5E5] pt-6 flex items-center gap-4">
+      <div className="border-t border-[#E5E5E5] pt-6">
         <button type="button" onClick={handleSave} disabled={isPending} className="btn-primary">
           {isPending ? "Enregistrement..." : "Enregistrer la configuration"}
         </button>
-        {message && (
-          <p className={`text-sm font-[family-name:var(--font-roboto)] ${
-            message.type === "success" ? "text-[#22C55E]" : "text-[#EF4444]"
-          }`}>
-            {message.text}
-          </p>
-        )}
       </div>
     </div>
   );

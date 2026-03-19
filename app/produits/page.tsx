@@ -37,7 +37,8 @@ const PRODUCT_INCLUDE = {
       size:          true,
       discountType:  true,
       discountValue: true,
-      color:         { select: { name: true, hex: true } },
+      color:         { select: { name: true, hex: true, patternImage: true } },
+      subColors:     { orderBy: { position: "asc" as const }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
     },
   },
 } as const;
@@ -60,14 +61,16 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return rawProducts.map((p: any) => {
     const colorMap = new Map<string, {
-      colorId: string; name: string; hex: string | null;
+      colorId: string; name: string; hex: string | null; patternImage?: string | null; subColors?: { name: string; hex: string; patternImage?: string | null }[];
       firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
       variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null; unitPrice: number; stock: number; discountType: "PERCENT" | "AMOUNT" | null; discountValue: number | null }[];
     }>();
     for (const v of p.colors) {
       if (!colorMap.has(v.colorId)) {
+        const subs = v.subColors?.map((sc: { color: { name: string; hex: string | null; patternImage?: string | null } }) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage })) ?? [];
         colorMap.set(v.colorId, {
-          colorId: v.colorId, name: v.color.name, hex: v.color.hex,
+          colorId: v.colorId, name: v.color.name, hex: v.color.hex, patternImage: v.color.patternImage,
+          subColors: subs.length > 0 ? subs : undefined,
           firstImage: imageMap.get(p.id)?.get(v.colorId) ?? null,
           unitPrice: v.unitPrice, isPrimary: v.isPrimary, totalStock: 0, variants: [],
         });

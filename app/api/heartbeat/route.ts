@@ -7,6 +7,9 @@ import { prisma } from "@/lib/prisma";
  * POST /api/heartbeat
  * Upserts the user's activity record with the current timestamp and page.
  * Called every 30 seconds by the HeartbeatTracker client component.
+ *
+ * Body: { page?: string, isNewSession?: boolean }
+ * When isNewSession is true, resets connectedAt and session counters.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -17,19 +20,46 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const currentPage = typeof body.page === "string" ? body.page : null;
+    const isNewSession = body.isNewSession === true;
 
-    await prisma.userActivity.upsert({
-      where: { userId: session.user.id },
-      update: {
-        lastSeenAt: new Date(),
-        currentPage,
-      },
-      create: {
-        userId: session.user.id,
-        lastSeenAt: new Date(),
-        currentPage,
-      },
-    });
+    const now = new Date();
+
+    if (isNewSession) {
+      // New session: reset connectedAt and counters
+      await prisma.userActivity.upsert({
+        where: { userId: session.user.id },
+        update: {
+          lastSeenAt: now,
+          connectedAt: now,
+          currentPage,
+          cartAddsCount: 0,
+          favAddsCount: 0,
+        },
+        create: {
+          userId: session.user.id,
+          lastSeenAt: now,
+          connectedAt: now,
+          currentPage,
+          cartAddsCount: 0,
+          favAddsCount: 0,
+        },
+      });
+    } else {
+      // Regular heartbeat: update lastSeenAt + currentPage only
+      await prisma.userActivity.upsert({
+        where: { userId: session.user.id },
+        update: {
+          lastSeenAt: now,
+          currentPage,
+        },
+        create: {
+          userId: session.user.id,
+          lastSeenAt: now,
+          connectedAt: now,
+          currentPage,
+        },
+      });
+    }
 
     return NextResponse.json({ ok: true });
   } catch {

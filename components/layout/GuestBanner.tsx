@@ -2,7 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
 function getAccessCodeSnapshot() {
@@ -26,8 +26,15 @@ function subscribeAccessCode(cb: () => void) {
 export default function GuestBanner() {
   const { data: session } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
   const hasAccessCode = useSyncExternalStore(subscribeAccessCode, getAccessCodeSnapshot, getAccessCodeServerSnapshot);
   const [collapsed, setCollapsed] = useState(false);
+
+  function handleLogout() {
+    document.cookie = "bj_access_code=; max-age=0; path=/";
+    router.push("/connexion");
+    router.refresh();
+  }
 
   if (session?.user || !hasAccessCode) return null;
 
@@ -76,21 +83,33 @@ export default function GuestBanner() {
           </div>
         </div>
 
-        <Link
-          href={isAuthPage ? "/" : "/inscription"}
-          className="text-sm font-[family-name:var(--font-roboto)] font-semibold bg-bg-primary text-text-primary px-5 py-2.5 rounded-xl hover:bg-bg-secondary transition-colors whitespace-nowrap shrink-0"
-        >
-          {isAuthPage ? (
-            <>
-              <span className="hidden sm:inline">Visiter le site</span>
-              <span className="sm:hidden">Visiter</span>
-            </>
-          ) : (
-            <>
-              S&apos;inscrire <span className="hidden sm:inline">&rarr;</span>
-            </>
-          )}
-        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href={isAuthPage ? "/" : "/inscription"}
+            className="text-sm font-[family-name:var(--font-roboto)] font-semibold bg-bg-primary text-text-primary px-5 py-2.5 rounded-xl hover:bg-bg-secondary transition-colors whitespace-nowrap"
+          >
+            {isAuthPage ? (
+              <>
+                <span className="hidden sm:inline">Visiter le site</span>
+                <span className="sm:hidden">Visiter</span>
+              </>
+            ) : (
+              <>
+                S&apos;inscrire <span className="hidden sm:inline">&rarr;</span>
+              </>
+            )}
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="text-sm font-[family-name:var(--font-roboto)] font-medium text-text-inverse/60 hover:text-warning px-3 py-2.5 rounded-xl border border-text-inverse/20 hover:border-warning/50 transition-colors whitespace-nowrap"
+            aria-label="Se déconnecter du mode invité"
+          >
+            <span className="hidden sm:inline">Se déconnecter</span>
+            <svg className="w-4 h-4 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );

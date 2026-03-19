@@ -68,7 +68,11 @@ export default async function ProduitDetailPage({ params }: PageProps) {
         tags:          { include: { tag: { select: { id: true, name: true } } } },
         colors: {
           include: {
-            color: { select: { name: true, hex: true } },
+            color: { select: { name: true, hex: true, patternImage: true } },
+            subColors: {
+              orderBy: { position: "asc" },
+              include: { color: { select: { name: true, hex: true, patternImage: true } } },
+            },
           },
           orderBy: { isPrimary: "desc" },
         },
@@ -222,6 +226,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
             </nav>
 
             <ProductDetail
+              productId={product.id}
               name={translated.name}
               reference={product.reference}
               description={translated.description}
@@ -232,6 +237,10 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                 colorId:       pc.colorId,
                 colorName:     pc.color.name,
                 colorHex:      pc.color.hex,
+                patternImage:  pc.color.patternImage,
+                subColors:     pc.subColors.length > 0
+                  ? pc.subColors.map((sc) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage }))
+                  : undefined,
                 unitPrice:     pc.unitPrice,
                 weight:        pc.weight,
                 stock:         pc.stock,
@@ -257,6 +266,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
               similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
               clientDiscount={clientDiscount}
+              isAuthenticated={!!session?.user?.id}
             />
           </div>
         </main>

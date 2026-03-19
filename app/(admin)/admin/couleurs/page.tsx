@@ -18,6 +18,7 @@ export default async function CouleursPage() {
     id: c.id,
     name: c.name,
     hex: c.hex,
+    patternImage: c.patternImage,
     productCount: c._count.productColors,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

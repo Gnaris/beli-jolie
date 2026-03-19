@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -8,11 +8,19 @@ import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { addToCart } from "@/app/actions/client/cart";
 
+interface SubColorInfo {
+  name: string;
+  hex: string;
+  patternImage?: string | null;
+}
+
 interface VariantData {
   id: string;
   colorId: string;
   colorName: string;
   colorHex: string | null;
+  patternImage?: string | null;     // Image motif (léopard, camouflage…) — prioritaire sur hex
+  subColors?: SubColorInfo[]; // Sous-couleurs optionnelles (ex: [{name:"Rouge",hex:"#FF0000"}])
   unitPrice: number;
   weight: number;
   stock: number;
@@ -57,6 +65,7 @@ export interface ClientDiscountInfo {
 }
 
 interface ProductDetailProps {
+  productId: string;
   name: string;
   reference: string;
   description: string;
@@ -69,6 +78,7 @@ interface ProductDetailProps {
   dimensions: DimensionsData;
   similarProducts: RelatedProduct[];
   clientDiscount?: ClientDiscountInfo | null;
+  isAuthenticated?: boolean;
 }
 
 function computePrice(v: VariantData): number {
@@ -124,17 +134,23 @@ function applyClientDiscount(price: number, discount: ClientDiscountInfo | null 
 }
 
 export default function ProductDetail({
-  name, reference, description, category, subCategories, tags, variants,
-  colorImages, compositions, dimensions, similarProducts, clientDiscount,
+  productId, name, reference, description, category, subCategories, tags, variants,
+  colorImages, compositions, dimensions, similarProducts, clientDiscount, isAuthenticated,
 }: ProductDetailProps) {
   const router = useRouter();
   const t = useTranslations("product");
   const { tp, tc } = useProductTranslation();
   const [isPending, startTransition] = useTransition();
 
-  // Unique colors derived from variants
+  // Unique colors derived from variants (with sub-colors)
   const uniqueColors = [...new Map(
-    variants.map(v => [v.colorId, { id: v.colorId, name: v.colorName, hex: v.colorHex }])
+    variants.map(v => [v.colorId, {
+      id: v.colorId,
+      name: v.colorName,
+      hex: v.colorHex,
+      patternImage: v.patternImage,
+      subColors: v.subColors,
+    }])
   ).values()];
 
   const primaryColorId = variants.find(v => v.isPrimary)?.colorId ?? uniqueColors[0]?.id ?? "";
@@ -146,6 +162,25 @@ export default function ProductDetail({
   const [zoomedSrc, setZoomedSrc]                 = useState<string | null>(null);
   const [quantities, setQuantities]               = useState<Record<string, number>>({});
   const [addedOptId, setAddedOptId]               = useState<string | null>(null);
+  const [restockAlerts, setRestockAlerts]         = useState<Record<string, boolean>>({});
+  const [alertLoading, setAlertLoading]           = useState<Record<string, boolean>>({});
+
+  const toggleRestockAlert = useCallback(async (variantId: string, productColorId: string) => {
+    setAlertLoading((prev) => ({ ...prev, [variantId]: true }));
+    try {
+      const res = await fetch("/api/restock-alert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId, productColorId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRestockAlerts((prev) => ({ ...prev, [variantId]: data.subscribed }));
+      }
+    } finally {
+      setAlertLoading((prev) => ({ ...prev, [variantId]: false }));
+    }
+  }, [productId]);
 
   // Image display (no animation on switch)
 
@@ -159,7 +194,35 @@ export default function ProductDetail({
     ? displayedImgs[0]?.path ?? null
     : selectedImgs[hoveredImageIdx ?? activeImageIdx]?.path ?? null;
 
-  const displayedColorName = uniqueColors.find(c => c.id === (hoveredColorId ?? selectedColorId))?.name ?? "";
+  // Build full color label including sub-colors (ex: "Doré/Rouge/Noir")
+  const getFullColorName = (colorId: string) => {
+    const c = uniqueColors.find(uc => uc.id === colorId);
+    if (!c) return "";
+    if (c.subColors && c.subColors.length > 0) {
+      return [c.name, ...c.subColors.map(sc => sc.name)].join("/");
+    }
+    return c.name;
+  };
+
+  // Build swatch style: patternImage > conic-gradient > solid color
+  const getSwatchStyle = (c: typeof uniqueColors[number]): React.CSSProperties => {
+    // Pattern image takes priority (léopard, camouflage, carreaux…)
+    if (c.patternImage) {
+      return { backgroundImage: `url(${c.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
+    }
+    const mainHex = c.hex ?? "#9CA3AF";
+    if (!c.subColors || c.subColors.length === 0) {
+      return { backgroundColor: mainHex };
+    }
+    // Check if any sub-color has a patternImage — fall back to conic-gradient of hexes
+    const allColors = [mainHex, ...c.subColors.map(sc => sc.hex)];
+    const segmentSize = 360 / allColors.length;
+    const stops = allColors.map((hex, i) =>
+      `${hex} ${i * segmentSize}deg ${(i + 1) * segmentSize}deg`
+    ).join(", ");
+    return { background: `conic-gradient(${stops})` };
+  };
+  const displayedColorName = getFullColorName(hoveredColorId ?? selectedColorId);
 
   const minPrice = variants.length > 0 ? Math.min(...variants.map(v => computePrice(v))) : 0;
   const minBasePrice = variants.length > 0 ? Math.min(...variants.map(v => v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1))) : 0;
@@ -241,7 +304,7 @@ export default function ProductDetail({
           </div>
 
           {selectedImgs.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="flex gap-2 overflow-x-auto py-2 px-0.5">
               {selectedImgs.map((img, i) => (
                 <div key={i} className="relative shrink-0">
                   <Image
@@ -326,7 +389,7 @@ export default function ProductDetail({
                   <button
                     key={c.id}
                     type="button"
-                    title={tp(c.name)}
+                    title={tp(getFullColorName(c.id))}
                     onMouseEnter={() => setHoveredColorId(c.id)}
                     onMouseLeave={() => setHoveredColorId(null)}
                     onClick={() => handleColorClick(c.id)}
@@ -335,7 +398,7 @@ export default function ProductDetail({
                         ? "border-text-primary scale-110 shadow-md"
                         : "border-border hover:border-border-dark hover:scale-110"
                     }`}
-                    style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
+                    style={getSwatchStyle(c)}
                   >
                     {selectedColorId === c.id && (
                       <span className="absolute inset-[-4px] rounded-full border-2 border-text-primary/30 animate-pulse-ring pointer-events-none" />
@@ -475,7 +538,40 @@ export default function ProductDetail({
                       </div>
                     </div>
 
-                    {/* Quantite + panier */}
+                    {/* Quantite + panier / Alerte réassort */}
+                    {effectiveStock === 0 && isAuthenticated ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleRestockAlert(v.id, v.id)}
+                        disabled={alertLoading[v.id]}
+                        className={`w-full h-10 text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors flex items-center justify-center gap-1.5 rounded-lg border ${
+                          restockAlerts[v.id]
+                            ? "bg-bg-secondary text-text-primary border-border"
+                            : "bg-bg-dark text-text-inverse border-transparent hover:bg-[#333333]"
+                        }`}
+                      >
+                        {alertLoading[v.id] ? (
+                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                        ) : restockAlerts[v.id] ? (
+                          <>
+                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            {t("alertActive")}
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                            </svg>
+                            {t("notifyMe")}
+                          </>
+                        )}
+                      </button>
+                    ) : (
                     <div className="flex items-center gap-3">
                       <div className="flex items-center border border-border rounded-lg overflow-hidden">
                         <button
@@ -528,6 +624,7 @@ export default function ProductDetail({
                         )}
                       </button>
                     </div>
+                    )}
                   </div>
                 );
               })}

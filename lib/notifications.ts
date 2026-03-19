@@ -12,6 +12,7 @@
 
 import nodemailer from "nodemailer";
 import path from "path";
+import { prisma } from "@/lib/prisma";
 
 interface NewClientInfo {
   firstName: string;
@@ -21,6 +22,7 @@ interface NewClientInfo {
   phone: string;
   siret: string;
   kbisPath?: string; // chemin relatif stocké en base, ex: private/uploads/kbis/kbis_XXX.pdf
+  documentPath?: string; // document complémentaire, ex: private/uploads/documents/doc_XXX.pdf
   registrationMessage?: string; // message libre saisi lors de l'inscription
 }
 
@@ -50,6 +52,12 @@ export async function notifyNewClientRegistration(
       path: path.join(process.cwd(), client.kbisPath),
     });
   }
+  if (client.documentPath) {
+    attachments.push({
+      filename: path.basename(client.documentPath),
+      path: path.join(process.cwd(), client.documentPath),
+    });
+  }
 
   const messageBlock = client.registrationMessage
     ? `<tr>
@@ -61,6 +69,10 @@ export async function notifyNewClientRegistration(
   const kbisNote = client.kbisPath
     ? `<p style="margin-top:16px;color:#475569;font-size:13px;">Le document Kbis est joint à cet email.</p>`
     : `<p style="margin-top:16px;color:#F59E0B;font-size:13px;">Aucun Kbis fourni lors de l'inscription.</p>`;
+
+  const docNote = client.documentPath
+    ? `<p style="margin-top:8px;color:#475569;font-size:13px;">Un document complémentaire est également joint.</p>`
+    : "";
 
   await transporter.sendMail({
     from: `"Beli & Jolie" <${GMAIL_USER}>`,
@@ -96,6 +108,7 @@ export async function notifyNewClientRegistration(
           ${messageBlock}
         </table>
         ${kbisNote}
+        ${docNote}
         <div style="margin-top:20px;">
           <a href="${process.env.NEXTAUTH_URL}/admin/utilisateurs"
              style="background:#0F3460;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">
@@ -109,4 +122,79 @@ export async function notifyNewClientRegistration(
     `,
     attachments,
   });
+}
+
+// ─────────────────────────────────────────────
+// Alerte de réassort — envoi email aux clients inscrits
+// ─────────────────────────────────────────────
+
+/**
+ * Check and notify clients subscribed to restock alerts for a given variant.
+ * Called after stock is updated from 0 to > 0.
+ * Fire-and-forget — errors are logged but do not propagate.
+ */
+export async function notifyRestockAlerts(productColorId: string): Promise<void> {
+  try {
+    const { GMAIL_USER, GMAIL_APP_PASSWORD } = process.env;
+    if (!GMAIL_USER || !GMAIL_APP_PASSWORD) return;
+
+    // Find all pending alerts for this variant
+    const alerts = await prisma.restockAlert.findMany({
+      where: { productColorId, notified: false },
+      include: {
+        user: { select: { email: true, firstName: true } },
+        product: { select: { id: true, name: true, reference: true } },
+        productColor: {
+          select: { color: { select: { name: true } } },
+        },
+      },
+    });
+
+    if (alerts.length === 0) return;
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+    });
+
+    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+    for (const alert of alerts) {
+      const productUrl = `${baseUrl}/produits/${alert.product.id}`;
+      const colorName = alert.productColor.color.name;
+
+      await transporter.sendMail({
+        from: `"Beli & Jolie" <${GMAIL_USER}>`,
+        to: alert.user.email,
+        subject: `🔔 Réassort — ${alert.product.name} (${colorName})`,
+        html: `
+          <div style="font-family:sans-serif;max-width:500px;margin:auto;padding:24px;">
+            <h2 style="color:#1A1A1A;">Bonne nouvelle, ${alert.user.firstName} !</h2>
+            <p>Le produit que vous surveillez est de nouveau en stock :</p>
+            <div style="background:#F7F7F8;border:1px solid #E5E5E5;border-radius:12px;padding:16px;margin:16px 0;">
+              <p style="margin:0;font-weight:600;">${alert.product.name}</p>
+              <p style="margin:4px 0 0;color:#6B7280;">Réf. ${alert.product.reference} — ${colorName}</p>
+            </div>
+            <a href="${productUrl}"
+               style="background:#1A1A1A;color:#fff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+              Voir le produit →
+            </a>
+            <p style="margin-top:24px;color:#94A3B8;font-size:12px;">
+              Beli &amp; Jolie — Vous recevez cet email car vous avez activé une alerte de réassort.
+            </p>
+          </div>
+        `,
+      });
+
+      // Mark as notified
+      await prisma.restockAlert.update({
+        where: { id: alert.id },
+        data: { notified: true },
+      });
+    }
+
+    console.log(`[restock] ${alerts.length} alerte(s) envoyée(s) pour variant ${productColorId}`);
+  } catch (err) {
+    console.error("[restock] Erreur envoi alertes:", err);
+  }
 }

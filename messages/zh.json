@@ -223,6 +223,8 @@
     "addToCart": "加入购物车",
     "addingToCart": "添加中...",
     "added": "已添加！",
+    "notifyMe": "到货通知",
+    "alertActive": "已设置提醒",
     "addToFavorites": "加入收藏",
     "removeFromFavorites": "取消收藏",
     "weight": "单件重量",

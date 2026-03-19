@@ -35,7 +35,7 @@
     },
     "register": {
       "title": "Demande d'accès Pro",
-      "subtitle": "Remplissez le formulaire — notre équipe examinera votre dossier sous 48h.",
+      "subtitle": "Remplissez le formulaire — notre équipe sera immédiatement notifiée.",
       "sectionIdentity": "Identité",
       "sectionLegal": "Informations légales",
       "sectionSecurity": "Sécurité du compte",
@@ -223,6 +223,8 @@
     "addToCart": "Ajouter au panier",
     "addingToCart": "Ajout...",
     "added": "Ajouté !",
+    "notifyMe": "Me prévenir du réassort",
+    "alertActive": "Alerte activée",
     "addToFavorites": "Ajouter aux favoris",
     "removeFromFavorites": "Retirer des favoris",
     "weight": "Poids unitaire",

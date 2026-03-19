@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import path from "path";
-import fs from "fs/promises";
 import { authOptions } from "@/lib/auth";
+import { processProductImage } from "@/lib/image-processor";
 
 /**
  * POST /api/admin/catalogs/cover
- *
- * Upload de la photo de fond d'un catalogue.
- * Sauvegarde dans /public/uploads/catalogs/
- * Retourne le chemin relatif à stocker en base.
+ * Upload de la photo de couverture d'un catalogue → conversion WebP + 3 tailles.
  */
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -32,21 +28,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (file.size > 5 * 1024 * 1024) {
+  if (file.size > 10 * 1024 * 1024) {
     return NextResponse.json(
-      { error: "Fichier trop lourd (max 5 Mo)." },
+      { error: "Fichier trop lourd (max 10 Mo)." },
       { status: 400 }
     );
   }
 
-  const ext = file.type === "image/webp" ? "webp" : file.type === "image/png" ? "png" : "jpg";
-  const filename = `catalog-cover-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-  const uploadDir = path.join(process.cwd(), "public", "uploads", "catalogs");
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const filename = `catalog-cover-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  await fs.mkdir(uploadDir, { recursive: true });
+    const result = await processProductImage(buffer, "public/uploads/catalogs", filename);
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(path.join(uploadDir, filename), buffer);
-
-  return NextResponse.json({ path: `/uploads/catalogs/${filename}` });
+    return NextResponse.json({ path: result.dbPath });
+  } catch (err) {
+    console.error("[catalogs/cover] Processing error:", err);
+    return NextResponse.json({ error: "Erreur de traitement de l'image." }, { status: 500 });
+  }
 }

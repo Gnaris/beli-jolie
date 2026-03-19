@@ -2,10 +2,18 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import ImageDropzone from "./ImageDropzone";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import CustomSelect from "@/components/ui/CustomSelect";
 
 // ─────────────────────────────────────────────
 // Exported types
 // ─────────────────────────────────────────────
+
+export interface SubColorState {
+  colorId: string;
+  colorName: string;
+  colorHex: string;
+}
 
 export interface VariantState {
   tempId: string;
@@ -13,6 +21,7 @@ export interface VariantState {
   colorId: string;
   colorName: string;
   colorHex: string;
+  subColors: SubColorState[]; // Sous-couleurs optionnelles (ex: Doré → Rouge, Noir)
   unitPrice: string;
   weight: string;
   stock: string;
@@ -37,6 +46,7 @@ export interface AvailableColor {
   id: string;
   name: string;
   hex: string | null;
+  patternImage?: string | null;
 }
 
 interface Props {
@@ -45,7 +55,7 @@ interface Props {
   availableColors: AvailableColor[];
   onChange: (variants: VariantState[]) => void;
   onChangeImages: (images: ColorImageState[]) => void;
-  onQuickCreateColor?: (name: string, hex: string | null) => Promise<AvailableColor>;
+  onQuickCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
 }
 
 // ─────────────────────────────────────────────
@@ -77,13 +87,13 @@ export function computeFinalPrice(v: VariantState): number | null {
 
 export function uid() { return Math.random().toString(36).slice(2, 9); }
 
-function defaultVariant(availableColors: AvailableColor[]): VariantState {
-  const first = availableColors[0];
+function defaultVariant(_availableColors: AvailableColor[]): VariantState {
   return {
     tempId:       uid(),
-    colorId:      first?.id   ?? "",
-    colorName:    first?.name ?? "",
-    colorHex:     first?.hex  ?? "#9CA3AF",
+    colorId:      "",
+    colorName:    "",
+    colorHex:     "#9CA3AF",
+    subColors:    [],
     unitPrice:    "",
     weight:       "",
     stock:        "",
@@ -116,35 +126,52 @@ function defaultBulkEdit(): BulkEditState {
 }
 
 // ─────────────────────────────────────────────
-// ColorSelect dropdown (portal-based, escapes overflow)
+// Swatch style helpers (pattern image > conic gradient > solid color)
 // ─────────────────────────────────────────────
-function ColorSelect({ value, options, onChange }: {
-  value: string; options: AvailableColor[]; onChange: (id: string) => void;
+function conicGradientStyle(hexColors: string[]): React.CSSProperties {
+  if (hexColors.length <= 1) return { backgroundColor: hexColors[0] || "#9CA3AF" };
+  const seg = 360 / hexColors.length;
+  const stops = hexColors.map((hex, i) => `${hex} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
+  return { background: `conic-gradient(${stops})` };
+}
+
+/** Returns CSS for a single-color swatch: patternImage takes priority over hex */
+function colorSwatchStyle(hex: string | null | undefined, patternImage?: string | null): React.CSSProperties {
+  if (patternImage) return { backgroundImage: `url(${patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
+  return { backgroundColor: hex || "#9CA3AF" };
+}
+
+// ─────────────────────────────────────────────
+// MultiColorSelect — unified multi-select (first = main, rest = sub-colors)
+// ─────────────────────────────────────────────
+function MultiColorSelect({ selected, options, onChange }: {
+  selected: { colorId: string; colorName: string; colorHex: string }[];
+  options: AvailableColor[];
+  onChange: (colors: { colorId: string; colorName: string; colorHex: string }[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const portalId = useRef(`multicolor-portal-${Math.random().toString(36).slice(2, 7)}`).current;
 
   const close = useCallback(() => { setOpen(false); setSearch(""); }, []);
 
-  // Position the portal dropdown under the trigger button
   const openDropdown = useCallback(() => {
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + window.scrollY + 2, left: r.left + window.scrollX, width: Math.max(r.width, 180) });
+      setPos({ top: r.bottom + window.scrollY + 2, left: r.left + window.scrollX, width: Math.max(r.width, 220) });
     }
     setOpen(true);
   }, []);
 
-  // Close on outside click or scroll
   useEffect(() => {
     if (!open) return;
     function onMouse(e: MouseEvent) {
       const target = e.target as Node;
       if (btnRef.current?.contains(target)) return;
-      const portal = document.getElementById("color-select-portal");
+      const portal = document.getElementById(portalId);
       if (portal?.contains(target)) return;
       close();
     }
@@ -155,28 +182,49 @@ function ColorSelect({ value, options, onChange }: {
       document.removeEventListener("mousedown", onMouse);
       window.removeEventListener("scroll", onScroll, true);
     };
-  }, [open, close]);
+  }, [open, close, portalId]);
 
-  // Auto-focus search when open
   useEffect(() => {
     if (open) setTimeout(() => searchRef.current?.focus(), 10);
   }, [open]);
 
-  const sel = options.find((o) => o.id === value);
   const filtered = search.trim()
     ? options.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()))
     : options;
 
+  const selectedIds = new Set(selected.map((s) => s.colorId));
+
+  function toggle(opt: AvailableColor) {
+    if (selectedIds.has(opt.id)) {
+      onChange(selected.filter((s) => s.colorId !== opt.id));
+    } else {
+      onChange([...selected, { colorId: opt.id, colorName: opt.name, colorHex: opt.hex ?? "#9CA3AF" }]);
+    }
+  }
+
+  // Build display: camembert + name list
+  const allHexes = selected.map((s) => s.colorHex);
+  const displayName = selected.map((s) => s.colorName).join(" / ");
+
   return (
-    <div className="relative" style={{ minWidth: 140 }}>
+    <div className="relative" style={{ minWidth: 180 }}>
       <button
         ref={btnRef}
         type="button"
         onClick={() => open ? close() : openDropdown()}
-        className="w-full flex items-center gap-1.5 bg-white border border-[#E5E5E5] px-2.5 py-2 text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A] focus:outline-none focus:border-[#1A1A1A] hover:border-[#9CA3AF] transition-colors text-left"
+        className="w-full flex items-center gap-1.5 bg-white border border-[#E5E5E5] px-2.5 py-2 text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A] focus:outline-none focus:border-[#1A1A1A] hover:border-[#9CA3AF] transition-colors text-left min-h-[34px]"
       >
-        <span className="w-3.5 h-3.5 rounded-full border border-[#E5E5E5] shrink-0" style={{ backgroundColor: sel?.hex || "#9CA3AF" }} />
-        <span className="flex-1 truncate">{sel ? sel.name : <span className="text-[#9CA3AF]">—</span>}</span>
+        {selected.length === 0 ? (
+          <span className="text-[#9CA3AF] flex-1 italic">— Sans couleur</span>
+        ) : (
+          <>
+            <span
+              className="w-4 h-4 rounded-full border border-[#E5E5E5] shrink-0"
+              style={conicGradientStyle(allHexes)}
+            />
+            <span className="flex-1 truncate">{displayName}</span>
+          </>
+        )}
         <svg className={`w-3 h-3 text-[#9CA3AF] shrink-0 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
@@ -184,10 +232,16 @@ function ColorSelect({ value, options, onChange }: {
 
       {open && typeof document !== "undefined" && createPortal(
         <div
-          id="color-select-portal"
+          id={portalId}
           className="bg-white border border-[#E5E5E5] shadow-xl rounded"
           style={{ position: "absolute", top: pos.top, left: pos.left, width: pos.width, zIndex: 9000 }}
         >
+          {/* Hint */}
+          <div className="px-3 py-1.5 bg-[#F7F7F8] border-b border-[#E5E5E5]">
+            <p className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+              1re couleur = principale, les suivantes = sous-couleurs
+            </p>
+          </div>
           {/* Search bar */}
           <div className="px-2 py-1.5 border-b border-[#E5E5E5]">
             <div className="flex items-center gap-1.5 bg-[#F7F7F8] border border-[#E5E5E5] px-2 py-1 rounded">
@@ -212,23 +266,28 @@ function ColorSelect({ value, options, onChange }: {
             </div>
           </div>
           {/* Options list */}
-          <div className="max-h-44 overflow-y-auto">
+          <div className="max-h-52 overflow-y-auto">
             {filtered.length === 0 ? (
               <div className="px-3 py-2 text-xs text-[#9CA3AF]">Aucun résultat</div>
-            ) : filtered.map((opt) => (
-              <button key={opt.id} type="button"
-                onClick={() => { onChange(opt.id); close(); }}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[#F7F7F8] transition-colors text-left ${opt.id === value ? "bg-[#F7F7F8]" : ""}`}
-              >
-                <span className="w-3.5 h-3.5 rounded-full border border-[#E5E5E5] shrink-0" style={{ backgroundColor: opt.hex || "#9CA3AF" }} />
-                <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{opt.name}</span>
-                {opt.id === value && (
-                  <svg className="w-3 h-3 text-[#1A1A1A] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-              </button>
-            ))}
+            ) : filtered.map((opt) => {
+              const isChecked = selectedIds.has(opt.id);
+              const position = selected.findIndex((s) => s.colorId === opt.id);
+              return (
+                <button key={opt.id} type="button"
+                  onClick={() => toggle(opt)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[#F7F7F8] transition-colors text-left ${isChecked ? "bg-[#F0FDF4]" : ""}`}
+                >
+                  <input type="checkbox" checked={isChecked} readOnly className="accent-[#22C55E] w-3 h-3 pointer-events-none" />
+                  <span className="w-3.5 h-3.5 rounded-full border border-[#E5E5E5] shrink-0" style={colorSwatchStyle(opt.hex, opt.patternImage)} />
+                  <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{opt.name}</span>
+                  {isChecked && (
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${position === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
+                      {position === 0 ? "principale" : `+${position}`}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>,
         document.body
@@ -388,8 +447,16 @@ interface ImageManagerModalProps {
 }
 
 function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onSetPrimary }: ImageManagerModalProps) {
+  const { confirm: confirmDialog } = useConfirm();
   const colorImagesRef = useRef(colorImages);
   colorImagesRef.current = colorImages;
+
+  // Build hex arrays per colorId for camembert display
+  function getSwatchHexes(colorId: string): string[] {
+    const v = variants.find((vr) => vr.colorId === colorId);
+    if (!v) return [];
+    return [v.colorHex, ...v.subColors.map((sc) => sc.colorHex)];
+  }
 
   async function handleAddImages(colorId: string, files: File[]) {
     const state = colorImagesRef.current.find((c) => c.colorId === colorId);
@@ -414,8 +481,14 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onS
     ));
   }
 
-  function handleRemoveImage(colorId: string, i: number) {
-    if (!window.confirm("Supprimer cette image ?")) return;
+  async function handleRemoveImage(colorId: string, i: number) {
+    const ok = await confirmDialog({
+      type: "danger",
+      title: "Supprimer cette image ?",
+      message: "L'image sera retirée de la variante.",
+      confirmLabel: "Supprimer",
+    });
+    if (!ok) return;
     onChange(colorImages.map((c) => c.colorId !== colorId ? c : {
       ...c,
       imagePreviews: c.imagePreviews.filter((_, j) => j !== i),
@@ -472,6 +545,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onS
               <div className="flex flex-wrap gap-2">
                 {colorImages.map((cimg) => {
                   const isPrimary = variants.some((v) => v.colorId === cimg.colorId && v.isPrimary);
+                  const hexes = getSwatchHexes(cimg.colorId);
                   return (
                     <button
                       key={cimg.colorId}
@@ -485,7 +559,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onS
                     >
                       <span
                         className="w-4 h-4 rounded-full border border-[#E5E5E5] shrink-0"
-                        style={{ backgroundColor: cimg.colorHex || "#9CA3AF" }}
+                        style={conicGradientStyle(hexes.length > 0 ? hexes : [cimg.colorHex || "#9CA3AF"])}
                       />
                       <span className={`text-xs font-medium ${isPrimary ? "text-[#1A1A1A]" : "text-[#6B6B6B]"}`}>
                         {cimg.colorName}
@@ -506,10 +580,12 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onS
             <p className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)] text-center py-8">
               Aucune couleur dans les variantes. Ajoutez d&apos;abord des variantes.
             </p>
-          ) : colorImages.map((cimg, idx) => (
+          ) : colorImages.map((cimg, idx) => {
+            const hexes = getSwatchHexes(cimg.colorId);
+            return (
             <div key={cimg.colorId} className="border border-[#E5E5E5] rounded-xl p-4">
               <div className="flex items-center gap-2 mb-3">
-                <span className="w-4 h-4 rounded-full border border-[#E5E5E5] shrink-0" style={{ backgroundColor: cimg.colorHex || "#9CA3AF" }} />
+                <span className="w-4 h-4 rounded-full border border-[#E5E5E5] shrink-0" style={conicGradientStyle(hexes.length > 0 ? hexes : [cimg.colorHex || "#9CA3AF"])} />
                 <span className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-roboto)]">
                   {cimg.colorName}
                 </span>
@@ -526,7 +602,8 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onS
                 uploading={cimg.uploading}
               />
             </div>
-          ))}
+          );
+          })}
         </div>
 
         {/* Footer */}
@@ -564,6 +641,8 @@ export default function ColorVariantManager({
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const [newColorName, setNewColorName]     = useState("");
   const [newColorHex, setNewColorHex]       = useState("#9CA3AF");
+  const [newColorPattern, setNewColorPattern] = useState<string | null>(null);
+  const [patternUploading, setPatternUploading] = useState(false);
 
   // ── Bulk edit state ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -584,13 +663,33 @@ export default function ColorVariantManager({
   const showBulkRow    = selectedIds.size > 0;
 
   // ── Quick create color ─────────────────────────────────────────────────────
+  async function handlePatternUpload(file: File) {
+    setPatternUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      const res = await fetch("/api/admin/colors/pattern", { method: "POST", body: fd });
+      const json = await res.json();
+      if (res.ok) {
+        setNewColorPattern(json.path);
+      } else {
+        setQuickCreateErr(json.error || "Erreur upload motif");
+      }
+    } catch {
+      setQuickCreateErr("Erreur upload motif");
+    } finally {
+      setPatternUploading(false);
+    }
+  }
+
   async function handleQuickSave() {
     if (!newColorName.trim() || !onQuickCreateColor) return;
     setQuickSaving(true);
     try {
-      await onQuickCreateColor(newColorName.trim(), newColorHex);
+      await onQuickCreateColor(newColorName.trim(), newColorHex, newColorPattern);
       setNewColorName("");
       setNewColorHex("#9CA3AF");
+      setNewColorPattern(null);
       setShowQuickCreate(false);
       setQuickCreateErr("");
     } catch (e: unknown) {
@@ -631,10 +730,18 @@ export default function ColorVariantManager({
     onChange(newVariants);
   }
 
-  function handleColorSelect(tempId: string, colorId: string) {
-    const sel = availableColors.find((ac) => ac.id === colorId);
-    if (!sel) return;
-    updateVariant(tempId, { colorId, colorName: sel.name, colorHex: sel.hex ?? "#9CA3AF" });
+  function handleMultiColorChange(tempId: string, colors: { colorId: string; colorName: string; colorHex: string }[]) {
+    if (colors.length === 0) {
+      updateVariant(tempId, { colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [] });
+      return;
+    }
+    const [main, ...rest] = colors;
+    updateVariant(tempId, {
+      colorId: main.colorId,
+      colorName: main.colorName,
+      colorHex: main.colorHex,
+      subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
+    });
   }
 
   // ── Bulk apply ─────────────────────────────────────────────────────────────
@@ -700,7 +807,7 @@ export default function ColorVariantManager({
           {/* Main scrollable table */}
           <div ref={mainScrollRef} className="overflow-x-auto pb-1" onScroll={onMainScroll}>
             <div ref={innerRef} style={{ minWidth: "max-content", width: "100%" }}>
-              <table className="border-collapse text-xs font-[family-name:var(--font-roboto)] w-full" style={{ minWidth: 1100 }}>
+              <table className="border-collapse text-xs font-[family-name:var(--font-roboto)] w-full" style={{ minWidth: 1140 }}>
                 <thead>
                   {/* ── Column headers ── */}
                   <tr className="bg-[#1A1A1A] text-white">
@@ -722,7 +829,7 @@ export default function ColorVariantManager({
                       />
                     </th>
                     <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap" style={{ width: 56 }}>Photo</th>
-                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap" style={{ width: 160 }}>Couleur</th>
+                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap" style={{ width: 220 }}>Couleurs</th>
                     <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap" style={{ width: 90 }}>Prix (EUR)</th>
                     <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap" style={{ width: 90 }}>Poids (kg)</th>
                     <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap" style={{ width: 70 }}>Stock</th>
@@ -742,7 +849,7 @@ export default function ColorVariantManager({
                       {/* Spacer (photo col) */}
                       <td className="px-3 py-2" />
                       {/* Selected count */}
-                      <td className="px-3 py-2" colSpan={1}>
+                      <td className="px-3 py-2">
                         <span className="text-[11px] text-[#16A34A] font-semibold font-[family-name:var(--font-roboto)] whitespace-nowrap">
                           ✦ {selectedIds.size} variante{selectedIds.size > 1 ? "s" : ""} sélectionnée{selectedIds.size > 1 ? "s" : ""}
                         </span>
@@ -827,19 +934,21 @@ export default function ColorVariantManager({
                       {/* Remise */}
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1">
-                          <select
+                          <CustomSelect
                             value={bulkEdit.discountType}
-                            onChange={(e) => setBulkEdit((b) => ({
+                            onChange={(v) => setBulkEdit((b) => ({
                               ...b,
-                              discountType:  e.target.value as "" | "PERCENT" | "AMOUNT",
+                              discountType: v as "" | "PERCENT" | "AMOUNT",
                               discountValue: "",
                             }))}
-                            className="border border-[#22C55E] bg-white px-1.5 py-1.5 text-[11px] focus:outline-none font-[family-name:var(--font-roboto)] text-[#1A1A1A]"
-                          >
-                            <option value="">Aucune</option>
-                            <option value="PERCENT">%</option>
-                            <option value="AMOUNT">EUR</option>
-                          </select>
+                            options={[
+                              { value: "", label: "Aucune" },
+                              { value: "PERCENT", label: "%" },
+                              { value: "AMOUNT", label: "EUR" },
+                            ]}
+                            size="sm"
+                            className="w-[80px]"
+                          />
                           {bulkEdit.discountType && (
                             <input
                               type="number" min="0" step="0.01" placeholder="0"
@@ -908,7 +1017,7 @@ export default function ColorVariantManager({
                                   type="button"
                                   onClick={() => setGalleryState({
                                     images: cimg!.imagePreviews,
-                                    colorName: v.colorName,
+                                    colorName: [v.colorName, ...v.subColors.map((sc) => sc.colorName)].join(" / "),
                                     colorHex: v.colorHex,
                                   })}
                                   className="relative w-10 h-10 rounded-lg overflow-hidden border border-[#E5E5E5] hover:border-[#1A1A1A] transition-all mx-auto block group/thumb"
@@ -934,12 +1043,15 @@ export default function ColorVariantManager({
                           })()}
                         </td>
 
-                        {/* Couleur */}
+                        {/* Couleurs (principale + sous-couleurs) */}
                         <td className="px-3 py-2">
-                          <ColorSelect
-                            value={v.colorId}
+                          <MultiColorSelect
+                            selected={v.colorId ? [
+                              { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
+                              ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
+                            ] : []}
                             options={availableColors}
-                            onChange={(id) => handleColorSelect(v.tempId, id)}
+                            onChange={(colors) => handleMultiColorChange(v.tempId, colors)}
                           />
                         </td>
 
@@ -1014,18 +1126,20 @@ export default function ColorVariantManager({
                         {/* Remise */}
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-1">
-                            <select
+                            <CustomSelect
                               value={v.discountType}
-                              onChange={(e) => updateVariant(v.tempId, {
-                                discountType: e.target.value as "" | "PERCENT" | "AMOUNT",
+                              onChange={(val) => updateVariant(v.tempId, {
+                                discountType: val as "" | "PERCENT" | "AMOUNT",
                                 discountValue: "",
                               })}
-                              className="border border-[#E5E5E5] bg-white px-1.5 py-1.5 text-[11px] focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)] text-[#1A1A1A]"
-                            >
-                              <option value="">Aucune</option>
-                              <option value="PERCENT">%</option>
-                              <option value="AMOUNT">EUR</option>
-                            </select>
+                              options={[
+                                { value: "", label: "Aucune" },
+                                { value: "PERCENT", label: "%" },
+                                { value: "AMOUNT", label: "EUR" },
+                              ]}
+                              size="sm"
+                              className="w-[80px]"
+                            />
                             {v.discountType && (
                               <input
                                 type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
@@ -1153,19 +1267,60 @@ export default function ColorVariantManager({
                   />
                 </div>
               </div>
+
+              {/* Image motif (optionnel) */}
+              <div>
+                <p className="text-[11px] text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1.5">
+                  Image motif <span className="text-[#9CA3AF]">(optionnel — léopard, camouflage, carreaux…)</span>
+                </p>
+                {newColorPattern ? (
+                  <div className="flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={newColorPattern} alt="Motif" className="w-12 h-12 rounded-lg border border-[#E5E5E5] object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setNewColorPattern(null)}
+                      className="text-xs text-[#EF4444] hover:underline font-[family-name:var(--font-roboto)]"
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex items-center gap-2 px-3 py-2 border border-dashed border-[#D1D5DB] rounded-lg cursor-pointer hover:border-[#1A1A1A] transition-colors bg-white">
+                    <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
+                    </svg>
+                    <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+                      {patternUploading ? "Upload..." : "Ajouter une image motif"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      disabled={patternUploading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handlePatternUpload(file);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+
               {quickCreateErr && <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{quickCreateErr}</p>}
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={handleQuickSave}
-                  disabled={quickSaving || !newColorName.trim()}
+                  disabled={quickSaving || patternUploading || !newColorName.trim()}
                   className="flex-1 py-2 bg-[#1A1A1A] text-white text-sm font-medium hover:bg-black transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)] rounded"
                 >
                   {quickSaving ? "Création..." : "Créer la couleur"}
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setShowQuickCreate(false); setQuickCreateErr(""); }}
+                  onClick={() => { setShowQuickCreate(false); setQuickCreateErr(""); setNewColorPattern(null); }}
                   className="px-4 py-2 border border-[#E5E5E5] text-sm text-[#6B6B6B] hover:border-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)] rounded"
                 >
                   Annuler

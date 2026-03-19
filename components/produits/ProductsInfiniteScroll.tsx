@@ -27,14 +27,16 @@ type ProductItem = {
   subCategories: { name: string }[];
   tags:          { tag: { id: string; name: string } }[];
   colors: {
-    colorId:    string;
-    name:       string;
-    hex:        string | null;
-    firstImage: string | null;
-    unitPrice:  number;
-    isPrimary:  boolean;
-    totalStock: number;
-    variants:   VariantItem[];
+    colorId:       string;
+    name:          string;
+    hex:           string | null;
+    patternImage?: string | null;
+    subColors?:    { name: string; hex: string; patternImage?: string | null }[];
+    firstImage:    string | null;
+    unitPrice:     number;
+    isPrimary:     boolean;
+    totalStock:    number;
+    variants:      VariantItem[];
   }[];
 };
 

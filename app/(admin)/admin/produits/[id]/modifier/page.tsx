@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
+import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
@@ -24,7 +25,13 @@ export default async function ModifierProduitPage({
       include: {
         colors: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-          include: { color: true },
+          include: {
+            color: true,
+            subColors: {
+              orderBy: { position: "asc" },
+              include: { color: true },
+            },
+          },
         },
         compositions: {
           include: { composition: true },
@@ -80,6 +87,11 @@ export default async function ModifierProduitPage({
     colorId:       pc.colorId,
     colorName:     pc.color.name,
     colorHex:      pc.color.hex ?? "#9CA3AF",
+    subColors:     pc.subColors.map((sc) => ({
+      colorId:   sc.colorId,
+      colorName: sc.color.name,
+      colorHex:  sc.color.hex ?? "#9CA3AF",
+    })),
     unitPrice:     String(pc.unitPrice),
     weight:        String(pc.weight),
     stock:         String(pc.stock ?? 0),
@@ -121,17 +133,36 @@ export default async function ModifierProduitPage({
           <span>/</span>
           <span className="text-text-secondary">Modifier</span>
         </div>
-        <h1 className="page-title">
-          Modifier le produit
-        </h1>
-        <p className="text-base text-text-muted font-[family-name:var(--font-roboto)] mt-1">
-          Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="page-title">
+              Modifier le produit
+            </h1>
+            <p className="text-base text-text-muted font-[family-name:var(--font-roboto)] mt-1">
+              Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/produits/${product.id}`}
+              target="_blank"
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]"
+              title="Voir côté client"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Voir
+            </Link>
+            <RefreshButton href={`/admin/produits/${product.id}/modifier`} />
+          </div>
+        </div>
       </div>
 
       <ProductForm
         categories={categories}
-        availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex }))}
+        availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
         allProducts={allProducts.filter((p) => p.id !== id)}
         availableTags={tags}

@@ -7,6 +7,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { saveShippingAddress, deleteShippingAddress } from "@/app/actions/client/cart";
 import { placeOrder } from "@/app/actions/client/order";
+import CustomSelect from "@/components/ui/CustomSelect";
 
 // ─────────────────────────────────────────────
 // Stripe
@@ -30,6 +31,7 @@ interface VariantData {
   unitPrice: number;
   weight: number;
   color: { name: string };
+  subColors?: { color: { name: string } }[];
   product: { id: string; name: string; reference: string; category: { name: string } };
 }
 
@@ -240,15 +242,12 @@ function AddressForm({
         <label htmlFor="addr-country" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-1.5">
           Pays <span className="text-text-primary">*</span>
         </label>
-        <select
-          id="addr-country" value={f.country}
-          onChange={(e) => set("country")(e.target.value)}
-          className="field-input w-full"
-        >
-          {EU_COUNTRY_OPTIONS.map((c) => (
-            <option key={c.code} value={c.code}>{c.label}</option>
-          ))}
-        </select>
+        <CustomSelect
+          id="addr-country"
+          value={f.country}
+          onChange={(v) => set("country")(v)}
+          options={EU_COUNTRY_OPTIONS.map((c) => ({ value: c.code, label: c.label }))}
+        />
       </div>
       <FieldInput id="addr-phone" label="Téléphone" value={f.phone} onChange={set("phone")} type="tel" optional placeholder="0612345678" />
       <label className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary cursor-pointer">
@@ -719,11 +718,12 @@ export default function CheckoutClient({
                     </div>
                     <div>
                       <label htmlFor="bi-country" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-1.5">Pays</label>
-                      <select id="bi-country" value={billingInfo.country} onChange={(e) => setBillingInfo((p) => ({ ...p, country: e.target.value }))} className="field-input w-full">
-                        {EU_COUNTRY_OPTIONS.map((c) => (
-                          <option key={c.code} value={c.code}>{c.label}</option>
-                        ))}
-                      </select>
+                      <CustomSelect
+                        id="bi-country"
+                        value={billingInfo.country}
+                        onChange={(v) => setBillingInfo((p) => ({ ...p, country: v }))}
+                        options={EU_COUNTRY_OPTIONS.map((c) => ({ value: c.code, label: c.label }))}
+                      />
                     </div>
                   </div>
                 </div>
@@ -938,7 +938,7 @@ export default function CheckoutClient({
                     <div className="flex-1 min-w-0">
                       <p className="text-text-primary font-medium line-clamp-1">{item.variant.product.name}</p>
                       <p className="text-text-muted">
-                        {item.variant.color.name}
+                        {item.variant.subColors?.length ? [item.variant.color.name, ...item.variant.subColors.map(sc => sc.color.name)].join("/") : item.variant.color.name}
                         {item.variant.saleType === "PACK" ? ` · ×${item.variant.packQuantity}` : ""}
                         {" "}× {item.quantity}
                       </p>

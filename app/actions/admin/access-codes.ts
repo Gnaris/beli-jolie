@@ -27,8 +27,20 @@ function generateCode(): string {
 // ─────────────────────────────────────────────
 // Créer un code d'accès
 // ─────────────────────────────────────────────
-export async function createAccessCode(note?: string) {
+interface CreateAccessCodeInput {
+  note?: string;
+  prefillFirstName?: string;
+  prefillLastName?: string;
+  prefillCompany?: string;
+  prefillEmail?: string;
+  prefillPhone?: string;
+}
+
+export async function createAccessCode(input?: string | CreateAccessCodeInput) {
   await requireAdmin();
+
+  // Rétro-compatibilité : si string, c'est juste la note
+  const params: CreateAccessCodeInput = typeof input === "string" ? { note: input } : (input ?? {});
 
   // Générer un code unique (retry si collision)
   let code: string;
@@ -51,7 +63,12 @@ export async function createAccessCode(note?: string) {
   const accessCode = await prisma.accessCode.create({
     data: {
       code,
-      note: note?.trim() || null,
+      note: params.note?.trim() || null,
+      prefillFirstName: params.prefillFirstName?.trim() || null,
+      prefillLastName: params.prefillLastName?.trim() || null,
+      prefillCompany: params.prefillCompany?.trim() || null,
+      prefillEmail: params.prefillEmail?.trim().toLowerCase() || null,
+      prefillPhone: params.prefillPhone?.trim() || null,
       expiresAt,
     },
   });

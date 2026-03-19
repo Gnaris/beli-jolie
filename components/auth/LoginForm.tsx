@@ -18,6 +18,8 @@ export default function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError]       = useState("");
   const [loading, setLoading]   = useState(false);
+  const [isPermanentLock, setIsPermanentLock] = useState(false);
+  const [unlockSent, setUnlockSent]     = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,6 +42,7 @@ export default function LoginForm() {
 
       if (result?.error) {
         setError(result.error);
+        setIsPermanentLock(result.error.includes("définitivement"));
         return;
       }
 
@@ -61,7 +64,7 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-sm bg-bg-primary rounded-xl border border-border p-6 md:p-8 shadow-lg">
+    <div className="w-full max-w-sm mx-auto bg-bg-primary rounded-xl border border-border p-6 md:p-8 shadow-lg">
       {/* Titre */}
       <div className="mb-8">
         <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-text-primary tracking-tight">
@@ -77,12 +80,35 @@ export default function LoginForm() {
         {error && (
           <div
             role="alert"
-            className="bg-red-50 border border-red-200 text-error px-4 py-3 text-sm font-[family-name:var(--font-roboto)] flex items-start gap-2.5 rounded-lg"
+            className="bg-red-50 border border-red-200 text-error px-4 py-3 text-sm font-[family-name:var(--font-roboto)] rounded-lg"
           >
-            <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-            </svg>
-            <span>{error}</span>
+            <div className="flex items-start gap-2.5">
+              <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <span>{error}</span>
+            </div>
+            {isPermanentLock && !unlockSent && (
+              <button
+                type="button"
+                onClick={async () => {
+                  await fetch("/api/auth/unlock-request", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: email.toLowerCase().trim() }),
+                  });
+                  setUnlockSent(true);
+                }}
+                className="mt-3 w-full text-center text-xs font-medium text-text-primary bg-white border border-border rounded-lg px-3 py-2 hover:bg-bg-secondary transition-colors"
+              >
+                Demander le déblocage par email
+              </button>
+            )}
+            {unlockSent && (
+              <p className="mt-3 text-xs text-success font-medium text-center">
+                Demande envoyée. Notre équipe vous contactera par email.
+              </p>
+            )}
           </div>
         )}
 
@@ -173,13 +199,6 @@ export default function LoginForm() {
         </button>
       </form>
 
-      {/* Lien inscription */}
-      <p className="mt-6 text-sm font-[family-name:var(--font-roboto)] text-text-muted">
-        {t("noAccount")}{" "}
-        <Link href="/inscription" className="text-text-primary font-medium hover:underline transition-colors">
-          {t("register")}
-        </Link>
-      </p>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { invalidateProductTranslations } from "@/lib/translate";
+import { notifyRestockAlerts } from "@/lib/notifications";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -21,6 +22,7 @@ async function requireAdmin() {
 export interface ColorInput {
   dbId?: string;         // ProductColor.id when editing existing (undefined for new)
   colorId: string;
+  subColorIds?: string[]; // IDs de sous-couleurs optionnelles (ex: Doré → [Rouge, Noir])
   unitPrice: number;
   weight: number;
   stock: number;
@@ -55,7 +57,7 @@ export interface ProductInput {
   similarProductIds: string[];
   tagNames: string[];
   isBestSeller: boolean;
-  status: "OFFLINE" | "ONLINE";
+  status: "OFFLINE" | "ONLINE" | "ARCHIVED";
   dimensionLength: number | null;
   dimensionWidth: number | null;
   dimensionHeight: number | null;
@@ -154,6 +156,27 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     },
   });
 
+  // Sub-colors: create ProductColorSubColor entries
+  const createdVariants = await prisma.productColor.findMany({
+    where: { productId: product.id },
+    select: { id: true, colorId: true, saleType: true, packQuantity: true, size: true },
+    orderBy: { createdAt: "asc" },
+  });
+  // Match created variants to input colors by position (same order)
+  const subColorData: { productColorId: string; colorId: string; position: number }[] = [];
+  for (let i = 0; i < input.colors.length; i++) {
+    const colorInput = input.colors[i];
+    const variant = createdVariants[i];
+    if (variant && colorInput.subColorIds && colorInput.subColorIds.length > 0) {
+      for (let pos = 0; pos < colorInput.subColorIds.length; pos++) {
+        subColorData.push({ productColorId: variant.id, colorId: colorInput.subColorIds[pos], position: pos });
+      }
+    }
+  }
+  if (subColorData.length > 0) {
+    await prisma.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
+  }
+
   // Images: create ProductColorImage entries grouped by (productId, colorId)
   if (input.imagePaths && input.imagePaths.length > 0) {
     const imageData: { productId: string; colorId: string; path: string; order: number }[] = [];
@@ -228,7 +251,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     )
   );
 
-  await prisma.$transaction(async (tx) => {
+  const oldStockMap = await prisma.$transaction(async (tx) => {
     // Mise à jour des champs de base
     await tx.product.update({
       where: { id },
@@ -273,9 +296,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
 
     const existingVariants = await tx.productColor.findMany({
       where: { productId: id },
-      select: { id: true },
+      select: { id: true, stock: true },
     });
     const existingIds = existingVariants.map((v) => v.id);
+    const oldStockMap = new Map(existingVariants.map((v) => [v.id, v.stock]));
 
     // IDs that must be kept (those with dbId provided)
     const submittedDbIds = input.colors
@@ -297,6 +321,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
 
     // Update existing variants and create new ones
+    const variantIdMap: { colorInput: ColorInput; variantId: string }[] = [];
     for (const colorInput of input.colors) {
       if (colorInput.dbId) {
         // Update existing
@@ -315,9 +340,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             discountValue: colorInput.discountValue,
           },
         });
+        variantIdMap.push({ colorInput, variantId: colorInput.dbId });
       } else {
         // Create new variant
-        await tx.productColor.create({
+        const created = await tx.productColor.create({
           data: {
             productId:     id,
             colorId:       colorInput.colorId,
@@ -332,7 +358,27 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             discountValue: colorInput.discountValue,
           },
         });
+        variantIdMap.push({ colorInput, variantId: created.id });
       }
+    }
+
+    // Sub-colors: full replace for all variants
+    const allVariantIds = variantIdMap.map((v) => v.variantId);
+    if (allVariantIds.length > 0) {
+      await tx.productColorSubColor.deleteMany({
+        where: { productColorId: { in: allVariantIds } },
+      });
+    }
+    const subColorData: { productColorId: string; colorId: string; position: number }[] = [];
+    for (const { colorInput, variantId } of variantIdMap) {
+      if (colorInput.subColorIds && colorInput.subColorIds.length > 0) {
+        for (let pos = 0; pos < colorInput.subColorIds.length; pos++) {
+          subColorData.push({ productColorId: variantId, colorId: colorInput.subColorIds[pos], position: pos });
+        }
+      }
+    }
+    if (subColorData.length > 0) {
+      await tx.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
     }
 
     // ── Images: full replace per unique (productId, colorId) group ──────────
@@ -373,6 +419,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         skipDuplicates: true,
       });
     }
+
+    return oldStockMap;
   });
 
   // Traductions : remplacer toutes les traductions existantes
@@ -395,20 +443,60 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     await invalidateProductTranslations(id);
   }
 
+  // Restock alerts: check if any variant went from stock=0 to stock>0
+  for (const colorInput of input.colors) {
+    if (colorInput.dbId) {
+      const oldStock = oldStockMap.get(colorInput.dbId) ?? 0;
+      if (oldStock === 0 && colorInput.stock > 0) {
+        notifyRestockAlerts(colorInput.dbId).catch(() => {});
+      }
+    }
+  }
+
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${id}/modifier`);
   revalidatePath(`/produits/${id}`);
 }
 
 // ─────────────────────────────────────────────
-// Supprimer un produit
+// Supprimer un produit (bloqué si commandes existent)
 // ─────────────────────────────────────────────
 
 export async function deleteProduct(id: string) {
   await requireAdmin();
+
+  // Check if product has any order items (legal: 10 years retention in France)
+  const product = await prisma.product.findUnique({ where: { id }, select: { reference: true } });
+  if (!product) throw new Error("Produit introuvable.");
+
+  const orderCount = await prisma.orderItem.count({ where: { productRef: product.reference } });
+  if (orderCount > 0) {
+    throw new Error(
+      `Ce produit apparaît dans ${orderCount} commande(s). Il ne peut pas être supprimé (obligation légale 10 ans). Utilisez l'archivage à la place.`
+    );
+  }
+
   await prisma.product.delete({ where: { id } });
   revalidatePath("/admin/produits");
   redirect("/admin/produits");
+}
+
+// ─────────────────────────────────────────────
+// Archiver / Désarchiver un produit
+// ─────────────────────────────────────────────
+
+export async function archiveProduct(id: string) {
+  await requireAdmin();
+  await prisma.product.update({ where: { id }, data: { status: "ARCHIVED" } });
+  revalidatePath("/admin/produits");
+  revalidatePath("/produits");
+}
+
+export async function unarchiveProduct(id: string) {
+  await requireAdmin();
+  await prisma.product.update({ where: { id }, data: { status: "OFFLINE" } });
+  revalidatePath("/admin/produits");
+  revalidatePath("/produits");
 }
 
 // ─────────────────────────────────────────────
@@ -417,7 +505,7 @@ export async function deleteProduct(id: string) {
 
 export async function bulkUpdateProductStatus(
   productIds: string[],
-  status: "ONLINE" | "OFFLINE"
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED"
 ): Promise<{ success: string[]; errors: { id: string; reference: string; reason: string }[] }> {
   await requireAdmin();
   if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
@@ -472,17 +560,48 @@ export async function bulkUpdateProductStatus(
 
 export async function bulkDeleteProducts(
   productIds: string[]
-): Promise<{ deleted: number }> {
+): Promise<{ deleted: number; protected: { id: string; reference: string; orderCount: number }[] }> {
   await requireAdmin();
   if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
 
-  const result = await prisma.product.deleteMany({
+  // Find products with orders — cannot be deleted
+  const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
+    select: { id: true, reference: true },
   });
+
+  const refToId = new Map(products.map((p) => [p.reference, p.id]));
+  const refs = products.map((p) => p.reference);
+
+  const orderCounts = await prisma.orderItem.groupBy({
+    by: ["productRef"],
+    where: { productRef: { in: refs } },
+    _count: { id: true },
+  });
+
+  const protectedRefs = new Set(orderCounts.map((oc) => oc.productRef));
+  const protectedProducts = orderCounts.map((oc) => ({
+    id: refToId.get(oc.productRef) ?? "",
+    reference: oc.productRef,
+    orderCount: oc._count.id,
+  }));
+
+  const deletableIds = productIds.filter((pid) => {
+    const prod = products.find((p) => p.id === pid);
+    return prod && !protectedRefs.has(prod.reference);
+  });
+
+  let deleted = 0;
+  if (deletableIds.length > 0) {
+    const result = await prisma.product.deleteMany({
+      where: { id: { in: deletableIds } },
+    });
+    deleted = result.count;
+  }
 
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
-  return { deleted: result.count };
+  return { deleted, protected: protectedProducts };
 }
 
 // ─────────────────────────────────────────────
@@ -508,7 +627,7 @@ export async function updateVariantQuick(
 
   const variant = await prisma.productColor.findUnique({
     where: { id: variantId },
-    select: { productId: true },
+    select: { productId: true, stock: true },
   });
   if (!variant) throw new Error("Variante introuvable.");
 
@@ -516,6 +635,11 @@ export async function updateVariantQuick(
     where: { id: variantId },
     data,
   });
+
+  // Restock alert: stock was 0 and now > 0
+  if (variant.stock === 0 && data.stock && data.stock > 0) {
+    notifyRestockAlerts(variantId).catch(() => {});
+  }
 
   revalidatePath("/admin/produits");
   revalidatePath(`/produits/${variant.productId}`);
@@ -534,18 +658,28 @@ export async function bulkUpdateVariants(
   if (variantIds.length === 0) throw new Error("Aucune variante sélectionnée.");
   if (variantIds.length > 200) throw new Error("Maximum 200 variantes à la fois.");
 
-  // Get distinct productIds for revalidation
+  // Get distinct productIds + current stock for restock alerts
   const variants = await prisma.productColor.findMany({
     where: { id: { in: variantIds } },
-    select: { id: true, productId: true },
+    select: { id: true, productId: true, stock: true },
   });
 
   if (variants.length === 0) throw new Error("Aucune variante trouvée.");
+
+  // Track variants with stock=0 before update (for restock alerts)
+  const zeroStockVariantIds = data.stock && data.stock > 0
+    ? variants.filter((v) => v.stock === 0).map((v) => v.id)
+    : [];
 
   await prisma.productColor.updateMany({
     where: { id: { in: variantIds } },
     data,
   });
+
+  // Fire restock alerts for variants that went from 0 → >0
+  for (const vid of zeroStockVariantIds) {
+    notifyRestockAlerts(vid).catch(() => {});
+  }
 
   const productIds = [...new Set(variants.map((v) => v.productId))];
   revalidatePath("/admin/produits");

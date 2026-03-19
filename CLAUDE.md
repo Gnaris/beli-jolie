@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **Endpoints API** : voir `.claude/memory/api-endpoints.md`
 > **Design monochrome** : voir `.claude/memory/design-monochrome.md`
 > **Préférences utilisateur** : voir `.claude/memory/feedback-preferences.md`
+> **Session 19 mars 2026** : voir `.claude/memory/session-2026-03-19.md`
 
 ---
 
@@ -75,12 +76,17 @@ Product
   ├── ProductColor[]          (one per color variant)
   │     ├── SaleOption[]       (UNIT and/or PACK, max 2 per color)
   │     │     └── unitPrice, weight, stock, discountType, discountValue, size, packQuantity
+  │     ├── ProductColorSubColor[]  (optional sub-colors, e.g. Doré → Rouge, Noir)
   │     └── ProductImage[]     (max 5, shared between UNIT+PACK of same color)
   ├── ProductTranslation[]    (locale: "en"|"ar"|"zh"|"de"|"es"|"it" — auto-translated name+description)
   ├── ProductSimilar[]        (M2M self-relation for "you may also like")
+  ├── PendingSimilar[]        (deferred similar links — resolved when target product is created)
   ├── ProductComposition[]    (material + percentage, e.g. 85% acier)
-  └── ProductTag[]            (tags for search)
+  ├── ProductTag[]            (tags for search)
+  └── RestockAlert[]          (client alerts when out-of-stock variant is restocked)
 ```
+- `Color` model has optional `patternImage` (leopard, camouflage, etc.) — takes priority over hex
+- `ProductStatus` enum: `OFFLINE` | `ONLINE` | `ARCHIVED` (archived = invisible but preserved for order history)
 Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied.
 
 ### Order Data Model
@@ -108,6 +114,12 @@ Order
 - **`SiteConfig`** — key/value store (e.g. `min_order_ht`); managed via `/admin/parametres`
 - **`PasswordResetToken`** — 1-hour tokens for the forgot-password flow; `used` flag prevents replay
 - **`ProductTranslation`** — auto-generated translations stored per `[productId, locale]`; locales: `fr` (default), `en`, `ar`, `zh`, `de`, `es`, `it`
+- **`LoginAttempt`** — logs every login attempt (email, ip, success); indexed by email+date, ip+date
+- **`AccountLockout`** — progressive lockout per email (11 levels: 1min → permanent); `lib/security.ts`
+- **`RegistrationLog`** — anti-spam: logs IP/email/phone/siret per registration; 3h cooldown enforced
+- **`ImportJob`** — tracks bulk import history (products + images); linked to user
+- **`RestockAlert`** — client subscribes to out-of-stock variant; notified when restocked
+- **`AccessCode`** — now includes `prefillFirstName/LastName/Company/Email/Phone` for pre-filling registration forms
 
 ### Internationalisation (i18n)
 - **next-intl** with cookie-based locale (`bj_locale`, 1-year TTL); default `fr`
@@ -138,6 +150,16 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Admin mobile**: `AdminMobileNav.tsx` — hamburger + slide-in drawer with all nav links
 - **3D Hero**: `JewelryScene.tsx` loaded via `JewelrySceneLoader.tsx` (client wrapper for `ssr: false`)
 - **Product form**: `ProductForm.tsx` — 4 separate blocks (fiche produit, mots-clés, dimensions, composition)
+- **Live client tracking**: `LiveClientsTracker.tsx` — real-time view of connected clients at `/admin/suivi`
+- **Cart modal**: `CartModal.tsx` — admin can peek at a client's current cart
+- **Reusable UI**: `ConfirmDialog.tsx` (replaces window.confirm), `CustomSelect.tsx` (searchable select), `Toast.tsx`
+- **Import history**: `ImportHistoryClient.tsx` — view past import jobs at `/admin/produits/importer/historique`
+
+### Security Layer (`lib/security.ts`)
+- **Login brute force**: progressive lockout after 3 failures — 11 levels (1min → 48h → permanent)
+- **Registration anti-spam**: 3h cooldown per IP/phone/siret/email via `RegistrationLog`
+- **Admin unlock**: `app/actions/admin/unlockAccount.ts` — reset lockout for a given email
+- **Client unlock request**: `app/api/auth/unlock-request/` — client can request unlock via email
 
 ### Password Reset Flow
 - Client: `POST /api/auth/forgot-password` → creates `PasswordResetToken`, sends email with link
@@ -168,6 +190,11 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - `getCachedSiteConfig(key)` creates a unique cache entry per key — do NOT use a shared cache key for parameterised queries
 - Password strength rules (8 chars, 1 uppercase, 1 digit) must be enforced identically in registration AND password reset (both client and server)
 - Admin layout and auth layout use `getCachedSiteConfig` — never query `prisma.siteConfig` directly in layouts
+- `lib/security.ts` must be called in auth flow — never bypass lockout checks
+- `ProductStatus.ARCHIVED` products must remain in DB for order history — never delete, only archive
+- `PendingSimilar` links are auto-resolved — when creating a product, check for pending similar refs matching the new product's reference
+- `Color.patternImage` takes priority over `Color.hex` when rendering — always check patternImage first
+- `UserActivity.cartAddsCount`/`favAddsCount` are session counters sent by HeartbeatTracker — reset on disconnect
 
 ### Key Libraries
 - **Next.js 16.1.6** (App Router, Server Components)

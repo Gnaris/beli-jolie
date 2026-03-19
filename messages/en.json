@@ -223,6 +223,8 @@
     "addToCart": "Add to cart",
     "addingToCart": "Adding...",
     "added": "Added!",
+    "notifyMe": "Notify me when back in stock",
+    "alertActive": "Alert active",
     "addToFavorites": "Add to favorites",
     "removeFromFavorites": "Remove from favorites",
     "weight": "Unit weight",

@@ -4,13 +4,14 @@
  * Auto-fix an error in a draft row by creating missing entities.
  *
  * body: {
- *   action: "create_category" | "create_color"
- *   categoryName?: string        (for create_category)
- *   colorName?: string           (for create_color)
- *   colorHex?: string            (for create_color, default #9CA3AF)
+ *   action: "create_category" | "create_color" | "create_subcategory" | "create_composition" | "search_products"
+ *   categoryName?: string
+ *   colorName?: string
+ *   colorHex?: string (default #9CA3AF)
+ *   subcategoryName?: string
+ *   compositionName?: string
+ *   query?: string (for search_products)
  * }
- *
- * Returns: { ok: true, entity: {...} } — caller then retries the row.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -30,10 +31,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const body: {
-    action: "create_category" | "create_color";
+    action: string;
     categoryName?: string;
     colorName?: string;
     colorHex?: string;
+    subcategoryName?: string;
+    parentCategoryId?: string;
+    compositionName?: string;
+    query?: string;
   } = await req.json();
 
   try {
@@ -59,6 +64,77 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       const color = await prisma.color.create({ data: { name, hex } });
       return NextResponse.json({ ok: true, entity: color });
+    }
+
+    if (body.action === "create_subcategory") {
+      const name = body.subcategoryName?.trim();
+      if (!name) return NextResponse.json({ error: "Nom de sous-catégorie requis." }, { status: 400 });
+
+      const existing = await prisma.subCategory.findFirst({ where: { name } });
+      if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
+
+      // categoryId is required — use provided or first available
+      let categoryId = body.parentCategoryId;
+      if (!categoryId) {
+        const firstCat = await prisma.category.findFirst();
+        categoryId = firstCat?.id;
+      }
+      if (!categoryId) return NextResponse.json({ error: "Aucune catégorie disponible." }, { status: 400 });
+
+      const slug = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+      const subCategory = await prisma.subCategory.create({
+        data: { name, slug, categoryId },
+      });
+      return NextResponse.json({ ok: true, entity: subCategory });
+    }
+
+    if (body.action === "create_composition") {
+      const name = body.compositionName?.trim();
+      if (!name) return NextResponse.json({ error: "Nom de composition requis." }, { status: 400 });
+
+      const existing = await prisma.composition.findFirst({ where: { name } });
+      if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
+
+      const composition = await prisma.composition.create({ data: { name } });
+      return NextResponse.json({ ok: true, entity: composition });
+    }
+
+    if (body.action === "search_products") {
+      const query = body.query?.trim();
+      if (!query) return NextResponse.json({ error: "Terme de recherche requis." }, { status: 400 });
+
+      const products = await prisma.product.findMany({
+        where: {
+          OR: [
+            { reference: { contains: query } },
+            { name: { contains: query } },
+          ],
+        },
+        select: {
+          id: true,
+          reference: true,
+          name: true,
+          colors: {
+            include: { color: true },
+          },
+        },
+        take: 20,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        products: products.map((p) => ({
+          id: p.id,
+          reference: p.reference,
+          name: p.name,
+          colors: [...new Map(p.colors.map((pc) => [pc.colorId, {
+            id: pc.color.id,
+            name: pc.color.name,
+            hex: pc.color.hex ?? "#9CA3AF",
+            productColorId: pc.id,
+          }])).values()],
+        })),
+      });
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

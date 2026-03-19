@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import path from "path";
-import fs from "fs/promises";
 import { authOptions } from "@/lib/auth";
+import { processProductImage } from "@/lib/image-processor";
 
 /**
  * POST /api/admin/collections/images
- * Upload d'une image de collection (ADMIN uniquement).
- * Sauvegarde dans /public/uploads/collections/
+ * Upload d'une image de collection → conversion WebP + 3 tailles.
  */
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -30,22 +28,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (file.size > 5 * 1024 * 1024) {
+  if (file.size > 10 * 1024 * 1024) {
     return NextResponse.json(
-      { error: "L'image ne doit pas dépasser 5 Mo." },
+      { error: "L'image ne doit pas dépasser 10 Mo." },
       { status: 400 }
     );
   }
 
-  const uploadDir = path.join(process.cwd(), "public", "uploads", "collections");
-  await fs.mkdir(uploadDir, { recursive: true });
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const filename = `col_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
-  const filename = `col_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const filepath = path.join(uploadDir, filename);
+    const result = await processProductImage(buffer, "public/uploads/collections", filename);
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(filepath, buffer);
-
-  return NextResponse.json({ path: `/uploads/collections/${filename}` }, { status: 201 });
+    return NextResponse.json({ path: result.dbPath }, { status: 201 });
+  } catch (err) {
+    console.error("[collections/images] Processing error:", err);
+    return NextResponse.json({ error: "Erreur de traitement de l'image." }, { status: 500 });
+  }
 }

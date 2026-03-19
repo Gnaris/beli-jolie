@@ -46,6 +46,7 @@ export async function getCart() {
                 },
               },
               color: { select: { id: true, name: true, hex: true } },
+              subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
             },
           },
         },
@@ -151,6 +152,12 @@ export async function addToCart(variantId: string, quantity: number = 1) {
       data: { cartId: cart.id, variantId, quantity },
     });
   }
+
+  // Increment cart adds counter in activity tracking (fire-and-forget)
+  prisma.userActivity.updateMany({
+    where: { userId },
+    data: { cartAddsCount: { increment: 1 } },
+  }).catch(() => {});
 
   revalidatePath("/panier");
 }

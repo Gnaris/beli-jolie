@@ -13,12 +13,21 @@ export default function ImporterPage() {
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between">
         <Link
           href="/admin/produits"
           className="text-[#666] hover:text-[#1A1A1A] transition-colors text-sm"
         >
           ← Retour aux produits
+        </Link>
+        <Link
+          href="/admin/produits/importer/historique"
+          className="flex items-center gap-2 text-sm text-[#666] hover:text-[#1A1A1A] transition-colors border border-[#E5E5E5] rounded-lg px-3 py-1.5 hover:border-[#1A1A1A]"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Historique des imports
         </Link>
       </div>
 

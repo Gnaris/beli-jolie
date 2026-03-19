@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import CustomSelect from "@/components/ui/CustomSelect";
 
 const PRESET_PER_PAGE = [20, 30, 50, 100];
 
@@ -252,16 +253,15 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
               <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
                 Catégorie
               </label>
-              <select
+              <CustomSelect
                 value={urlCat}
-                onChange={(e) => navigate({ cat: e.target.value || null })}
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-[family-name:var(--font-roboto)] text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
-              >
-                <option value="">Toutes</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+                onChange={(v) => navigate({ cat: v || null })}
+                options={[
+                  { value: "", label: "Toutes" },
+                  ...categories.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+                size="sm"
+              />
             </div>
 
             {/* Statut — applies immediately */}
@@ -269,15 +269,17 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
               <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
                 Statut
               </label>
-              <select
+              <CustomSelect
                 value={urlStatus}
-                onChange={(e) => navigate({ status: e.target.value || null })}
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-[family-name:var(--font-roboto)] text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
-              >
-                <option value="">Tous</option>
-                <option value="ONLINE">En ligne</option>
-                <option value="OFFLINE">Hors ligne</option>
-              </select>
+                onChange={(v) => navigate({ status: v || null })}
+                options={[
+                  { value: "", label: "Tous" },
+                  { value: "ONLINE", label: "En ligne" },
+                  { value: "OFFLINE", label: "Hors ligne" },
+                  { value: "ARCHIVED", label: "Archivé" },
+                ]}
+                size="sm"
+              />
             </div>
 
             {/* Prix min — local state */}

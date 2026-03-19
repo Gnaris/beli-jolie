@@ -48,8 +48,20 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Préparer les données de pré-remplissage (si l'admin les a renseignées)
+    const prefill: Record<string, string> = {};
+    if (accessCode.prefillFirstName) prefill.firstName = accessCode.prefillFirstName;
+    if (accessCode.prefillLastName)  prefill.lastName  = accessCode.prefillLastName;
+    if (accessCode.prefillCompany)   prefill.company   = accessCode.prefillCompany;
+    if (accessCode.prefillEmail)     prefill.email     = accessCode.prefillEmail;
+    if (accessCode.prefillPhone)     prefill.phone     = accessCode.prefillPhone;
+
     // Set cookie et retourner success
-    const response = NextResponse.json({ success: true, code: trimmed });
+    const response = NextResponse.json({
+      success: true,
+      code: trimmed,
+      ...(Object.keys(prefill).length > 0 ? { prefill } : {}),
+    });
     response.cookies.set("bj_access_code", trimmed, {
       httpOnly: false, // accessible côté client pour le tracking
       secure: process.env.NODE_ENV === "production",

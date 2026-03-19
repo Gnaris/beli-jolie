@@ -20,12 +20,14 @@ export const loginSchema = z.object({
 export const registerSchema = z.object({
   firstName: z
     .string()
-    .min(1, "Le prénom est requis.")
-    .max(50, "Prénom trop long."),
+    .max(50, "Prénom trop long.")
+    .optional()
+    .or(z.literal("")),
   lastName: z
     .string()
-    .min(1, "Le nom est requis.")
-    .max(50, "Nom trop long."),
+    .max(50, "Nom trop long.")
+    .optional()
+    .or(z.literal("")),
   company: z
     .string()
     .min(1, "Le nom de la société est requis.")

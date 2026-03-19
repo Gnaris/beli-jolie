@@ -4,6 +4,8 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { RTL_LOCALES } from "@/i18n/request";
 import SessionProvider from "@/components/providers/SessionProvider";
+import { ToastProvider } from "@/components/ui/Toast";
+import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
 import AccessCodeTracker from "@/components/layout/AccessCodeTracker";
 import GuestBanner from "@/components/layout/GuestBanner";
 import HeartbeatTracker from "@/components/layout/HeartbeatTracker";
@@ -93,10 +95,14 @@ export default async function RootLayout({
         />
         <NextIntlClientProvider messages={messages}>
           <SessionProvider>
-            <GuestBanner />
-            <AccessCodeTracker />
-            <HeartbeatTracker />
-            {children}
+            <ToastProvider>
+              <ConfirmProvider>
+                <GuestBanner />
+                <AccessCodeTracker />
+                <HeartbeatTracker />
+                {children}
+              </ConfirmProvider>
+            </ToastProvider>
           </SessionProvider>
         </NextIntlClientProvider>
       </body>

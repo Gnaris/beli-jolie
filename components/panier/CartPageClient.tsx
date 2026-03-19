@@ -25,6 +25,7 @@ interface VariantData {
   weight: number;
   stock: number;
   color: { name: string; hex: string | null };
+  subColors?: { color: { name: string } }[];
   product: {
     id: string;
     name: string;
@@ -113,7 +114,7 @@ function CartRow({
         <div className="flex flex-wrap gap-1.5 mt-1">
           <span className="text-xs bg-bg-tertiary text-text-secondary px-2 py-0.5 rounded-full border border-border"
             style={{ borderLeftColor: v.color.hex ?? undefined }}>
-            {tp(v.color.name)}
+            {tp(v.subColors?.length ? [v.color.name, ...v.subColors.map(sc => sc.color.name)].join("/") : v.color.name)}
           </span>
           {v.saleType === "PACK" && (
             <span className="text-xs bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">

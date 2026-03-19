@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { updateMinOrderHT } from "@/app/actions/admin/site-config";
+import { useToast } from "@/components/ui/Toast";
 
 interface Props {
   currentValue: number;
@@ -9,26 +10,22 @@ interface Props {
 export default function SettingsMinOrderForm({ currentValue }: Props) {
   const [value, setValue] = useState<string>(String(currentValue));
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState("");
+  const toast = useToast();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setSuccess(false);
-    setError("");
     const num = parseFloat(value);
     if (isNaN(num) || num < 0) {
-      setError("Veuillez saisir un montant valide.");
+      toast.error("Montant invalide", "Veuillez saisir un montant valide.");
       setLoading(false);
       return;
     }
     const result = await updateMinOrderHT(num);
     if (result.success) {
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      toast.success("Enregistré", "Le montant minimum HT a été mis à jour.");
     } else {
-      setError(result.error ?? "Une erreur est survenue.");
+      toast.error("Erreur", result.error ?? "Une erreur est survenue.");
     }
     setLoading(false);
   }
@@ -56,13 +53,6 @@ export default function SettingsMinOrderForm({ currentValue }: Props) {
           </span>
         </div>
       </div>
-
-      {error && (
-        <p className="text-sm text-[#EF4444] font-[family-name:var(--font-roboto)]">{error}</p>
-      )}
-      {success && (
-        <p className="text-sm text-[#22C55E] font-[family-name:var(--font-roboto)]">Enregistré avec succès.</p>
-      )}
 
       <button type="submit" disabled={loading} className="btn-primary">
         {loading ? "Enregistrement..." : "Enregistrer"}

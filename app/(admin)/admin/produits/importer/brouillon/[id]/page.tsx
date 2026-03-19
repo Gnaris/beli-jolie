@@ -55,9 +55,9 @@ export default async function BrouillonPage({ params }: PageProps) {
           </Link>
         </div>
       ) : draft.type === "PRODUCTS" ? (
-        <DraftProductsViewer draftId={id} initialRows={rows} />
+        <DraftProductsViewer draftId={id} initialRows={rows} successCount={draft.successRows} totalCount={draft.totalRows} />
       ) : (
-        <DraftImagesViewer draftId={id} initialRows={rows} />
+        <DraftImagesViewer draftId={id} initialRows={rows} successCount={draft.successRows} totalCount={draft.totalRows} />
       )}
     </div>
   );

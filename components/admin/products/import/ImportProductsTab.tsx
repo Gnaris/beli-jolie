@@ -6,16 +6,66 @@ import type { PreviewResult, PreviewProduct } from "@/app/api/admin/products/imp
 
 const TEMPLATE_JSON = JSON.stringify(
   [
+    // ── Produit simple : 1 couleur, vente à l'unité ──
     {
-      reference: "REF001",
-      name: "Nom du produit",
-      description: "Description optionnelle",
-      category: "Nom de la catégorie",
-      tags: ["tag1", "tag2"],
-      compositions: [{ material: "Acier inoxydable", percentage: 85 }],
+      reference: "BJ-001",
+      name: "Collier Étoile",
+      description: "Collier fin avec pendentif étoile",
+      category: "Colliers",
+      sub_categories: ["Sautoir"],
+      tags: ["étoile", "fin", "tendance"],
+      compositions: [{ material: "Acier inoxydable", percentage: 100 }],
       colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 25.99, stock: 100, weight: 50, isPrimary: true },
-        { color: "Argenté", saleType: "PACK", unitPrice: 20.0, stock: 50, weight: 50, isPrimary: false, packQuantity: 12 },
+        { color: "Doré", saleType: "UNIT", unitPrice: 12.50, stock: 200, weight: 30, isPrimary: true },
+      ],
+    },
+    // ── Produit multi-variantes : 3 couleurs, chacune en UNIT + PACK ──
+    {
+      reference: "BJ-002",
+      name: "Bracelet Jonc Classique",
+      description: "Bracelet jonc ajustable, finition polie",
+      category: "Bracelets",
+      sub_categories: ["Jonc", "Ajustable"],
+      tags: ["jonc", "classique", "ajustable"],
+      compositions: [
+        { material: "Acier inoxydable", percentage: 85 },
+        { material: "Or", percentage: 15 },
+      ],
+      similar_refs: ["BJ-003", "BJ-004"],
+      colors: [
+        { color: "Doré", saleType: "UNIT", unitPrice: 8.99, stock: 500, weight: 45, isPrimary: true },
+        { color: "Doré", saleType: "PACK", unitPrice: 7.50, stock: 100, weight: 45, packQuantity: 12 },
+        { color: "Argenté", saleType: "UNIT", unitPrice: 8.99, stock: 300, weight: 45, isPrimary: false },
+        { color: "Argenté", saleType: "PACK", unitPrice: 7.50, stock: 80, weight: 45, packQuantity: 12 },
+        { color: "Or Rose", saleType: "UNIT", unitPrice: 9.99, stock: 200, weight: 45, isPrimary: false },
+        { color: "Or Rose", saleType: "PACK", unitPrice: 8.50, stock: 50, weight: 45, packQuantity: 12 },
+      ],
+    },
+    // ── Produit avec variante multi-couleurs (sous-couleurs) ──
+    {
+      reference: "BJ-003",
+      name: "Bague Trio",
+      description: "Bague tricolore empilable",
+      category: "Bagues",
+      tags: ["trio", "empilable"],
+      similar_refs: ["BJ-002"],
+      colors: [
+        { color: "Doré/Argenté/Or Rose", saleType: "UNIT", unitPrice: 6.50, stock: 150, weight: 15, isPrimary: true, size: "17" },
+        { color: "Doré/Argenté/Or Rose", saleType: "PACK", unitPrice: 5.50, stock: 40, weight: 15, packQuantity: 24 },
+        { color: "Noir/Doré", saleType: "UNIT", unitPrice: 7.00, stock: 100, weight: 15, size: "18" },
+      ],
+    },
+    // ── Produit avec remise ──
+    {
+      reference: "BJ-004",
+      name: "Boucles Créoles",
+      category: "Boucles d'oreilles",
+      tags: ["créoles"],
+      compositions: [{ material: "Acier inoxydable", percentage: 100 }],
+      similar_refs: ["BJ-002", "BJ-003"],
+      colors: [
+        { color: "Doré", saleType: "UNIT", unitPrice: 5.99, stock: 800, weight: 20, isPrimary: true, discountType: "PERCENT", discountValue: 10 },
+        { color: "Doré", saleType: "PACK", unitPrice: 4.99, stock: 200, weight: 20, packQuantity: 12, discountType: "PERCENT", discountValue: 15 },
       ],
     },
   ],
@@ -33,7 +83,7 @@ export default function ImportProductsTab() {
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingImport, setLoadingImport] = useState(false);
-  const [importResult, setImportResult] = useState<{ success: number; errors: number; total: number; draftId?: string } | null>(null);
+  const [importResult, setImportResult] = useState<{ success: number; errors: number; total: number; draftId?: string; jobId?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -75,11 +125,13 @@ export default function ImportProductsTab() {
     setError(null);
     const fd = new FormData();
     fd.append("file", file);
+    fd.append("type", "PRODUCTS");
     try {
-      const res = await fetch("/api/admin/products/import", { method: "POST", body: fd });
+      const res = await fetch("/api/admin/import-jobs", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Erreur d'importation."); return; }
-      setImportResult(data);
+      // Job created — background processing started
+      setImportResult({ success: 0, errors: 0, total: preview?.totalVariants ?? 0, jobId: data.jobId });
       setStep("done");
     } catch {
       setError("Erreur réseau.");
@@ -113,11 +165,13 @@ export default function ImportProductsTab() {
           <ul className="space-y-1 font-[family-name:var(--font-roboto)]">
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">reference</code> — Référence unique</li>
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">name</code> — Nom (FR)</li>
-            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">color</code> — Couleur (doit exister)</li>
+            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">color</code> — Couleur (ex: Doré, Doré/Rouge/Noir)</li>
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">sale_type</code> — UNIT ou PACK</li>
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">unit_price</code> — Prix HT (€)</li>
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">stock</code> — Stock</li>
-            <li><code className="bg-white px-1 rounded text-xs">pack_qty</code> / <code className="bg-white px-1 rounded text-xs">category</code> / <code className="bg-white px-1 rounded text-xs">tags</code> / <code className="bg-white px-1 rounded text-xs">composition</code></li>
+            <li><code className="bg-white px-1 rounded text-xs">pack_qty</code> · <code className="bg-white px-1 rounded text-xs">category</code> · <code className="bg-white px-1 rounded text-xs">tags</code></li>
+            <li><code className="bg-white px-1 rounded text-xs">sub_categories</code> · <code className="bg-white px-1 rounded text-xs">composition</code></li>
+            <li><code className="bg-white px-1 rounded text-xs">similar_refs</code> — Réf. produits similaires (ex: BJ-002,BJ-003)</li>
           </ul>
           <div>
             <p className="font-medium text-[#1A1A1A] mb-2">Règles</p>
@@ -125,6 +179,8 @@ export default function ImportProductsTab() {
               <li>• Excel : <strong>une ligne = une variante couleur</strong> — même référence = même produit</li>
               <li>• Les couleurs et catégories doivent exister en base</li>
               <li>• Produits créés en statut <strong>Hors ligne</strong></li>
+              <li>• <strong>Produits similaires</strong> : si la référence n'existe pas encore, le lien sera créé automatiquement quand le produit sera importé plus tard</li>
+              <li>• <strong>Traitement en arrière-plan</strong> : vous pouvez fermer la page après confirmation</li>
             </ul>
             <div className="mt-3 flex gap-2">
               <button onClick={() => downloadTemplate("json")} className="text-xs px-3 py-1.5 border border-[#E5E5E5] rounded-lg hover:bg-white transition-colors">↓ Template JSON</button>
@@ -237,26 +293,34 @@ export default function ImportProductsTab() {
         </div>
       )}
 
-      {/* ── Step: Done ── */}
+      {/* ── Step: Done — processing in background ── */}
       {step === "done" && importResult && (
         <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)] text-center space-y-4">
-          <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center text-3xl mx-auto">✓</div>
+          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
+            <svg className="w-8 h-8 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          </div>
           <div>
             <p className="text-xl font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
-              Importation terminée
+              Traitement en cours...
             </p>
             <p className="text-[#666] mt-1 font-[family-name:var(--font-roboto)]">
-              {importResult.success} produit(s) importé(s) · {importResult.errors} erreur(s)
+              {preview?.totalProducts ?? 0} produit(s) en cours de création en arrière-plan.
+            </p>
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 font-[family-name:var(--font-roboto)]">
+              Les produits ne sont <strong>pas encore créés</strong>. Le serveur vérifie chaque ligne (couleurs, catégories, etc.).
+              <br />
+              En cas d'erreur, vous pourrez corriger via le brouillon avec des boutons de création rapide.
+            </div>
+            <p className="text-[#999] text-sm mt-3 font-[family-name:var(--font-roboto)]">
+              Suivez la progression dans le panneau en bas à droite.
             </p>
           </div>
           <div className="flex justify-center gap-3">
-            {importResult.draftId && (
-              <button onClick={() => router.push(`/admin/produits/importer/brouillon/${importResult.draftId}`)} className="btn-primary text-sm">
-                Corriger les erreurs →
-              </button>
-            )}
-            <button onClick={() => router.push("/admin/produits")} className="btn-secondary text-sm">Voir les produits</button>
-            <button onClick={reset} className="text-sm text-[#666] underline">Nouvelle importation</button>
+            <button onClick={() => router.push("/admin/produits")} className="btn-primary text-sm">Voir les produits</button>
+            <button onClick={reset} className="btn-secondary text-sm">Nouvelle importation</button>
           </div>
         </div>
       )}

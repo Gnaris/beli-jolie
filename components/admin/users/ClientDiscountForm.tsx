@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateClientDiscount } from "@/app/actions/admin/updateClientDiscount";
 import type { ClientDiscountType } from "@prisma/client";
+import { useToast } from "@/components/ui/Toast";
 
 interface Props {
   userId: string;
@@ -21,13 +22,10 @@ export default function ClientDiscountForm({
   const [discountType, setDiscountType]   = useState<ClientDiscountType | "">(initialDiscountType ?? "");
   const [discountValue, setDiscountValue] = useState<string>(initialDiscountValue?.toString() ?? "");
   const [freeShipping, setFreeShipping]   = useState(initialFreeShipping);
-  const [success, setSuccess] = useState(false);
-  const [error, setError]     = useState("");
+  const toast = useToast();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSuccess(false);
-    setError("");
 
     const parsedValue = discountValue ? parseFloat(discountValue) : null;
 
@@ -38,10 +36,9 @@ export default function ClientDiscountForm({
         freeShipping,
       });
       if (res.success) {
-        setSuccess(true);
-        setTimeout(() => setSuccess(false), 3000);
+        toast.success("Remise enregistrée", "La remise a été mise à jour avec succès.");
       } else {
-        setError(res.error);
+        toast.error("Erreur", res.error);
       }
     });
   }
@@ -50,8 +47,6 @@ export default function ClientDiscountForm({
     setDiscountType("");
     setDiscountValue("");
     setFreeShipping(false);
-    setSuccess(false);
-    setError("");
 
     startTransition(async () => {
       const res = await updateClientDiscount(userId, {
@@ -60,10 +55,9 @@ export default function ClientDiscountForm({
         freeShipping:  false,
       });
       if (res.success) {
-        setSuccess(true);
-        setTimeout(() => setSuccess(false), 3000);
+        toast.success("Remise supprimée", "La remise client a été retirée.");
       } else {
-        setError(res.error);
+        toast.error("Erreur", res.error);
       }
     });
   }
@@ -170,18 +164,6 @@ export default function ClientDiscountForm({
           </div>
         </label>
       </div>
-
-      {/* Feedback */}
-      {error && (
-        <p className="text-xs font-[family-name:var(--font-roboto)] text-error bg-[#FEF2F2] border border-[#FECACA] rounded-lg px-3 py-2">
-          {error}
-        </p>
-      )}
-      {success && (
-        <p className="text-xs font-[family-name:var(--font-roboto)] text-[#16A34A] bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg px-3 py-2">
-          Remise mise à jour avec succès.
-        </p>
-      )}
 
       {/* Actions */}
       <div className="flex flex-col sm:flex-row gap-2 pt-1">

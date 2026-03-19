@@ -34,15 +34,16 @@ function buildTranslations(names: Record<string, string>, idKey: string, idValue
 
 export async function createColorQuick(
   names: Record<string, string>,
-  hex: string | null
-): Promise<{ id: string; name: string; hex: string | null }> {
+  hex: string | null,
+  patternImage?: string | null
+): Promise<{ id: string; name: string; hex: string | null; patternImage: string | null }> {
   await requireAdmin();
   const frName = names["fr"]?.trim();
   if (!frName) throw new Error("Le nom en français est requis.");
 
   const color = await prisma.color.create({
-    data: { name: frName, hex: hex || null },
-    select: { id: true, name: true, hex: true },
+    data: { name: frName, hex: hex || null, patternImage: patternImage || null },
+    select: { id: true, name: true, hex: true, patternImage: true },
   });
 
   const translationData = buildTranslations(names, "colorId", color.id);

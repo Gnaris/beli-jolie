@@ -9,6 +9,7 @@ import FavoriteToggle from "@/components/client/FavoriteToggle";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useTranslations } from "next-intl";
 import { addToCart } from "@/app/actions/client/cart";
+import CustomSelect from "@/components/ui/CustomSelect";
 
 interface VariantData {
   id: string;
@@ -24,7 +25,9 @@ interface VariantData {
 interface ColorData {
   colorId: string;
   hex: string | null;
+  patternImage?: string | null;
   name: string;
+  subColors?: { name: string; hex: string; patternImage?: string | null }[];
   firstImage: string | null;
   unitPrice: number;
   isPrimary: boolean;
@@ -283,26 +286,41 @@ export default function ProductCard({
       <div className="p-4 flex flex-col gap-3 flex-1">
         {/* Color picker + nom */}
         <div className="space-y-2">
-          {colors.length > 1 && (
+          {colors.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              {colors.map((c) => (
-                <button
-                  key={c.colorId}
-                  type="button"
-                  aria-label={tp(c.name)}
-                  aria-pressed={selectedColor?.colorId === c.colorId}
-                  title={tp(c.name)}
-                  onClick={() => handleColorSelect(c)}
-                  className={`w-8 h-8 rounded-full border-2 transition-all duration-200 swatch-pulse ${
-                    selectedColor?.colorId === c.colorId
-                      ? "border-text-primary scale-110"
-                      : filteredColorIds.includes(c.colorId)
-                        ? "border-text-primary/50 ring-1 ring-black/10"
-                        : "border-border hover:border-border-dark hover:scale-110"
-                  }`}
-                  style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
-                />
-              ))}
+              {colors.map((c) => {
+                const fullName = c.subColors?.length ? [c.name, ...c.subColors.map(sc => sc.name)].join("/") : c.name;
+                const mainHex = c.hex ?? "#9CA3AF";
+                let swatchStyle: React.CSSProperties;
+                if (c.patternImage) {
+                  swatchStyle = { backgroundImage: `url(${c.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
+                } else if (c.subColors && c.subColors.length > 0) {
+                  const allHexes = [mainHex, ...c.subColors.map(sc => sc.hex)];
+                  const seg = 360 / allHexes.length;
+                  const stops = allHexes.map((hex, i) => `${hex} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
+                  swatchStyle = { background: `conic-gradient(${stops})` };
+                } else {
+                  swatchStyle = { backgroundColor: mainHex };
+                }
+                return (
+                  <button
+                    key={c.colorId}
+                    type="button"
+                    aria-label={tp(fullName)}
+                    aria-pressed={selectedColor?.colorId === c.colorId}
+                    title={tp(fullName)}
+                    onClick={() => handleColorSelect(c)}
+                    className={`w-8 h-8 rounded-full border-2 transition-all duration-200 swatch-pulse ${
+                      selectedColor?.colorId === c.colorId
+                        ? "border-text-primary scale-110"
+                        : filteredColorIds.includes(c.colorId)
+                          ? "border-text-primary/50 ring-1 ring-black/10"
+                          : "border-border hover:border-border-dark hover:scale-110"
+                    }`}
+                    style={swatchStyle}
+                  />
+                );
+              })}
             </div>
           )}
 
@@ -366,15 +384,11 @@ export default function ProductCard({
         {/* Add to cart */}
         <div className="mt-auto space-y-2">
           {hasSizes && uniqueSizes.length > 0 && (
-            <select
+            <CustomSelect
               value={selectedSize}
-              onChange={(e) => setSelectedSize(e.target.value)}
-              className="field-input w-full text-sm"
-            >
-              {uniqueSizes.map((s) => (
-                <option key={s} value={s}>{t("sizeLabel", { size: s })}</option>
-              ))}
-            </select>
+              onChange={(v) => setSelectedSize(v)}
+              options={uniqueSizes.map((s) => ({ value: s, label: t("sizeLabel", { size: s }) }))}
+            />
           )}
 
           <div className="flex items-center gap-2">

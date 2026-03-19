@@ -49,7 +49,7 @@ export default async function NouveauProduitPage() {
 
       <ProductForm
         categories={categories}
-        availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex }))}
+        availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
         allProducts={allProducts}
         availableTags={tags}

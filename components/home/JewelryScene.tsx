@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 export default function JewelryScene() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -50,6 +51,7 @@ export default function JewelryScene() {
       0.1,
     );
     composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
 
     // ── Dimensions ──
     const SPREAD_X = isMobile ? 22 : 35;
@@ -71,9 +73,9 @@ export default function JewelryScene() {
     goldGeo.setAttribute("position", new THREE.BufferAttribute(goldPos, 3));
     const goldMat = new THREE.PointsMaterial({
       color: 0xd4af37,
-      size: isMobile ? 0.07 : 0.05,
+      size: isMobile ? 0.12 : 0.09,
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.7,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
       depthWrite: false,
@@ -96,9 +98,9 @@ export default function JewelryScene() {
     whiteGeo.setAttribute("position", new THREE.BufferAttribute(whitePos, 3));
     const whiteMat = new THREE.PointsMaterial({
       color: 0xffffff,
-      size: isMobile ? 0.09 : 0.07,
+      size: isMobile ? 0.14 : 0.11,
       transparent: true,
-      opacity: 0.4,
+      opacity: 0.6,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
       depthWrite: false,
@@ -119,9 +121,9 @@ export default function JewelryScene() {
     roseGeo.setAttribute("position", new THREE.BufferAttribute(rosePos, 3));
     const roseMat = new THREE.PointsMaterial({
       color: 0xb76e79,
-      size: 0.04,
+      size: isMobile ? 0.08 : 0.06,
       transparent: true,
-      opacity: 0.15,
+      opacity: 0.3,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
       depthWrite: false,
@@ -148,7 +150,7 @@ export default function JewelryScene() {
           arr[i * 3 + 2] += Math.sin(t * s + p) * 0.003;
         }
         goldGeo.attributes.position.needsUpdate = true;
-        goldMat.opacity = 0.35 + Math.sin(t * 0.3) * 0.1;
+        goldMat.opacity = 0.5 + Math.sin(t * 0.3) * 0.15;
       }
 
       // White — rapid twinkle
@@ -162,8 +164,8 @@ export default function JewelryScene() {
           arr[i * 3 + 2] += Math.sin(t * whiteSpeeds[i] * 1.5 + p) * 0.005;
         }
         whiteGeo.attributes.position.needsUpdate = true;
-        whiteMat.opacity = 0.2 + Math.sin(t * 2.5) * 0.15 + Math.sin(t * 5.5 + 1) * 0.05;
-        whiteMat.size = (isMobile ? 0.09 : 0.07) + Math.sin(t * 1.8) * 0.02;
+        whiteMat.opacity = 0.35 + Math.sin(t * 2.5) * 0.2 + Math.sin(t * 5.5 + 1) * 0.05;
+        whiteMat.size = (isMobile ? 0.14 : 0.11) + Math.sin(t * 1.8) * 0.03;
       }
 
       // Rose — slow background
@@ -174,7 +176,7 @@ export default function JewelryScene() {
           arr[i * 3 + 1] += Math.sin(t * 0.07 + rosePhases[i]) * 0.001;
         }
         roseGeo.attributes.position.needsUpdate = true;
-        roseMat.opacity = 0.1 + Math.sin(t * 0.4 + 1) * 0.05;
+        roseMat.opacity = 0.2 + Math.sin(t * 0.4 + 1) * 0.08;
       }
 
       // Camera drift

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { registerSchema } from "@/lib/validations/auth";
@@ -26,13 +26,83 @@ export default function RegisterForm({ productCount }: { productCount?: number }
 
   const [kbisFile, setKbisFile]           = useState<File | null>(null);
   const [kbisError, setKbisError]         = useState("");
+  const [docFile, setDocFile]             = useState<File | null>(null);
+  const [docError, setDocError]           = useState("");
   const [fieldErrors, setFieldErrors]     = useState<FieldErrors>({});
   const [globalError, setGlobalError]     = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading]             = useState(false);
   const [showPassword, setShowPassword]   = useState(false);
-  const [autoApproved, setAutoApproved]   = useState(false);
-  const fileInputRef                      = useRef<HTMLInputElement>(null);
+  const [autoApproved, setAutoApproved]       = useState(false);
+  const [inviteCode, setInviteCode]           = useState("");
+  const [inviteStatus, setInviteStatus]       = useState<"idle" | "validating" | "valid" | "error">("idle");
+  const [inviteError, setInviteError]         = useState("");
+  const fileInputRef                          = useRef<HTMLInputElement>(null);
+  const docInputRef                           = useRef<HTMLInputElement>(null);
+
+  function applyPrefill(prefill: Record<string, string>) {
+    setFields((prev) => {
+      const updated = { ...prev };
+      if (prefill.firstName && !prev.firstName) updated.firstName = prefill.firstName;
+      if (prefill.lastName && !prev.lastName)   updated.lastName  = prefill.lastName;
+      if (prefill.company && !prev.company)     updated.company   = prefill.company;
+      if (prefill.email && !prev.email)         updated.email     = prefill.email;
+      if (prefill.phone && !prev.phone)         updated.phone     = prefill.phone;
+      return updated;
+    });
+  }
+
+  // Pré-remplir si cookie bj_access_code existe
+  useEffect(() => {
+    const match = document.cookie.match(/bj_access_code=([^;]+)/);
+    if (match) {
+      const code = decodeURIComponent(match[1]);
+      setInviteCode(code);
+      setInviteStatus("valid");
+      // Récupérer les données prefill associées au code
+      fetch("/api/access-code/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      })
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.prefill) applyPrefill(json.prefill);
+        })
+        .catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function validateInviteCode(code: string) {
+    const trimmed = code.trim();
+    if (!trimmed) {
+      setInviteStatus("idle");
+      setInviteError("");
+      return;
+    }
+    setInviteStatus("validating");
+    setInviteError("");
+    try {
+      const res = await fetch("/api/access-code/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: trimmed }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setInviteStatus("valid");
+        setInviteError("");
+        if (json.prefill) applyPrefill(json.prefill);
+      } else {
+        setInviteStatus("error");
+        setInviteError(json.error ?? "Code invalide.");
+      }
+    } catch {
+      setInviteStatus("error");
+      setInviteError("Erreur de connexion.");
+    }
+  }
 
   function handleChange(field: keyof typeof fields, value: string) {
     setFields((prev) => ({ ...prev, [field]: value }));
@@ -58,6 +128,33 @@ export default function RegisterForm({ productCount }: { productCount?: number }
     setKbisFile(file);
   }
 
+  function handleDocChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setDocError("");
+    const file = e.target.files?.[0] ?? null;
+    if (!file) return;
+
+    const allowedTypes = [
+      "application/pdf",
+      "image/jpeg", "image/png", "image/webp",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+    const allowedExtensions = [".pdf", ".jpg", ".jpeg", ".png", ".webp", ".doc", ".docx"];
+    const ext = "." + (file.name.split(".").pop()?.toLowerCase() ?? "");
+
+    if (!allowedTypes.includes(file.type) || !allowedExtensions.includes(ext)) {
+      setDocError("Format invalide. Accepté : PDF, JPG, PNG, DOC, DOCX.");
+      setDocFile(null);
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setDocError("Le fichier ne doit pas dépasser 10 Mo.");
+      setDocFile(null);
+      return;
+    }
+    setDocFile(file);
+  }
+
   async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
     setGlobalError("");
@@ -79,6 +176,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
       const formData = new FormData();
       Object.entries(fields).forEach(([key, val]) => formData.append(key, val));
       if (kbisFile) formData.append("kbis", kbisFile);
+      if (docFile) formData.append("document", docFile);
 
       const res = await fetch("/api/auth/register", { method: "POST", body: formData });
       const json = await res.json();
@@ -163,6 +261,85 @@ export default function RegisterForm({ productCount }: { productCount?: number }
         <StaffAvailability />
       </div>
 
+      {/* ── Code d'invitation ── */}
+      <div className="mb-6">
+        <div className="bg-bg-primary rounded-xl border border-border p-4">
+          <label htmlFor="inviteCode" className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-2">
+            <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+            </svg>
+            J&apos;ai un code d&apos;invitation
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="inviteCode"
+              type="text"
+              value={inviteCode}
+              onChange={(e) => {
+                setInviteCode(e.target.value.toUpperCase());
+                if (inviteStatus !== "idle") {
+                  setInviteStatus("idle");
+                  setInviteError("");
+                }
+              }}
+              placeholder="Entrez votre code"
+              disabled={inviteStatus === "valid"}
+              className={`field-input flex-1 text-sm uppercase tracking-wider ${
+                inviteStatus === "valid" ? "border-success bg-[#F0FDF4]" : inviteStatus === "error" ? "border-error" : ""
+              }`}
+            />
+            {inviteStatus === "valid" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setInviteCode("");
+                  setInviteStatus("idle");
+                  setInviteError("");
+                  document.cookie = "bj_access_code=; max-age=0; path=/";
+                }}
+                className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted hover:text-error border border-border rounded-lg transition-colors"
+                aria-label="Retirer le code"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => validateInviteCode(inviteCode)}
+                disabled={!inviteCode.trim() || inviteStatus === "validating"}
+                className="btn-primary px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {inviteStatus === "validating" ? (
+                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : "Valider"}
+              </button>
+            )}
+          </div>
+
+          {/* Message de validation */}
+          {inviteStatus === "valid" && (
+            <div className="mt-3 flex items-start gap-2 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg p-3">
+              <svg className="w-4 h-4 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary leading-relaxed">
+                Code d&apos;accès validé — votre compte sera activé immédiatement après inscription, sans vérification.
+              </p>
+            </div>
+          )}
+
+          {/* Message d'erreur */}
+          {inviteStatus === "error" && inviteError && (
+            <p className="mt-2 text-xs text-error font-[family-name:var(--font-roboto)]">{inviteError}</p>
+          )}
+        </div>
+      </div>
+
       <div className="bg-bg-primary rounded-xl border border-border p-6 md:p-8 shadow-lg">
         <form onSubmit={handleSubmit} noValidate encType="multipart/form-data">
 
@@ -186,11 +363,11 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField id="firstName" label={t("firstName")} type="text"
                     value={fields.firstName} error={fieldErrors.firstName}
-                    placeholder="Marie" autoComplete="given-name"
+                    placeholder="Marie" autoComplete="given-name" optional
                     onChange={(v) => handleChange("firstName", v)} />
                   <FormField id="lastName" label={t("lastName")} type="text"
                     value={fields.lastName} error={fieldErrors.lastName}
-                    placeholder="Dupont" autoComplete="family-name"
+                    placeholder="Dupont" autoComplete="family-name" optional
                     onChange={(v) => handleChange("lastName", v)} />
                 </div>
                 <FormField id="company" label={t("company")} type="text"
@@ -274,6 +451,56 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                     )}
                   </div>
                   {kbisError && <p className="text-xs text-error mt-1 font-[family-name:var(--font-roboto)]" role="alert">{kbisError}</p>}
+                </div>
+
+                {/* Document libre */}
+                <div>
+                  <label htmlFor="document" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
+                    Document complémentaire{" "}
+                    <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
+                  </label>
+                  <div
+                    className={`border-2 border-dashed rounded-lg transition-colors cursor-pointer ${
+                      docError ? "border-error bg-red-50" : docFile ? "border-text-primary bg-bg-secondary" : "border-border bg-bg-secondary hover:border-text-secondary"
+                    } p-5 text-center`}
+                    onClick={() => docInputRef.current?.click()}
+                    onKeyDown={(e) => e.key === "Enter" && docInputRef.current?.click()}
+                    role="button" tabIndex={0} aria-label="Cliquez pour envoyer un document"
+                  >
+                    <input ref={docInputRef} id="document" type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                      onChange={handleDocChange} className="sr-only" />
+                    {docFile ? (
+                      <div className="flex items-center justify-center gap-2 text-text-secondary">
+                        <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-sm font-[family-name:var(--font-roboto)] font-medium">{docFile.name}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setDocFile(null); if (docInputRef.current) docInputRef.current.value = ""; }}
+                          className="ml-2 text-text-muted hover:text-error transition-colors"
+                          aria-label="Supprimer le document"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <svg className="w-8 h-8 text-text-muted mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                        </svg>
+                        <p className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary">Cliquez pour envoyer un document</p>
+                        <p className="text-xs text-text-muted mt-1">PDF, JPG, PNG, DOC, DOCX — max 10 Mo</p>
+                      </>
+                    )}
+                  </div>
+                  {docError && <p className="text-xs text-error mt-1 font-[family-name:var(--font-roboto)]" role="alert">{docError}</p>}
+                  <p className="text-xs text-text-muted mt-1 font-[family-name:var(--font-roboto)]">
+                    Tout document utile à votre dossier (licence, attestation, etc.)
+                  </p>
                 </div>
               </div>
             </div>
@@ -373,21 +600,23 @@ export default function RegisterForm({ productCount }: { productCount?: number }
   );
 }
 
-function FormField({ id, label, type, value, error, placeholder, autoComplete, maxLength, onChange }: {
+function FormField({ id, label, type, value, error, placeholder, autoComplete, maxLength, optional, onChange }: {
   id: string; label: string; type: string; value: string;
   error?: string; placeholder?: string; autoComplete?: string;
-  maxLength?: number; onChange: (value: string) => void;
+  maxLength?: number; optional?: boolean; onChange: (value: string) => void;
 }) {
   return (
     <div>
       <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
-        {label} <span className="text-text-muted">*</span>
+        {label} {optional
+          ? <span className="text-text-muted font-normal">(optionnel)</span>
+          : <span className="text-text-muted">*</span>}
       </label>
       <input
         id={id} type={type} value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder} autoComplete={autoComplete}
-        maxLength={maxLength} required
+        maxLength={maxLength} required={!optional}
         className={`field-input ${error ? "border-error" : ""}`}
         aria-describedby={error ? `${id}-error` : undefined}
         aria-invalid={!!error}

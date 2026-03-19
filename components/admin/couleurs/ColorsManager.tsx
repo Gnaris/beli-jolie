@@ -9,6 +9,7 @@ interface ColorItem {
   id: string;
   name: string;
   hex: string | null;
+  patternImage: string | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -58,7 +59,10 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
               <div className="flex items-center gap-3">
                 <span
                   className="w-8 h-8 rounded-lg border border-border shrink-0"
-                  style={{ backgroundColor: color.hex ?? "#9CA3AF" }}
+                  style={color.patternImage
+                    ? { backgroundImage: `url(${color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+                    : { backgroundColor: color.hex ?? "#9CA3AF" }
+                  }
                 />
                 <div>
                   <div className="flex items-center gap-2">

@@ -24,6 +24,13 @@ export async function toggleFavorite(productId: string) {
     return { isFavorite: false };
   } else {
     await prisma.favorite.create({ data: { userId, productId } });
+
+    // Increment favorites counter in activity tracking (fire-and-forget)
+    prisma.userActivity.updateMany({
+      where: { userId },
+      data: { favAddsCount: { increment: 1 } },
+    }).catch(() => {});
+
     revalidatePath("/favoris");
     return { isFavorite: true };
   }

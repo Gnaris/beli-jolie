@@ -39,6 +39,7 @@ model User {
   phone     String
   siret     String     @unique
   kbisPath  String?
+  documentPath String?          // Document libre envoyé lors de l'inscription
   registrationMessage String?  // Message libre lors de l'inscription
   address          String?    // Adresse de l'entreprise
   vatNumber        String?    // Numéro TVA intracommunautaire (ex: FR12345678901)
@@ -57,8 +58,10 @@ model User {
   orders        Order[]
   favorites     Favorite[]
   importDrafts  ImportDraft[]
+  importJobs    ImportJob[]
   accessCodes   AccessCode[]
   activity      UserActivity?
+  restockAlerts RestockAlert[]
 }
 
 // ─────────────────────────────────────────────
@@ -93,8 +96,9 @@ enum DiscountType {
 }
 
 enum ProductStatus {
-  OFFLINE // Hors ligne (brouillon)
-  ONLINE  // En ligne (visible sur le catalogue public)
+  OFFLINE   // Hors ligne (brouillon)
+  ONLINE    // En ligne (visible sur le catalogue public)
+  ARCHIVED  // Archivé (invisible, conservé pour historique commandes)
 }
 
 // Catégorie principale (ex: Colliers, Bracelets)
@@ -146,13 +150,15 @@ model SubCategoryTranslation {
 
 // Bibliothèque de couleurs réutilisables entre produits
 model Color {
-  id            String             @id @default(cuid())
-  name          String             @unique
+  id            String                  @id @default(cuid())
+  name          String                  @unique
   hex           String?
-  createdAt     DateTime           @default(now())
+  patternImage  String?                 // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
+  createdAt     DateTime                @default(now())
   productColors ProductColor[]
   colorImages   ProductColorImage[]
   translations  ColorTranslation[]
+  subColorUsages ProductColorSubColor[] // Utilisations en tant que sous-couleur
 }
 
 model ColorTranslation {
@@ -245,6 +251,7 @@ model Product {
   translations  ProductTranslation[]
   catalogs      CatalogProduct[]
   accessCodeViews AccessCodeView[]
+  restockAlerts   RestockAlert[]
   isBestSeller  Boolean              @default(false)
   status        ProductStatus        @default(OFFLINE)
   // Produits similaires (M2M self)
@@ -295,6 +302,18 @@ model ProductSimilar {
   @@id([productId, similarId])
 }
 
+// Deferred similar product links — stores references that don't exist yet at import time.
+// Resolved automatically when matching products are created later.
+model PendingSimilar {
+  id             String  @id @default(cuid())
+  productRef     String  // reference of the source product (already exists)
+  similarRef     String  // reference of the target product (may not exist yet)
+  createdAt      DateTime @default(now())
+
+  @@unique([productRef, similarRef])
+  @@index([similarRef])
+}
+
 // Variante plate d'un produit (couleur + type de vente + prix + stock)
 // Une même couleur peut apparaître plusieurs fois (UNIT, PACK×12, PACK×24…)
 model ProductColor {
@@ -312,8 +331,10 @@ model ProductColor {
   size        String?      // Taille (ex: 17, 18, L, XL) — optionnel
   discountType  DiscountType? // Type de remise (null = pas de remise)
   discountValue Float?        // Valeur de la remise
+  subColors   ProductColorSubColor[] // Sous-couleurs optionnelles (ex: Doré → Rouge, Noir)
   cartItems   CartItem[]
   collectionOverrides CollectionProduct[] // Apparitions dans des collections avec cette couleur
+  restockAlerts RestockAlert[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
@@ -323,6 +344,20 @@ model ProductColor {
   @@index([discountType, discountValue]) // promo filter
   @@index([stock])                      // OOS filter
   @@index([unitPrice])                  // price range filter
+}
+
+// Sous-couleurs optionnelles d'une variante (ex: Doré/Rouge/Noir)
+// Utilise la même bibliothèque Color que la couleur principale
+model ProductColorSubColor {
+  id             String       @id @default(cuid())
+  productColorId String
+  productColor   ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  colorId        String
+  color          Color        @relation(fields: [colorId], references: [id])
+  position       Int          @default(0) // Ordre d'affichage
+
+  @@unique([productColorId, colorId])
+  @@index([productColorId])
 }
 
 // Images liées à un (produit, couleur) — partagées entre toutes les variantes de la même couleur
@@ -567,6 +602,13 @@ model AccessCode {
   expiresAt     DateTime                      // Expiration (1 semaine par défaut)
   isActive      Boolean          @default(true)
 
+  // Pré-remplissage inscription (optionnel, renseigné par l'admin)
+  prefillFirstName String?
+  prefillLastName  String?
+  prefillCompany   String?
+  prefillEmail     String?
+  prefillPhone     String?
+
   // Inscription via ce code
   usedBy        String?                       // User.id du client inscrit
   usedByName    String?                       // Nom complet du client inscrit
@@ -604,11 +646,14 @@ model AccessCodeView {
 // ─────────────────────────────────────────────
 
 model UserActivity {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lastSeenAt  DateTime @default(now())
-  currentPage String?
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSeenAt    DateTime @default(now())
+  connectedAt   DateTime @default(now())
+  currentPage   String?
+  cartAddsCount Int      @default(0)
+  favAddsCount  Int      @default(0)
 
   @@index([lastSeenAt])
 }
@@ -640,6 +685,53 @@ model PasswordResetToken {
 }
 
 // ─────────────────────────────────────────────
+// Sécurité — Tentatives de connexion (brute force)
+// ─────────────────────────────────────────────
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String                        // Email tenté
+  ip        String                        // Adresse IP
+  success   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+}
+
+// Verrouillage progressif par email
+model AccountLockout {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  failureCount  Int      @default(0)       // Nombre total d'échecs consécutifs
+  lockoutLevel  Int      @default(0)       // Palier actuel (0=pas verrouillé, 1=1min, 2=5min, ...)
+  lockedUntil   DateTime?                  // Null = pas verrouillé
+  permanent     Boolean  @default(false)   // Blocage définitif
+  updatedAt     DateTime @updatedAt
+
+  @@index([email])
+}
+
+// ─────────────────────────────────────────────
+// Sécurité — Log d'inscription (anti-spam)
+// ─────────────────────────────────────────────
+
+model RegistrationLog {
+  id        String   @id @default(cuid())
+  ip        String
+  email     String
+  phone     String
+  siret     String
+  company   String
+  createdAt DateTime @default(now())
+
+  @@index([ip, createdAt])
+  @@index([phone, createdAt])
+  @@index([siret, createdAt])
+  @@index([email, createdAt])
+}
+
+// ─────────────────────────────────────────────
 // Import en masse (produits & images)
 // ─────────────────────────────────────────────
 
@@ -651,6 +743,57 @@ enum ImportDraftType {
 enum ImportDraftStatus {
   PENDING
   RESOLVED
+}
+
+enum ImportJobStatus {
+  PENDING
+  UPLOADING    // Images: batches still being uploaded
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model ImportJob {
+  id              String          @id @default(cuid())
+  type            ImportDraftType
+  status          ImportJobStatus @default(PENDING)
+  filename        String?
+  totalItems      Int             @default(0)   // total rows or images to process
+  processedItems  Int             @default(0)   // processed so far
+  successItems    Int             @default(0)
+  errorItems      Int             @default(0)
+  filePath        String?                       // saved CSV/Excel path on server
+  tempDir         String?                       // temp dir for images
+  errorDraftId    String?                       // link to ImportDraft if errors
+  errorMessage    String?         @db.Text      // global error message if FAILED
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  adminId         String
+  admin           User            @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Alertes de réassort (stock 0 → "Me prévenir")
+// ─────────────────────────────────────────────
+
+model RestockAlert {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productColorId String
+  productColor   ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  notified       Boolean      @default(false) // true once email sent
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, productId, productColorId])
+  @@index([productColorId])
+  @@index([notified])
 }
 
 model ImportDraft {

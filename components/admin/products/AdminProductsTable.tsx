@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useCallback } from "react";
+import React, { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import {
   bulkUpdateProductStatus,
@@ -9,6 +9,8 @@ import {
   bulkUpdateVariants,
   refreshProduct,
 } from "@/app/actions/admin/products";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import CustomSelect from "@/components/ui/CustomSelect";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,7 +26,8 @@ interface ColorVariant {
   size: string | null;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
-  color: { name: string; hex: string | null };
+  color: { name: string; hex: string | null; patternImage?: string | null };
+  subColors?: { color: { name: string; hex: string | null; patternImage?: string | null } }[];
 }
 
 interface ProductTranslation {
@@ -35,7 +38,7 @@ interface AdminProduct {
   id: string;
   reference: string;
   name: string;
-  status: "ONLINE" | "OFFLINE";
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED";
   categoryName: string;
   subCategoryName: string | null;
   createdAt: string;
@@ -116,17 +119,40 @@ function VariantRow({
         </td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-2.5">
-            <span
-              className="w-5 h-5 rounded-full shrink-0"
-              style={{
-                backgroundColor: variant.color.hex ?? "#9CA3AF",
-                border: '2px solid #fff',
-                boxShadow: '0 0 0 1px #D1D1D1, 0 1px 2px rgba(0,0,0,0.08)',
-              }}
-            />
-            <span className="text-xs font-medium font-[family-name:var(--font-roboto)] text-[#1A1A1A]">
-              {variant.color.name}
-            </span>
+            {(() => {
+              const mainHex = variant.color.hex ?? "#9CA3AF";
+              const subs = variant.subColors?.filter(sc => sc.color.hex || sc.color.patternImage) ?? [];
+              const fullName = subs.length > 0
+                ? [variant.color.name, ...subs.map(sc => sc.color.name)].join("/")
+                : variant.color.name;
+              let swatchStyle: React.CSSProperties;
+              if (variant.color.patternImage) {
+                swatchStyle = { backgroundImage: `url(${variant.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
+              } else if (subs.length > 0) {
+                const allHexes = [mainHex, ...subs.map(sc => sc.color.hex ?? "#9CA3AF")];
+                const seg = 360 / allHexes.length;
+                const stops = allHexes.map((hex, i) => `${hex} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
+                swatchStyle = { background: `conic-gradient(${stops})` };
+              } else {
+                swatchStyle = { backgroundColor: mainHex };
+              }
+              return (
+                <>
+                  <span
+                    className="w-5 h-5 rounded-full shrink-0"
+                    style={{
+                      ...swatchStyle,
+                      border: '2px solid #fff',
+                      boxShadow: '0 0 0 1px #D1D1D1, 0 1px 2px rgba(0,0,0,0.08)',
+                    }}
+                    title={fullName}
+                  />
+                  <span className="text-xs font-medium font-[family-name:var(--font-roboto)] text-[#1A1A1A]">
+                    {fullName}
+                  </span>
+                </>
+              );
+            })()}
           </div>
         </td>
         <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)]">
@@ -214,21 +240,7 @@ function VariantRow({
     outline: 'none',
     transition: 'border-color 0.15s, box-shadow 0.15s',
   };
-  const selectClass = [
-    "px-3 py-2 pr-8 min-h-[36px]",
-    "text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A]",
-    "bg-white border-[1.5px] border-[#D1D1D1] rounded-lg",
-    "appearance-none cursor-pointer",
-    "outline-none transition-all duration-150",
-    "hover:border-[#1A1A1A] hover:shadow-[0_0_0_1px_rgba(26,26,26,0.08)]",
-    "focus:border-[#1A1A1A] focus:shadow-[0_0_0_3px_rgba(26,26,26,0.08)]",
-  ].join(" ");
-  const selectArrowBg: React.CSSProperties = {
-    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%231A1A1A' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'right 10px center',
-    backgroundSize: '10px 10px',
-  };
+
 
   return (
     <>
@@ -239,7 +251,12 @@ function VariantRow({
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-2.5">
             <span className="w-5 h-5 rounded-full shrink-0"
-              style={{ backgroundColor: variant.color.hex ?? "#9CA3AF", border: '2px solid #fff', boxShadow: '0 0 0 1px #D1D1D1' }}
+              style={{
+                ...(variant.color.patternImage
+                  ? { backgroundImage: `url(${variant.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+                  : { backgroundColor: variant.color.hex ?? "#9CA3AF" }),
+                border: '2px solid #fff', boxShadow: '0 0 0 1px #D1D1D1',
+              }}
             />
             <span className="text-xs font-medium font-[family-name:var(--font-roboto)]" style={{ color: '#1A1A1A' }}>
               {variant.color.name}
@@ -248,15 +265,16 @@ function VariantRow({
         </td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-1.5">
-            <select
+            <CustomSelect
               value={saleType}
-              onChange={(e) => setSaleType(e.target.value as "UNIT" | "PACK")}
-              className={selectClass}
-              style={{ ...selectArrowBg, width: 90 }}
-            >
-              <option value="UNIT">Unité</option>
-              <option value="PACK">Pack</option>
-            </select>
+              onChange={(v) => setSaleType(v as "UNIT" | "PACK")}
+              options={[
+                { value: "UNIT", label: "Unité" },
+                { value: "PACK", label: "Pack" },
+              ]}
+              size="sm"
+              className="w-[90px]"
+            />
             {saleType === "PACK" && (
               <input type="number" min={2} value={packQuantity} onChange={(e) => setPackQuantity(e.target.value)} placeholder="Qté" style={{ ...inputStyle, width: 56 }} />
             )}
@@ -274,16 +292,17 @@ function VariantRow({
         </td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-1.5">
-            <select
+            <CustomSelect
               value={discountType}
-              onChange={(e) => setDiscountType(e.target.value)}
-              className={selectClass}
-              style={{ ...selectArrowBg, width: 74 }}
-            >
-              <option value="">—</option>
-              <option value="PERCENT">%</option>
-              <option value="AMOUNT">€</option>
-            </select>
+              onChange={(v) => setDiscountType(v)}
+              options={[
+                { value: "", label: "—" },
+                { value: "PERCENT", label: "%" },
+                { value: "AMOUNT", label: "€" },
+              ]}
+              size="sm"
+              className="w-[74px]"
+            />
             {discountType && (
               <input type="number" step="0.01" min={0} value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} style={{ ...inputStyle, width: 56 }} />
             )}
@@ -379,14 +398,16 @@ function ProductRow({
   onToggleAllVariants: (ids: string[], select: boolean) => void;
 }) {
   const [refreshing, startRefresh] = useTransition();
+  const { confirm } = useConfirm();
 
   const uniqueColors = [...new Map(product.colors.map((c) => [c.colorId, c])).values()];
   const minPrice = product.colors.length > 0
     ? Math.min(...product.colors.map((c) => c.unitPrice))
     : NaN;
 
-  // All variants out of stock?
-  const isOutOfStock = product.colors.length > 0 && product.colors.every((c) => c.stock === 0);
+  // Stock status
+  const isFullyOutOfStock = product.colors.length > 0 && product.colors.every((c) => c.stock === 0);
+  const hasPartialOutOfStock = !isFullyOutOfStock && product.colors.some((c) => c.stock === 0);
 
   const allNonFrLocales = ["en", "ar", "zh", "de", "es", "it"];
   const existingLocales = new Set(product.translations.map((t) => t.locale));
@@ -460,17 +481,40 @@ function ProductRow({
 
         {/* Couleurs */}
         <td className="px-3 py-3 hidden lg:table-cell cursor-pointer" onClick={onExpandToggle}>
-          <div className="flex items-center gap-1 flex-wrap">
-            {uniqueColors.slice(0, 6).map((c) => (
-              <span
-                key={c.colorId}
-                title={`${c.color.name}${c.stock === 0 ? " — Rupture" : ""}`}
-                className={`inline-block w-4 h-4 rounded-full border-2 ${c.stock === 0 ? "border-error opacity-50" : "border-border"}`}
-                style={{ backgroundColor: c.color.hex ?? "#9CA3AF" }}
-              />
-            ))}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {uniqueColors.slice(0, 6).map((c) => {
+              const mainHex = c.color.hex ?? "#9CA3AF";
+              const subs = c.subColors?.filter(sc => sc.color.hex) ?? [];
+              const fullName = subs.length > 0
+                ? [c.color.name, ...subs.map(sc => sc.color.name)].join("/")
+                : c.color.name;
+              let swatchStyle: React.CSSProperties;
+              if (c.color.patternImage) {
+                swatchStyle = { backgroundImage: `url(${c.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
+              } else if (subs.length > 0) {
+                const allHexes = [mainHex, ...subs.map(sc => sc.color.hex ?? "#9CA3AF")];
+                const seg = 360 / allHexes.length;
+                const stops = allHexes.map((hex, i) => `${hex} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
+                swatchStyle = { background: `conic-gradient(${stops})` };
+              } else {
+                swatchStyle = { backgroundColor: mainHex };
+              }
+              const isOos = c.stock === 0;
+              return (
+                <span
+                  key={c.colorId}
+                  title={`${fullName}${isOos ? " — Rupture" : ""}`}
+                  className="inline-block w-5 h-5 rounded-full relative shrink-0"
+                  style={swatchStyle}
+                >
+                  {isOos && (
+                    <span className="absolute inset-[-2px] rounded-full border-[2.5px] border-[#EF4444] pointer-events-none" />
+                  )}
+                </span>
+              );
+            })}
             {uniqueColors.length > 6 && (
-              <span className="text-[10px] text-text-muted">+{uniqueColors.length - 6}</span>
+              <span className="text-[10px] text-text-muted font-semibold">+{uniqueColors.length - 6}</span>
             )}
           </div>
         </td>
@@ -481,17 +525,31 @@ function ProductRow({
             <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
               product.status === "ONLINE"
                 ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+                : product.status === "ARCHIVED"
+                ? "bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]"
                 : "bg-[#F7F7F8] text-[#6B6B6B] border border-[#E5E5E5]"
             }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${product.status === "ONLINE" ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
-              {product.status === "ONLINE" ? "En ligne" : "Hors ligne"}
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                product.status === "ONLINE" ? "bg-[#22C55E]" : product.status === "ARCHIVED" ? "bg-[#F59E0B]" : "bg-[#9CA3AF]"
+              }`} />
+              {product.status === "ONLINE" ? "En ligne" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
             </span>
-            {isOutOfStock && (
+            {isFullyOutOfStock && (
               <span
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]"
                 title="Toutes les variantes sont en rupture de stock"
               >
+                <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444]" />
                 Rupture
+              </span>
+            )}
+            {hasPartialOutOfStock && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A]"
+                title="Certaines variantes sont en rupture de stock"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
+                Rupture variantes
               </span>
             )}
           </div>
@@ -500,6 +558,17 @@ function ProductRow({
         {/* Actions */}
         <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-1 justify-end">
+            <Link
+              href={`/produits/${product.id}`}
+              target="_blank"
+              className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
+              title="Voir côté client"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </Link>
             <button
               type="button"
               onClick={onExpandToggle}
@@ -512,7 +581,14 @@ function ProductRow({
             </button>
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
+                const ok = await confirm({
+                  type: "warning",
+                  title: "Rafraîchir ce produit ?",
+                  message: "Le produit sera remis en \"Nouveauté\" avec la date du jour.",
+                  confirmLabel: "Rafraîchir",
+                });
+                if (!ok) return;
                 startRefresh(async () => {
                   try {
                     await refreshProduct(product.id);
@@ -523,7 +599,7 @@ function ProductRow({
               }}
               disabled={refreshing}
               className={`p-1.5 text-text-muted hover:text-text-primary transition-colors ${refreshing ? "opacity-50 cursor-wait" : ""}`}
-              title="Rafraichir (remettre en Nouveaute)"
+              title="Rafraîchir (remettre en Nouveauté)"
             >
               <svg className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
@@ -652,6 +728,14 @@ function ProductRow({
 
 // ─── Bulk Variant Edit Bar ──────────────────────────────────────────────────────
 
+const BULK_FIELDS: { value: string; label: string; icon: string }[] = [
+  { value: "stock", label: "Stock", icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" },
+  { value: "price", label: "Prix HT", icon: "M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
+  { value: "weight", label: "Poids", icon: "M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0012 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 01-2.031.352 5.988 5.988 0 01-2.031-.352c-.483-.174-.711-.703-.59-1.202L18.75 4.971zm-16.5.52c.99-.203 1.99-.377 3-.52m0 0l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.989 5.989 0 01-2.031.352 5.989 5.989 0 01-2.031-.352c-.483-.174-.711-.703-.59-1.202L5.25 4.971z" },
+  { value: "discount", label: "Remise", icon: "M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z M6 6h.008v.008H6V6z" },
+  { value: "discountClear", label: "Supprimer remise", icon: "M6 18L18 6M6 6l12 12" },
+];
+
 function BulkVariantBar({
   count,
   onApply,
@@ -667,6 +751,7 @@ function BulkVariantBar({
   const [mode, setMode] = useState<"set" | "add">("set");
   const [value, setValue] = useState("");
   const [discountType, setDiscountType] = useState<"PERCENT" | "AMOUNT">("PERCENT");
+  const [fieldMenuOpen, setFieldMenuOpen] = useState(false);
 
   const handleApply = () => {
     const numVal = parseFloat(value);
@@ -684,22 +769,6 @@ function BulkVariantBar({
     } else if (field === "discountClear") {
       onApply({ discountType: null, discountValue: null });
     }
-  };
-
-  const barSelectClass = [
-    "px-3 py-2 pr-9 min-h-[36px]",
-    "text-xs font-medium font-[family-name:var(--font-roboto)] text-white",
-    "bg-white/[0.12] border border-white/20 rounded-lg",
-    "appearance-none cursor-pointer",
-    "outline-none transition-all duration-150",
-    "hover:bg-white/[0.18] hover:border-white/30",
-    "focus:bg-white/[0.18] focus:border-white/40 focus:shadow-[0_0_0_3px_rgba(255,255,255,0.1)]",
-  ].join(" ");
-  const barSelectArrowBg: React.CSSProperties = {
-    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'right 10px center',
-    backgroundSize: '10px 10px',
   };
 
   const barInputStyle: React.CSSProperties = {
@@ -757,19 +826,98 @@ function BulkVariantBar({
 
       <div style={{ height: 24, width: 1, background: 'rgba(255,255,255,0.15)' }} />
 
-      {/* Field selector */}
-      <select
-        value={field}
-        onChange={(e) => { setField(e.target.value); setValue(""); }}
-        className={barSelectClass}
-        style={barSelectArrowBg}
-      >
-        <option value="stock" className="text-[#1A1A1A] bg-white">Stock</option>
-        <option value="price" className="text-[#1A1A1A] bg-white">Prix HT</option>
-        <option value="weight" className="text-[#1A1A1A] bg-white">Poids</option>
-        <option value="discount" className="text-[#1A1A1A] bg-white">Remise</option>
-        <option value="discountClear" className="text-[#1A1A1A] bg-white">Supprimer remise</option>
-      </select>
+      {/* Field selector — custom dropdown */}
+      <div style={{ position: 'relative' }}>
+        <button
+          type="button"
+          onClick={() => setFieldMenuOpen(!fieldMenuOpen)}
+          className="font-[family-name:var(--font-roboto)]"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '7px 14px',
+            fontSize: 12,
+            fontWeight: 600,
+            color: '#fff',
+            background: 'rgba(255,255,255,0.12)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            borderRadius: 10,
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+            minWidth: 150,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.18)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
+        >
+          <svg className="w-3.5 h-3.5 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d={BULK_FIELDS.find(f => f.value === field)?.icon ?? ""} />
+          </svg>
+          <span className="flex-1 text-left">{BULK_FIELDS.find(f => f.value === field)?.label}</span>
+          <svg className={`w-3 h-3 shrink-0 opacity-50 transition-transform duration-200 ${fieldMenuOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
+
+        {fieldMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-[60]" onClick={() => setFieldMenuOpen(false)} />
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '100%',
+                left: 0,
+                marginBottom: 6,
+                minWidth: 200,
+                background: '#fff',
+                borderRadius: 12,
+                boxShadow: '0 12px 40px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.06)',
+                overflow: 'hidden',
+                zIndex: 61,
+                animation: 'confirmSlideUp 0.15s ease-out',
+              }}
+            >
+              <div style={{ padding: '6px 0' }}>
+                {BULK_FIELDS.map((f) => (
+                  <button
+                    key={f.value}
+                    type="button"
+                    onClick={() => { setField(f.value); setValue(""); setFieldMenuOpen(false); }}
+                    className="font-[family-name:var(--font-roboto)]"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      width: '100%',
+                      padding: '9px 14px',
+                      fontSize: 12,
+                      fontWeight: field === f.value ? 700 : 500,
+                      color: field === f.value ? '#1A1A1A' : '#6B6B6B',
+                      background: field === f.value ? '#F7F7F8' : 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.1s',
+                      textAlign: 'left',
+                    }}
+                    onMouseEnter={(e) => { if (field !== f.value) e.currentTarget.style.background = '#F7F7F8'; }}
+                    onMouseLeave={(e) => { if (field !== f.value) e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5} style={{ color: field === f.value ? '#1A1A1A' : '#9CA3AF' }}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d={f.icon} />
+                    </svg>
+                    <span className="flex-1">{f.label}</span>
+                    {field === f.value && (
+                      <svg className="w-3.5 h-3.5 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Mode (set / add) — only for stock & price */}
       {(field === "stock" || field === "price") && (
@@ -991,7 +1139,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
   }, []);
 
   // ─── Bulk product actions ──
-  const handleBulkStatus = useCallback(async (status: "ONLINE" | "OFFLINE") => {
+  const handleBulkStatus = useCallback(async (status: "ONLINE" | "OFFLINE" | "ARCHIVED") => {
     const ids = [...selectedIds];
     setBulkMessage(null);
     startTransition(async () => {
@@ -999,7 +1147,8 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
         const result = await bulkUpdateProductStatus(ids, status);
         const msgs: string[] = [];
         if (result.success.length > 0) {
-          msgs.push(`${result.success.length} produit${result.success.length > 1 ? "s" : ""} mis ${status === "ONLINE" ? "en ligne" : "hors ligne"}`);
+          const label = status === "ONLINE" ? "mis en ligne" : status === "ARCHIVED" ? "archivé(s)" : "mis hors ligne";
+          msgs.push(`${result.success.length} produit${result.success.length > 1 ? "s" : ""} ${label}`);
         }
         if (result.errors.length > 0) {
           const refs = result.errors.map((e) => `${e.reference} (${e.reason})`).join(", ");
@@ -1022,9 +1171,17 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
     startTransition(async () => {
       try {
         const result = await bulkDeleteProducts(ids);
+        const msgs: string[] = [];
+        if (result.deleted > 0) {
+          msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""}`);
+        }
+        if (result.protected.length > 0) {
+          const refs = result.protected.map((p) => p.reference).join(", ");
+          msgs.push(`${result.protected.length} protégé(s) (commandes existantes) : ${refs} — utilisez l'archivage`);
+        }
         setBulkMessage({
-          type: "success",
-          text: `${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""}`,
+          type: result.protected.length > 0 ? "error" : "success",
+          text: msgs.join(" — "),
         });
         setSelectedIds(new Set());
         setConfirmDelete(false);
@@ -1123,6 +1280,17 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
             </svg>
             Mettre hors ligne
+          </button>
+          <button
+            type="button"
+            onClick={() => handleBulkStatus("ARCHIVED")}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F59E0B]/80 text-white text-xs font-medium rounded-lg hover:bg-[#D97706] disabled:opacity-50 transition-colors font-[family-name:var(--font-roboto)]"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+            </svg>
+            Archiver
           </button>
           <div className="h-4 w-px bg-white/20" />
           {!confirmDelete ? (

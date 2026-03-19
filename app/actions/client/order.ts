@@ -102,6 +102,7 @@ export async function placeOrder(
               include: {
                 product: { select: { id: true, name: true, reference: true, status: true, category: { select: { name: true } } } },
                 color:   { select: { id: true, name: true, hex: true } },
+                subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
               },
             },
           },
@@ -218,7 +219,9 @@ export async function placeOrder(
     return {
       productName: item.variant.product.name,
       productRef:  item.variant.product.reference,
-      colorName:   item.variant.color.name,
+      colorName:   item.variant.subColors?.length
+        ? [item.variant.color.name, ...item.variant.subColors.map((sc: { color: { name: string } }) => sc.color.name)].join("/")
+        : item.variant.color.name,
       saleType:    item.variant.saleType,
       packQty:     item.variant.packQuantity,
       size:        item.variant.size,

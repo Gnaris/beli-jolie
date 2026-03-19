@@ -4,7 +4,6 @@ import { cookies } from "next/headers";
 import { getCachedSiteConfig, getCachedProductCount } from "@/lib/cached-data";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 import FloatingGems from "@/components/ui/FloatingGems";
-import StaffAvailability from "@/components/auth/StaffAvailability";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -64,8 +63,8 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
 
       {/* Split layout: left brand panel (desktop) + right form */}
       <main className="relative flex-1 flex">
-        {/* Left brand panel — desktop only */}
-        <div className="hidden lg:flex lg:w-[45%] xl:w-[40%] bg-bg-dark relative overflow-hidden flex-col justify-between p-10 xl:p-14">
+        {/* Left brand panel — desktop only, fixed height = viewport */}
+        <div className="hidden lg:flex lg:w-[45%] xl:w-[40%] bg-bg-dark relative overflow-hidden flex-col justify-between p-10 xl:p-14 sticky top-0 h-screen">
           {/* Background decorative elements */}
           <div className="absolute inset-0 opacity-[0.03]">
             <div className="absolute top-20 left-10 w-72 h-72 border border-white rounded-full" />
@@ -100,10 +99,6 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
               ))}
             </div>
 
-            {/* Disponibilité staff */}
-            <div className="pt-2">
-              <StaffAvailability variant="dark" />
-            </div>
           </div>
 
           <div className="relative z-10 flex items-center gap-3">
@@ -111,8 +106,8 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
           </div>
         </div>
 
-        {/* Right form panel */}
-        <div className="flex-1 relative flex items-center justify-center px-6 py-12">
+        {/* Right form panel — scrollable */}
+        <div className="flex-1 relative flex items-center justify-center px-6 py-12 overflow-y-auto">
           <FloatingGems />
           <div className="relative z-10 w-full flex items-center justify-center">
             {children}

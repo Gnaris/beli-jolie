@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { writeFile, mkdir } from "fs/promises";
+import { normalizeColorName } from "@/lib/import-processor";
+import { processProductImage } from "@/lib/image-processor";
+import { mkdir } from "fs/promises";
 import path from "path";
 
 async function requireAdmin() {
@@ -105,16 +107,20 @@ async function handleProductRowFix(
 
   // Try to create product
   try {
-    const color = await prisma.color.findFirst({ where: { name: { equals: String(row.color) } } });
+    // Accent+case insensitive color lookup
+    const allColors = await prisma.color.findMany();
+    const normalizedSearch = normalizeColorName(String(row.color));
+    const color = allColors.find((c) => normalizeColorName(c.name) === normalizedSearch);
     if (!color) {
+      const availableColors = allColors.map((c) => ({ id: c.id, name: c.name, hex: c.hex ?? "#9CA3AF" }));
       const newRows = rows.map((r, i) =>
-        i === body.rowIndex ? { ...row, errors: [`Couleur "${row.color}" introuvable.`] } : r
+        i === body.rowIndex ? { ...row, errors: [`Couleur "${row.color}" introuvable.`], availableColors } : r
       );
       await prisma.importDraft.update({
         where: { id: draft.id },
         data: { rows: newRows as import("@prisma/client").Prisma.JsonArray },
       });
-      return NextResponse.json({ ok: false, errors: [`Couleur introuvable.`] });
+      return NextResponse.json({ ok: false, errors: [`Couleur "${row.color}" introuvable.`], availableColors });
     }
 
     let categoryId: string | undefined;
@@ -190,7 +196,14 @@ async function handleProductRowFix(
 
 async function handleImageRowFix(
   draft: import("@prisma/client").ImportDraft,
-  body: { rowIndex: number; colorId?: string; dismiss?: boolean; newColorName?: string; newColorHex?: string },
+  body: {
+    rowIndex: number;
+    colorId?: string;
+    dismiss?: boolean;
+    newColorName?: string;
+    newColorHex?: string;
+    productId?: string;       // override product (reference reassignment)
+  },
   _adminId: string
 ) {
   const rows = draft.rows as Record<string, unknown>[];
@@ -210,9 +223,12 @@ async function handleImageRowFix(
     return NextResponse.json({ ok: true, draft: updated });
   }
 
+  // Use overridden productId if provided (reference reassignment)
+  const productId = body.productId || String(row.productId || "");
+
   // Create new color variant if requested
   let colorId = body.colorId;
-  if (!colorId && body.newColorName && body.newColorHex && row.productId) {
+  if (!colorId && body.newColorName && body.newColorHex && productId) {
     const color = await prisma.color.upsert({
       where: { name: body.newColorName },
       update: {},
@@ -221,7 +237,7 @@ async function handleImageRowFix(
 
     await prisma.productColor.create({
       data: {
-        productId: String(row.productId),
+        productId,
         colorId: color.id,
         unitPrice: 0,
         weight: 0.1,
@@ -233,29 +249,28 @@ async function handleImageRowFix(
     colorId = color.id;
   }
 
-  if (!colorId || !row.productId) {
+  if (!colorId || !productId) {
     return NextResponse.json({ ok: false, errors: ["Couleur ou produit manquant."] }, { status: 400 });
   }
 
-  // Move temp image to product folder
+  // Process image through Sharp WebP pipeline
   const tempPath = String(row.tempPath);
   const fullTempPath = path.join(process.cwd(), "public", tempPath);
-  const ext = path.extname(String(row.filename)).toLowerCase();
   const position = Number(row.position) || 1;
-  const safeFilename = `${Date.now()}_${position}${ext}`;
-  const destPath = path.join(process.cwd(), "public", "uploads", "products", safeFilename);
+  const safeFilename = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const destDir = path.join(process.cwd(), "public", "uploads", "products");
 
   try {
     const { readFile } = await import("fs/promises");
     const bytes = await readFile(fullTempPath);
-    await mkdir(path.dirname(destPath), { recursive: true });
-    await writeFile(destPath, bytes);
+    await mkdir(destDir, { recursive: true });
+    const result = await processProductImage(bytes, destDir, safeFilename);
 
     await prisma.productColorImage.create({
       data: {
-        productId: String(row.productId),
+        productId,
         colorId,
-        path: `/uploads/products/${safeFilename}`,
+        path: result.dbPath,
         order: position - 1,
       },
     });

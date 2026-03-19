@@ -7,6 +7,7 @@ import { createProduct, updateProduct } from "@/app/actions/admin/products";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
+import CustomSelect from "@/components/ui/CustomSelect";
 import AiCostDialog from "./AiCostDialog";
 
 interface Category {
@@ -63,7 +64,7 @@ interface ProductFormProps {
     dimDiameter: string;
     dimCircumference: string;
     translations?: { locale: string; name: string; description: string }[];
-    status?: "OFFLINE" | "ONLINE";
+    status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
   };
 }
 
@@ -74,6 +75,7 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
     colorId:      first?.id   ?? "",
     colorName:    first?.name ?? "",
     colorHex:     first?.hex  ?? "#9CA3AF",
+    subColors:    [],
     unitPrice:    "",
     weight:       "",
     stock:        "",
@@ -132,27 +134,44 @@ export default function ProductForm({
 
   const [error, setError] = useState("");
   const [onlineErrors, setOnlineErrors] = useState<string[]>([]);
-  const [productStatus, setProductStatus] = useState<"OFFLINE" | "ONLINE">(
+  const [productStatus, setProductStatus] = useState<"OFFLINE" | "ONLINE" | "ARCHIVED">(
     initialData?.status ?? "OFFLINE"
   );
 
   // ── Sync colorImages when variant colors change ───────────────────────
+  // Build a map of colorId → full display name & hex (including sub-colors)
+  const variantColorKey = variants.map((v) => `${v.colorId}:${v.subColors.map((s) => s.colorId).join("+")}`).join(",");
   useEffect(() => {
     const usedColorIds = new Set(variants.map((v) => v.colorId).filter(Boolean));
+    // Build display info per colorId (first variant with that colorId wins)
+    const displayMap = new Map<string, { name: string; hex: string }>();
+    for (const v of variants) {
+      if (!v.colorId || displayMap.has(v.colorId)) continue;
+      const allNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)];
+      displayMap.set(v.colorId, { name: allNames.join(" / "), hex: v.colorHex });
+    }
     setColorImages((prev) => {
       const filtered = prev.filter((ci) =>
         usedColorIds.has(ci.colorId) || ci.uploadedPaths.length > 0
       );
-      const existingIds = new Set(filtered.map((ci) => ci.colorId));
+      // Update existing entries with latest display name/hex
+      const updated = filtered.map((ci) => {
+        const info = displayMap.get(ci.colorId);
+        if (info && (ci.colorName !== info.name || ci.colorHex !== info.hex)) {
+          return { ...ci, colorName: info.name, colorHex: info.hex };
+        }
+        return ci;
+      });
+      const existingIds = new Set(updated.map((ci) => ci.colorId));
       const toAdd: ColorImageState[] = [];
       for (const colorId of usedColorIds) {
         if (!existingIds.has(colorId)) {
-          const color = localColors.find((c) => c.id === colorId);
-          if (color) {
+          const info = displayMap.get(colorId);
+          if (info) {
             toAdd.push({
-              colorId: color.id,
-              colorName: color.name,
-              colorHex: color.hex ?? "#9CA3AF",
+              colorId,
+              colorName: info.name,
+              colorHex: info.hex,
               imagePreviews: [],
               uploadedPaths: [],
               uploading: false,
@@ -160,11 +179,12 @@ export default function ProductForm({
           }
         }
       }
-      if (toAdd.length === 0 && filtered.length === prev.length) return prev;
-      return [...filtered, ...toAdd];
+      const result = [...updated, ...toAdd];
+      if (result.length === prev.length && result.every((r, i) => r === prev[i])) return prev;
+      return result;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [variants.map((v) => v.colorId).join(",")]);
+  }, [variantColorKey]);
 
   // ── Composition picker state ─────────────────────────────────────────
   const [newCompId, setNewCompId] = useState("");
@@ -251,9 +271,9 @@ export default function ProductForm({
   }
 
   // ── Color quick-create handler ────────────────────────────────────────
-  async function handleQuickCreateColor(colorName: string, hex: string | null): Promise<AvailableColor> {
+  async function handleQuickCreateColor(colorName: string, hex: string | null, patternImage: string | null): Promise<AvailableColor> {
     const { createColorQuick } = await import("@/app/actions/admin/quick-create");
-    const created = await createColorQuick({ fr: colorName }, hex);
+    const created = await createColorQuick({ fr: colorName }, hex, patternImage);
     setLocalColors((prev) => [...prev, created]);
     return created;
   }
@@ -412,7 +432,7 @@ export default function ProductForm({
   }
 
   // ── Submit ───────────────────────────────────────────────────────────
-  async function handleSave(statusOverride?: "OFFLINE" | "ONLINE") {
+  async function handleSave(statusOverride?: "OFFLINE" | "ONLINE" | "ARCHIVED") {
     const targetStatus = statusOverride ?? productStatus;
     setError("");
     setOnlineErrors([]);
@@ -476,6 +496,7 @@ export default function ProductForm({
       colors: variants.map((v) => ({
         dbId:          v.dbId,
         colorId:       v.colorId,
+        subColorIds:   v.subColors.map((sc) => sc.colorId),
         unitPrice:     parseFloat(v.unitPrice),
         weight:        parseFloat(v.weight),
         stock:         parseInt(v.stock) || 0,
@@ -630,15 +651,15 @@ export default function ProductForm({
                       className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
                     >+ Créer</button>
                   </div>
-                  <select value={categoryId}
-                    onChange={(e) => { setCategoryId(e.target.value); setSubCategoryIds([]); }}
-                    className="field-input" required
-                  >
-                    <option value="">— Sélectionner —</option>
-                    {localCategories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
-                    ))}
-                  </select>
+                  <CustomSelect
+                    value={categoryId}
+                    onChange={(v) => { setCategoryId(v); setSubCategoryIds([]); }}
+                    options={[
+                      { value: "", label: "— Sélectionner —" },
+                      ...localCategories.map((cat) => ({ value: cat.id, label: cat.name })),
+                    ]}
+                    placeholder="— Sélectionner —"
+                  />
                 </div>
 
                 {/* Sous-catégories */}
@@ -800,12 +821,17 @@ export default function ProductForm({
               {localCompositions.length > 0 && (
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                   <div className="flex-1">
-                    <select value={newCompId} onChange={(e) => setNewCompId(e.target.value)} className="field-input">
-                      <option value="">— Choisir un matériau —</option>
-                      {localCompositions
-                        .filter((c) => !compositions.some((x) => x.compositionId === c.id))
-                        .map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
+                    <CustomSelect
+                      value={newCompId}
+                      onChange={(v) => setNewCompId(v)}
+                      options={[
+                        { value: "", label: "— Choisir un matériau —" },
+                        ...localCompositions
+                          .filter((c) => !compositions.some((x) => x.compositionId === c.id))
+                          .map((c) => ({ value: c.id, label: c.name })),
+                      ]}
+                      placeholder="— Choisir un matériau —"
+                    />
                   </div>
                   <button type="button" onClick={addComposition} disabled={!newCompId}
                     className="px-4 py-2.5 bg-[#1A1A1A] text-white text-sm font-medium rounded-lg hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-[family-name:var(--font-roboto)]"

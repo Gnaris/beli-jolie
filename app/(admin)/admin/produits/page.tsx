@@ -63,7 +63,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   }
 
   if (cat) where.categoryId = cat;
-  if (statusFilter === "ONLINE" || statusFilter === "OFFLINE") where.status = statusFilter;
+  if (statusFilter === "ONLINE" || statusFilter === "OFFLINE" || statusFilter === "ARCHIVED") where.status = statusFilter;
 
   if (minPrice !== null || maxPrice !== null) {
     where.colors = {
@@ -112,7 +112,8 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
             size:          true,
             discountType:  true,
             discountValue: true,
-            color:         { select: { name: true, hex: true } },
+            color:         { select: { name: true, hex: true, patternImage: true } },
+            subColors:     { orderBy: { position: "asc" }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
           },
         },
         translations: { select: { locale: true } },
@@ -161,6 +162,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
       discountType:  c.discountType as "PERCENT" | "AMOUNT" | null,
       discountValue: c.discountValue,
       color:         c.color,
+      subColors:     c.subColors,
     })),
     translations:    p.translations,
   }));

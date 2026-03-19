@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import { prisma } from "@/lib/prisma";
 import { registerSchema } from "@/lib/validations/auth";
 import { notifyNewClientRegistration } from "@/lib/notifications";
+import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
 import { cookies } from "next/headers";
 
 /**
@@ -71,12 +72,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Anti-spam : cooldown 3h par IP/phone/siret/email ─────────────
+    const clientIp = getClientIp(request.headers);
+    const spamError = await checkRegistrationSpam(
+      clientIp,
+      data.email,
+      data.phone,
+      data.siret,
+    );
+    if (spamError) {
+      return NextResponse.json({ error: spamError }, { status: 429 });
+    }
+
+    // ── Validation magic bytes ──────────────────────────────────────
+    // Vérifie les premiers octets du fichier pour empêcher l'upload
+    // de fichiers exécutables déguisés avec une fausse extension.
+    const MAGIC_BYTES: Record<string, number[][]> = {
+      "application/pdf":  [[0x25, 0x50, 0x44, 0x46]], // %PDF
+      "image/jpeg":       [[0xFF, 0xD8, 0xFF]],
+      "image/png":        [[0x89, 0x50, 0x4E, 0x47]],
+      "image/webp":       [[0x52, 0x49, 0x46, 0x46]], // RIFF
+      "application/msword": [[0xD0, 0xCF, 0x11, 0xE0]], // OLE2
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [[0x50, 0x4B, 0x03, 0x04]], // PK (zip)
+    };
+
+    function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
+      const signatures = MAGIC_BYTES[mimeType];
+      if (!signatures) return false;
+      return signatures.some((sig) =>
+        sig.every((byte, i) => buffer.length > i && buffer[i] === byte)
+      );
+    }
+
+    // Extensions autorisées (kbis + document)
+    const SAFE_EXTENSIONS = ["pdf", "jpg", "jpeg", "png", "webp", "doc", "docx"];
+
+    function sanitizeExtension(filename: string): string | null {
+      const ext = filename.split(".").pop()?.toLowerCase();
+      if (!ext || !SAFE_EXTENSIONS.includes(ext)) return null;
+      return ext;
+    }
+
     // ── Gestion du fichier Kbis (optionnel) ──────────────────────────
     const kbisFile = formData.get("kbis") as File | null;
     let kbisPath: string | null = null;
 
     if (kbisFile && kbisFile.size > 0) {
-      // Vérification du type de fichier (PDF ou image)
       const allowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
       if (!allowedTypes.includes(kbisFile.type)) {
         return NextResponse.json(
@@ -85,7 +126,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Limite de taille : 5 Mo
       const MAX_SIZE = 5 * 1024 * 1024;
       if (kbisFile.size > MAX_SIZE) {
         return NextResponse.json(
@@ -94,23 +134,85 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Création du dossier de stockage si nécessaire
+      const ext = sanitizeExtension(kbisFile.name);
+      if (!ext) {
+        return NextResponse.json(
+          { error: "Extension de fichier non autorisée pour le Kbis." },
+          { status: 400 }
+        );
+      }
+
+      const kbisBuffer = Buffer.from(await kbisFile.arrayBuffer());
+      if (!validateMagicBytes(kbisBuffer, kbisFile.type)) {
+        return NextResponse.json(
+          { error: "Le contenu du fichier Kbis ne correspond pas à son type déclaré." },
+          { status: 400 }
+        );
+      }
+
       const uploadDir = path.join(process.cwd(), "private", "uploads", "kbis");
       await fs.mkdir(uploadDir, { recursive: true });
 
-      // Nom de fichier sécurisé et unique
-      const ext = kbisFile.name.split(".").pop()?.toLowerCase() ?? "pdf";
       const safeSiret = data.siret.replace(/\D/g, "");
       const timestamp = Date.now();
       const filename = `kbis_${safeSiret}_${timestamp}.${ext}`;
       const filepath = path.join(uploadDir, filename);
 
-      // Écriture du fichier sur le disque
-      const buffer = Buffer.from(await kbisFile.arrayBuffer());
-      await fs.writeFile(filepath, buffer);
-
-      // Chemin relatif stocké en base (ne jamais exposer le chemin absolu)
+      await fs.writeFile(filepath, kbisBuffer);
       kbisPath = `private/uploads/kbis/${filename}`;
+    }
+
+    // ── Gestion du document complémentaire (optionnel) ───────────────
+    const docFile = formData.get("document") as File | null;
+    let documentPath: string | null = null;
+
+    if (docFile && docFile.size > 0) {
+      const allowedDocTypes = [
+        "application/pdf", "image/jpeg", "image/png", "image/webp",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ];
+      if (!allowedDocTypes.includes(docFile.type)) {
+        return NextResponse.json(
+          { error: "Format de document non autorisé. Accepté : PDF, JPG, PNG, DOC, DOCX." },
+          { status: 400 }
+        );
+      }
+
+      const MAX_DOC_SIZE = 10 * 1024 * 1024;
+      if (docFile.size > MAX_DOC_SIZE) {
+        return NextResponse.json(
+          { error: "Le document ne doit pas dépasser 10 Mo." },
+          { status: 400 }
+        );
+      }
+
+      const docExt = sanitizeExtension(docFile.name);
+      if (!docExt) {
+        return NextResponse.json(
+          { error: "Extension de fichier non autorisée." },
+          { status: 400 }
+        );
+      }
+
+      const docBuffer = Buffer.from(await docFile.arrayBuffer());
+      if (!validateMagicBytes(docBuffer, docFile.type)) {
+        return NextResponse.json(
+          { error: "Le contenu du document ne correspond pas à son type déclaré." },
+          { status: 400 }
+        );
+      }
+
+      const docUploadDir = path.join(process.cwd(), "private", "uploads", "documents");
+      await fs.mkdir(docUploadDir, { recursive: true });
+
+      const safeSiret = data.siret.replace(/\D/g, "");
+      const timestamp = Date.now();
+      const docFilename = `doc_${safeSiret}_${timestamp}.${docExt}`;
+      const docFilepath = path.join(docUploadDir, docFilename);
+
+      await fs.writeFile(docFilepath, docBuffer);
+      documentPath = `private/uploads/documents/${docFilename}`;
     }
 
     // ── Vérification code d'accès invité ──────────────────────────────
@@ -141,18 +243,22 @@ export async function POST(request: NextRequest) {
       data: {
         email:               data.email.toLowerCase().trim(),
         password:            hashedPassword,
-        firstName:           data.firstName.trim(),
-        lastName:            data.lastName.trim(),
+        firstName:           data.firstName?.trim() || "",
+        lastName:            data.lastName?.trim() || "",
         company:             data.company.trim(),
         phone:               data.phone.trim(),
         siret:               data.siret.trim(),
         vatNumber:           data.vatNumber?.trim() || null,
         kbisPath,
+        documentPath,
         registrationMessage: data.registrationMessage?.trim() || null,
         role:                "CLIENT",
         status:              autoApproved ? "APPROVED" : "PENDING",
       },
     });
+
+    // ── Log anti-spam (cooldown 3h) ─────────────────────────────────────
+    await logRegistration(clientIp, data.email, data.phone, data.siret, data.company);
 
     // ── Marquer le code d'accès comme utilisé ──────────────────────────
     if (autoApproved && accessCodeCookie) {
@@ -175,6 +281,7 @@ export async function POST(request: NextRequest) {
       phone:               newUser.phone,
       siret:               newUser.siret,
       kbisPath:            newUser.kbisPath ?? undefined,
+      documentPath:        newUser.documentPath ?? undefined,
       registrationMessage: newUser.registrationMessage ?? undefined,
     }).catch((err) =>
       console.error("[POST /api/auth/register] Notification échouée :", err)

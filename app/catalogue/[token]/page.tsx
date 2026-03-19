@@ -29,6 +29,7 @@ export default async function PublicCatalogPage({ params }: Props) {
                 where: { saleType: "UNIT" },
                 include: {
                   color: { select: { id: true, name: true, hex: true } },
+                  subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true, hex: true } } } },
                 },
               },
               category: true,

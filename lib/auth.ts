@@ -2,6 +2,7 @@ import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { checkLoginLockout, recordLoginFailure, recordLoginSuccess } from "@/lib/security";
 import type { Role, UserStatus } from "@prisma/client";
 
 /**
@@ -36,26 +37,40 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Mot de passe", type: "password" },
       },
 
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         // Vérification des champs obligatoires
         if (!credentials?.email || !credentials?.password) {
           throw new Error("Email et mot de passe requis.");
         }
 
+        const email = credentials.email.toLowerCase().trim();
+        const ip =
+          req?.headers?.["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
+          req?.headers?.["x-real-ip"]?.toString() ||
+          "unknown";
+
+        // ── Vérification verrouillage du compte ──
+        const lockoutMessage = await checkLoginLockout(email);
+        if (lockoutMessage) {
+          throw new Error(lockoutMessage);
+        }
+
         // Recherche de l'utilisateur en base
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email.toLowerCase().trim() },
+          where: { email },
         });
 
         // Generic message to prevent user enumeration
         const INVALID_CREDENTIALS = "Identifiants incorrects ou compte non activé.";
 
         if (!user) {
+          await recordLoginFailure(email, ip);
           throw new Error(INVALID_CREDENTIALS);
         }
 
         // Vérification du statut du compte
         if (user.status === "PENDING" || user.status === "REJECTED") {
+          await recordLoginFailure(email, ip);
           throw new Error(INVALID_CREDENTIALS);
         }
 
@@ -66,8 +81,12 @@ export const authOptions: NextAuthOptions = {
         );
 
         if (!passwordMatch) {
+          await recordLoginFailure(email, ip);
           throw new Error(INVALID_CREDENTIALS);
         }
+
+        // Connexion réussie — reset du lockout
+        await recordLoginSuccess(email, ip);
 
         // Retour de l'utilisateur (sans le mot de passe)
         return {

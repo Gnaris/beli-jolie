@@ -43,7 +43,8 @@ export default async function CollectionDetailPage({ params }: PageProps) {
                   saleType:     true,
                   packQuantity: true,
                   size:         true,
-                  color:        { select: { name: true, hex: true } },
+                  color:        { select: { name: true, hex: true, patternImage: true } },
+                  subColors:    { orderBy: { position: "asc" as const }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
                 },
               },
             },
@@ -118,14 +119,16 @@ export default async function CollectionDetailPage({ params }: PageProps) {
 
                 // Group variants by colorId
                 const colorMap = new Map<string, {
-                  colorId: string; name: string; hex: string | null;
+                  colorId: string; name: string; hex: string | null; patternImage?: string | null; subColors?: { name: string; hex: string; patternImage?: string | null }[];
                   firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
                   variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null; unitPrice: number; stock: number }[];
                 }>();
                 for (const v of p.colors) {
                   if (!colorMap.has(v.colorId)) {
+                    const subs = (v as any).subColors?.map((sc: { color: { name: string; hex: string | null; patternImage?: string | null } }) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage })) ?? [];
                     colorMap.set(v.colorId, {
-                      colorId: v.colorId, name: v.color.name, hex: v.color.hex,
+                      colorId: v.colorId, name: v.color.name, hex: v.color.hex, patternImage: (v.color as any).patternImage,
+                      subColors: subs.length > 0 ? subs : undefined,
                       firstImage: colImageMap.get(p.id)?.get(v.colorId) ?? null,
                       unitPrice: v.unitPrice,
                       isPrimary: cp.colorId ? v.colorId === cp.colorId : v.isPrimary,

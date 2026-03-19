@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { writeFile, mkdir } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { existsSync } from "fs";
+import { processProductImage } from "@/lib/image-processor";
 
 // ─────────────────────────────────────────────
 // Types
@@ -28,10 +29,23 @@ export interface ImageImportRow {
 // Reference = first token (no spaces), Color = middle tokens, Position = last token (number)
 // ─────────────────────────────────────────────
 
+/**
+ * Parse image filename in supported formats:
+ *   "REFERENCE COULEUR POSITION.ext"         (space-separated)
+ *   "REFERENCE_COULEUR_POSITION.ext"         (underscore-separated)
+ *   "A200_Doré/Rouge/Noir_1.jpg"             (multi-color with /)
+ *   "A200 Doré/Rouge/Noir 1.jpg"             (multi-color with spaces)
+ */
 function parseImageFilename(filename: string): { reference: string; color: string; position: number } | null {
   const ext = path.extname(filename);
   const base = filename.slice(0, filename.length - ext.length);
-  const parts = base.split(" ").filter(Boolean);
+
+  let parts: string[];
+  if (base.includes("_") && !base.includes(" ")) {
+    parts = base.split("_").filter(Boolean);
+  } else {
+    parts = base.split(" ").filter(Boolean);
+  }
 
   if (parts.length < 3) return null;
 
@@ -148,10 +162,17 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Find matching color variant
-      const matchingVariants = product.colors.filter(
+      // Find matching color variant — supports multi-color (Doré/Rouge/Noir)
+      const colorParts = color.split("/").map((c) => c.trim().toLowerCase());
+      let matchingVariants = product.colors.filter(
         (pc) => pc.color.name.toLowerCase() === color.toLowerCase()
       );
+      // If no exact match, try the first color in "/" list
+      if (matchingVariants.length === 0 && colorParts.length > 1) {
+        matchingVariants = product.colors.filter(
+          (pc) => pc.color.name.toLowerCase() === colorParts[0]
+        );
+      }
 
       if (matchingVariants.length === 0) {
         const tempPath = `${tempDirPublic}/${file.name}`;
@@ -181,12 +202,11 @@ export async function POST(req: NextRequest) {
       const productDir = path.join(process.cwd(), "public", "uploads", "products");
       await mkdir(productDir, { recursive: true });
 
-      const safeFilename = `${Date.now()}_${position}${ext}`;
-      const destPath = path.join(productDir, safeFilename);
+      const safeFilename = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const bytes = await file.arrayBuffer();
-      await writeFile(destPath, Buffer.from(bytes));
+      const result = await processProductImage(Buffer.from(bytes), productDir, safeFilename);
 
-      const imagePath = `/uploads/products/${safeFilename}`;
+      const imagePath = result.dbPath;
 
       // Check if position already exists — compute order
       const existingImages = await prisma.productColorImage.findMany({
