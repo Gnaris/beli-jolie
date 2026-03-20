@@ -27,6 +27,7 @@ type ProductItem = {
   subCategories: { name: string }[];
   tags:          { tag: { id: string; name: string } }[];
   colors: {
+    groupKey:      string;
     colorId:       string;
     name:          string;
     hex:           string | null;

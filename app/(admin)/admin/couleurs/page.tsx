@@ -24,29 +24,19 @@ export default async function CouleursPage() {
   }));
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="page-title">Bibliothèque de couleurs</h1>
-        <p className="page-subtitle">
-          Créez les couleurs ici, puis assignez-les à vos produits.
-        </p>
-      </div>
-
-      {/* Création */}
-      <section className="card p-6 flex items-center justify-between">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
-            Nouvelle couleur
-          </h2>
-          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
-            Saisissez le nom dans toutes les langues souhaitées.
+          <h1 className="page-title">Bibliothèque de couleurs</h1>
+          <p className="page-subtitle">
+            Créez les couleurs ici, puis assignez-les à vos produits.
           </p>
         </div>
         <EntityCreateButton type="color" label="+ Créer une couleur" />
-      </section>
+      </div>
 
       {/* Liste */}
-      <section className="space-y-2">
+      <section className="space-y-3">
         <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
           Couleurs ({colors.length})
         </h2>

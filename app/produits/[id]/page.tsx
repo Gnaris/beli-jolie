@@ -131,22 +131,36 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       : Promise.resolve(null),
   ]);
 
-  // Group colorImages by colorId for ProductDetail
-  const colorImageMap = new Map<string, { path: string; order: number }[]>();
-  for (const img of colorImages) {
-    if (!colorImageMap.has(img.colorId)) colorImageMap.set(img.colorId, []);
-    colorImageMap.get(img.colorId)!.push({ path: img.path, order: img.order });
-  }
-  const colorImagesForDetail = [...colorImageMap.entries()].map(([colorId, images]) => ({
-    colorId,
-    images,
-  }));
-
   // Filter out OOS variants if config says so
   const showOosVariants = stockVariantsConfig?.value !== "false";
   const filteredColors = showOosVariants
     ? product.colors
     : product.colors.filter((pc) => pc.stock > 0);
+
+  // Build variant group keys: colorId + sorted sub-color names
+  function variantGroupKey(colorId: string, subColorNames: string[]): string {
+    if (subColorNames.length === 0) return colorId;
+    return `${colorId}::${[...subColorNames].sort().join(",")}`;
+  }
+  const pcGroupKeys = new Map<string, string>();
+  for (const pc of filteredColors) {
+    const gk = variantGroupKey(pc.colorId, pc.subColors.map(sc => sc.color.name));
+    pcGroupKeys.set(pc.id, gk);
+  }
+
+  // Group images by variant group key (variants with same color+sub-colors share images)
+  const imagesByGroup = new Map<string, { path: string; order: number }[]>();
+  for (const img of colorImages) {
+    const gk = pcGroupKeys.get(img.productColorId ?? "") ?? img.colorId;
+    if (!imagesByGroup.has(gk)) imagesByGroup.set(gk, []);
+    imagesByGroup.get(gk)!.push({ path: img.path, order: img.order });
+  }
+  for (const imgs of imagesByGroup.values()) imgs.sort((a, b) => a.order - b.order);
+  // Deduplicate images with same path across variants in the same group
+  const colorImagesForDetail = [...imagesByGroup.entries()].map(([gk, imgs]) => {
+    const seen = new Set<string>();
+    return { groupKey: gk, images: imgs.filter(img => { if (seen.has(img.path)) return false; seen.add(img.path); return true; }) };
+  });
   const translated = await getProductTranslation(product.id, locale as "fr" | "en" | "ar", {
     name: product.name,
     description: product.description,
@@ -234,6 +248,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               subCategories={product.subCategories.map((sc) => sc.name)}
               variants={filteredColors.map((pc) => ({
                 id:            pc.id,
+                groupKey:      pcGroupKeys.get(pc.id)!,
                 colorId:       pc.colorId,
                 colorName:     pc.color.name,
                 colorHex:      pc.color.hex,

@@ -95,7 +95,7 @@ function ConfirmModal({
     <div
       ref={backdropRef}
       onClick={(e) => { if (e.target === backdropRef.current) resolve(false); }}
-      className={`fixed inset-0 z-[9998] flex items-center justify-center p-4 transition-all duration-200 ${
+      className={`fixed inset-0 z-[10000] flex items-center justify-center p-4 transition-all duration-200 ${
         closing ? "bg-black/0" : "bg-black/40"
       }`}
       style={{ animation: closing ? undefined : "confirmFadeIn 0.2s ease-out" }}

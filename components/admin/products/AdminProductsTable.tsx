@@ -104,8 +104,7 @@ function VariantRow({
 
   if (!editing) {
     return (
-      <tr className={`transition-colors ${checked ? "bg-[#EEF2FF]" : "hover:bg-white/80"}`}
-        style={{ borderTop: '1px solid #E8E8EA' }}
+      <tr className={`transition-colors border-t border-border-light ${checked ? "bg-[#EEF2FF]" : "hover:bg-bg-primary/80"}`}
       >
         {/* Checkbox */}
         <td className="pl-5 pr-2 py-2.5 w-10">
@@ -147,7 +146,7 @@ function VariantRow({
                     }}
                     title={fullName}
                   />
-                  <span className="text-xs font-medium font-[family-name:var(--font-roboto)] text-[#1A1A1A]">
+                  <span className="text-xs font-medium font-[family-name:var(--font-roboto)] text-text-primary">
                     {fullName}
                   </span>
                 </>
@@ -173,7 +172,7 @@ function VariantRow({
             </span>
           )}
         </td>
-        <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)] font-semibold" style={{ color: '#1A1A1A' }}>
+        <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
           {variant.unitPrice.toFixed(2)} €
         </td>
         <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)]">
@@ -189,7 +188,7 @@ function VariantRow({
             {variant.stock}
           </span>
         </td>
-        <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)]" style={{ color: '#6B6B6B' }}>
+        <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)] text-text-secondary">
           {variant.weight} kg
         </td>
         <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)]">
@@ -199,24 +198,14 @@ function VariantRow({
                 {variant.discountType === "PERCENT" ? `-${variant.discountValue}%` : `-${variant.discountValue}€`}
               </span>
             )
-            : <span style={{ color: '#9CA3AF' }}>—</span>
+            : <span className="text-text-muted">—</span>
           }
         </td>
         <td className="px-3 py-2.5 text-right">
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="inline-flex items-center gap-1 text-[11px] font-medium font-[family-name:var(--font-roboto)] transition-all"
-            style={{
-              padding: '4px 10px',
-              background: '#fff',
-              color: '#6B6B6B',
-              border: '1px solid #D1D1D1',
-              borderRadius: '6px',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#1A1A1A'; e.currentTarget.style.color = '#1A1A1A'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#D1D1D1'; e.currentTarget.style.color = '#6B6B6B'; }}
+            className="inline-flex items-center gap-1 text-[11px] font-medium font-[family-name:var(--font-roboto)] transition-all px-2.5 py-1 bg-bg-primary text-text-secondary border border-border-dark rounded-md shadow-sm hover:border-text-primary hover:text-text-primary"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -229,22 +218,13 @@ function VariantRow({
   }
 
   // ── Mode édition ──
-  const inputStyle: React.CSSProperties = {
-    padding: '6px 10px',
-    border: '1.5px solid #D1D1D1',
-    borderRadius: '8px',
-    fontSize: '12px',
-    fontFamily: 'var(--font-roboto), sans-serif',
-    color: '#1A1A1A',
-    background: '#fff',
-    outline: 'none',
-    transition: 'border-color 0.15s, box-shadow 0.15s',
-  };
+  // Use variant-input CSS class for dark mode support
+  const inputClass = "variant-input w-full";
 
 
   return (
     <>
-      <tr style={{ borderTop: '1.5px solid #FDE68A', background: '#FFFBEB' }}>
+      <tr className="border-t-[1.5px] border-t-[#FDE68A] bg-[#FFFBEB]">
         <td className="pl-5 pr-2 py-2.5 w-10">
           <input type="checkbox" checked={checked} onChange={onCheck} className="checkbox-custom checkbox-sm" />
         </td>
@@ -258,7 +238,7 @@ function VariantRow({
                 border: '2px solid #fff', boxShadow: '0 0 0 1px #D1D1D1',
               }}
             />
-            <span className="text-xs font-medium font-[family-name:var(--font-roboto)]" style={{ color: '#1A1A1A' }}>
+            <span className="text-xs font-medium font-[family-name:var(--font-roboto)] text-text-primary">
               {variant.color.name}
             </span>
           </div>
@@ -276,19 +256,19 @@ function VariantRow({
               className="w-[90px]"
             />
             {saleType === "PACK" && (
-              <input type="number" min={2} value={packQuantity} onChange={(e) => setPackQuantity(e.target.value)} placeholder="Qté" style={{ ...inputStyle, width: 56 }} />
+              <input type="number" min={2} value={packQuantity} onChange={(e) => setPackQuantity(e.target.value)} placeholder="Qté" className={`${inputClass} !w-14`} />
             )}
-            <input type="text" value={size} onChange={(e) => setSize(e.target.value)} placeholder="Taille" style={{ ...inputStyle, width: 64 }} />
+            <input type="text" value={size} onChange={(e) => setSize(e.target.value)} placeholder="Taille" className={`${inputClass} !w-16`} />
           </div>
         </td>
         <td className="px-3 py-2.5">
-          <input type="number" step="0.01" min={0} value={price} onChange={(e) => setPrice(e.target.value)} style={{ ...inputStyle, width: 80 }} />
+          <input type="number" step="0.01" min={0} value={price} onChange={(e) => setPrice(e.target.value)} className={`${inputClass} !w-20`} />
         </td>
         <td className="px-3 py-2.5">
-          <input type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} style={{ ...inputStyle, width: 64 }} />
+          <input type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} className={`${inputClass} !w-16`} />
         </td>
         <td className="px-3 py-2.5">
-          <input type="number" step="0.01" min={0} value={weight} onChange={(e) => setWeight(e.target.value)} style={{ ...inputStyle, width: 64 }} />
+          <input type="number" step="0.01" min={0} value={weight} onChange={(e) => setWeight(e.target.value)} className={`${inputClass} !w-16`} />
         </td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-1.5">
@@ -304,7 +284,7 @@ function VariantRow({
               className="w-[74px]"
             />
             {discountType && (
-              <input type="number" step="0.01" min={0} value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} style={{ ...inputStyle, width: 56 }} />
+              <input type="number" step="0.01" min={0} value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className={`${inputClass} !w-14`} />
             )}
           </div>
         </td>
@@ -314,18 +294,7 @@ function VariantRow({
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="inline-flex items-center gap-1 font-[family-name:var(--font-roboto)] transition-colors"
-              style={{
-                padding: '5px 12px',
-                fontSize: '11px',
-                fontWeight: 600,
-                background: '#1A1A1A',
-                color: '#fff',
-                borderRadius: '6px',
-                border: 'none',
-                cursor: saving ? 'wait' : 'pointer',
-                opacity: saving ? 0.6 : 1,
-              }}
+              className={`inline-flex items-center gap-1 font-[family-name:var(--font-roboto)] transition-colors px-3 py-1.5 text-[11px] font-semibold bg-bg-dark text-text-inverse rounded-md border-none ${saving ? "cursor-wait opacity-60" : "cursor-pointer"}`}
             >
               {saving ? (
                 <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -342,18 +311,7 @@ function VariantRow({
             <button
               type="button"
               onClick={() => setEditing(false)}
-              className="font-[family-name:var(--font-roboto)] transition-colors"
-              style={{
-                padding: '5px 10px',
-                fontSize: '11px',
-                color: '#6B6B6B',
-                background: 'transparent',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#1A1A1A'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#6B6B6B'; }}
+              className="font-[family-name:var(--font-roboto)] transition-colors px-2.5 py-1.5 text-[11px] text-text-secondary bg-transparent border-none rounded-md cursor-pointer hover:bg-bg-primary hover:text-text-primary"
             >
               Annuler
             </button>
@@ -361,8 +319,8 @@ function VariantRow({
         </td>
       </tr>
       {error && (
-        <tr style={{ background: '#FEF2F2' }}>
-          <td colSpan={8} className="px-5 py-2 text-xs font-[family-name:var(--font-roboto)]" style={{ color: '#EF4444' }}>
+        <tr className="bg-[#FEF2F2]">
+          <td colSpan={8} className="px-5 py-2 text-xs font-[family-name:var(--font-roboto)] text-error">
             <div className="flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
@@ -622,30 +580,16 @@ function ProductRow({
       {expanded && (
         <tr>
           <td colSpan={8} className="p-0">
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #EEEEF0 0%, #F5F5F6 100%)',
-                borderLeft: '4px solid #1A1A1A',
-                borderTop: '2px solid #D1D1D1',
-                borderBottom: '2px solid #D1D1D1',
-                boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.06), inset 0 -1px 4px rgba(0,0,0,0.03)',
-                position: 'relative',
-              }}
-            >
+            <div className="drawer-variant-container" style={{ position: 'relative' }}>
               {/* En-tête du tiroir */}
               <div
-                className="flex items-center justify-between"
-                style={{
-                  padding: '12px 20px',
-                  borderBottom: '1px solid #DDDDE0',
-                  background: 'rgba(255,255,255,0.5)',
-                }}
+                className="flex items-center justify-between drawer-variant-header"
+                style={{ padding: '12px 20px' }}
               >
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
-                    <div style={{ width: 3, height: 16, borderRadius: 2, background: '#1A1A1A' }} />
-                    <span className="font-[family-name:var(--font-poppins)]"
-                      style={{ fontSize: '11px', fontWeight: 700, color: '#1A1A1A', textTransform: 'uppercase', letterSpacing: '0.08em' }}
+                    <div className="w-[3px] h-4 rounded-sm bg-bg-dark" />
+                    <span className="font-[family-name:var(--font-poppins)] text-[11px] font-bold text-text-primary uppercase tracking-wider"
                     >
                       {product.colors.length} variante{product.colors.length > 1 ? "s" : ""}
                     </span>
@@ -654,17 +598,11 @@ function ProductRow({
                     <button
                       type="button"
                       onClick={() => onToggleAllVariants(variantIds, !allVariantsSelected)}
-                      className="inline-flex items-center gap-1.5 font-[family-name:var(--font-roboto)] transition-all"
-                      style={{
-                        padding: '4px 10px',
-                        fontSize: '10px',
-                        fontWeight: 600,
-                        borderRadius: '6px',
-                        border: allVariantsSelected ? '1px solid #1A1A1A' : '1px solid #D1D1D1',
-                        background: allVariantsSelected ? '#1A1A1A' : '#fff',
-                        color: allVariantsSelected ? '#fff' : '#6B6B6B',
-                        cursor: 'pointer',
-                      }}
+                      className={`inline-flex items-center gap-1.5 font-[family-name:var(--font-roboto)] transition-all px-2.5 py-1 text-[10px] font-semibold rounded-md border cursor-pointer ${
+                        allVariantsSelected
+                          ? "border-bg-dark bg-bg-dark text-text-inverse"
+                          : "border-border-dark bg-bg-primary text-text-secondary"
+                      }`}
                     >
                       <input
                         type="checkbox"
@@ -679,10 +617,7 @@ function ProductRow({
                 </div>
                 <Link
                   href={`/admin/produits/${product.id}/modifier`}
-                  className="inline-flex items-center gap-1.5 font-[family-name:var(--font-roboto)] transition-colors"
-                  style={{ fontSize: '11px', color: '#6B6B6B', textDecoration: 'none' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = '#1A1A1A'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = '#6B6B6B'; }}
+                  className="inline-flex items-center gap-1.5 font-[family-name:var(--font-roboto)] transition-colors text-[11px] text-text-secondary hover:text-text-primary no-underline"
                 >
                   Édition complète
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -694,15 +629,15 @@ function ProductRow({
               {/* Table des variantes */}
               <table className="w-full text-sm">
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #DDDDE0' }}>
-                    <th style={{ width: 40, padding: '8px 8px 8px 20px' }}></th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)]" style={{ fontSize: '10px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Couleur</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)]" style={{ fontSize: '10px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)]" style={{ fontSize: '10px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Prix HT</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)]" style={{ fontSize: '10px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Stock</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)]" style={{ fontSize: '10px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Poids</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)]" style={{ fontSize: '10px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Remise</th>
-                    <th className="px-3 py-2 text-right" style={{ fontSize: '10px' }}></th>
+                  <tr className="drawer-variant-th">
+                    <th className="w-10 py-2 pl-5 pr-2"></th>
+                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Couleur</th>
+                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Type</th>
+                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT</th>
+                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
+                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
+                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Remise</th>
+                    <th className="px-3 py-2 text-right text-[10px]"></th>
                   </tr>
                 </thead>
                 <tbody>

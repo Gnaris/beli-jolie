@@ -23,6 +23,7 @@ interface VariantData {
 }
 
 interface ColorData {
+  groupKey: string;
   colorId: string;
   hex: string | null;
   patternImage?: string | null;
@@ -304,14 +305,14 @@ export default function ProductCard({
                 }
                 return (
                   <button
-                    key={c.colorId}
+                    key={c.groupKey}
                     type="button"
                     aria-label={tp(fullName)}
-                    aria-pressed={selectedColor?.colorId === c.colorId}
+                    aria-pressed={selectedColor?.groupKey === c.groupKey}
                     title={tp(fullName)}
                     onClick={() => handleColorSelect(c)}
                     className={`w-8 h-8 rounded-full border-2 transition-all duration-200 swatch-pulse ${
-                      selectedColor?.colorId === c.colorId
+                      selectedColor?.groupKey === c.groupKey
                         ? "border-text-primary scale-110"
                         : filteredColorIds.includes(c.colorId)
                           ? "border-text-primary/50 ring-1 ring-black/10"

@@ -14,7 +14,7 @@ export default async function MotsClesPage() {
   });
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="page-title">Mots clés</h1>
         <p className="page-subtitle">

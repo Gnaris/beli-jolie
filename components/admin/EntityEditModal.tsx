@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
+import TranslateButton from "@/components/admin/TranslateButton";
 
 interface Props {
   open: boolean;
@@ -14,10 +15,13 @@ interface Props {
   /** Si vrai, affiche un champ hex color */
   withHex?: boolean;
   initialHex?: string;
+  /** Image motif existante (prioritaire sur hex) */
+  initialPatternImage?: string | null;
   onSave: (
     name: string,
     translations: Record<string, string>,
-    hex?: string
+    hex?: string,
+    patternImage?: string | null
   ) => Promise<void>;
 }
 
@@ -29,10 +33,15 @@ export default function EntityEditModal({
   initialTranslations = {},
   withHex = false,
   initialHex,
+  initialPatternImage,
   onSave,
 }: Props) {
   const [name, setName] = useState(initialName);
   const [hex, setHex] = useState(initialHex ?? "#9CA3AF");
+  const [colorMode, setColorMode] = useState<"hex" | "pattern">(initialPatternImage ? "pattern" : "hex");
+  const [patternFile, setPatternFile] = useState<File | null>(null);
+  const [patternPreview, setPatternPreview] = useState<string | null>(initialPatternImage ?? null);
+  const [existingPatternImage, setExistingPatternImage] = useState<string | null>(initialPatternImage ?? null);
   const [translations, setTranslations] = useState<Record<string, string>>(
     () => ({ ...initialTranslations })
   );
@@ -45,11 +54,31 @@ export default function EntityEditModal({
     if (open) {
       setName(initialName);
       setHex(initialHex ?? "#9CA3AF");
+      setColorMode(initialPatternImage ? "pattern" : "hex");
+      setPatternFile(null);
+      setPatternPreview(initialPatternImage ?? null);
+      setExistingPatternImage(initialPatternImage ?? null);
       setTranslations({ ...initialTranslations });
       setError("");
       setTimeout(() => firstInputRef.current?.focus(), 50);
     }
-  }, [open, initialName, initialHex, initialTranslations]);
+  }, [open, initialName, initialHex, initialPatternImage, initialTranslations]);
+
+  function handlePatternFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setError("Format non supporté. Utilisez PNG, JPG ou WebP.");
+      return;
+    }
+    if (file.size > 512 * 1024) {
+      setError("Image trop lourde (max 500 KB).");
+      return;
+    }
+    setError("");
+    setPatternFile(file);
+    setPatternPreview(URL.createObjectURL(file));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,7 +86,32 @@ export default function EntityEditModal({
     setSaving(true);
     setError("");
     try {
-      await onSave(name.trim(), translations, withHex ? hex : undefined);
+      let finalPatternImage: string | null | undefined = undefined;
+      if (withHex) {
+        if (colorMode === "pattern") {
+          if (patternFile) {
+            // Upload new pattern image
+            const fd = new FormData();
+            fd.append("file", patternFile);
+            const res = await fetch("/api/admin/colors/upload-pattern", { method: "POST", body: fd });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Erreur upload motif.");
+            finalPatternImage = data.path;
+          } else {
+            // Keep existing pattern image
+            finalPatternImage = existingPatternImage;
+          }
+        } else {
+          // hex mode — clear pattern
+          finalPatternImage = null;
+        }
+      }
+      await onSave(
+        name.trim(),
+        translations,
+        withHex && colorMode === "hex" ? hex : undefined,
+        finalPatternImage,
+      );
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur lors de la sauvegarde.");
@@ -109,29 +163,111 @@ export default function EntityEditModal({
 
         {/* Body */}
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-          {/* Hex (optionnel) */}
+          {/* Color: hex or pattern */}
           {withHex && (
-            <div>
-              <label className="field-label uppercase tracking-wider text-xs font-semibold">
-                Couleur hex
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="color"
-                  value={hex}
-                  onChange={(e) => setHex(e.target.value)}
-                  className="h-10 w-16 border border-[#E5E5E5] rounded-lg p-0.5 cursor-pointer"
-                />
-                <span className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">{hex}</span>
+            <div className="space-y-4">
+              {/* Toggle */}
+              <div>
+                <label className="field-label uppercase tracking-wider text-xs font-semibold mb-2 block">
+                  Type de couleur
+                </label>
+                <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setColorMode("hex")}
+                    className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
+                      colorMode === "hex"
+                        ? "bg-[#1A1A1A] text-white"
+                        : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                    }`}
+                  >
+                    Couleur unie
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setColorMode("pattern")}
+                    className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
+                      colorMode === "pattern"
+                        ? "bg-[#1A1A1A] text-white"
+                        : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                    }`}
+                  >
+                    Motif / Image
+                  </button>
+                </div>
               </div>
+
+              {colorMode === "hex" ? (
+                <div>
+                  <label className="field-label uppercase tracking-wider text-xs font-semibold">
+                    Couleur hex
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={hex}
+                      onChange={(e) => setHex(e.target.value)}
+                      className="h-10 w-16 border border-[#E5E5E5] rounded-lg p-0.5 cursor-pointer"
+                    />
+                    <span className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">{hex}</span>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="field-label uppercase tracking-wider text-xs font-semibold mb-1 block">
+                    Image du motif
+                  </label>
+                  <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-2">
+                    PNG, JPG ou WebP · max 500 KB
+                  </p>
+                  <label
+                    className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-[#E5E5E5] rounded-xl cursor-pointer hover:border-[#1A1A1A] transition-colors overflow-hidden relative"
+                  >
+                    {patternPreview ? (
+                      <div
+                        className="absolute inset-0 bg-cover bg-center"
+                        style={{ backgroundImage: `url(${patternPreview})` }}
+                      >
+                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                          <span className="text-white text-xs font-medium font-[family-name:var(--font-roboto)]">
+                            Changer l&apos;image
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <svg className="w-8 h-8 text-[#9CA3AF] mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                        </svg>
+                        <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                          Cliquez pour uploader
+                        </span>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={handlePatternFileChange}
+                      className="sr-only"
+                    />
+                  </label>
+                </div>
+              )}
             </div>
           )}
 
           {/* FR — requis */}
           <div>
-            <label className="field-label uppercase tracking-wider text-xs font-semibold">
-              Français <span className="text-[#EF4444]">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="field-label uppercase tracking-wider text-xs font-semibold mb-0">
+                Français <span className="text-[#EF4444]">*</span>
+              </label>
+              <TranslateButton
+                text={name}
+                onTranslated={(t) => setTranslations((prev) => ({ ...prev, ...t }))}
+                disabled={!name.trim()}
+              />
+            </div>
             <input
               ref={firstInputRef}
               type="text"

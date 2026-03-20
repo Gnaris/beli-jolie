@@ -7,7 +7,30 @@ import Link from "next/link";
 // Types
 // ─────────────────────────────────────────────
 
-interface ImportJobWithDraft {
+// Result details stored in ImportJob.resultDetails JSON field
+interface ProductResultDetails {
+  type: "PRODUCTS";
+  products: {
+    reference: string;
+    name: string;
+    category?: string;
+    variants: { color: string; saleType: string; unitPrice: number; stock: number; packQuantity?: number | null }[];
+  }[];
+}
+
+interface ImageResultDetails {
+  type: "IMAGES";
+  images: {
+    filename: string;
+    reference: string;
+    color: string;
+    position: number;
+  }[];
+}
+
+type ResultDetails = ProductResultDetails | ImageResultDetails | null;
+
+export interface ImportJobWithDraft {
   id: string;
   type: "PRODUCTS" | "IMAGES";
   status: string;
@@ -18,6 +41,7 @@ interface ImportJobWithDraft {
   errorItems: number;
   errorDraftId: string | null;
   errorMessage: string | null;
+  resultDetails?: ResultDetails;
   createdAt: string;
   updatedAt: string;
   draft?: {
@@ -26,6 +50,19 @@ interface ImportJobWithDraft {
     errorRows: number;
     successRows: number;
   } | null;
+}
+
+function formatDuration(start: string, end: string): string {
+  const ms = new Date(end).getTime() - new Date(start).getTime();
+  if (ms < 1000) return "< 1s";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rs = s % 60;
+  if (m < 60) return `${m}min ${rs}s`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return `${h}h ${rm}min`;
 }
 
 interface Props {
@@ -63,6 +100,7 @@ export default function ImportHistoryClient({
   const [typeFilter, setTypeFilter] = useState<FilterType>("ALL");
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("ALL");
   const [loading, setLoading] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
 
   const fetchData = useCallback(
     async (newType: FilterType, newStatus: FilterStatus, newPage: number) => {
@@ -318,45 +356,19 @@ export default function ImportHistoryClient({
                   <th className="text-left px-4 py-3 text-sm font-medium">Statut</th>
                   <th className="text-left px-4 py-3 text-sm font-medium">Résultat</th>
                   <th className="text-left px-4 py-3 text-sm font-medium">Actions</th>
+                  <th className="w-8" />
                 </tr>
               </thead>
               <tbody>
                 {jobs.map((job) => (
-                  <tr key={job.id} className="table-row">
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          job.type === "PRODUCTS"
-                            ? "bg-[#F0F0F0] text-[#1A1A1A]"
-                            : "bg-[#E8F0FE] text-[#3B82F6]"
-                        }`}
-                      >
-                        {job.type === "PRODUCTS" ? "Produits" : "Images"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-[#1A1A1A] max-w-[200px] truncate">
-                      {job.filename || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-[#666]">
-                      {formatDate(job.createdAt)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge job={job} />
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <span className="text-[#1A1A1A]">
-                        {job.successItems}/{job.totalItems} importé{job.successItems !== 1 ? "s" : ""}
-                      </span>
-                      {job.errorItems > 0 && (
-                        <span className="text-[#EF4444] ml-2">
-                          ({job.errorItems} erreur{job.errorItems > 1 ? "s" : ""})
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <ActionsCell job={job} />
-                    </td>
-                  </tr>
+                  <JobRowDesktop
+                    key={job.id}
+                    job={job}
+                    expanded={expandedJobId === job.id}
+                    onToggle={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)}
+                    StatusBadge={StatusBadge}
+                    ActionsCell={ActionsCell}
+                  />
                 ))}
               </tbody>
             </table>
@@ -365,53 +377,14 @@ export default function ImportHistoryClient({
           {/* Mobile cards */}
           <div className="md:hidden space-y-3">
             {jobs.map((job) => (
-              <div
+              <JobCardMobile
                 key={job.id}
-                className="bg-white border border-[#E5E5E5] rounded-2xl p-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <span
-                    className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      job.type === "PRODUCTS"
-                        ? "bg-[#F0F0F0] text-[#1A1A1A]"
-                        : "bg-[#E8F0FE] text-[#3B82F6]"
-                    }`}
-                  >
-                    {job.type === "PRODUCTS" ? "Produits" : "Images"}
-                  </span>
-                  <StatusBadge job={job} />
-                </div>
-
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-[#666]">Fichier</span>
-                    <span className="text-[#1A1A1A] truncate max-w-[180px]">
-                      {job.filename || "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#666]">Date</span>
-                    <span className="text-[#1A1A1A]">{formatDate(job.createdAt)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#666]">Résultat</span>
-                    <span>
-                      <span className="text-[#1A1A1A]">
-                        {job.successItems}/{job.totalItems} importé{job.successItems !== 1 ? "s" : ""}
-                      </span>
-                      {job.errorItems > 0 && (
-                        <span className="text-[#EF4444] ml-1">
-                          ({job.errorItems} err.)
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-3 pt-3 border-t border-[#E5E5E5]">
-                  <ActionsCell job={job} />
-                </div>
-              </div>
+                job={job}
+                expanded={expandedJobId === job.id}
+                onToggle={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)}
+                StatusBadge={StatusBadge}
+                ActionsCell={ActionsCell}
+              />
             ))}
           </div>
 
@@ -441,6 +414,371 @@ export default function ImportHistoryClient({
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Desktop row with expandable detail
+// ─────────────────────────────────────────────
+
+function JobRowDesktop({
+  job,
+  expanded,
+  onToggle,
+  StatusBadge,
+  ActionsCell,
+}: {
+  job: ImportJobWithDraft;
+  expanded: boolean;
+  onToggle: () => void;
+  StatusBadge: React.FC<{ job: ImportJobWithDraft }>;
+  ActionsCell: React.FC<{ job: ImportJobWithDraft }>;
+}) {
+  return (
+    <>
+      <tr
+        className="table-row cursor-pointer hover:bg-[#FAFAFA] transition-colors"
+        onClick={onToggle}
+      >
+        <td className="px-4 py-3">
+          <span
+            className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              job.type === "PRODUCTS"
+                ? "bg-[#F0F0F0] text-[#1A1A1A]"
+                : "bg-[#E8F0FE] text-[#3B82F6]"
+            }`}
+          >
+            {job.type === "PRODUCTS" ? "Produits" : "Images"}
+          </span>
+        </td>
+        <td className="px-4 py-3 text-sm text-[#1A1A1A] max-w-[200px] truncate">
+          {job.filename || "—"}
+        </td>
+        <td className="px-4 py-3 text-sm text-[#666]">
+          {formatDate(job.createdAt)}
+        </td>
+        <td className="px-4 py-3">
+          <StatusBadge job={job} />
+        </td>
+        <td className="px-4 py-3 text-sm">
+          <span className="text-[#1A1A1A]">
+            {job.successItems}/{job.totalItems} importé{job.successItems !== 1 ? "s" : ""}
+          </span>
+          {job.errorItems > 0 && (
+            <span className="text-[#EF4444] ml-2">
+              ({job.errorItems} erreur{job.errorItems > 1 ? "s" : ""})
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+          <ActionsCell job={job} />
+        </td>
+        <td className="px-4 py-3 text-[#999] text-xs">
+          {expanded ? "▲" : "▼"}
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={7} className="p-0">
+            <JobDetailPanel job={job} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Mobile card with expandable detail
+// ─────────────────────────────────────────────
+
+function JobCardMobile({
+  job,
+  expanded,
+  onToggle,
+  StatusBadge,
+  ActionsCell,
+}: {
+  job: ImportJobWithDraft;
+  expanded: boolean;
+  onToggle: () => void;
+  StatusBadge: React.FC<{ job: ImportJobWithDraft }>;
+  ActionsCell: React.FC<{ job: ImportJobWithDraft }>;
+}) {
+  return (
+    <div className="bg-white border border-[#E5E5E5] rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
+      <div className="p-4 cursor-pointer" onClick={onToggle}>
+        <div className="flex items-center justify-between mb-3">
+          <span
+            className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              job.type === "PRODUCTS"
+                ? "bg-[#F0F0F0] text-[#1A1A1A]"
+                : "bg-[#E8F0FE] text-[#3B82F6]"
+            }`}
+          >
+            {job.type === "PRODUCTS" ? "Produits" : "Images"}
+          </span>
+          <div className="flex items-center gap-2">
+            <StatusBadge job={job} />
+            <span className="text-[#999] text-xs">{expanded ? "▲" : "▼"}</span>
+          </div>
+        </div>
+
+        <div className="space-y-1.5 text-sm">
+          <div className="flex justify-between">
+            <span className="text-[#666]">Fichier</span>
+            <span className="text-[#1A1A1A] truncate max-w-[180px]">
+              {job.filename || "—"}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[#666]">Date</span>
+            <span className="text-[#1A1A1A]">{formatDate(job.createdAt)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[#666]">Résultat</span>
+            <span>
+              <span className="text-[#1A1A1A]">
+                {job.successItems}/{job.totalItems} importé{job.successItems !== 1 ? "s" : ""}
+              </span>
+              {job.errorItems > 0 && (
+                <span className="text-[#EF4444] ml-1">
+                  ({job.errorItems} err.)
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-[#E5E5E5]" onClick={(e) => e.stopPropagation()}>
+          <ActionsCell job={job} />
+        </div>
+      </div>
+
+      {expanded && <JobDetailPanel job={job} />}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Detail panel — shown when a job row is expanded
+// ─────────────────────────────────────────────
+
+function JobDetailPanel({ job }: { job: ImportJobWithDraft }) {
+  const successPct = job.totalItems > 0 ? (job.successItems / job.totalItems) * 100 : 0;
+  const errorPct = job.totalItems > 0 ? (job.errorItems / job.totalItems) * 100 : 0;
+  const isProcessing = job.status === "PENDING" || job.status === "PROCESSING" || job.status === "UPLOADING";
+
+  const details = job.resultDetails as ResultDetails;
+  const productDetails = details?.type === "PRODUCTS" ? details : null;
+  const imageDetails = details?.type === "IMAGES" ? details : null;
+
+  // Group images by reference for display
+  const imagesByRef = imageDetails
+    ? imageDetails.images.reduce<Record<string, typeof imageDetails.images>>((acc, img) => {
+        (acc[img.reference] ??= []).push(img);
+        return acc;
+      }, {})
+    : null;
+
+  return (
+    <div className="bg-[#FAFAFA] border-t border-[#E5E5E5] px-6 py-5 space-y-5">
+      {/* Info grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div>
+          <p className="text-xs text-[#999] uppercase tracking-wide mb-1">Type</p>
+          <p className="text-sm font-medium text-[#1A1A1A]">{job.type === "PRODUCTS" ? "Données produits" : "Images produits"}</p>
+        </div>
+        <div>
+          <p className="text-xs text-[#999] uppercase tracking-wide mb-1">Fichier</p>
+          <p className="text-sm text-[#1A1A1A] break-all">{job.filename || "—"}</p>
+        </div>
+        <div>
+          <p className="text-xs text-[#999] uppercase tracking-wide mb-1">Date de lancement</p>
+          <p className="text-sm text-[#1A1A1A]">{formatDate(job.createdAt)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-[#999] uppercase tracking-wide mb-1">Durée</p>
+          <p className="text-sm text-[#1A1A1A]">
+            {isProcessing ? (
+              <span className="text-amber-600">En cours...</span>
+            ) : (
+              formatDuration(job.createdAt, job.updatedAt)
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* Progress breakdown */}
+      <div>
+        <p className="text-xs text-[#999] uppercase tracking-wide mb-3">Résumé</p>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-xl p-3 bg-white border border-[#E5E5E5] text-center">
+            <p className="text-2xl font-bold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">{job.totalItems}</p>
+            <p className="text-xs text-[#666] mt-0.5">{job.type === "PRODUCTS" ? "Produits total" : "Images total"}</p>
+          </div>
+          <div className="rounded-xl p-3 bg-green-50 border border-green-200 text-center">
+            <p className="text-2xl font-bold font-[family-name:var(--font-poppins)] text-green-700">{job.successItems}</p>
+            <p className="text-xs text-green-600 mt-0.5">{job.type === "PRODUCTS" ? "Créés" : "Importées"}</p>
+          </div>
+          <div className={`rounded-xl p-3 border text-center ${job.errorItems > 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
+            <p className={`text-2xl font-bold font-[family-name:var(--font-poppins)] ${job.errorItems > 0 ? "text-red-700" : "text-green-700"}`}>{job.errorItems}</p>
+            <p className={`text-xs mt-0.5 ${job.errorItems > 0 ? "text-red-600" : "text-green-600"}`}>Erreurs</p>
+          </div>
+        </div>
+
+        {/* Visual progress bar */}
+        {job.totalItems > 0 && (
+          <div className="mt-3">
+            <div className="w-full h-3 bg-[#F0F0F0] rounded-full overflow-hidden flex">
+              {successPct > 0 && (
+                <div className="h-full bg-[#22C55E] transition-all" style={{ width: `${successPct}%` }} />
+              )}
+              {errorPct > 0 && (
+                <div className="h-full bg-[#EF4444] transition-all" style={{ width: `${errorPct}%` }} />
+              )}
+            </div>
+            <div className="flex justify-between text-xs mt-1.5">
+              <span className="text-green-600">{Math.round(successPct)}% succès</span>
+              {errorPct > 0 && <span className="text-red-600">{Math.round(errorPct)}% erreurs</span>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Processing progress */}
+      {isProcessing && job.totalItems > 0 && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+          <div className="flex items-center justify-between text-sm text-amber-800 mb-2">
+            <span className="font-medium">Progression</span>
+            <span>{job.processedItems} / {job.totalItems} traité(s)</span>
+          </div>
+          <div className="w-full h-2 bg-amber-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-amber-500 rounded-full transition-all"
+              style={{ width: `${job.totalItems > 0 ? (job.processedItems / job.totalItems) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── PRODUCT DETAILS TABLE ── */}
+      {productDetails && productDetails.products.length > 0 && (
+        <div>
+          <p className="text-xs text-[#999] uppercase tracking-wide mb-3">
+            Produits créés ({productDetails.products.length})
+          </p>
+          <div className="bg-white border border-[#E5E5E5] rounded-xl overflow-hidden">
+            {/* Header */}
+            <div className="grid grid-cols-[1fr_1.5fr_1fr_2fr] gap-2 px-4 py-2.5 bg-[#F7F7F8] border-b border-[#E5E5E5] text-xs font-medium text-[#666] uppercase tracking-wide">
+              <div>Référence</div>
+              <div>Nom</div>
+              <div>Catégorie</div>
+              <div>Variantes</div>
+            </div>
+            {/* Rows */}
+            <div className="divide-y divide-[#F0F0F0] max-h-[400px] overflow-y-auto">
+              {productDetails.products.map((p, idx) => (
+                <div key={idx} className="grid grid-cols-[1fr_1.5fr_1fr_2fr] gap-2 px-4 py-3 items-start">
+                  <p className="font-mono text-sm font-semibold text-[#1A1A1A]">{p.reference}</p>
+                  <p className="text-sm text-[#1A1A1A] truncate">{p.name}</p>
+                  <p className="text-sm text-[#666]">{p.category || "—"}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {p.variants.map((v, vi) => (
+                      <span
+                        key={vi}
+                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-[#F7F7F8] border border-[#E5E5E5] text-[#444]"
+                      >
+                        <span className="font-medium">{v.color}</span>
+                        <span className="text-[10px] text-[#999]">
+                          {v.saleType === "PACK" ? `Pack ×${v.packQuantity ?? "?"}` : `${v.unitPrice}€`}
+                        </span>
+                        <span className="text-[10px] text-[#999]">· {v.stock} en stock</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── IMAGE DETAILS TABLE ── */}
+      {imagesByRef && Object.keys(imagesByRef).length > 0 && (
+        <div>
+          <p className="text-xs text-[#999] uppercase tracking-wide mb-3">
+            Images importées ({imageDetails!.images.length}) — {Object.keys(imagesByRef).length} référence(s)
+          </p>
+          <div className="space-y-3 max-h-[500px] overflow-y-auto">
+            {Object.entries(imagesByRef).map(([ref, imgs]) => (
+              <div key={ref} className="bg-white border border-[#E5E5E5] rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-[#F7F7F8] border-b border-[#E5E5E5] flex items-center justify-between">
+                  <span className="font-mono text-sm font-semibold text-[#1A1A1A]">{ref}</span>
+                  <span className="text-xs text-[#666]">{imgs.length} image(s)</span>
+                </div>
+                <div className="divide-y divide-[#F0F0F0]">
+                  {imgs.map((img, ii) => (
+                    <div key={ii} className="grid grid-cols-[2fr_1.5fr_auto] gap-3 px-4 py-2.5 items-center">
+                      <p className="text-xs text-[#444] break-all leading-tight">{img.filename}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-[#F7F7F8] border border-[#E5E5E5] text-[#1A1A1A]">
+                          {img.color}
+                        </span>
+                      </div>
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-[#F7F7F8] border border-[#E5E5E5] text-xs font-bold text-[#1A1A1A]">
+                        {img.position}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* No details available (older jobs before this feature) */}
+      {!details && job.status === "COMPLETED" && (
+        <p className="text-sm text-[#999] italic">
+          Détails non disponibles pour cet import (importé avant la mise à jour).
+        </p>
+      )}
+
+      {/* Error message for failed jobs */}
+      {job.status === "FAILED" && job.errorMessage && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-xs text-red-500 uppercase tracking-wide font-medium mb-1">Message d&apos;erreur</p>
+          <p className="text-sm text-red-700 break-all">{job.errorMessage}</p>
+        </div>
+      )}
+
+      {/* Draft link */}
+      {job.errorDraftId && job.draft && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-amber-800">
+              {job.draft.status === "RESOLVED" ? "Brouillon corrigé" : `${job.draft.errorRows} ligne(s) en erreur dans le brouillon`}
+            </p>
+            {job.draft.successRows > 0 && (
+              <p className="text-xs text-amber-700 mt-0.5">
+                {job.draft.successRows} corrigée(s) manuellement
+              </p>
+            )}
+          </div>
+          <Link
+            href={`/admin/produits/importer/brouillon/${job.errorDraftId}`}
+            className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-colors ${
+              job.draft.status === "RESOLVED"
+                ? "bg-green-100 text-green-700 hover:bg-green-200"
+                : "bg-amber-200 text-amber-900 hover:bg-amber-300"
+            }`}
+          >
+            {job.draft.status === "RESOLVED" ? "Voir le brouillon" : "Corriger les erreurs →"}
+          </Link>
+        </div>
       )}
     </div>
   );

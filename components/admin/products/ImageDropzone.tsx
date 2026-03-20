@@ -5,10 +5,13 @@ import { useRef, useState } from "react";
 interface ImageDropzoneProps {
   colorIndex: number;
   previews: string[];
-  onAdd: (files: File[]) => void;
-  onRemove: (index: number) => void;
-  onReorder: (fromIndex: number, toIndex: number) => void;
+  orders: number[];
+  onAddAtPosition: (file: File, position: number) => void;
+  onRemoveAtPosition: (position: number) => void;
+  onSwapPositions: (fromPos: number, toPos: number) => void;
+  onConfirmReplace?: (position: number) => Promise<boolean>;
   uploading: boolean;
+  uploadingPosition?: number | null;
 }
 
 const MAX_IMAGES = 5;
@@ -16,176 +19,192 @@ const MAX_IMAGES = 5;
 export default function ImageDropzone({
   colorIndex,
   previews,
-  onAdd,
-  onRemove,
-  onReorder,
+  orders,
+  onAddAtPosition,
+  onRemoveAtPosition,
+  onSwapPositions,
+  onConfirmReplace,
   uploading,
+  uploadingPosition,
 }: ImageDropzoneProps) {
-  const fileInputRef   = useRef<HTMLInputElement>(null);
-  const [dropZoneDragging, setDropZoneDragging] = useState(false);
-  const [draggedIdx, setDraggedIdx]             = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx]           = useState<number | null>(null);
-  const [zoomedSrc, setZoomedSrc]               = useState<string | null>(null);
+  const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [draggedPos, setDraggedPos] = useState<number | null>(null);
+  const [dragOverPos, setDragOverPos] = useState<number | null>(null);
+  const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
 
-  // ── Ajout de fichiers depuis l'OS ──────────────────────────────────────
-  function handleFiles(files: FileList | null) {
-    if (!files) return;
-    const remaining = MAX_IMAGES - previews.length;
-    if (remaining <= 0) return;
-    const valid = Array.from(files)
-      .filter((f) => f.type.startsWith("image/"))
-      .slice(0, remaining);
-    if (valid.length > 0) onAdd(valid);
+  // Map position → array index
+  function getImageAtPosition(pos: number): { src: string; arrayIndex: number } | null {
+    const idx = orders.indexOf(pos);
+    if (idx === -1 || !previews[idx]) return null;
+    return { src: previews[idx], arrayIndex: idx };
   }
 
-  // Drop zone (ajout fichiers OS)
-  function handleZoneDragOver(e: React.DragEvent) {
-    // Si on fait glisser une image interne, ne pas activer la zone
-    if (draggedIdx !== null) return;
+  // Check if position is occupied and ask for confirmation if needed
+  async function confirmIfOccupied(pos: number): Promise<boolean> {
+    const existing = getImageAtPosition(pos);
+    if (!existing) return true; // empty slot, no confirm needed
+    if (!onConfirmReplace) return true; // no confirm handler, proceed
+    return onConfirmReplace(pos);
+  }
+
+  // File input handler for a specific position
+  async function handleFileChange(pos: number, files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const file = Array.from(files).find((f) => f.type.startsWith("image/"));
+    if (!file) return;
+    const ok = await confirmIfOccupied(pos);
+    if (ok) onAddAtPosition(file, pos);
+  }
+
+  // Drag & drop from OS
+  async function handleSlotDrop(e: React.DragEvent, pos: number) {
     e.preventDefault();
-    setDropZoneDragging(true);
-  }
-  function handleZoneDragLeave() { setDropZoneDragging(false); }
-  function handleZoneDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDropZoneDragging(false);
-    if (draggedIdx !== null) return; // Drag interne, ignore ici
-    handleFiles(e.dataTransfer.files);
-  }
-
-  // ── Drag & drop reorder des images ────────────────────────────────────
-  function handleImgDragStart(e: React.DragEvent, idx: number) {
     e.stopPropagation();
-    setDraggedIdx(idx);
+
+    // Internal drag (swap positions) — no confirmation needed for swap
+    if (draggedPos !== null) {
+      if (draggedPos !== pos) onSwapPositions(draggedPos, pos);
+      setDraggedPos(null);
+      setDragOverPos(null);
+      return;
+    }
+
+    // External file drop
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const file = Array.from(files).find((f) => f.type.startsWith("image/"));
+      if (!file) return;
+      const ok = await confirmIfOccupied(pos);
+      if (ok) onAddAtPosition(file, pos);
+    }
+  }
+
+  function handleSlotDragOver(e: React.DragEvent, pos: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggedPos !== null && draggedPos !== pos) {
+      setDragOverPos(pos);
+    }
+  }
+
+  function handleSlotDragLeave() {
+    setDragOverPos(null);
+  }
+
+  // Internal drag start (image reordering)
+  function handleImgDragStart(e: React.DragEvent, pos: number) {
+    e.stopPropagation();
+    setDraggedPos(pos);
     e.dataTransfer.effectAllowed = "move";
   }
-  function handleImgDragOver(e: React.DragEvent, idx: number) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (draggedIdx === null || draggedIdx === idx) return;
-    setDragOverIdx(idx);
-  }
-  function handleImgDrop(e: React.DragEvent, idx: number) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (draggedIdx !== null && draggedIdx !== idx) {
-      onReorder(draggedIdx, idx);
-    }
-    setDraggedIdx(null);
-    setDragOverIdx(null);
-  }
-  function handleImgDragEnd() {
-    setDraggedIdx(null);
-    setDragOverIdx(null);
-  }
 
-  const canAdd = previews.length < MAX_IMAGES;
+  function handleImgDragEnd() {
+    setDraggedPos(null);
+    setDragOverPos(null);
+  }
 
   return (
     <>
-      <div className="space-y-3">
-        {/* Grille des previsualisations */}
-        {previews.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {previews.map((src, imgIdx) => (
-              <div
-                key={imgIdx}
-                draggable
-                onDragStart={(e) => handleImgDragStart(e, imgIdx)}
-                onDragOver={(e)  => handleImgDragOver(e, imgIdx)}
-                onDrop={(e)      => handleImgDrop(e, imgIdx)}
-                onDragEnd={handleImgDragEnd}
-                className={`relative group w-20 h-20 cursor-grab active:cursor-grabbing transition-all ${
-                  draggedIdx === imgIdx  ? "opacity-30 scale-95" : ""
-                } ${dragOverIdx === imgIdx ? "ring-2 ring-bg-dark ring-offset-1" : ""}`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={src}
-                  alt={`Image ${imgIdx + 1}`}
-                  draggable={false}
-                  onClick={() => setZoomedSrc(src)}
-                  className="w-full h-full object-cover border border-border cursor-zoom-in"
-                />
-                {/* Supprimer */}
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onRemove(imgIdx); }}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
-                  aria-label="Supprimer l'image"
-                >
-                  x
-                </button>
-                {/* Badge ordre */}
-                <span className="absolute bottom-0 left-0 bg-bg-dark/60 text-white text-[9px] px-1 select-none">
-                  {imgIdx + 1}
-                </span>
-                {/* Icone drag */}
-                <span className="absolute top-0 left-0 p-0.5 opacity-0 group-hover:opacity-70 transition-opacity">
-                  <svg className="w-3 h-3 text-white drop-shadow" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm8-16a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+      <div className="grid grid-cols-5 gap-2">
+        {Array.from({ length: MAX_IMAGES }, (_, pos) => {
+          const img = getImageAtPosition(pos);
+          const isUploading = uploading && uploadingPosition === pos;
+          const isDraggedFrom = draggedPos === pos;
+          const isDragOver = dragOverPos === pos;
+
+          return (
+            <div
+              key={pos}
+              className={`relative aspect-square border-2 rounded-lg overflow-hidden transition-all ${
+                isDragOver
+                  ? "border-[#1A1A1A] bg-[#F7F7F8] scale-[1.02]"
+                  : img
+                    ? "border-[#E5E5E5] bg-white"
+                    : "border-dashed border-[#D1D5DB] bg-[#FAFAFA] hover:border-[#9CA3AF] hover:bg-[#F7F7F8]"
+              } ${isDraggedFrom ? "opacity-30 scale-95" : ""} ${
+                isUploading ? "opacity-60 pointer-events-none" : ""
+              }`}
+              onDragOver={(e) => handleSlotDragOver(e, pos)}
+              onDragLeave={handleSlotDragLeave}
+              onDrop={(e) => handleSlotDrop(e, pos)}
+            >
+              {isUploading ? (
+                /* Uploading state */
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+                  <svg className="animate-spin w-5 h-5 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Zone de drop (ajout fichiers OS) */}
-        {canAdd && (
-          <div
-            onDragOver={handleZoneDragOver}
-            onDragLeave={handleZoneDragLeave}
-            onDrop={handleZoneDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed p-4 text-center cursor-pointer transition-colors ${
-              dropZoneDragging
-                ? "border-bg-dark bg-bg-secondary"
-                : "border-border hover:border-bg-dark bg-bg-primary"
-            } ${uploading ? "opacity-60 pointer-events-none" : ""}`}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === "Enter" && fileInputRef.current?.click()}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple
-              className="sr-only"
-              onChange={(e) => handleFiles(e.target.files)}
-              id={`images-color-${colorIndex}`}
-            />
-            {uploading ? (
-              <div className="flex items-center justify-center gap-2 text-text-secondary">
-                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                </svg>
-                <span className="text-xs font-[family-name:var(--font-roboto)]">Upload en cours...</span>
-              </div>
-            ) : (
-              <>
-                <svg className="w-6 h-6 text-text-muted mx-auto mb-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-                <p className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary">
-                  Glissez ou cliquez pour ajouter
-                </p>
-                <p className="text-[10px] text-text-muted mt-0.5">
-                  JPG, PNG, WEBP -- max 3 Mo -- {previews.length}/{MAX_IMAGES} — glissez les images pour reordonner
-                </p>
-              </>
-            )}
-          </div>
-        )}
-
-        {previews.length >= MAX_IMAGES && (
-          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-            Maximum de {MAX_IMAGES} images atteint.
-          </p>
-        )}
+                  <span className="text-[9px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Upload...</span>
+                </div>
+              ) : img ? (
+                /* Filled slot */
+                <div className="group w-full h-full cursor-grab active:cursor-grabbing"
+                  draggable
+                  onDragStart={(e) => handleImgDragStart(e, pos)}
+                  onDragEnd={handleImgDragEnd}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img.src}
+                    alt={`Image position ${pos + 1}`}
+                    draggable={false}
+                    onClick={() => setZoomedSrc(img.src)}
+                    className="w-full h-full object-cover cursor-zoom-in"
+                  />
+                  {/* Remove button */}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onRemoveAtPosition(pos); }}
+                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                    aria-label="Supprimer l'image"
+                  >
+                    ×
+                  </button>
+                  {/* Drag handle */}
+                  <span className="absolute top-0.5 left-0.5 opacity-0 group-hover:opacity-70 transition-opacity">
+                    <svg className="w-3 h-3 text-white drop-shadow" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm8-16a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+                    </svg>
+                  </span>
+                  {/* Position badge */}
+                  <span className="absolute bottom-0 left-0 bg-[#1A1A1A]/60 text-white text-[9px] px-1.5 py-0.5 select-none font-[family-name:var(--font-roboto)]">
+                    {pos + 1}
+                  </span>
+                </div>
+              ) : (
+                /* Empty slot */
+                <div
+                  className="w-full h-full flex flex-col items-center justify-center cursor-pointer"
+                  onClick={() => fileInputRefs.current[pos]?.click()}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === "Enter" && fileInputRefs.current[pos]?.click()}
+                >
+                  <input
+                    ref={(el) => { fileInputRefs.current[pos] = el; }}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={(e) => { handleFileChange(pos, e.target.files); e.target.value = ""; }}
+                    id={`image-slot-${colorIndex}-${pos}`}
+                  />
+                  <span className="text-lg font-bold text-[#D1D5DB] font-[family-name:var(--font-poppins)] leading-none">
+                    {pos + 1}
+                  </span>
+                  <svg className="w-4 h-4 text-[#D1D5DB] mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      <p className="text-[10px] text-[#9CA3AF] mt-1.5 font-[family-name:var(--font-roboto)]">
+        JPG, PNG, WEBP — max 3 Mo — glissez entre les positions pour réordonner
+      </p>
 
       {/* ── Lightbox zoom ─────────────────────────────────────────────── */}
       {zoomedSrc && (
@@ -206,7 +225,7 @@ export default function ImageDropzone({
             onClick={() => setZoomedSrc(null)}
             className="absolute top-4 right-4 w-9 h-9 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-colors text-xl"
           >
-            x
+            ×
           </button>
         </div>
       )}

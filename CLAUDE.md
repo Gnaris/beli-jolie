@@ -25,8 +25,9 @@ npx prisma db push           # Push schema changes to MySQL (no migrations)
 npx prisma generate          # Regenerate Prisma client (required after schema changes)
 npx prisma studio            # Open Prisma Studio GUI
 
-# Admin account
+# Scripts
 npx tsx scripts/create-admin.ts   # Crée le compte admin défini dans .env (ADMIN_EMAIL / ADMIN_PASSWORD)
+npm run clear:products            # Delete all products + related data (dev only)
 ```
 
 > **After `prisma db push`**: restart the dev server — it locks the generated `.dll` file and `generate` will fail otherwise.
@@ -73,11 +74,11 @@ Route protection is handled **twice**: in `middleware.ts` (edge, fast) and in ea
 Products have a nested structure — read this before touching product code:
 ```
 Product
-  ├── ProductColor[]          (one per color variant)
-  │     ├── SaleOption[]       (UNIT and/or PACK, max 2 per color)
-  │     │     └── unitPrice, weight, stock, discountType, discountValue, size, packQuantity
+  ├── ProductColor[]          (one row per variant — flat, includes saleType/price/stock)
+  │     ├── saleType: UNIT | PACK
+  │     ├── unitPrice, weight, stock, discountType, discountValue, size, packQuantity
   │     ├── ProductColorSubColor[]  (optional sub-colors, e.g. Doré → Rouge, Noir)
-  │     └── ProductImage[]     (max 5, shared between UNIT+PACK of same color)
+  │     └── ProductColorImage[]     (max 5 per variant, linked via productColorId)
   ├── ProductTranslation[]    (locale: "en"|"ar"|"zh"|"de"|"es"|"it" — auto-translated name+description)
   ├── ProductSimilar[]        (M2M self-relation for "you may also like")
   ├── PendingSimilar[]        (deferred similar links — resolved when target product is created)
@@ -87,7 +88,8 @@ Product
 ```
 - `Color` model has optional `patternImage` (leopard, camouflage, etc.) — takes priority over hex
 - `ProductStatus` enum: `OFFLINE` | `ONLINE` | `ARCHIVED` (archived = invisible but preserved for order history)
-Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied.
+- Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied
+- **Multi-color variants**: two variants can share the same main `colorId` (e.g. "Doré/Argenté/Or Rose" and "Doré/Argenté/Or Rose/Vert/Jaune"). They are distinguished by their sub-colors via a `groupKey` = `colorId::sortedSubColorNames`. `ProductColorImage.productColorId` links images to the specific variant. The admin form's `ColorImageState` uses `groupKey` (not `colorId` or `variantTempId`) — variants with the same color+sub-colors selection (e.g. UNIT + PACK) share the same image group. Helper: `variantGroupKeyFromState()` exported from `ColorVariantManager.tsx`.
 
 ### Order Data Model
 ```
@@ -133,7 +135,14 @@ Admins can browse the public site as a logged-in visitor via cookie `bj_admin_pr
 Actions: `enableAdminPreview()` / `disableAdminPreview()` in `app/actions/admin/preview-mode.ts`.
 
 ### Server Actions
-All mutations go through Server Actions in `app/actions/`. Each action calls `requireAdmin()` or `requireAuth()` (verifies session server-side) before doing anything. Actions call `revalidatePath()` to bust the Next.js cache.
+All mutations go through Server Actions in `app/actions/`. Each action calls `requireAdmin()` or `requireAuth()` (verifies session server-side) before doing anything. Actions call `revalidatePath()` or `revalidateTag(tag, "default")` to bust the Next.js cache.
+
+### Bulk Import (`lib/import-processor.ts`)
+- Excel/JSON import via `/admin/produits/importer` — preview (dry-run) → confirm → background processing (`ImportJob`)
+- Multi-color variants use "/" as separator in Excel (e.g. "Doré/Argenté/Or Rose")
+- Image filenames use "," as separator (since "/" is forbidden in filenames): `REF_COULEUR1,COULEUR2_POSITION.ext`
+- Color matching is accent-insensitive via `normalizeColorName()` — strips accents + lowercases
+- Quick-create endpoint `/api/admin/products/import/quick-create` allows creating missing categories/colors/compositions from the preview screen
 
 ### Styling Conventions
 - **Tailwind CSS v4** — no `tailwind.config.js`; theme tokens are defined in `app/globals.css` inside `@theme inline {}`
@@ -175,7 +184,7 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - `getCachedAdminWarnings()` — admin sidebar warning counts (5min, tags: products/categories/colors/tags/compositions)
 - `getCachedDashboardStats()` — 11 aggregate queries for admin dashboard (5min, tags: orders/products/users)
 
-When adding new cached data: use `unstable_cache` from `next/cache`, always provide a unique cache key array and relevant tags. Call `revalidateTag()` in server actions that modify the underlying data.
+When adding new cached data: use `unstable_cache` from `next/cache`, always provide a unique cache key array and relevant tags. Call `revalidateTag(tag, "default")` (2 args required in Next.js 16) in server actions that modify the underlying data.
 
 ### Responsive & Accessibility Conventions
 - **Mobile-first**: always start from smallest breakpoint, add `sm:`/`md:`/`lg:` for larger screens
@@ -184,6 +193,8 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - **ARIA**: add `aria-label` on icon-only buttons, `aria-pressed` on toggles, `role="combobox"` on search inputs
 
 ### Important Gotchas
+- **Next.js 16 `params`**: route `params` is a `Promise` — must be `await`ed: `const { id } = await params;`
+- **`revalidateTag`** requires 2 arguments in Next.js 16: `revalidateTag("tag-name", "default")`
 - `ssr: false` with `next/dynamic` is NOT allowed in Server Components → use a `"use client"` wrapper
 - Zod v4: use `.issues` not `.errors` when accessing ZodError details
 - `PublicSidebar.tsx` is the actual visible header on public pages, not `Navbar.tsx`
@@ -195,6 +206,7 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - `PendingSimilar` links are auto-resolved — when creating a product, check for pending similar refs matching the new product's reference
 - `Color.patternImage` takes priority over `Color.hex` when rendering — always check patternImage first
 - `UserActivity.cartAddsCount`/`favAddsCount` are session counters sent by HeartbeatTracker — reset on disconnect
+- **Never group/display color variants by `colorId` alone** — always use `groupKey` (colorId + sorted sub-color names). Keying by `colorId` merges variants with different sub-colors; keying by `variantTempId` prevents UNIT/PACK image sharing. See `variantGroupKeyFromState()` in `ColorVariantManager.tsx`
 
 ### Key Libraries
 - **Next.js 16.1.6** (App Router, Server Components)
@@ -206,7 +218,7 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - **Three.js 0.183.2** (3D jewelry animation)
 - **Recharts 3.8.0** (admin charts)
 - `bcryptjs` (12 salt rounds) for password hashing
-- `pdfkit` for PDF generation — requires `serverExternalPackages: ["pdfkit"]` in `next.config.ts`
+- `pdfkit` for PDF generation — requires `serverExternalPackages: ["pdfkit", "sharp"]` in `next.config.ts`
 - `nodemailer` for transactional email (Gmail App Password)
 
 ### Easy-Express v3 Integration

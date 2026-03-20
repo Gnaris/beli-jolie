@@ -23,27 +23,17 @@ export default async function CompositionsPage() {
   }));
 
   return (
-    <div className="max-w-3xl space-y-6">
-      <div>
-        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-1">
-          <Link href="/admin" className="hover:text-text-primary transition-colors">Admin</Link>
-          <span>/</span>
-          <span className="text-text-secondary">Compositions</span>
-        </div>
-        <h1 className="page-title">Bibliothèque de compositions</h1>
-        <p className="page-subtitle">
-          Créez les matériaux (acier 316L, or 18K…) — ils seront assignables aux produits avec un pourcentage.
-        </p>
-      </div>
-
-      {/* Création */}
-      <div className="card p-6 flex items-center justify-between">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
-            Nouvelle composition
-          </h2>
-          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
-            Saisissez le nom dans toutes les langues souhaitées.
+          <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-1">
+            <Link href="/admin" className="hover:text-text-primary transition-colors">Admin</Link>
+            <span>/</span>
+            <span className="text-text-secondary">Compositions</span>
+          </div>
+          <h1 className="page-title">Bibliothèque de compositions</h1>
+          <p className="page-subtitle">
+            Créez les matériaux (acier 316L, or 18K…) — ils seront assignables aux produits avec un pourcentage.
           </p>
         </div>
         <EntityCreateButton type="composition" label="+ Créer une composition" />

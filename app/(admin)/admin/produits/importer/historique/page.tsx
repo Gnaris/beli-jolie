@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import ImportHistoryClient from "@/components/admin/products/import/ImportHistoryClient";
+import ImportHistoryClient, { type ImportJobWithDraft } from "@/components/admin/products/import/ImportHistoryClient";
 
 export const metadata: Metadata = {
   title: "Historique des imports",
@@ -56,6 +56,7 @@ export default async function ImportHistoriquePage() {
     errorItems: job.errorItems,
     errorDraftId: job.errorDraftId,
     errorMessage: job.errorMessage,
+    resultDetails: job.resultDetails as ImportJobWithDraft["resultDetails"],
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
     draft: job.errorDraftId ? draftMap.get(job.errorDraftId) ?? null : null,

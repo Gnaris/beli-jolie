@@ -65,7 +65,8 @@ export default async function CollectionDetailPage({ params }: PageProps) {
   for (const img of colColorImages) {
     if (!colImageMap.has(img.productId)) colImageMap.set(img.productId, new Map());
     const cm = colImageMap.get(img.productId)!;
-    if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
+    const imgKey = img.productColorId ?? img.colorId;
+    if (!cm.has(imgKey)) cm.set(imgKey, img.path);
   }
 
   return (
@@ -117,26 +118,29 @@ export default async function CollectionDetailPage({ params }: PageProps) {
               {collection.products.map((cp) => {
                 const p = cp.product;
 
-                // Group variants by colorId
+                // Group variants by color group key (colorId + sub-colors)
                 const colorMap = new Map<string, {
-                  colorId: string; name: string; hex: string | null; patternImage?: string | null; subColors?: { name: string; hex: string; patternImage?: string | null }[];
+                  groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null; subColors?: { name: string; hex: string; patternImage?: string | null }[];
                   firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
                   variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null; unitPrice: number; stock: number }[];
                 }>();
                 for (const v of p.colors) {
-                  if (!colorMap.has(v.colorId)) {
+                  const subNames: string[] = (v as any).subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
+                  const gk = subNames.length === 0 ? v.colorId : `${v.colorId}::${[...subNames].sort().join(",")}`;
+                  if (!colorMap.has(gk)) {
                     const subs = (v as any).subColors?.map((sc: { color: { name: string; hex: string | null; patternImage?: string | null } }) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage })) ?? [];
-                    colorMap.set(v.colorId, {
-                      colorId: v.colorId, name: v.color.name, hex: v.color.hex, patternImage: (v.color as any).patternImage,
+                    colorMap.set(gk, {
+                      groupKey: gk, colorId: v.colorId, name: v.color.name, hex: v.color.hex, patternImage: (v.color as any).patternImage,
                       subColors: subs.length > 0 ? subs : undefined,
-                      firstImage: colImageMap.get(p.id)?.get(v.colorId) ?? null,
+                      firstImage: colImageMap.get(p.id)?.get(v.id) ?? null,
                       unitPrice: v.unitPrice,
                       isPrimary: cp.colorId ? v.colorId === cp.colorId : v.isPrimary,
                       totalStock: 0,
                       variants: [],
                     });
                   }
-                  const cd = colorMap.get(v.colorId)!;
+                  const cd = colorMap.get(gk)!;
+                  if (!cd.firstImage) cd.firstImage = colImageMap.get(p.id)?.get(v.id) ?? null;
                   cd.unitPrice = Math.min(cd.unitPrice, v.unitPrice);
                   cd.totalStock += v.stock ?? 0;
                   if (cp.colorId ? v.colorId === cp.colorId : v.isPrimary) cd.isPrimary = true;

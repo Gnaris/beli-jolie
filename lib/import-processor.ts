@@ -232,7 +232,10 @@ export async function processProductImport(jobId: string): Promise<void> {
 
     // Pre-load reference data
     const allValidRows = [...grouped.values()].flat();
-    const colorNames = [...new Set(allValidRows.map((r) => r.color))];
+    // Split multi-colors "Bleu/Rose/Vert" into individual color names
+    const colorNames = [...new Set(
+      allValidRows.flatMap((r) => r.color ? r.color.split("/").map((c) => c.trim()).filter(Boolean) : [])
+    )];
     const categoryNames = [...new Set(allValidRows.filter((r) => r.category).map((r) => r.category!))];
     const tagNames = [
       ...new Set(
@@ -278,6 +281,14 @@ export async function processProductImport(jobId: string): Promise<void> {
     let processedCount = 0;
     const entries = [...grouped.entries()];
 
+    // Collect detailed results for history display
+    const createdProducts: {
+      reference: string;
+      name: string;
+      category?: string;
+      variants: { color: string; saleType: string; unitPrice: number; stock: number; packQuantity?: number | null }[];
+    }[] = [];
+
     // Process in batches
     for (let i = 0; i < entries.length; i += PRODUCT_BATCH_SIZE) {
       const batch = entries.slice(i, i + PRODUCT_BATCH_SIZE);
@@ -292,15 +303,38 @@ export async function processProductImport(jobId: string): Promise<void> {
           continue;
         }
 
-        // Resolve colors
-        const resolvedColors: { row: ProductImportRow; color: (typeof dbColors)[0] }[] = [];
+        // Resolve colors — supports multi-color "Bleu/Rose/Vert"
+        // First color = main colorId, remaining = sub-colors (ProductColorSubColor)
+        const resolvedColors: {
+          row: ProductImportRow;
+          mainColor: (typeof dbColors)[0];
+          subColors: (typeof dbColors)[0][];
+        }[] = [];
         for (const row of colorRows) {
-          const dbColor = colorMap.get(normalizeColorName(row.color));
-          if (!dbColor) {
-            errorRows.push({ ...row, errors: [`Couleur "${row.color}" introuvable.`] });
+          const parts = row.color.split("/").map((c) => c.trim()).filter(Boolean);
+          if (parts.length === 0) {
+            errorRows.push({ ...row, errors: [`Couleur manquante.`] });
             continue;
           }
-          resolvedColors.push({ row, color: dbColor });
+          const missingParts: string[] = [];
+          const resolvedParts: (typeof dbColors)[0][] = [];
+          for (const part of parts) {
+            const dbColor = colorMap.get(normalizeColorName(part));
+            if (!dbColor) {
+              missingParts.push(part);
+            } else {
+              resolvedParts.push(dbColor);
+            }
+          }
+          if (missingParts.length > 0) {
+            errorRows.push({ ...row, errors: [`Couleur(s) introuvable(s) : ${missingParts.join(", ")}`] });
+            continue;
+          }
+          resolvedColors.push({
+            row,
+            mainColor: resolvedParts[0],
+            subColors: resolvedParts.slice(1),
+          });
         }
 
         if (resolvedColors.length === 0) { processedCount++; continue; }
@@ -401,8 +435,8 @@ export async function processProductImport(jobId: string): Promise<void> {
               compositions: compPairs.length > 0 ? { create: compPairs } : undefined,
               subCategories: subCatIds.length > 0 ? { connect: subCatIds.map((id) => ({ id })) } : undefined,
               colors: {
-                create: resolvedColors.map(({ row, color }, ci) => ({
-                  colorId: color.id,
+                create: resolvedColors.map(({ row, mainColor, subColors }, ci) => ({
+                  colorId: mainColor.id,
                   unitPrice: row.unitPrice,
                   weight: row.weight ? row.weight / 1000 : 0.1,
                   stock: row.stock,
@@ -412,6 +446,10 @@ export async function processProductImport(jobId: string): Promise<void> {
                   size: row.size ?? null,
                   discountType: row.discountType ?? null,
                   discountValue: row.discountValue ?? null,
+                  // Create sub-colors if multi-color (e.g. "Bleu/Rose/Vert")
+                  subColors: subColors.length > 0
+                    ? { create: subColors.map((sc, idx) => ({ colorId: sc.id, position: idx })) }
+                    : undefined,
                 })),
               },
             },
@@ -467,6 +505,22 @@ export async function processProductImport(jobId: string): Promise<void> {
           }
 
           successCount++;
+
+          // Capture detail for history
+          createdProducts.push({
+            reference: ref,
+            name: firstRow.name,
+            category: firstRow.category,
+            variants: resolvedColors.map(({ row, mainColor, subColors }) => ({
+              color: subColors.length > 0
+                ? [mainColor.name, ...subColors.map((sc) => sc.name)].join("/")
+                : mainColor.name,
+              saleType: row.saleType,
+              unitPrice: row.unitPrice,
+              stock: row.stock,
+              packQuantity: row.saleType === "PACK" ? row.packQuantity : undefined,
+            })),
+          });
         } catch (err) {
           for (const row of colorRows) {
             errorRows.push({ ...row, errors: [`Erreur création: ${err instanceof Error ? err.message : "inconnue"}`] });
@@ -516,6 +570,7 @@ export async function processProductImport(jobId: string): Promise<void> {
         successItems: successCount,
         errorItems: errorRows.length,
         errorDraftId,
+        resultDetails: { type: "PRODUCTS", products: createdProducts } as unknown as import("@prisma/client").Prisma.JsonObject,
       },
     });
 
@@ -538,39 +593,70 @@ export async function processProductImport(jobId: string): Promise<void> {
 
 /**
  * Parse image filename in supported formats:
- *   "REFERENCE COULEUR POSITION.ext"         (space-separated, original)
- *   "REFERENCE_COULEUR_POSITION.ext"         (underscore-separated)
- *   "A200_Doré/Rouge/Noir/Gris_1.jpg"       (multi-color with /)
- *   "A200 Doré/Rouge/Noir/Gris 1.jpg"       (multi-color with spaces)
+ *   "REFERENCE COULEUR POSITION.ext"              (space-separated, original)
+ *   "REFERENCE_COULEUR_POSITION.ext"              (underscore-separated)
+ *   "A200_Doré,Rouge,Noir,Gris_1.jpg"            (multi-color with comma)
+ *   "A200 Doré,Rouge,Noir,Gris 1.jpg"            (multi-color with comma + spaces)
  *
- * Multi-color names (e.g. "Doré/Rouge/Noir") are matched against the DB
- * color name which uses the same "/" format.
+ * Multi-color names use comma "," as separator in filenames (since "/" is
+ * forbidden in filenames). They are matched against the DB color name by
+ * splitting and comparing each sub-color individually.
  */
 function parseImageFilename(filename: string): { reference: string; color: string; position: number } | null {
   const ext = path.extname(filename);
   const base = filename.slice(0, filename.length - ext.length);
 
-  // Try underscore format first: REF_COLOR_POS
-  // But only if it contains underscores and no spaces (to avoid ambiguity)
-  let parts: string[];
-  if (base.includes("_") && !base.includes(" ")) {
-    parts = base.split("_").filter(Boolean);
+  // Underscore format: REF_COULEURS_POSITION (preferred — colors can contain spaces like "Or Rose")
+  // Space format: REF COULEUR POSITION (legacy — only when no underscores)
+  let reference: string;
+  let color: string;
+  let positionStr: string;
+
+  if (base.includes("_")) {
+    // Split by underscore: exactly 3 parts (REF, COLOR(S), POSITION)
+    const firstUnderscore = base.indexOf("_");
+    const lastUnderscore = base.lastIndexOf("_");
+
+    if (firstUnderscore === lastUnderscore) return null; // only 1 underscore = can't split 3 parts
+
+    reference = base.slice(0, firstUnderscore);
+    color = base.slice(firstUnderscore + 1, lastUnderscore);
+    positionStr = base.slice(lastUnderscore + 1);
   } else {
-    // Space-separated (original format)
-    parts = base.split(" ").filter(Boolean);
+    // Space-separated fallback (no underscores): REF COLOR POSITION
+    const parts = base.split(" ").filter(Boolean);
+    if (parts.length < 3) return null;
+
+    reference = parts[0];
+    positionStr = parts[parts.length - 1];
+    color = parts.slice(1, parts.length - 1).join(" ");
   }
 
-  if (parts.length < 3) return null;
-
-  const positionStr = parts[parts.length - 1];
   const position = parseInt(positionStr, 10);
   if (isNaN(position) || position < 1 || position > 10) return null;
 
-  const reference = parts[0].toUpperCase();
-  const color = parts.slice(1, parts.length - 1).join(" ");
+  reference = reference.trim().toUpperCase();
+  color = color.trim();
   if (!reference || !color) return null;
 
   return { reference, color, position };
+}
+
+// ─────────────────────────────────────────────
+// Conflict resolution types
+// ─────────────────────────────────────────────
+
+export type ConflictStrategy = "replace" | "next_available" | "skip";
+
+export interface ConflictResolution {
+  filename: string;
+  strategy: ConflictStrategy;
+  chosenPosition?: number; // 1-based, only when strategy is a specific position override
+}
+
+export interface ConflictResolutions {
+  defaultStrategy: ConflictStrategy;
+  perFile: ConflictResolution[];
 }
 
 const IMAGE_BATCH_SIZE = 20;
@@ -587,6 +673,17 @@ export async function processImageImport(jobId: string): Promise<void> {
     const allFiles = await readdir(tempDirFull);
     const allowedExts = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
     const imageFiles = allFiles.filter((f) => allowedExts.includes(path.extname(f).toLowerCase()));
+
+    // Load conflict resolutions if present
+    let resolutions: ConflictResolutions = { defaultStrategy: "replace", perFile: [] };
+    try {
+      const resPath = path.join(tempDirFull, "_resolutions.json");
+      const resData = await readFile(resPath, "utf-8");
+      resolutions = JSON.parse(resData);
+    } catch {
+      // No resolutions file — default to "replace"
+    }
+    const perFileMap = new Map(resolutions.perFile.map((r) => [r.filename, r]));
 
     await prisma.importJob.update({
       where: { id: jobId },
@@ -606,7 +703,7 @@ export async function processImageImport(jobId: string): Promise<void> {
           color: "",
           position: 0,
           tempPath: "", // will be set when copying to public error dir
-          errors: ['Nom de fichier invalide. Format attendu : "REFERENCE COULEUR POSITION.ext"'],
+          errors: ['Nom de fichier invalide. Format attendu : "REFERENCE COULEUR POSITION.ext" (multi-couleur : "REF Doré,Rouge,Noir 1.jpg")'],
         });
         continue;
       }
@@ -623,7 +720,7 @@ export async function processImageImport(jobId: string): Promise<void> {
     const fileRefs = [...new Set(validFiles.map((f) => f.reference))];
     const products = await prisma.product.findMany({
       where: { reference: { in: fileRefs } },
-      include: { colors: { include: { color: true } } },
+      include: { colors: { include: { color: true, subColors: { include: { color: true } } } } },
     });
     const productMap = new Map(products.map((p) => [p.reference.toUpperCase(), p]));
 
@@ -635,12 +732,19 @@ export async function processImageImport(jobId: string): Promise<void> {
     });
     const allDbRefs = allDbProducts.map((p) => p.reference);
 
-    // Ensure destination dir exists
-    const productDir = path.join(process.cwd(), "public", "uploads", "products");
-    await mkdir(productDir, { recursive: true });
+    // Destination dir — relative to project root (processProductImage adds process.cwd())
+    const productDir = "public/uploads/products";
 
     let successCount = 0;
     let processedCount = 0;
+
+    // Collect detailed results for history display
+    const importedImages: {
+      filename: string;
+      reference: string;
+      color: string;
+      position: number;
+    }[] = [];
 
     // Process in batches
     for (let i = 0; i < validFiles.length; i += IMAGE_BATCH_SIZE) {
@@ -664,28 +768,26 @@ export async function processImageImport(jobId: string): Promise<void> {
           continue;
         }
 
-        // Match color — accent+case insensitive, supports multi-color "Doré/Rouge/Noir"
-        // Strategy: 1) normalized full match, 2) match by first color in "/" list,
-        // 3) match by any sub-color
-        const fileColorNorm = normalizeColorName(file.color);
-        const fileColorParts = file.color.split("/").map((c) => normalizeColorName(c));
-        const mainFileColor = fileColorParts[0];
+        // Match color — compare the full set of colors (main + sub-colors)
+        // File: "Doré,Argenté,Or Rose" → must match a variant with exactly these colors
+        // Comma separator in filenames (since "/" is forbidden)
+        const fileColorParts = file.color.split(",").map((c) => normalizeColorName(c.trim())).sort();
 
-        let matchingVariants = product.colors.filter(
-          (pc) => normalizeColorName(pc.color.name) === fileColorNorm
-        );
+        // Build the full color set for each variant (main color + sub-colors)
+        let matchingVariants = product.colors.filter((pc) => {
+          const variantColors = [
+            normalizeColorName(pc.color.name),
+            ...pc.subColors.map((sc) => normalizeColorName(sc.color.name)),
+          ].sort();
+          // Exact set match
+          return variantColors.length === fileColorParts.length &&
+            variantColors.every((c, i) => c === fileColorParts[i]);
+        });
 
-        // If no exact match, try matching by the main (first) color
-        if (matchingVariants.length === 0 && fileColorParts.length > 1) {
+        // Fallback: if no exact set match, try matching by main color only (single-color files)
+        if (matchingVariants.length === 0 && fileColorParts.length === 1) {
           matchingVariants = product.colors.filter(
-            (pc) => normalizeColorName(pc.color.name) === mainFileColor
-          );
-        }
-
-        // Try matching any sub-color part
-        if (matchingVariants.length === 0 && fileColorParts.length > 1) {
-          matchingVariants = product.colors.filter(
-            (pc) => fileColorParts.includes(normalizeColorName(pc.color.name))
+            (pc) => normalizeColorName(pc.color.name) === fileColorParts[0]
           );
         }
 
@@ -708,6 +810,58 @@ export async function processImageImport(jobId: string): Promise<void> {
           continue;
         }
 
+        const matchedVariant = matchingVariants[0];
+        let order = file.position - 1;
+
+        // Check for existing image at this position
+        const existingAtPos = await prisma.productColorImage.findFirst({
+          where: { productColorId: matchedVariant.id, order },
+        });
+
+        if (existingAtPos) {
+          // Determine conflict resolution strategy
+          const perFileRes = perFileMap.get(file.filename);
+          const strategy = perFileRes?.strategy ?? resolutions.defaultStrategy;
+
+          if (strategy === "skip") {
+            processedCount++;
+            continue;
+          } else if (strategy === "next_available" || (perFileRes?.chosenPosition != null)) {
+            if (perFileRes?.chosenPosition != null) {
+              // Specific position chosen by user
+              order = perFileRes.chosenPosition - 1;
+              // Check if chosen position is also occupied
+              const chosenOccupied = await prisma.productColorImage.findFirst({
+                where: { productColorId: matchedVariant.id, order },
+              });
+              if (chosenOccupied) {
+                // Fall back to next available
+                const usedOrders = await prisma.productColorImage.findMany({
+                  where: { productColorId: matchedVariant.id },
+                  select: { order: true },
+                });
+                const used = new Set(usedOrders.map((u) => u.order));
+                let nextOrder = 0;
+                while (used.has(nextOrder)) nextOrder++;
+                order = nextOrder;
+              }
+            } else {
+              // Find next available position
+              const usedOrders = await prisma.productColorImage.findMany({
+                where: { productColorId: matchedVariant.id },
+                select: { order: true },
+              });
+              const used = new Set(usedOrders.map((u) => u.order));
+              let nextOrder = 0;
+              while (used.has(nextOrder)) nextOrder++;
+              order = nextOrder;
+            }
+          } else {
+            // strategy === "replace" — delete existing image at this position
+            await prisma.productColorImage.delete({ where: { id: existingAtPos.id } });
+          }
+        }
+
         // Process image through Sharp WebP pipeline
         const safeFilename = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const imageBuffer = await readFile(file.filePath);
@@ -718,13 +872,12 @@ export async function processImageImport(jobId: string): Promise<void> {
         await unlink(file.filePath).catch(() => {});
 
         const imagePath = result.dbPath;
-        const colorId = matchingVariants[0].colorId;
-        const order = file.position - 1;
 
         await prisma.productColorImage.create({
           data: {
             productId: product.id,
-            colorId,
+            colorId: matchedVariant.colorId,
+            productColorId: matchedVariant.id,
             path: imagePath,
             order,
           },
@@ -732,6 +885,14 @@ export async function processImageImport(jobId: string): Promise<void> {
 
         successCount++;
         processedCount++;
+
+        // Capture detail for history
+        importedImages.push({
+          filename: file.filename,
+          reference: file.reference,
+          color: file.color,
+          position: order + 1,
+        });
       }
 
       // Update progress
@@ -797,6 +958,7 @@ export async function processImageImport(jobId: string): Promise<void> {
         successItems: successCount,
         errorItems: errorRows.length,
         errorDraftId,
+        resultDetails: { type: "IMAGES", images: importedImages } as unknown as import("@prisma/client").Prisma.JsonObject,
       },
     });
 

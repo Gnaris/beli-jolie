@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { parseDisplayConfig } from "@/lib/product-display";
 import SettingsMinOrderForm from "@/components/admin/settings/SettingsMinOrderForm";
@@ -6,6 +7,7 @@ import AdminPasswordResetButton from "@/components/admin/settings/AdminPasswordR
 import MaintenanceModeToggle from "@/components/admin/settings/MaintenanceModeToggle";
 import ProductDisplayConfig from "@/components/admin/settings/ProductDisplayConfig";
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
+import DarkModeToggle from "@/components/admin/settings/DarkModeToggle";
 
 export const metadata: Metadata = { title: "Paramètres — Beli & Jolie Admin" };
 
@@ -21,6 +23,9 @@ export default async function ParametresPage() {
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
+  const cookieStore = await cookies();
+  const adminTheme = (cookieStore.get("bj_admin_theme")?.value === "dark" ? "dark" : "light") as "light" | "dark";
+
   const currentMinHT = minConfig ? parseFloat(minConfig.value) : 0;
   const maintenanceValue = maintenanceConfig?.value ?? "false";
   const inMaintenance = maintenanceValue === "true" || maintenanceValue === "auto";
@@ -30,14 +35,16 @@ export default async function ParametresPage() {
   const showOutOfStockProducts = stockProductsConfig?.value !== "false"; // default true
 
   return (
-    <div className="space-y-8 max-w-2xl">
+    <div className="space-y-8">
       <div>
         <h1 className="page-title">Paramètres</h1>
         <p className="page-subtitle">Configuration générale du site.</p>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
       {/* Bloc 1 — Mode maintenance */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="lg:col-span-2 bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <div className="flex items-start gap-3 mb-5">
           <div className="w-8 h-8 rounded-lg bg-[#FEF3C7] flex items-center justify-center flex-shrink-0 mt-0.5">
             <svg
@@ -146,7 +153,7 @@ export default async function ParametresPage() {
       </div>
 
       {/* Bloc 4 — Affichage des produits */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="lg:col-span-2 bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <div className="flex items-start gap-3 mb-5">
           <div className="w-8 h-8 rounded-lg bg-[#EDE9FE] flex items-center justify-center flex-shrink-0 mt-0.5">
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#7C3AED]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -182,6 +189,29 @@ export default async function ParametresPage() {
         </p>
         <AdminPasswordResetButton />
       </div>
+
+      {/* Bloc 6 — Mode nuit */}
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="flex items-start gap-3 mb-5">
+          <div className="w-8 h-8 rounded-lg bg-[#1E293B] flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#93C5FD]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
+              Apparence
+            </h2>
+            <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+              Basculez entre le mode jour et le mode nuit pour l&apos;interface d&apos;administration.
+              Ce réglage n&apos;affecte pas le site public.
+            </p>
+          </div>
+        </div>
+        <DarkModeToggle currentTheme={adminTheme} />
+      </div>
+
+      </div>{/* end grid */}
     </div>
   );
 }

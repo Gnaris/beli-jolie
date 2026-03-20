@@ -2,13 +2,14 @@
 
 import { useState, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, uid as genUid } from "./ColorVariantManager";
+import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, uid as genUid, variantGroupKeyFromState } from "./ColorVariantManager";
 import { createProduct, updateProduct } from "@/app/actions/admin/products";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
 import CustomSelect from "@/components/ui/CustomSelect";
 import AiCostDialog from "./AiCostDialog";
+import TranslateButton from "@/components/admin/TranslateButton";
 
 interface Category {
   id: string;
@@ -139,44 +140,50 @@ export default function ProductForm({
   );
 
   // ── Sync colorImages when variant colors change ───────────────────────
-  // Build a map of colorId → full display name & hex (including sub-colors)
-  const variantColorKey = variants.map((v) => `${v.colorId}:${v.subColors.map((s) => s.colorId).join("+")}`).join(",");
+  // One ColorImageState per color group (colorId + sub-colors), shared across UNIT/PACK variants
+  const variantColorKey = variants
+    .filter((v) => v.colorId)
+    .map((v) => variantGroupKeyFromState(v))
+    .sort()
+    .join(",");
   useEffect(() => {
-    const usedColorIds = new Set(variants.map((v) => v.colorId).filter(Boolean));
-    // Build display info per colorId (first variant with that colorId wins)
-    const displayMap = new Map<string, { name: string; hex: string }>();
+    // Build unique groups: groupKey → display info
+    const groupMap = new Map<string, { colorId: string; name: string; hex: string }>();
     for (const v of variants) {
-      if (!v.colorId || displayMap.has(v.colorId)) continue;
-      const allNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)];
-      displayMap.set(v.colorId, { name: allNames.join(" / "), hex: v.colorHex });
+      if (!v.colorId) continue;
+      const gk = variantGroupKeyFromState(v);
+      if (!groupMap.has(gk)) {
+        const allNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)];
+        groupMap.set(gk, { colorId: v.colorId, name: allNames.join(" / "), hex: v.colorHex });
+      }
     }
     setColorImages((prev) => {
+      // Keep entries whose group still exists or that have uploaded images
       const filtered = prev.filter((ci) =>
-        usedColorIds.has(ci.colorId) || ci.uploadedPaths.length > 0
+        groupMap.has(ci.groupKey) || ci.uploadedPaths.length > 0
       );
-      // Update existing entries with latest display name/hex
+      // Update existing entries with latest display name/hex/colorId
       const updated = filtered.map((ci) => {
-        const info = displayMap.get(ci.colorId);
-        if (info && (ci.colorName !== info.name || ci.colorHex !== info.hex)) {
-          return { ...ci, colorName: info.name, colorHex: info.hex };
+        const info = groupMap.get(ci.groupKey);
+        if (info && (ci.colorName !== info.name || ci.colorHex !== info.hex || ci.colorId !== info.colorId)) {
+          return { ...ci, colorId: info.colorId, colorName: info.name, colorHex: info.hex };
         }
         return ci;
       });
-      const existingIds = new Set(updated.map((ci) => ci.colorId));
+      const existingKeys = new Set(updated.map((ci) => ci.groupKey));
       const toAdd: ColorImageState[] = [];
-      for (const colorId of usedColorIds) {
-        if (!existingIds.has(colorId)) {
-          const info = displayMap.get(colorId);
-          if (info) {
-            toAdd.push({
-              colorId,
-              colorName: info.name,
-              colorHex: info.hex,
-              imagePreviews: [],
-              uploadedPaths: [],
-              uploading: false,
-            });
-          }
+      for (const [gk, info] of groupMap) {
+        if (!existingKeys.has(gk)) {
+          toAdd.push({
+            groupKey: gk,
+            colorId: info.colorId,
+            colorName: info.name,
+            colorHex: info.hex,
+            imagePreviews: [],
+            uploadedPaths: [],
+            orders: [],
+            uploading: false,
+          });
         }
       }
       const result = [...updated, ...toAdd];
@@ -507,7 +514,16 @@ export default function ProductForm({
         discountType:  v.discountType || null,
         discountValue: v.discountValue ? parseFloat(v.discountValue) : null,
       })),
-      imagePaths: colorImages.map((ci) => ({ colorId: ci.colorId, paths: ci.uploadedPaths })),
+      imagePaths: colorImages.map((ci) => {
+        const v = variants.find((vr) => variantGroupKeyFromState(vr) === ci.groupKey);
+        return {
+          colorId: ci.colorId,
+          subColorIds: v ? v.subColors.map((sc) => sc.colorId) : [],
+          variantDbId: v?.dbId ?? undefined,
+          paths: ci.uploadedPaths,
+          orders: ci.orders,
+        };
+      }),
       compositions: compositions.map((c) => ({
         compositionId: c.compositionId,
         percentage:    parseFloat(c.percentage),
@@ -629,7 +645,27 @@ export default function ProductForm({
               )}
 
               {/* Nom */}
-              <Field label={`Nom du produit *${activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}`}>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">
+                    Nom du produit *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
+                  </label>
+                  {activeLocale === "fr" && (
+                    <TranslateButton
+                      text={name}
+                      onTranslated={(t) => {
+                        setTranslations((prev) => {
+                          const next = { ...prev };
+                          for (const [locale, val] of Object.entries(t)) {
+                            next[locale] = { name: val, description: next[locale]?.description ?? "" };
+                          }
+                          return next;
+                        });
+                      }}
+                      disabled={!name.trim()}
+                    />
+                  )}
+                </div>
                 <input
                   type="text"
                   value={activeName}
@@ -638,7 +674,7 @@ export default function ProductForm({
                   className="field-input"
                   required={activeLocale === "fr"}
                 />
-              </Field>
+              </div>
 
               {/* Catégorie + sous-catégories (always FR) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -700,7 +736,27 @@ export default function ProductForm({
               </div>
 
               {/* Description */}
-              <Field label={`Description *${activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}`}>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">
+                    Description *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
+                  </label>
+                  {activeLocale === "fr" && (
+                    <TranslateButton
+                      text={description}
+                      onTranslated={(t) => {
+                        setTranslations((prev) => {
+                          const next = { ...prev };
+                          for (const [locale, val] of Object.entries(t)) {
+                            next[locale] = { name: next[locale]?.name ?? "", description: val };
+                          }
+                          return next;
+                        });
+                      }}
+                      disabled={!description.trim()}
+                    />
+                  )}
+                </div>
                 <textarea
                   value={activeDescription}
                   onChange={(e) => setActiveDescription(e.target.value)}
@@ -709,7 +765,7 @@ export default function ProductForm({
                   className="field-input resize-none"
                   required={activeLocale === "fr"}
                 />
-              </Field>
+              </div>
             </div>
 
             {/* ── BLOC MOTS CLÉS ── */}

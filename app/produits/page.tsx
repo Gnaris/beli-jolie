@@ -55,27 +55,37 @@ interface PageProps {
   }>;
 }
 
+// Variant group key: colorId + sorted sub-color names (distinguishes multi-color variants)
+function variantGroupKey(colorId: string, subColorNames: string[]): string {
+  if (subColorNames.length === 0) return colorId;
+  return `${colorId}::${[...subColorNames].sort().join(",")}`;
+}
+
 // Shape raw Prisma products into ProductCard-friendly format
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, string>>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return rawProducts.map((p: any) => {
     const colorMap = new Map<string, {
-      colorId: string; name: string; hex: string | null; patternImage?: string | null; subColors?: { name: string; hex: string; patternImage?: string | null }[];
+      groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null; subColors?: { name: string; hex: string; patternImage?: string | null }[];
       firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
       variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null; unitPrice: number; stock: number; discountType: "PERCENT" | "AMOUNT" | null; discountValue: number | null }[];
     }>();
     for (const v of p.colors) {
-      if (!colorMap.has(v.colorId)) {
+      const subNames: string[] = v.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
+      const gk = variantGroupKey(v.colorId, subNames);
+      if (!colorMap.has(gk)) {
         const subs = v.subColors?.map((sc: { color: { name: string; hex: string | null; patternImage?: string | null } }) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage })) ?? [];
-        colorMap.set(v.colorId, {
-          colorId: v.colorId, name: v.color.name, hex: v.color.hex, patternImage: v.color.patternImage,
+        colorMap.set(gk, {
+          groupKey: gk, colorId: v.colorId, name: v.color.name, hex: v.color.hex, patternImage: v.color.patternImage,
           subColors: subs.length > 0 ? subs : undefined,
-          firstImage: imageMap.get(p.id)?.get(v.colorId) ?? null,
+          firstImage: imageMap.get(p.id)?.get(v.id) ?? null,
           unitPrice: v.unitPrice, isPrimary: v.isPrimary, totalStock: 0, variants: [],
         });
       }
-      const cd = colorMap.get(v.colorId)!;
+      const cd = colorMap.get(gk)!;
+      // If this variant has an image and the group doesn't yet, use it
+      if (!cd.firstImage) cd.firstImage = imageMap.get(p.id)?.get(v.id) ?? null;
       cd.unitPrice = Math.min(cd.unitPrice, v.unitPrice);
       cd.totalStock += v.stock ?? 0;
       if (v.isPrimary) cd.isPrimary = true;
@@ -89,11 +99,13 @@ async function fetchImages(productIds: string[]) {
   const colorImages = productIds.length > 0
     ? await prisma.productColorImage.findMany({ where: { productId: { in: productIds } }, orderBy: { order: "asc" } })
     : [];
+  // Key by productColorId (variant-level) instead of colorId to distinguish multi-color variants
   const imageMap = new Map<string, Map<string, string>>();
   for (const img of colorImages) {
     if (!imageMap.has(img.productId)) imageMap.set(img.productId, new Map());
     const cm = imageMap.get(img.productId)!;
-    if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
+    const key = img.productColorId ?? img.colorId;
+    if (!cm.has(key)) cm.set(key, img.path);
   }
   return imageMap;
 }

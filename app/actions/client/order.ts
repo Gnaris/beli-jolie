@@ -294,8 +294,8 @@ export async function placeOrder(
   if (!isAwaitingTransfer) {
     let labelBuffer: Buffer | null = null;
 
-    // Ne pas appeler Easy-Express si on est sur un carrier fallback
-    const isFallbackCarrier = input.carrierId.startsWith("fallback_");
+    // Ne pas appeler Easy-Express si on est sur un carrier fallback ou retrait en boutique
+    const isFallbackCarrier = input.carrierId.startsWith("fallback_") || input.carrierId === "pickup_store";
 
     const eeResult = isFallbackCarrier
       ? { success: false as const, error: "Carrier fallback — pas d'expédition Easy-Express." }

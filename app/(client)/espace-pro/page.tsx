@@ -6,6 +6,7 @@ import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AccountEditor from "@/components/client/AccountEditor";
+import LogoutButton from "@/components/client/LogoutButton";
 import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
 
@@ -212,13 +213,16 @@ export default async function DashboardPage() {
         <div className="flex-1 min-w-0 space-y-6">
 
           {/* En-tete */}
-          <div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A]">
-              {t("greeting", { name: user.firstName })}
-            </h1>
-            <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-0.5">
-              {user.company} — {t("memberSince", { date: formattedDate })}
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A]">
+                {t("greeting", { name: user.firstName })}
+              </h1>
+              <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-0.5">
+                {user.company} — {t("memberSince", { date: formattedDate })}
+              </p>
+            </div>
+            <LogoutButton />
           </div>
 
           {/* Bandeau statut si pas APPROVED */}

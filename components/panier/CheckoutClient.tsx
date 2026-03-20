@@ -447,13 +447,18 @@ export default function CheckoutClient({
   const [showAddressForm, setShowAddressForm] = useState(initialAddresses.length === 0);
   const selectedAddr = addresses.find((a) => a.id === selectedAddrId) ?? null;
 
+  // Mode de livraison : "delivery" (par défaut) ou "pickup"
+  const [deliveryMode, setDeliveryMode] = useState<"delivery" | "pickup">("delivery");
+
   // Transporteurs
   const [carriers, setCarriers]         = useState<Carrier[]>([]);
   const [transactionId, setTransactionId] = useState<string>("");
   const [selectedCarrierId, setSelectedCarrierId] = useState<string | null>(null);
   const [carriersLoading, setCarriersLoading]     = useState(false);
   const [carriersError, setCarriersError]         = useState("");
-  const selectedCarrier = carriers.find((c) => c.id === selectedCarrierId) ?? null;
+  const selectedCarrier = deliveryMode === "pickup"
+    ? { id: "pickup_store", name: "Retrait en boutique", price: 0, delay: "" }
+    : (carriers.find((c) => c.id === selectedCarrierId) ?? null);
 
   // TVA
   const vatNumber = user.vatNumber;
@@ -571,6 +576,15 @@ export default function CheckoutClient({
 
   const canProceed = !!selectedAddr && !!selectedCarrier;
 
+  // Reset Stripe + carriers quand le mode de livraison change
+  function handleDeliveryModeChange(mode: "delivery" | "pickup") {
+    setDeliveryMode(mode);
+    setSelectedCarrierId(null);
+    setClientSecret(null);
+    setPaymentIntentId(null);
+    setStripeError("");
+  }
+
   // Créer le Payment Intent Stripe uniquement quand le client clique "Procéder au paiement"
   async function handleInitiatePayment() {
     if (!canProceed || clientSecret) return;
@@ -602,12 +616,12 @@ export default function CheckoutClient({
     }
   }
 
-  // Réinitialiser Stripe si l'adresse ou le transporteur change
+  // Réinitialiser Stripe si l'adresse, le transporteur ou le mode de livraison change
   useEffect(() => {
     setClientSecret(null);
     setPaymentIntentId(null);
     setStripeError("");
-  }, [selectedAddrId, selectedCarrierId]);
+  }, [selectedAddrId, selectedCarrierId, deliveryMode]);
 
   // Après paiement Stripe réussi (carte) → créer la commande et rediriger
   function handlePaymentSuccess(piId: string) {
@@ -868,43 +882,108 @@ export default function CheckoutClient({
                 Mode de livraison
               </h2>
             </div>
-            <div className="p-5 space-y-3">
-              {!selectedAddr && (
-                <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-3">
-                  Sélectionnez une adresse de livraison pour voir les transporteurs disponibles.
-                </p>
-              )}
-
-              {selectedAddr && carriersLoading && (
-                <div className="flex items-center justify-center py-8 gap-3 text-text-muted">
-                  <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            <div className="p-5 space-y-4">
+              {/* Choix livraison / retrait */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleDeliveryModeChange("delivery")}
+                  className={`flex flex-col items-center gap-2 p-4 border rounded-xl transition-all ${
+                    deliveryMode === "delivery"
+                      ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
+                      : "border-border bg-bg-primary hover:border-text-muted"
+                  }`}
+                >
+                  <svg className="w-6 h-6 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                      d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0H21M3.375 14.25h3.75L8.25 9.75H3.375m0 4.5V5.625c0-.621.504-1.125 1.125-1.125h9.75c.621 0 1.125.504 1.125 1.125v4.125m-13.5 4.5h13.5m0 0l1.125-4.5h2.25c.621 0 1.125.504 1.125 1.125v3.375" />
                   </svg>
-                  <span className="text-sm font-[family-name:var(--font-roboto)]">Chargement des transporteurs…</span>
+                  <span className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+                    Livraison
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeliveryModeChange("pickup")}
+                  className={`flex flex-col items-center gap-2 p-4 border rounded-xl transition-all ${
+                    deliveryMode === "pickup"
+                      ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
+                      : "border-border bg-bg-primary hover:border-text-muted"
+                  }`}
+                >
+                  <svg className="w-6 h-6 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                      d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016A3.001 3.001 0 0021 9.349m-18 0a2.999 2.999 0 00.97-1.599L5.03 3.75h13.94l1.06 4A2.999 2.999 0 003 9.349" />
+                  </svg>
+                  <span className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+                    Retrait en boutique
+                  </span>
+                </button>
+              </div>
+
+              {/* Retrait en boutique — info */}
+              {deliveryMode === "pickup" && (
+                <div className="bg-bg-secondary border border-border rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-accent-dark shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+                        Retrait gratuit en boutique
+                      </p>
+                      <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] mt-1">
+                        Vous serez notifié par email lorsque votre commande sera prête à retirer.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {selectedAddr && !carriersLoading && carriersError && (
-                <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm rounded-lg font-[family-name:var(--font-roboto)]">
-                  {carriersError}
+              {/* Transporteurs (mode livraison uniquement) */}
+              {deliveryMode === "delivery" && (
+                <div className="space-y-3">
+                  {!selectedAddr && (
+                    <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-3">
+                      Sélectionnez une adresse de livraison pour voir les transporteurs disponibles.
+                    </p>
+                  )}
+
+                  {selectedAddr && carriersLoading && (
+                    <div className="flex items-center justify-center py-8 gap-3 text-text-muted">
+                      <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span className="text-sm font-[family-name:var(--font-roboto)]">Chargement des transporteurs…</span>
+                    </div>
+                  )}
+
+                  {selectedAddr && !carriersLoading && carriersError && (
+                    <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm rounded-lg font-[family-name:var(--font-roboto)]">
+                      {carriersError}
+                    </div>
+                  )}
+
+                  {selectedAddr && !carriersLoading && !carriersError && carriers.length === 0 && (
+                    <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-3">
+                      Aucun transporteur disponible pour cette adresse.
+                    </p>
+                  )}
+
+                  {carriers.map((carrier) => (
+                    <CarrierCard
+                      key={carrier.id}
+                      carrier={carrier}
+                      selected={selectedCarrierId === carrier.id}
+                      onClick={() => setSelectedCarrierId(carrier.id)}
+                    />
+                  ))}
                 </div>
               )}
-
-              {selectedAddr && !carriersLoading && !carriersError && carriers.length === 0 && (
-                <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-3">
-                  Aucun transporteur disponible pour cette adresse.
-                </p>
-              )}
-
-              {carriers.map((carrier) => (
-                <CarrierCard
-                  key={carrier.id}
-                  carrier={carrier}
-                  selected={selectedCarrierId === carrier.id}
-                  onClick={() => setSelectedCarrierId(carrier.id)}
-                />
-              ))}
             </div>
           </section>
         </div>
@@ -985,13 +1064,19 @@ export default function CheckoutClient({
                 </span>
               </div>
               <div className="flex justify-between text-text-secondary">
-                <span>Livraison</span>
-                <span className={`font-medium ${clientDiscount?.freeShipping && selectedCarrier ? "text-accent-dark" : "text-text-primary"}`}>
-                  {selectedCarrier
-                    ? (clientDiscount?.freeShipping
-                        ? "Offerte"
-                        : selectedCarrier.price === 0 ? "Gratuit" : `${selectedCarrier.price.toFixed(2)} €`)
-                    : "—"}
+                <span>{deliveryMode === "pickup" ? "Retrait en boutique" : "Livraison"}</span>
+                <span className={`font-medium ${
+                  (deliveryMode === "pickup" || (clientDiscount?.freeShipping && selectedCarrier))
+                    ? "text-accent-dark"
+                    : "text-text-primary"
+                }`}>
+                  {deliveryMode === "pickup"
+                    ? "Gratuit"
+                    : selectedCarrier
+                      ? (clientDiscount?.freeShipping
+                          ? "Offerte"
+                          : selectedCarrier.price === 0 ? "Gratuit" : `${selectedCarrier.price.toFixed(2)} €`)
+                      : "—"}
                 </span>
               </div>
 

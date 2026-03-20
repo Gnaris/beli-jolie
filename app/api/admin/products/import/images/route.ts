@@ -6,6 +6,7 @@ import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { existsSync } from "fs";
 import { processProductImage } from "@/lib/image-processor";
+import { normalizeColorName } from "@/lib/import-processor";
 
 // ─────────────────────────────────────────────
 // Types
@@ -33,29 +34,40 @@ export interface ImageImportRow {
  * Parse image filename in supported formats:
  *   "REFERENCE COULEUR POSITION.ext"         (space-separated)
  *   "REFERENCE_COULEUR_POSITION.ext"         (underscore-separated)
- *   "A200_Doré/Rouge/Noir_1.jpg"             (multi-color with /)
- *   "A200 Doré/Rouge/Noir 1.jpg"             (multi-color with spaces)
+ *   "A200_Doré,Rouge,Noir_1.jpg"             (multi-color with comma)
+ *   "A200 Doré,Rouge,Noir 1.jpg"             (multi-color with comma + spaces)
  */
 function parseImageFilename(filename: string): { reference: string; color: string; position: number } | null {
   const ext = path.extname(filename);
   const base = filename.slice(0, filename.length - ext.length);
 
-  let parts: string[];
-  if (base.includes("_") && !base.includes(" ")) {
-    parts = base.split("_").filter(Boolean);
+  let reference: string;
+  let color: string;
+  let positionStr: string;
+
+  if (base.includes("_")) {
+    // Underscore format: REF_COULEURS_POSITION (colors can contain spaces like "Or Rose")
+    const firstUnderscore = base.indexOf("_");
+    const lastUnderscore = base.lastIndexOf("_");
+    if (firstUnderscore === lastUnderscore) return null;
+
+    reference = base.slice(0, firstUnderscore);
+    color = base.slice(firstUnderscore + 1, lastUnderscore);
+    positionStr = base.slice(lastUnderscore + 1);
   } else {
-    parts = base.split(" ").filter(Boolean);
+    // Space-separated fallback
+    const parts = base.split(" ").filter(Boolean);
+    if (parts.length < 3) return null;
+    reference = parts[0];
+    positionStr = parts[parts.length - 1];
+    color = parts.slice(1, parts.length - 1).join(" ");
   }
 
-  if (parts.length < 3) return null;
-
-  const positionStr = parts[parts.length - 1];
   const position = parseInt(positionStr, 10);
   if (isNaN(position) || position < 1 || position > 10) return null;
 
-  const reference = parts[0].toUpperCase();
-  const color = parts.slice(1, parts.length - 1).join(" ");
-
+  reference = reference.trim().toUpperCase();
+  color = color.trim();
   if (!reference || !color) return null;
 
   return { reference, color, position };
@@ -140,7 +152,7 @@ export async function POST(req: NextRequest) {
         where: { reference },
         include: {
           colors: {
-            include: { color: true },
+            include: { color: true, subColors: { include: { color: true } } },
           },
         },
       });
@@ -162,15 +174,22 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Find matching color variant — supports multi-color (Doré/Rouge/Noir)
-      const colorParts = color.split("/").map((c) => c.trim().toLowerCase());
-      let matchingVariants = product.colors.filter(
-        (pc) => pc.color.name.toLowerCase() === color.toLowerCase()
-      );
-      // If no exact match, try the first color in "/" list
-      if (matchingVariants.length === 0 && colorParts.length > 1) {
+      // Match color — compare full set of colors (main + sub-colors)
+      const fileColorParts = color.split(",").map((c) => normalizeColorName(c.trim())).sort();
+
+      let matchingVariants = product.colors.filter((pc) => {
+        const variantColors = [
+          normalizeColorName(pc.color.name),
+          ...pc.subColors.map((sc) => normalizeColorName(sc.color.name)),
+        ].sort();
+        return variantColors.length === fileColorParts.length &&
+          variantColors.every((c, i) => c === fileColorParts[i]);
+      });
+
+      // Fallback: single-color file → match by main color only
+      if (matchingVariants.length === 0 && fileColorParts.length === 1) {
         matchingVariants = product.colors.filter(
-          (pc) => pc.color.name.toLowerCase() === colorParts[0]
+          (pc) => normalizeColorName(pc.color.name) === fileColorParts[0]
         );
       }
 
@@ -198,21 +217,15 @@ export async function POST(req: NextRequest) {
       }
 
       // Valid — save image to product folder
-      const colorId = matchingVariants[0].colorId;
-      const productDir = path.join(process.cwd(), "public", "uploads", "products");
-      await mkdir(productDir, { recursive: true });
+      const matchedVariant = matchingVariants[0];
+      const colorId = matchedVariant.colorId;
+      const productDir = "public/uploads/products";
 
       const safeFilename = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const bytes = await file.arrayBuffer();
       const result = await processProductImage(Buffer.from(bytes), productDir, safeFilename);
 
       const imagePath = result.dbPath;
-
-      // Check if position already exists — compute order
-      const existingImages = await prisma.productColorImage.findMany({
-        where: { productId: product.id, colorId },
-        orderBy: { order: "asc" },
-      });
 
       // Position is 1-based, order is 0-based index
       const order = position - 1;
@@ -221,6 +234,7 @@ export async function POST(req: NextRequest) {
         data: {
           productId: product.id,
           colorId,
+          productColorId: matchedVariant.id,
           path: imagePath,
           order,
         },

@@ -1,5 +1,6 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { authOptions } from "@/lib/auth";
 import { getCachedAdminWarnings } from "@/lib/cached-data";
 import Link from "next/link";
@@ -7,7 +8,8 @@ import type { Metadata } from "next";
 import LogoutButton from "@/components/admin/LogoutModal";
 import AdminMobileNav from "@/components/admin/AdminMobileNav";
 import AdminClientModeButton from "@/components/admin/AdminClientModeButton";
-import ImportProgressPanel from "@/components/admin/import/ImportProgressPanel";
+
+import LiveCountBadge from "@/components/admin/LiveCountBadge";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -20,6 +22,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const initials = session.user.name
     ? session.user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
     : "A";
+
+  // Theme preference from cookie
+  const cookieStore = await cookies();
+  const adminTheme = cookieStore.get("bj_admin_theme")?.value === "dark" ? "dark" : "light";
+  const isDarkMode = adminTheme === "dark";
 
   // Warning counts for sidebar badges (cached 5min)
   const {
@@ -40,7 +47,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   };
 
   return (
-    <div className="min-h-screen bg-bg-secondary flex">
+    <div id="admin-theme-wrapper" className={`min-h-screen bg-bg-secondary flex${isDarkMode ? " admin-dark" : ""}`}>
 
       {/* ===== SIDEBAR - fixed left (desktop) ===== */}
       <aside className="w-[260px] shrink-0 bg-bg-primary border-r border-border hidden lg:flex flex-col fixed top-0 left-0 h-screen z-40">
@@ -75,6 +82,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                         {item.icon}
                       </span>
                       <span className="flex-1">{item.label}</span>
+                      {item.href === "/admin/suivi" && <LiveCountBadge />}
                       {warning && (
                         <span className="relative group/tooltip">
                           <span className="flex items-center gap-1 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 font-medium">
@@ -137,8 +145,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </main>
       </div>
 
-      {/* Import progress panel — visible on all admin pages */}
-      <ImportProgressPanel />
     </div>
   );
 }

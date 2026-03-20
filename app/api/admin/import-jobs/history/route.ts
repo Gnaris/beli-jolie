@@ -76,6 +76,7 @@ export async function GET(req: NextRequest) {
       errorItems: job.errorItems,
       errorDraftId: job.errorDraftId,
       errorMessage: job.errorMessage,
+      resultDetails: job.resultDetails,
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),
       draft: job.errorDraftId ? draftMap.get(job.errorDraftId) ?? null : null,

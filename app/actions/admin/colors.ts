@@ -53,12 +53,22 @@ export async function updateColorDirect(
   id: string,
   name: string,
   hex: string | null,
-  translations: Record<string, string>
+  translations: Record<string, string>,
+  patternImage?: string | null,
 ) {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
 
-  await prisma.color.update({ where: { id }, data: { name: name.trim(), hex } });
+  // If patternImage is set, clear hex. If hex is set, clear patternImage.
+  const data: { name: string; hex: string | null; patternImage?: string | null } = {
+    name: name.trim(),
+    hex: patternImage ? null : hex,
+  };
+  if (patternImage !== undefined) {
+    data.patternImage = patternImage;
+  }
+
+  await prisma.color.update({ where: { id }, data });
 
   for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
     const val = translations[locale]?.trim();

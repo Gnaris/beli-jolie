@@ -52,7 +52,7 @@ export interface ProductInput {
   categoryId: string;
   subCategoryIds: string[];
   colors: ColorInput[];
-  imagePaths?: { colorId: string; paths: string[] }[]; // images grouped by colorId
+  imagePaths?: { colorId: string; subColorIds?: string[]; variantDbId?: string; paths: string[]; orders?: number[] }[]; // images grouped per variant
   compositions: CompositionInput[];
   similarProductIds: string[];
   tagNames: string[];
@@ -177,16 +177,44 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     await prisma.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
   }
 
-  // Images: create ProductColorImage entries grouped by (productId, colorId)
+  // Images: create ProductColorImage entries linked to specific ProductColor variant
   if (input.imagePaths && input.imagePaths.length > 0) {
-    const imageData: { productId: string; colorId: string; path: string; order: number }[] = [];
-    // Deduplicate by colorId (same colorId can appear in multiple variants, images are shared)
-    const seenColorIds = new Set<string>();
+    // Fetch sub-colors per variant to enable matching by full color set
+    const variantsWithSubs = await prisma.productColor.findMany({
+      where: { productId: product.id },
+      select: { id: true, colorId: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const variantSubColors = await prisma.productColorSubColor.findMany({
+      where: { productColorId: { in: variantsWithSubs.map((v) => v.id) } },
+      select: { productColorId: true, colorId: true },
+      orderBy: { position: "asc" },
+    });
+    const subColorsByVariant = new Map<string, string[]>();
+    for (const sc of variantSubColors) {
+      const arr = subColorsByVariant.get(sc.productColorId) ?? [];
+      arr.push(sc.colorId);
+      subColorsByVariant.set(sc.productColorId, arr);
+    }
+
+    const imageData: { productId: string; colorId: string; productColorId: string; path: string; order: number }[] = [];
+    const usedVariantIds = new Set<string>();
     for (const group of input.imagePaths) {
-      if (seenColorIds.has(group.colorId)) continue;
-      seenColorIds.add(group.colorId);
-      group.paths.forEach((path, order) => {
-        imageData.push({ productId: product.id, colorId: group.colorId, path, order });
+      if (group.paths.length === 0) continue;
+      // Match variant by colorId + sorted subColorIds
+      const groupSubIds = [...(group.subColorIds ?? [])].sort();
+      const variant = variantsWithSubs.find((v) => {
+        if (usedVariantIds.has(v.id)) return false;
+        if (v.colorId !== group.colorId) return false;
+        const vSubs = [...(subColorsByVariant.get(v.id) ?? [])].sort();
+        if (vSubs.length !== groupSubIds.length) return false;
+        return vSubs.every((s, i) => s === groupSubIds[i]);
+      });
+      if (!variant) continue;
+      usedVariantIds.add(variant.id);
+      group.paths.forEach((path, idx) => {
+        const order = group.orders?.[idx] ?? idx;
+        imageData.push({ productId: product.id, colorId: group.colorId, productColorId: variant.id, path, order });
       });
     }
     if (imageData.length > 0) {
@@ -381,24 +409,54 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       await tx.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
     }
 
-    // ── Images: full replace per unique (productId, colorId) group ──────────
+    // ── Images: full replace linked to specific ProductColor variant ──────────
     if (input.imagePaths && input.imagePaths.length > 0) {
-      // Collect unique colorIds from the submitted image groups
-      const colorIdsWithImages = [...new Set(input.imagePaths.map((g) => g.colorId))];
-
-      // Delete existing images for these colorIds
+      // Delete all existing images for this product then recreate
       await tx.productColorImage.deleteMany({
-        where: { productId: id, colorId: { in: colorIdsWithImages } },
+        where: { productId: id },
       });
 
-      // Insert new images
-      const imageData: { productId: string; colorId: string; path: string; order: number }[] = [];
-      const seenColorIds = new Set<string>();
+      // Fetch current variants + their sub-colors
+      const currentVariants = await tx.productColor.findMany({
+        where: { productId: id },
+        select: { id: true, colorId: true },
+      });
+      const currentSubColors = await tx.productColorSubColor.findMany({
+        where: { productColorId: { in: currentVariants.map((v) => v.id) } },
+        select: { productColorId: true, colorId: true },
+        orderBy: { position: "asc" },
+      });
+      const subColorsByVariant = new Map<string, string[]>();
+      for (const sc of currentSubColors) {
+        const arr = subColorsByVariant.get(sc.productColorId) ?? [];
+        arr.push(sc.colorId);
+        subColorsByVariant.set(sc.productColorId, arr);
+      }
+
+      const imageData: { productId: string; colorId: string; productColorId: string; path: string; order: number }[] = [];
+      const usedVariantIds = new Set<string>();
       for (const group of input.imagePaths) {
-        if (seenColorIds.has(group.colorId)) continue;
-        seenColorIds.add(group.colorId);
-        group.paths.forEach((path, order) => {
-          imageData.push({ productId: id, colorId: group.colorId, path, order });
+        if (group.paths.length === 0) continue;
+        // Try direct match by variantDbId first
+        let variant = group.variantDbId
+          ? currentVariants.find((v) => v.id === group.variantDbId)
+          : undefined;
+        // Fallback: match by colorId + sorted subColorIds
+        if (!variant) {
+          const groupSubIds = [...(group.subColorIds ?? [])].sort();
+          variant = currentVariants.find((v) => {
+            if (usedVariantIds.has(v.id)) return false;
+            if (v.colorId !== group.colorId) return false;
+            const vSubs = [...(subColorsByVariant.get(v.id) ?? [])].sort();
+            if (vSubs.length !== groupSubIds.length) return false;
+            return vSubs.every((s, i) => s === groupSubIds[i]);
+          });
+        }
+        if (!variant) continue;
+        usedVariantIds.add(variant.id);
+        group.paths.forEach((path, idx) => {
+          const order = group.orders?.[idx] ?? idx;
+          imageData.push({ productId: id, colorId: group.colorId, productColorId: variant!.id, path, order });
         });
       }
       if (imageData.length > 0) {

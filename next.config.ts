@@ -4,7 +4,7 @@ import createNextIntlPlugin from "next-intl/plugin";
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdfkit", "sharp"],
+  serverExternalPackages: ["pdfkit", "sharp", "exceljs"],
 
   // ─── Image optimization (78k products = lots of images) ───
   images: {

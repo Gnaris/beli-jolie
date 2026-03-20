@@ -103,23 +103,49 @@ export default async function ModifierProduitPage({
     discountValue: pc.discountValue != null ? String(pc.discountValue) : "",
   }));
 
-  // Group ProductColorImage by unique colorId → ColorImageState[]
+  // Build group key for each ProductColor (colorId + sorted sub-color names)
+  function editGroupKey(pc: { colorId: string; subColors: { color: { name: string } }[] }): string {
+    if (pc.subColors.length === 0) return pc.colorId;
+    return `${pc.colorId}::${[...pc.subColors.map(sc => sc.color.name)].sort().join(",")}`;
+  }
+
+  // Map ProductColor.id (dbId) → groupKey
+  const dbIdToGroupKey = new Map<string, string>();
+  for (const pc of product.colors) {
+    dbIdToGroupKey.set(pc.id, editGroupKey(pc));
+  }
+
+  // Group ProductColorImage by groupKey → ColorImageState[] (one per color group, shared across UNIT/PACK)
   const colorImageMap = new Map<string, ColorImageState>();
   for (const img of colorImagesDb) {
-    if (!colorImageMap.has(img.colorId)) {
-      const colorMeta = product.colors.find((pc) => pc.colorId === img.colorId);
-      colorImageMap.set(img.colorId, {
+    const pcId = img.productColorId ?? img.colorId;
+    const gk = dbIdToGroupKey.get(pcId) ?? img.colorId;
+    if (!colorImageMap.has(gk)) {
+      const colorMeta = img.productColorId
+        ? product.colors.find((pc) => pc.id === img.productColorId)
+        : product.colors.find((pc) => pc.colorId === img.colorId);
+      // Build full display name (main + sub-colors)
+      const allNames = colorMeta
+        ? [colorMeta.color.name, ...colorMeta.subColors.map((sc) => sc.color.name)]
+        : [img.colorId];
+      colorImageMap.set(gk, {
+        groupKey:      gk,
         colorId:       img.colorId,
-        colorName:     colorMeta?.color.name ?? img.colorId,
+        colorName:     allNames.join(" / "),
         colorHex:      colorMeta?.color.hex ?? "#9CA3AF",
         imagePreviews: [],
         uploadedPaths: [],
+        orders:        [],
         uploading:     false,
       });
     }
-    const entry = colorImageMap.get(img.colorId)!;
-    entry.imagePreviews.push(img.path);
-    entry.uploadedPaths.push(img.path);
+    const entry = colorImageMap.get(gk)!;
+    // Avoid duplicate images (same path from multiple variants in the same group)
+    if (!entry.uploadedPaths.includes(img.path)) {
+      entry.imagePreviews.push(img.path);
+      entry.uploadedPaths.push(img.path);
+      entry.orders.push(img.order);
+    }
   }
   const initialColorImages: ColorImageState[] = [...colorImageMap.values()];
 

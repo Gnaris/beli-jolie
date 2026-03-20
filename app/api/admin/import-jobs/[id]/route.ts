@@ -8,6 +8,7 @@ import { writeFile, mkdir, readdir } from "fs/promises";
 // If behind a reverse proxy, configure its limit to at least 300MB for image batches.
 import path from "path";
 import { processImageImport } from "@/lib/import-processor";
+import { writeFile as writeFileAsync } from "fs/promises";
 
 // ─────────────────────────────────────────────
 // GET — Get job progress
@@ -70,6 +71,13 @@ export async function POST(
       const files = await readdir(tempDirAbs);
       const allowedExts = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
       const imageCount = files.filter((f) => allowedExts.includes(path.extname(f).toLowerCase())).length;
+
+      // Write conflict resolutions file if provided
+      const resolutionsJson = formData.get("resolutions") as string | null;
+      if (resolutionsJson) {
+        const resPath = path.join(tempDirAbs, "_resolutions.json");
+        await writeFileAsync(resPath, resolutionsJson, "utf-8");
+      }
 
       await prisma.importJob.update({
         where: { id },

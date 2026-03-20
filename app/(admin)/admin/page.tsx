@@ -112,13 +112,13 @@ export default async function AdminDashboardPage() {
         style={{ background: "linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%)" }}>
         <DashboardParticlesLoader />
         <div className="relative z-10 h-full flex flex-col justify-center px-8">
-          <div className="inline-flex items-center gap-2 bg-white/20 text-white/80 text-xs font-[family-name:var(--font-roboto)] px-3 py-1 rounded-full mb-3 w-fit">
+          <div className="inline-flex items-center gap-2 bg-[rgba(255,255,255,0.2)] text-[rgba(255,255,255,0.8)] text-xs font-[family-name:var(--font-roboto)] px-3 py-1 rounded-full mb-3 w-fit">
             {todayFormatted}
           </div>
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-bold text-white leading-tight">
+          <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-bold text-[#FFFFFF] leading-tight">
             Bonjour, {session.user.name?.split(" ")[0] ?? "Admin"} 👋
           </h1>
-          <p className="font-[family-name:var(--font-roboto)] text-white/60 text-sm mt-1">
+          <p className="font-[family-name:var(--font-roboto)] text-[rgba(255,255,255,0.6)] text-sm mt-1">
             Tableau de bord — Beli &amp; Jolie Administration
           </p>
         </div>

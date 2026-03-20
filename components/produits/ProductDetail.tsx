@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { addToCart } from "@/app/actions/client/cart";
+import ColorSwatch from "@/components/ui/ColorSwatch";
 
 interface SubColorInfo {
   name: string;
@@ -16,6 +17,7 @@ interface SubColorInfo {
 
 interface VariantData {
   id: string;
+  groupKey: string;              // Unique key: colorId + sorted sub-color names
   colorId: string;
   colorName: string;
   colorHex: string | null;
@@ -33,7 +35,7 @@ interface VariantData {
 }
 
 interface ColorImageData {
-  colorId: string;
+  groupKey: string;
   images: { path: string; order: number }[];
 }
 
@@ -142,9 +144,10 @@ export default function ProductDetail({
   const { tp, tc } = useProductTranslation();
   const [isPending, startTransition] = useTransition();
 
-  // Unique colors derived from variants (with sub-colors)
+  // Unique color groups derived from variants (keyed by groupKey = colorId + sub-colors)
   const uniqueColors = [...new Map(
-    variants.map(v => [v.colorId, {
+    variants.map(v => [v.groupKey, {
+      groupKey: v.groupKey,
       id: v.colorId,
       name: v.colorName,
       hex: v.colorHex,
@@ -153,10 +156,10 @@ export default function ProductDetail({
     }])
   ).values()];
 
-  const primaryColorId = variants.find(v => v.isPrimary)?.colorId ?? uniqueColors[0]?.id ?? "";
+  const primaryGroupKey = variants.find(v => v.isPrimary)?.groupKey ?? uniqueColors[0]?.groupKey ?? "";
 
-  const [selectedColorId, setSelectedColorId]     = useState<string>(primaryColorId);
-  const [hoveredColorId, setHoveredColorId]       = useState<string | null>(null);
+  const [selectedGroupKey, setSelectedGroupKey]   = useState<string>(primaryGroupKey);
+  const [hoveredGroupKey, setHoveredGroupKey]     = useState<string | null>(null);
   const [activeImageIdx, setActiveImageIdx]       = useState(0);
   const [hoveredImageIdx, setHoveredImageIdx]     = useState<number | null>(null);
   const [zoomedSrc, setZoomedSrc]                 = useState<string | null>(null);
@@ -184,19 +187,19 @@ export default function ProductDetail({
 
   // Image display (no animation on switch)
 
-  const selectedVariants = variants.filter(v => v.colorId === selectedColorId);
-  const selectedImgs     = colorImages.find(ci => ci.colorId === selectedColorId)?.images ?? [];
-  const displayedImgs    = hoveredColorId
-    ? colorImages.find(ci => ci.colorId === hoveredColorId)?.images ?? []
+  const selectedVariants = variants.filter(v => v.groupKey === selectedGroupKey);
+  const selectedImgs     = colorImages.find(ci => ci.groupKey === selectedGroupKey)?.images ?? [];
+  const displayedImgs    = hoveredGroupKey
+    ? colorImages.find(ci => ci.groupKey === hoveredGroupKey)?.images ?? []
     : selectedImgs;
 
-  const displayedImage = hoveredColorId
+  const displayedImage = hoveredGroupKey
     ? displayedImgs[0]?.path ?? null
     : selectedImgs[hoveredImageIdx ?? activeImageIdx]?.path ?? null;
 
   // Build full color label including sub-colors (ex: "Doré/Rouge/Noir")
-  const getFullColorName = (colorId: string) => {
-    const c = uniqueColors.find(uc => uc.id === colorId);
+  const getFullColorName = (groupKey: string) => {
+    const c = uniqueColors.find(uc => uc.groupKey === groupKey);
     if (!c) return "";
     if (c.subColors && c.subColors.length > 0) {
       return [c.name, ...c.subColors.map(sc => sc.name)].join("/");
@@ -204,25 +207,8 @@ export default function ProductDetail({
     return c.name;
   };
 
-  // Build swatch style: patternImage > conic-gradient > solid color
-  const getSwatchStyle = (c: typeof uniqueColors[number]): React.CSSProperties => {
-    // Pattern image takes priority (léopard, camouflage, carreaux…)
-    if (c.patternImage) {
-      return { backgroundImage: `url(${c.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
-    }
-    const mainHex = c.hex ?? "#9CA3AF";
-    if (!c.subColors || c.subColors.length === 0) {
-      return { backgroundColor: mainHex };
-    }
-    // Check if any sub-color has a patternImage — fall back to conic-gradient of hexes
-    const allColors = [mainHex, ...c.subColors.map(sc => sc.hex)];
-    const segmentSize = 360 / allColors.length;
-    const stops = allColors.map((hex, i) =>
-      `${hex} ${i * segmentSize}deg ${(i + 1) * segmentSize}deg`
-    ).join(", ");
-    return { background: `conic-gradient(${stops})` };
-  };
-  const displayedColorName = getFullColorName(hoveredColorId ?? selectedColorId);
+  // Build swatch for color — now delegated to ColorSwatch component
+  const displayedColorName = getFullColorName(hoveredGroupKey ?? selectedGroupKey);
 
   const minPrice = variants.length > 0 ? Math.min(...variants.map(v => computePrice(v))) : 0;
   const minBasePrice = variants.length > 0 ? Math.min(...variants.map(v => v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1))) : 0;
@@ -230,10 +216,10 @@ export default function ProductDetail({
   const minPriceAfterClient = applyClientDiscount(minPrice, clientDiscount);
   const hasClientDiscount = !!clientDiscount && minPriceAfterClient < minPrice;
 
-  function handleColorClick(colorId: string) {
-    if (colorId === selectedColorId) return;
-    setSelectedColorId(colorId);
-    setHoveredColorId(null);
+  function handleColorClick(groupKey: string) {
+    if (groupKey === selectedGroupKey) return;
+    setSelectedGroupKey(groupKey);
+    setHoveredGroupKey(null);
     setActiveImageIdx(0);
     setHoveredImageIdx(null);
   }
@@ -387,20 +373,27 @@ export default function ProductDetail({
               <div className="flex gap-2.5 flex-wrap">
                 {uniqueColors.map((c) => (
                   <button
-                    key={c.id}
+                    key={c.groupKey}
                     type="button"
-                    title={tp(getFullColorName(c.id))}
-                    onMouseEnter={() => setHoveredColorId(c.id)}
-                    onMouseLeave={() => setHoveredColorId(null)}
-                    onClick={() => handleColorClick(c.id)}
-                    className={`relative w-8 h-8 rounded-full border-2 transition-all duration-300 swatch-pulse ${
-                      selectedColorId === c.id
-                        ? "border-text-primary scale-110 shadow-md"
-                        : "border-border hover:border-border-dark hover:scale-110"
+                    title={tp(getFullColorName(c.groupKey))}
+                    onMouseEnter={() => setHoveredGroupKey(c.groupKey)}
+                    onMouseLeave={() => setHoveredGroupKey(null)}
+                    onClick={() => handleColorClick(c.groupKey)}
+                    className={`relative rounded-full transition-all duration-300 swatch-pulse flex items-center justify-center w-[28px] h-[28px] ${
+                      selectedGroupKey === c.groupKey
+                        ? "ring-2 ring-text-primary ring-offset-2 scale-110 shadow-md"
+                        : "ring-1 ring-border hover:ring-border-dark hover:scale-110"
                     }`}
-                    style={getSwatchStyle(c)}
                   >
-                    {selectedColorId === c.id && (
+                    <ColorSwatch
+                      hex={c.hex}
+                      patternImage={c.patternImage}
+                      subColors={c.subColors?.map(sc => ({ hex: sc.hex, patternImage: sc.patternImage }))}
+                      size={28}
+                      rounded="full"
+                      border={false}
+                    />
+                    {selectedGroupKey === c.groupKey && (
                       <span className="absolute inset-[-4px] rounded-full border-2 border-text-primary/30 animate-pulse-ring pointer-events-none" />
                     )}
                   </button>

@@ -1,52 +1,77 @@
 /**
- * Service de traduction automatique
+ * Service de traduction automatique via DeepL Free API
  *
- * Priorité :
- * 1. DeepL API (si DEEPL_API_KEY est défini) — haute qualité
- * 2. MyMemory API (gratuit, sans clé) — fallback
- *
- * Cache : les traductions sont stockées dans la table ProductTranslation (DB)
+ * DeepL Free : 500K caractères/mois (gratuit, clé se termine par ":fx")
+ * Quota suivi dans la table TranslationQuota
  */
 
 import { prisma } from "@/lib/prisma";
 
-type Locale = "fr" | "en" | "ar";
+export type Locale = "fr" | "en" | "ar" | "zh" | "de" | "es" | "it";
+
+const DEEPL_MAX_CHARS = 500_000;
 
 // ── DeepL language codes ──────────────────────────────────────────────────────
 const DEEPL_LANG: Record<Locale, string> = {
   fr: "FR",
   en: "EN-GB",
   ar: "AR",
+  zh: "ZH-HANS",
+  de: "DE",
+  es: "ES",
+  it: "IT",
 };
 
-// ── MyMemory language codes ───────────────────────────────────────────────────
-const MYMEMORY_LANG: Record<Locale, string> = {
-  fr: "fr",
-  en: "en",
-  ar: "ar",
-};
+// ── Quota management ─────────────────────────────────────────────────────────
 
-// ── Translate a single string ─────────────────────────────────────────────────
-
-export async function translateText(
-  text: string,
-  from: Locale,
-  to: Locale
-): Promise<string> {
-  if (from === to || !text.trim()) return text;
-
-  const apiKey = process.env.DEEPL_API_KEY;
-
-  try {
-    if (apiKey) {
-      return await translateWithDeepl(text, from, to, apiKey);
-    }
-    return await translateWithMyMemory(text, from, to);
-  } catch {
-    // Si les deux APIs échouent, retourner le texte original
-    return text;
-  }
+function getCurrentMonthYear(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
+
+/** Get or create quota row for the current month */
+async function getQuota() {
+  const monthYear = getCurrentMonthYear();
+
+  return prisma.translationQuota.upsert({
+    where: { provider_monthYear: { provider: "deepl", monthYear } },
+    update: {},
+    create: { provider: "deepl", monthYear, charsUsed: 0, maxChars: DEEPL_MAX_CHARS },
+  });
+}
+
+/** Get remaining chars */
+export async function getTranslationQuotaStatus() {
+  const monthYear = getCurrentMonthYear();
+  const quota = await prisma.translationQuota.findUnique({
+    where: { provider_monthYear: { provider: "deepl", monthYear } },
+  });
+
+  const used = quota?.charsUsed ?? 0;
+  const totalRemaining = Math.max(0, DEEPL_MAX_CHARS - used);
+
+  // Reset date = 1st of next month
+  const now = new Date();
+  const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  return {
+    totalRemaining,
+    resetDate: resetDate.toISOString(),
+  };
+}
+
+/** Increment chars used */
+async function addCharsUsed(chars: number) {
+  const monthYear = getCurrentMonthYear();
+
+  await prisma.translationQuota.upsert({
+    where: { provider_monthYear: { provider: "deepl", monthYear } },
+    update: { charsUsed: { increment: chars } },
+    create: { provider: "deepl", monthYear, charsUsed: chars, maxChars: DEEPL_MAX_CHARS },
+  });
+}
+
+// ── Translation engine ──────────────────────────────────────────────────────
 
 async function translateWithDeepl(
   text: string,
@@ -79,22 +104,58 @@ async function translateWithDeepl(
   return data.translations?.[0]?.text ?? text;
 }
 
-async function translateWithMyMemory(
+// ── Main translate function with quota ───────────────────────────────────────
+
+export async function translateText(
   text: string,
   from: Locale,
   to: Locale
 ): Promise<string> {
-  const langPair = `${MYMEMORY_LANG[from]}|${MYMEMORY_LANG[to]}`;
-  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${langPair}`;
+  if (from === to || !text.trim()) return text;
 
-  const res = await fetch(url, { next: { revalidate: 0 } });
-  if (!res.ok) throw new Error(`MyMemory error ${res.status}`);
+  const charCount = text.length;
+  const deeplKey = process.env.DEEPL_API_KEY;
+  if (!deeplKey) return text;
 
-  const data = await res.json();
-  if (data.responseStatus === 200) {
-    return data.responseData?.translatedText ?? text;
+  const quota = await getQuota();
+  if (quota.charsUsed + charCount > quota.maxChars) {
+    return text;
   }
-  throw new Error("MyMemory translation failed");
+
+  try {
+    const result = await translateWithDeepl(text, from, to, deeplKey);
+    await addCharsUsed(charCount);
+    return result;
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * Translate a text to ALL non-fr locales at once.
+ * Returns a Record<locale, translatedText>.
+ * Throws if quota exhausted.
+ */
+export async function translateToAllLocales(
+  text: string,
+  from: Locale = "fr"
+): Promise<Record<string, string>> {
+  if (!text.trim()) return {};
+
+  const targetLocales: Locale[] = ["en", "ar", "zh", "de", "es", "it"];
+  const totalChars = text.length * targetLocales.length;
+
+  // Pre-check quota
+  const status = await getTranslationQuotaStatus();
+  if (status.totalRemaining < totalChars) {
+    throw new Error("QUOTA_EXHAUSTED");
+  }
+
+  const results: Record<string, string> = {};
+  for (const locale of targetLocales) {
+    results[locale] = await translateText(text, from, locale);
+  }
+  return results;
 }
 
 // ── Translate multiple strings at once ────────────────────────────────────────
@@ -115,10 +176,8 @@ export async function getProductTranslation(
   locale: Locale,
   fallback: { name: string; description: string }
 ): Promise<{ name: string; description: string }> {
-  // French is the source language — return as-is
   if (locale === "fr") return fallback;
 
-  // Check DB cache
   const cached = await prisma.productTranslation.findUnique({
     where: { productId_locale: { productId, locale } },
   });
@@ -127,7 +186,6 @@ export async function getProductTranslation(
     return { name: cached.name, description: cached.description };
   }
 
-  // Auto-translate and cache
   try {
     const [name, description] = await Promise.all([
       translateText(fallback.name, "fr", locale),
@@ -140,12 +198,11 @@ export async function getProductTranslation(
 
     return { name, description };
   } catch {
-    // Return original if translation fails
     return fallback;
   }
 }
 
-// ── Invalidate cached translations for a product (call when product is updated) ──
+// ── Invalidate cached translations for a product ─────────────────────────────
 
 export async function invalidateProductTranslations(productId: string) {
   await prisma.productTranslation.deleteMany({ where: { productId } });

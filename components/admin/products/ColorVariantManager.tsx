@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import ImageDropzone from "./ImageDropzone";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
+import ColorSwatch from "@/components/ui/ColorSwatch";
 
 // ─────────────────────────────────────────────
 // Exported types
@@ -34,11 +35,13 @@ export interface VariantState {
 }
 
 export interface ColorImageState {
+  groupKey: string;       // colorId + sorted sub-color names — shared by variants with same color selection
   colorId: string;
-  colorName: string;
+  colorName: string;      // Full display name including sub-colors (e.g. "Doré / Argenté / Or Rose")
   colorHex: string;
   imagePreviews: string[];
   uploadedPaths: string[];
+  orders: number[];       // 0-based order values (parallel to uploadedPaths), preserved from DB
   uploading: boolean;
 }
 
@@ -87,6 +90,12 @@ export function computeFinalPrice(v: VariantState): number | null {
 
 export function uid() { return Math.random().toString(36).slice(2, 9); }
 
+/** Unique key for a color+sub-colors combination. Variants sharing this key share images. */
+export function variantGroupKeyFromState(v: { colorId: string; subColors: { colorName: string }[] }): string {
+  if (v.subColors.length === 0) return v.colorId;
+  return `${v.colorId}::${[...v.subColors.map(sc => sc.colorName)].sort().join(",")}`;
+}
+
 function defaultVariant(_availableColors: AvailableColor[]): VariantState {
   return {
     tempId:       uid(),
@@ -123,22 +132,6 @@ interface BulkEditState {
 
 function defaultBulkEdit(): BulkEditState {
   return { unitPrice: "", weight: "", stock: "", applyType: false, saleType: "UNIT", packQuantity: "", size: "", discountType: "", discountValue: "" };
-}
-
-// ─────────────────────────────────────────────
-// Swatch style helpers (pattern image > conic gradient > solid color)
-// ─────────────────────────────────────────────
-function conicGradientStyle(hexColors: string[]): React.CSSProperties {
-  if (hexColors.length <= 1) return { backgroundColor: hexColors[0] || "#9CA3AF" };
-  const seg = 360 / hexColors.length;
-  const stops = hexColors.map((hex, i) => `${hex} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
-  return { background: `conic-gradient(${stops})` };
-}
-
-/** Returns CSS for a single-color swatch: patternImage takes priority over hex */
-function colorSwatchStyle(hex: string | null | undefined, patternImage?: string | null): React.CSSProperties {
-  if (patternImage) return { backgroundImage: `url(${patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
-  return { backgroundColor: hex || "#9CA3AF" };
 }
 
 // ─────────────────────────────────────────────
@@ -203,8 +196,12 @@ function MultiColorSelect({ selected, options, onChange }: {
   }
 
   // Build display: camembert + name list
-  const allHexes = selected.map((s) => s.colorHex);
   const displayName = selected.map((s) => s.colorName).join(" / ");
+  // Build segments for camembert (look up patternImage from options)
+  const selectedSegments = selected.map((s) => {
+    const opt = options.find((o) => o.id === s.colorId);
+    return { hex: s.colorHex, patternImage: opt?.patternImage ?? null };
+  });
 
   return (
     <div className="relative" style={{ minWidth: 180 }}>
@@ -218,10 +215,22 @@ function MultiColorSelect({ selected, options, onChange }: {
           <span className="text-[#9CA3AF] flex-1 italic">— Sans couleur</span>
         ) : (
           <>
-            <span
-              className="w-4 h-4 rounded-full border border-[#E5E5E5] shrink-0"
-              style={conicGradientStyle(allHexes)}
-            />
+            {selectedSegments.length === 1 ? (
+              <ColorSwatch
+                hex={selectedSegments[0].hex}
+                patternImage={selectedSegments[0].patternImage}
+                size={16}
+                rounded="full"
+              />
+            ) : (
+              <ColorSwatch
+                hex={selectedSegments[0]?.hex}
+                patternImage={selectedSegments[0]?.patternImage}
+                subColors={selectedSegments.slice(1)}
+                size={16}
+                rounded="full"
+              />
+            )}
             <span className="flex-1 truncate">{displayName}</span>
           </>
         )}
@@ -278,7 +287,7 @@ function MultiColorSelect({ selected, options, onChange }: {
                   className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[#F7F7F8] transition-colors text-left ${isChecked ? "bg-[#F0FDF4]" : ""}`}
                 >
                   <input type="checkbox" checked={isChecked} readOnly className="accent-[#22C55E] w-3 h-3 pointer-events-none" />
-                  <span className="w-3.5 h-3.5 rounded-full border border-[#E5E5E5] shrink-0" style={colorSwatchStyle(opt.hex, opt.patternImage)} />
+                  <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={14} rounded="full" />
                   <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{opt.name}</span>
                   {isChecked && (
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${position === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
@@ -301,24 +310,26 @@ function MultiColorSelect({ selected, options, onChange }: {
 // ─────────────────────────────────────────────
 function findInvalidVariantTempIds(variants: VariantState[]): Set<string> {
   const invalid = new Set<string>();
-  // Duplicate UNIT per colorId
-  const unitSeen = new Map<string, string>(); // colorId -> tempId
+  // Duplicate UNIT per color group (colorId + sub-colors)
+  const unitSeen = new Map<string, string>(); // groupKey -> tempId
   for (const v of variants) {
     if (v.saleType === "UNIT") {
-      if (unitSeen.has(v.colorId)) {
+      const gk = variantGroupKeyFromState(v);
+      if (unitSeen.has(gk)) {
         invalid.add(v.tempId);
-        const prev = unitSeen.get(v.colorId)!;
+        const prev = unitSeen.get(gk)!;
         invalid.add(prev);
       } else {
-        unitSeen.set(v.colorId, v.tempId);
+        unitSeen.set(gk, v.tempId);
       }
     }
   }
-  // Duplicate PACK per colorId + packQuantity + size (same pack qty OK if different size)
+  // Duplicate PACK per color group + packQuantity + size (same pack qty OK if different size)
   const packSeen = new Map<string, string>(); // key -> tempId
   for (const v of variants) {
     if (v.saleType === "PACK" && v.packQuantity) {
-      const key = `${v.colorId}__${v.packQuantity}__${v.size.trim().toLowerCase()}`;
+      const gk = variantGroupKeyFromState(v);
+      const key = `${gk}__${v.packQuantity}__${v.size.trim().toLowerCase()}`;
       if (packSeen.has(key)) {
         invalid.add(v.tempId);
         const prev = packSeen.get(key)!;
@@ -443,45 +454,104 @@ interface ImageManagerModalProps {
   colorImages: ColorImageState[];
   onChange: (updated: ColorImageState[]) => void;
   variants: VariantState[];
-  onSetPrimary: (colorId: string) => void;
+  availableColors: AvailableColor[];
+  onSetPrimary: (variantTempId: string) => void;
 }
 
-function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onSetPrimary }: ImageManagerModalProps) {
+function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, onSetPrimary }: ImageManagerModalProps) {
   const { confirm: confirmDialog } = useConfirm();
   const colorImagesRef = useRef(colorImages);
   colorImagesRef.current = colorImages;
 
-  // Build hex arrays per colorId for camembert display
-  function getSwatchHexes(colorId: string): string[] {
-    const v = variants.find((vr) => vr.colorId === colorId);
-    if (!v) return [];
-    return [v.colorHex, ...v.subColors.map((sc) => sc.colorHex)];
+  // Find a representative variant for a given groupKey
+  function findVariantByGroupKey(groupKey: string): VariantState | undefined {
+    return variants.find((v) => variantGroupKeyFromState(v) === groupKey);
   }
 
-  async function handleAddImages(colorId: string, files: File[]) {
-    const state = colorImagesRef.current.find((c) => c.colorId === colorId);
+  // Build color segments per group key for camembert display (supports patterns)
+  function getSwatchSegments(groupKey: string): { main: { hex?: string | null; patternImage?: string | null }; subs: { hex?: string | null; patternImage?: string | null }[] } {
+    const v = findVariantByGroupKey(groupKey);
+    if (!v) return { main: { hex: "#9CA3AF" }, subs: [] };
+    const mainOpt = availableColors.find((c) => c.id === v.colorId);
+    const main = { hex: v.colorHex || mainOpt?.hex, patternImage: mainOpt?.patternImage ?? null };
+    const subs = v.subColors.map((sc) => {
+      const scOpt = availableColors.find((c) => c.id === sc.colorId);
+      return { hex: sc.colorHex || scOpt?.hex, patternImage: scOpt?.patternImage ?? null };
+    });
+    return { main, subs };
+  }
+
+  const [uploadingSlots, setUploadingSlots] = useState<Record<string, number | null>>({});
+
+  async function handleAddImageAtPosition(groupKey: string, file: File, position: number) {
+    const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
     if (!state) return;
-    const blobs = files.map((f) => URL.createObjectURL(f));
-    onChange(colorImagesRef.current.map((c) => c.colorId === colorId
-      ? { ...c, imagePreviews: [...c.imagePreviews, ...blobs], uploading: true }
-      : c
-    ));
-    const paths: string[] = [];
-    for (const file of files) {
-      const fd = new FormData(); fd.append("image", file);
-      try {
-        const res = await fetch("/api/admin/products/images", { method: "POST", body: fd });
-        const json = await res.json();
-        if (res.ok) paths.push(json.path);
-      } catch { console.error("Erreur upload"); }
+
+    // If there's already an image at this position, replace it
+    const existingIdx = state.orders.indexOf(position);
+
+    const blob = URL.createObjectURL(file);
+    setUploadingSlots((prev) => ({ ...prev, [groupKey]: position }));
+
+    if (existingIdx !== -1) {
+      // Replace: update preview immediately
+      onChange(colorImagesRef.current.map((c) => {
+        if (c.groupKey !== groupKey) return c;
+        const newPreviews = [...c.imagePreviews];
+        newPreviews[existingIdx] = blob;
+        return { ...c, imagePreviews: newPreviews, uploading: true };
+      }));
+    } else {
+      // Add new
+      onChange(colorImagesRef.current.map((c) => c.groupKey === groupKey
+        ? { ...c, imagePreviews: [...c.imagePreviews, blob], orders: [...c.orders, position], uploading: true }
+        : c
+      ));
     }
-    onChange(colorImagesRef.current.map((c) => c.colorId === colorId
-      ? { ...c, uploadedPaths: [...c.uploadedPaths, ...paths], uploading: false }
-      : c
-    ));
+
+    // Upload
+    let path = "";
+    const fd = new FormData(); fd.append("image", file);
+    try {
+      const res = await fetch("/api/admin/products/images", { method: "POST", body: fd });
+      const json = await res.json();
+      if (res.ok) path = json.path;
+    } catch { console.error("Erreur upload"); }
+
+    setUploadingSlots((prev) => ({ ...prev, [groupKey]: null }));
+
+    if (!path) {
+      // Upload failed — revert
+      onChange(colorImagesRef.current.map((c) => {
+        if (c.groupKey !== groupKey) return c;
+        if (existingIdx !== -1) {
+          // Revert replaced preview
+          return { ...c, uploading: false };
+        }
+        // Remove the added preview
+        return {
+          ...c,
+          imagePreviews: c.imagePreviews.filter((p) => p !== blob),
+          orders: c.orders.filter((_, j) => c.imagePreviews[j] !== blob),
+          uploading: false,
+        };
+      }));
+      return;
+    }
+
+    onChange(colorImagesRef.current.map((c) => {
+      if (c.groupKey !== groupKey) return c;
+      if (existingIdx !== -1) {
+        // Replace uploaded path
+        const newPaths = [...c.uploadedPaths];
+        newPaths[existingIdx] = path;
+        return { ...c, uploadedPaths: newPaths, uploading: false };
+      }
+      return { ...c, uploadedPaths: [...c.uploadedPaths, path], uploading: false };
+    }));
   }
 
-  async function handleRemoveImage(colorId: string, i: number) {
+  async function handleRemoveImageAtPosition(groupKey: string, position: number) {
     const ok = await confirmDialog({
       type: "danger",
       title: "Supprimer cette image ?",
@@ -489,20 +559,28 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onS
       confirmLabel: "Supprimer",
     });
     if (!ok) return;
-    onChange(colorImages.map((c) => c.colorId !== colorId ? c : {
-      ...c,
-      imagePreviews: c.imagePreviews.filter((_, j) => j !== i),
-      uploadedPaths: c.uploadedPaths.filter((_, j) => j !== i),
+    onChange(colorImages.map((c) => {
+      if (c.groupKey !== groupKey) return c;
+      const idx = c.orders.indexOf(position);
+      if (idx === -1) return c;
+      return {
+        ...c,
+        imagePreviews: c.imagePreviews.filter((_, j) => j !== idx),
+        uploadedPaths: c.uploadedPaths.filter((_, j) => j !== idx),
+        orders: c.orders.filter((_, j) => j !== idx),
+      };
     }));
   }
 
-  function handleReorderImage(colorId: string, from: number, to: number) {
+  function handleSwapPositions(groupKey: string, fromPos: number, toPos: number) {
     onChange(colorImages.map((c) => {
-      if (c.colorId !== colorId) return c;
-      const reorder = <T,>(arr: T[]): T[] => {
-        const r = [...arr]; const [item] = r.splice(from, 1); r.splice(to, 0, item); return r;
-      };
-      return { ...c, imagePreviews: reorder(c.imagePreviews), uploadedPaths: reorder(c.uploadedPaths) };
+      if (c.groupKey !== groupKey) return c;
+      const newOrders = c.orders.map((o) => {
+        if (o === fromPos) return toPos;
+        if (o === toPos) return fromPos;
+        return o;
+      });
+      return { ...c, orders: newOrders };
     }));
   }
 
@@ -544,22 +622,26 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onS
               </p>
               <div className="flex flex-wrap gap-2">
                 {colorImages.map((cimg) => {
-                  const isPrimary = variants.some((v) => v.colorId === cimg.colorId && v.isPrimary);
-                  const hexes = getSwatchHexes(cimg.colorId);
+                  const variant = findVariantByGroupKey(cimg.groupKey);
+                  const isPrimary = variant?.isPrimary ?? false;
+                  const seg = getSwatchSegments(cimg.groupKey);
                   return (
                     <button
-                      key={cimg.colorId}
+                      key={cimg.groupKey}
                       type="button"
-                      onClick={() => onSetPrimary(cimg.colorId)}
+                      onClick={() => { const v = findVariantByGroupKey(cimg.groupKey); if (v) onSetPrimary(v.tempId); }}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all font-[family-name:var(--font-roboto)] ${
                         isPrimary
                           ? "border-[#1A1A1A] bg-[#F7F7F8] shadow-sm"
                           : "border-[#E5E5E5] hover:border-[#9CA3AF] bg-white"
                       }`}
                     >
-                      <span
-                        className="w-4 h-4 rounded-full border border-[#E5E5E5] shrink-0"
-                        style={conicGradientStyle(hexes.length > 0 ? hexes : [cimg.colorHex || "#9CA3AF"])}
+                      <ColorSwatch
+                        hex={seg.main.hex}
+                        patternImage={seg.main.patternImage}
+                        subColors={seg.subs.length > 0 ? seg.subs : undefined}
+                        size={16}
+                        rounded="full"
                       />
                       <span className={`text-xs font-medium ${isPrimary ? "text-[#1A1A1A]" : "text-[#6B6B6B]"}`}>
                         {cimg.colorName}
@@ -581,11 +663,17 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onS
               Aucune couleur dans les variantes. Ajoutez d&apos;abord des variantes.
             </p>
           ) : colorImages.map((cimg, idx) => {
-            const hexes = getSwatchHexes(cimg.colorId);
+            const seg = getSwatchSegments(cimg.groupKey);
             return (
-            <div key={cimg.colorId} className="border border-[#E5E5E5] rounded-xl p-4">
+            <div key={cimg.groupKey} className="border border-[#E5E5E5] rounded-xl p-4">
               <div className="flex items-center gap-2 mb-3">
-                <span className="w-4 h-4 rounded-full border border-[#E5E5E5] shrink-0" style={conicGradientStyle(hexes.length > 0 ? hexes : [cimg.colorHex || "#9CA3AF"])} />
+                <ColorSwatch
+                  hex={seg.main.hex}
+                  patternImage={seg.main.patternImage}
+                  subColors={seg.subs.length > 0 ? seg.subs : undefined}
+                  size={16}
+                  rounded="full"
+                />
                 <span className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-roboto)]">
                   {cimg.colorName}
                 </span>
@@ -596,10 +684,18 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, onS
               <ImageDropzone
                 colorIndex={idx}
                 previews={cimg.imagePreviews}
-                onAdd={(files) => handleAddImages(cimg.colorId, files)}
-                onRemove={(i) => handleRemoveImage(cimg.colorId, i)}
-                onReorder={(from, to) => handleReorderImage(cimg.colorId, from, to)}
+                orders={cimg.orders}
+                onAddAtPosition={(file, pos) => handleAddImageAtPosition(cimg.groupKey, file, pos)}
+                onRemoveAtPosition={(pos) => handleRemoveImageAtPosition(cimg.groupKey, pos)}
+                onSwapPositions={(from, to) => handleSwapPositions(cimg.groupKey, from, to)}
+                onConfirmReplace={(pos) => confirmDialog({
+                  type: "warning",
+                  title: "Remplacer l'image ?",
+                  message: `La position ${pos + 1} contient déjà une image. Voulez-vous la remplacer ?`,
+                  confirmLabel: "Remplacer",
+                })}
                 uploading={cimg.uploading}
+                uploadingPosition={uploadingSlots[cimg.groupKey] ?? null}
               />
             </div>
           );
@@ -1009,7 +1105,7 @@ export default function ColorVariantManager({
                         {/* Photo */}
                         <td className="px-3 py-2 text-center">
                           {(() => {
-                            const cimg = colorImages.find((ci) => ci.colorId === v.colorId);
+                            const cimg = colorImages.find((ci) => ci.groupKey === variantGroupKeyFromState(v));
                             const firstImg = cimg?.imagePreviews[0];
                             if (firstImg) {
                               return (
@@ -1348,9 +1444,9 @@ export default function ColorVariantManager({
         colorImages={colorImages}
         onChange={onChangeImages}
         variants={variants}
-        onSetPrimary={(colorId) => {
-          const target = variants.find((v) => v.colorId === colorId);
-          if (target) setPrimary(target.tempId);
+        availableColors={availableColors}
+        onSetPrimary={(variantTempId) => {
+          setPrimary(variantTempId);
         }}
       />
     </div>

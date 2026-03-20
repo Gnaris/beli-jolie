@@ -133,7 +133,7 @@ async function processTransferConfirmed(order: NonNullable<OrderWithItems>) {
 
     // ── Easy-Express ──────────────────────────────
     let labelBuffer: Buffer | null = null;
-    const isFallbackCarrier = order.carrierId.startsWith("fallback_");
+    const isFallbackCarrier = order.carrierId.startsWith("fallback_") || order.carrierId === "pickup_store";
 
     if (!isFallbackCarrier) {
       // On ne peut plus utiliser le transactionId original (expiré).

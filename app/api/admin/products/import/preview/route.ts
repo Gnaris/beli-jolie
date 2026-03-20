@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { normalizeColorName } from "@/lib/import-processor";
 import * as XLSX from "xlsx";
 
 // ─────────────────────────────────────────────
@@ -24,13 +25,22 @@ export interface PreviewProduct {
   name: string;
   description?: string;
   category?: string;
+  subCategories?: string;
   tags?: string;
   composition?: string;
   variants: PreviewVariant[];
   categoryFound: boolean;
+  subCategoriesFound: boolean;
+  compositionsFound: boolean;
   referenceExists: boolean;
   totalErrors: number;
   status: "ok" | "warning" | "error";
+}
+
+export interface MissingEntity {
+  type: "category" | "color" | "subcategory" | "composition";
+  name: string;
+  usedBy: number; // how many products reference this entity
 }
 
 export interface PreviewResult {
@@ -40,6 +50,7 @@ export interface PreviewResult {
   readyToImport: number;
   withErrors: number;
   alreadyExist: number;
+  missingEntities: MissingEntity[];
 }
 
 // ─────────────────────────────────────────────
@@ -57,6 +68,7 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
     name: str(raw["name"] ?? raw["nom"] ?? raw["name_fr"]),
     description: str(raw["description"] ?? raw["description_fr"]) || undefined,
     category: str(raw["category"] ?? raw["categorie"] ?? raw["catégorie"]) || undefined,
+    subCategories: str(raw["sub_categories"] ?? raw["sous_categories"] ?? raw["subCategories"]) || undefined,
     color: str(raw["color"] ?? raw["couleur"]),
     saleType: saleTypeRaw === "PACK" ? "PACK" as const : "UNIT" as const,
     unitPrice: num(raw["unit_price"] ?? raw["prix"] ?? raw["price"]) ?? 0,
@@ -90,6 +102,9 @@ function parseJSON(text: string) {
         composition: Array.isArray(item.compositions)
           ? item.compositions.map((comp: { material: string; percentage: number }) => `${comp.material}:${comp.percentage}`).join(",")
           : (item.composition ?? undefined),
+        subCategories: Array.isArray(item.subCategories) ? item.subCategories.join(",")
+          : Array.isArray(item.sub_categories) ? item.sub_categories.join(",")
+          : (item.subCategories ?? item.sub_categories ?? undefined),
       });
       idx++;
     }
@@ -139,19 +154,51 @@ export async function POST(req: NextRequest) {
     if (rows.length === 0) return NextResponse.json({ error: "Fichier vide." }, { status: 400 });
 
     // Pre-load DB data for validation
-    const colorNames = [...new Set(rows.map((r) => r.color).filter(Boolean))];
+    // Split multi-colors "Bleu/Rose/Vert" into individual color names
+    const colorNames = [...new Set(
+      rows.flatMap((r) => r.color ? r.color.split("/").map((c) => c.trim()).filter(Boolean) : [])
+    )];
     const categoryNames = [...new Set(rows.filter((r) => r.category).map((r) => r.category!))];
     const references = [...new Set(rows.map((r) => r.reference).filter(Boolean))];
+    const compositionMaterials = [
+      ...new Set(
+        rows.flatMap((r) =>
+          r.composition ? r.composition.split(",").map((c) => c.split(":")[0].trim()).filter(Boolean) : []
+        )
+      ),
+    ];
+    const subCatNames = [
+      ...new Set(
+        rows.flatMap((r) =>
+          r.subCategories ? r.subCategories.split(",").map((s) => s.trim()).filter(Boolean) : []
+        )
+      ),
+    ];
 
-    const [dbColors, dbCategories, existingProducts] = await Promise.all([
+    const [dbColors, dbCategories, dbCompositions, dbSubCategories, existingProducts] = await Promise.all([
       prisma.color.findMany({ where: { name: { in: colorNames } }, select: { name: true, id: true } }),
       prisma.category.findMany({ where: { name: { in: categoryNames } }, select: { name: true, id: true } }),
+      prisma.composition.findMany({ where: { name: { in: compositionMaterials } }, select: { name: true, id: true } }),
+      prisma.subCategory.findMany({ where: { name: { in: subCatNames } }, select: { name: true, id: true } }),
       prisma.product.findMany({ where: { reference: { in: references } }, select: { reference: true } }),
     ]);
 
-    const colorSet = new Set(dbColors.map((c) => c.name.toLowerCase()));
+    const colorSet = new Set(dbColors.map((c) => normalizeColorName(c.name)));
     const categorySet = new Set(dbCategories.map((c) => c.name.toLowerCase()));
+    const compositionSet = new Set(dbCompositions.map((c) => c.name.toLowerCase()));
+    const subCatSet = new Set(dbSubCategories.map((s) => s.name.toLowerCase()));
     const existingRefSet = new Set(existingProducts.map((p) => p.reference.toUpperCase()));
+
+    // Track missing entities with usage counts
+    const missingMap = new Map<string, MissingEntity>();
+    const addMissing = (type: MissingEntity["type"], name: string) => {
+      const key = `${type}:${name.toLowerCase()}`;
+      if (missingMap.has(key)) {
+        missingMap.get(key)!.usedBy++;
+      } else {
+        missingMap.set(key, { type, name, usedBy: 1 });
+      }
+    };
 
     // Group rows by reference
     const grouped = new Map<string, ReturnType<typeof normalizeRow>[]>();
@@ -171,13 +218,43 @@ export async function POST(req: NextRequest) {
       const referenceExists = existingRefSet.has(ref);
 
       const categoryFound = !firstRow.category || categorySet.has((firstRow.category ?? "").toLowerCase());
+      if (firstRow.category && !categoryFound) addMissing("category", firstRow.category);
+
+      // Validate compositions
+      let compositionsFound = true;
+      if (firstRow.composition) {
+        for (const part of firstRow.composition.split(",")) {
+          const material = part.split(":")[0].trim();
+          if (material && !compositionSet.has(material.toLowerCase())) {
+            compositionsFound = false;
+            addMissing("composition", material);
+          }
+        }
+      }
+
+      // Validate sub-categories
+      let subCategoriesFound = true;
+      if (firstRow.subCategories) {
+        for (const scName of firstRow.subCategories.split(",").map((s) => s.trim()).filter(Boolean)) {
+          if (!subCatSet.has(scName.toLowerCase())) {
+            subCategoriesFound = false;
+            addMissing("subcategory", scName);
+          }
+        }
+      }
 
       const variants: PreviewVariant[] = groupRows.map((row) => {
-        const colorFound = colorSet.has(row.color.toLowerCase());
         const errors: string[] = [];
+        // Multi-color support: "Bleu/Rose/Vert" → check each sub-color
+        const subColors = row.color ? row.color.split("/").map((c) => c.trim()).filter(Boolean) : [];
+        const missingColors = subColors.filter((c) => !colorSet.has(normalizeColorName(c)));
+        const colorFound = subColors.length > 0 && missingColors.length === 0;
 
         if (!row.color) errors.push("Couleur manquante.");
-        else if (!colorFound) errors.push(`Couleur "${row.color}" introuvable.`);
+        else if (missingColors.length > 0) {
+          errors.push(`Couleur(s) introuvable(s) : ${missingColors.join(", ")}`);
+          for (const mc of missingColors) addMissing("color", mc);
+        }
         if (!row.unitPrice || row.unitPrice <= 0) errors.push("Prix invalide.");
         if (row.stock == null || row.stock < 0) errors.push("Stock invalide.");
         if (row.saleType === "PACK" && (!row.packQuantity || row.packQuantity < 1))
@@ -199,6 +276,8 @@ export async function POST(req: NextRequest) {
       if (!firstRow.reference) productErrors.push("Référence manquante.");
       if (!firstRow.name) productErrors.push("Nom manquant.");
       if (firstRow.category && !categoryFound) productErrors.push(`Catégorie "${firstRow.category}" introuvable.`);
+      if (!compositionsFound) productErrors.push("Composition(s) introuvable(s).");
+      if (!subCategoriesFound) productErrors.push("Sous-catégorie(s) introuvable(s).");
       if (referenceExists) productErrors.push(`La référence "${ref}" existe déjà.`);
 
       const variantErrors = variants.flatMap((v) => v.errors);
@@ -214,10 +293,13 @@ export async function POST(req: NextRequest) {
         name: firstRow.name,
         description: firstRow.description,
         category: firstRow.category,
+        subCategories: firstRow.subCategories,
         tags: firstRow.tags,
         composition: firstRow.composition,
         variants,
         categoryFound,
+        subCategoriesFound,
+        compositionsFound,
         referenceExists,
         totalErrors,
         status,
@@ -231,6 +313,7 @@ export async function POST(req: NextRequest) {
       readyToImport,
       withErrors,
       alreadyExist,
+      missingEntities: [...missingMap.values()],
     };
 
     return NextResponse.json(result);

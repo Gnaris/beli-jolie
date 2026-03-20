@@ -332,6 +332,7 @@ model ProductColor {
   discountType  DiscountType? // Type de remise (null = pas de remise)
   discountValue Float?        // Valeur de la remise
   subColors   ProductColorSubColor[] // Sous-couleurs optionnelles (ex: Doré → Rouge, Noir)
+  images      ProductColorImage[]   // Images spécifiques à ce variant
   cartItems   CartItem[]
   collectionOverrides CollectionProduct[] // Apparitions dans des collections avec cette couleur
   restockAlerts RestockAlert[]
@@ -360,18 +361,22 @@ model ProductColorSubColor {
   @@index([productColorId])
 }
 
-// Images liées à un (produit, couleur) — partagées entre toutes les variantes de la même couleur
+// Images liées à un variant spécifique (ProductColor)
+// productColorId identifie la variante exacte (ex: Doré/Argenté/Or Rose ≠ Doré/Argenté/Or Rose/Vert)
 model ProductColorImage {
-  id        String   @id @default(cuid())
-  productId String
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  colorId   String
-  color     Color    @relation(fields: [colorId], references: [id])
-  path      String
-  order     Int      @default(0)
-  createdAt DateTime @default(now())
+  id             String        @id @default(cuid())
+  productId      String
+  product        Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorId        String
+  color          Color         @relation(fields: [colorId], references: [id])
+  productColorId String?
+  productColor   ProductColor? @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  path           String
+  order          Int           @default(0)
+  createdAt      DateTime      @default(now())
 
   @@index([productId, colorId])
+  @@index([productColorId])
 }
 
 // ─────────────────────────────────────────────
@@ -512,12 +517,24 @@ model OrderItem {
 
 // Collection (ex: "Été 2026", "Romantique", "Minimaliste")
 model Collection {
-  id          String              @id @default(cuid())
-  name        String
-  image       String?             // Chemin relatif depuis /public
-  products    CollectionProduct[]
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id           String                  @id @default(cuid())
+  name         String
+  image        String?                 // Chemin relatif depuis /public
+  products     CollectionProduct[]
+  translations CollectionTranslation[]
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+}
+
+model CollectionTranslation {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  locale       String
+  name         String
+  createdAt    DateTime   @default(now())
+
+  @@unique([collectionId, locale])
 }
 
 // Liaison produit ↔ collection avec couleur et ordre d'affichage
@@ -766,6 +783,7 @@ model ImportJob {
   tempDir         String?                       // temp dir for images
   errorDraftId    String?                       // link to ImportDraft if errors
   errorMessage    String?         @db.Text      // global error message if FAILED
+  resultDetails   Json?                         // detailed log of what was created/imported
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   adminId         String
@@ -813,4 +831,19 @@ model ImportDraft {
 
   @@index([adminId])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Quota de traduction (DeepL + Google)
+// ─────────────────────────────────────────────
+
+model TranslationQuota {
+  id        String   @id @default(cuid())
+  provider  String   // "deepl" | "google"
+  monthYear String   // "2026-03" format
+  charsUsed Int      @default(0)
+  maxChars  Int      // 500000
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, monthYear])
 }

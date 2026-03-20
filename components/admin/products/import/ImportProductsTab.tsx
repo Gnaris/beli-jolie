@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import type { PreviewResult, PreviewProduct } from "@/app/api/admin/products/import/preview/route";
+import Link from "next/link";
+import type { PreviewResult, PreviewProduct, MissingEntity } from "@/app/api/admin/products/import/preview/route";
 
 const TEMPLATE_JSON = JSON.stringify(
   [
@@ -86,6 +87,38 @@ export default function ImportProductsTab() {
   const [importResult, setImportResult] = useState<{ success: number; errors: number; total: number; draftId?: string; jobId?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Job polling state
+  const [jobStatus, setJobStatus] = useState<"PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | null>(null);
+  const [jobProgress, setJobProgress] = useState({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null as string | null, errorMessage: null as string | null });
+
+  // Poll job status when in "done" step
+  useEffect(() => {
+    if (step !== "done" || !importResult?.jobId) return;
+    if (jobStatus === "COMPLETED" || jobStatus === "FAILED") return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/admin/import-jobs/${importResult.jobId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const job = data.job;
+        setJobStatus(job.status);
+        setJobProgress({
+          processed: job.processedItems,
+          total: job.totalItems,
+          success: job.successItems,
+          errors: job.errorItems,
+          errorDraftId: job.errorDraftId,
+          errorMessage: job.errorMessage,
+        });
+      } catch {
+        // Silently retry on next interval
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [step, importResult?.jobId, jobStatus]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFile(e.target.files?.[0] ?? null);
     setStep("upload");
@@ -100,12 +133,13 @@ export default function ImportProductsTab() {
     if (f) { setFile(f); setStep("upload"); setPreview(null); setError(null); }
   };
 
-  const analyzeFile = async () => {
-    if (!file) return;
+  const analyzeFile = useCallback(async (targetFile?: File) => {
+    const f = targetFile ?? file;
+    if (!f) return;
     setLoadingPreview(true);
     setError(null);
     const fd = new FormData();
-    fd.append("file", file);
+    fd.append("file", f);
     try {
       const res = await fetch("/api/admin/products/import/preview", { method: "POST", body: fd });
       const data = await res.json();
@@ -117,7 +151,7 @@ export default function ImportProductsTab() {
     } finally {
       setLoadingPreview(false);
     }
-  };
+  }, [file]);
 
   const confirmImport = async () => {
     if (!file) return;
@@ -142,6 +176,7 @@ export default function ImportProductsTab() {
 
   const reset = () => {
     setFile(null); setStep("upload"); setPreview(null); setImportResult(null); setError(null);
+    setJobStatus(null); setJobProgress({ processed: 0, total: 0, success: 0, errors: 0, errorDraftId: null, errorMessage: null });
   };
 
   const downloadTemplate = (type: "json" | "xlsx") => {
@@ -165,7 +200,7 @@ export default function ImportProductsTab() {
           <ul className="space-y-1 font-[family-name:var(--font-roboto)]">
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">reference</code> — Référence unique</li>
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">name</code> — Nom (FR)</li>
-            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">color</code> — Couleur (ex: Doré, Doré/Rouge/Noir)</li>
+            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">color</code> — Couleur (ex: Doré, Doré/Rouge/Noir pour multi-couleur)</li>
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">sale_type</code> — UNIT ou PACK</li>
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">unit_price</code> — Prix HT (€)</li>
             <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">stock</code> — Stock</li>
@@ -231,7 +266,7 @@ export default function ImportProductsTab() {
           </div>
           {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
           <div className="mt-4 flex justify-end">
-            <button onClick={analyzeFile} disabled={!file || loadingPreview} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
+            <button onClick={() => analyzeFile()} disabled={!file || loadingPreview} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
               {loadingPreview ? "Analyse en cours…" : "Analyser le fichier →"}
             </button>
           </div>
@@ -250,6 +285,14 @@ export default function ImportProductsTab() {
           </div>
 
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
+
+          {/* Missing entities — quick create */}
+          {preview.missingEntities && preview.missingEntities.length > 0 && (
+            <MissingEntitiesPanel
+              entities={preview.missingEntities}
+              onEntitiesCreated={() => analyzeFile()}
+            />
+          )}
 
           {/* Product table — grouped */}
           <div className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
@@ -293,34 +336,115 @@ export default function ImportProductsTab() {
         </div>
       )}
 
-      {/* ── Step: Done — processing in background ── */}
+      {/* ── Step: Done — processing with real-time progress ── */}
       {step === "done" && importResult && (
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)] text-center space-y-4">
-          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
-            <svg className="w-8 h-8 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-xl font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
-              Traitement en cours...
-            </p>
-            <p className="text-[#666] mt-1 font-[family-name:var(--font-roboto)]">
-              {preview?.totalProducts ?? 0} produit(s) en cours de création en arrière-plan.
-            </p>
-            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 font-[family-name:var(--font-roboto)]">
-              Les produits ne sont <strong>pas encore créés</strong>. Le serveur vérifie chaque ligne (couleurs, catégories, etc.).
-              <br />
-              En cas d'erreur, vous pourrez corriger via le brouillon avec des boutons de création rapide.
+        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)] text-center space-y-5">
+          {/* Icon — spinner while processing, checkmark or X when done */}
+          {jobStatus === "COMPLETED" ? (
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${jobProgress.errors > 0 ? "bg-amber-50" : "bg-green-50"}`}>
+              <svg className={`w-8 h-8 ${jobProgress.errors > 0 ? "text-amber-600" : "text-green-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
             </div>
-            <p className="text-[#999] text-sm mt-3 font-[family-name:var(--font-roboto)]">
-              Suivez la progression dans le panneau en bas à droite.
-            </p>
-          </div>
+          ) : jobStatus === "FAILED" ? (
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto">
+              <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+          ) : (
+            <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
+              <svg className="w-8 h-8 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            </div>
+          )}
+
+          {/* Title */}
+          <p className="text-xl font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+            {jobStatus === "COMPLETED"
+              ? (jobProgress.errors > 0 ? "Import terminé avec des erreurs" : "Import terminé avec succès !")
+              : jobStatus === "FAILED"
+              ? "Échec de l'import"
+              : "Traitement en cours..."}
+          </p>
+
+          {/* Progress bar — during processing */}
+          {jobStatus !== "COMPLETED" && jobStatus !== "FAILED" && (
+            <div className="max-w-md mx-auto">
+              <div className="flex items-center justify-between text-sm text-[#666] mb-2">
+                <span>{jobProgress.processed} / {jobProgress.total || preview?.totalProducts || "?"} traité(s)</span>
+                <span>{jobProgress.total > 0 ? Math.round((jobProgress.processed / jobProgress.total) * 100) : 0}%</span>
+              </div>
+              <div className="w-full h-3 bg-[#F0F0F0] rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500 ease-out"
+                  style={{
+                    width: `${jobProgress.total > 0 ? (jobProgress.processed / jobProgress.total) * 100 : 0}%`,
+                    background: "linear-gradient(90deg, #1A1A1A, #444)",
+                  }}
+                />
+              </div>
+              <p className="text-xs text-[#999] mt-3 font-[family-name:var(--font-roboto)]">
+                Le serveur vérifie chaque ligne (couleurs, catégories, etc.). Vous pouvez fermer cette page.
+              </p>
+            </div>
+          )}
+
+          {/* Results — when completed */}
+          {jobStatus === "COMPLETED" && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3 max-w-lg mx-auto">
+                <div className="rounded-xl p-3 bg-[#F7F7F8] border border-[#E5E5E5]">
+                  <p className="text-2xl font-bold font-[family-name:var(--font-poppins)]">{jobProgress.total}</p>
+                  <p className="text-xs text-[#666]">Total</p>
+                </div>
+                <div className="rounded-xl p-3 bg-green-50 border border-green-200">
+                  <p className="text-2xl font-bold text-green-700 font-[family-name:var(--font-poppins)]">{jobProgress.success}</p>
+                  <p className="text-xs text-green-600">Importés</p>
+                </div>
+                <div className={`rounded-xl p-3 border ${jobProgress.errors > 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
+                  <p className={`text-2xl font-bold font-[family-name:var(--font-poppins)] ${jobProgress.errors > 0 ? "text-red-700" : "text-green-700"}`}>{jobProgress.errors}</p>
+                  <p className={`text-xs ${jobProgress.errors > 0 ? "text-red-600" : "text-green-600"}`}>Erreurs</p>
+                </div>
+              </div>
+
+              {jobProgress.errorDraftId && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                  {jobProgress.errors} ligne(s) en erreur. Vous pouvez les corriger dans le brouillon.
+                  <br />
+                  <Link href={`/admin/produits/importer/brouillon/${jobProgress.errorDraftId}`} className="font-medium underline hover:text-amber-900 transition-colors">
+                    Corriger les erreurs →
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Error — when failed */}
+          {jobStatus === "FAILED" && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 max-w-lg mx-auto">
+              {jobProgress.errorMessage || "Une erreur inattendue est survenue lors du traitement."}
+            </div>
+          )}
+
+          {/* Actions */}
           <div className="flex justify-center gap-3">
-            <button onClick={() => router.push("/admin/produits")} className="btn-primary text-sm">Voir les produits</button>
-            <button onClick={reset} className="btn-secondary text-sm">Nouvelle importation</button>
+            {jobStatus === "COMPLETED" || jobStatus === "FAILED" ? (
+              <>
+                <Link href="/admin/produits/importer/historique" className="btn-primary text-sm">
+                  Voir l&apos;historique
+                </Link>
+                <button onClick={() => router.push("/admin/produits")} className="btn-secondary text-sm">Voir les produits</button>
+                <button onClick={reset} className="btn-secondary text-sm">Nouvelle importation</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => router.push("/admin/produits")} className="btn-secondary text-sm">Voir les produits</button>
+                <button onClick={reset} className="btn-secondary text-sm">Nouvelle importation</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -338,6 +462,157 @@ function StatCard({ label, value, color }: { label: string; value: number; color
     <div className={`rounded-xl p-4 ${colors[color]} border border-[#E5E5E5]`}>
       <p className="text-2xl font-bold font-[family-name:var(--font-poppins)]">{value}</p>
       <p className="text-xs mt-0.5 font-[family-name:var(--font-roboto)] opacity-80">{label}</p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Missing Entities Panel — quick create
+// ─────────────────────────────────────────────
+
+const ENTITY_LABELS: Record<MissingEntity["type"], { label: string; plural: string; icon: string; action: string }> = {
+  category: { label: "Catégorie", plural: "Catégories", icon: "📂", action: "create_category" },
+  color: { label: "Couleur", plural: "Couleurs", icon: "🎨", action: "create_color" },
+  subcategory: { label: "Sous-catégorie", plural: "Sous-catégories", icon: "📁", action: "create_subcategory" },
+  composition: { label: "Composition", plural: "Compositions", icon: "⚗️", action: "create_composition" },
+};
+
+function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: MissingEntity[]; onEntitiesCreated: () => void }) {
+  const [creating, setCreating] = useState<Set<string>>(new Set());
+  const [created, setCreated] = useState<Set<string>>(new Set());
+  const [creatingAll, setCreatingAll] = useState(false);
+  const [colorHexes, setColorHexes] = useState<Record<string, string>>({});
+
+  const grouped = entities.reduce<Record<string, MissingEntity[]>>((acc, e) => {
+    (acc[e.type] ??= []).push(e);
+    return acc;
+  }, {});
+
+  const remaining = entities.filter((e) => !created.has(`${e.type}:${e.name}`));
+
+  const createEntity = async (entity: MissingEntity, hex?: string) => {
+    const key = `${entity.type}:${entity.name}`;
+    if (created.has(key) || creating.has(key)) return;
+
+    setCreating((prev) => new Set(prev).add(key));
+    try {
+      const body: Record<string, string> = {
+        action: ENTITY_LABELS[entity.type].action,
+        name: entity.name,
+      };
+      if (entity.type === "color" && hex) body.colorHex = hex;
+
+      const res = await fetch("/api/admin/products/import/quick-create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setCreated((prev) => new Set(prev).add(key));
+      }
+    } catch {
+      // silently ignore
+    } finally {
+      setCreating((prev) => { const s = new Set(prev); s.delete(key); return s; });
+    }
+  };
+
+  const createAll = async () => {
+    setCreatingAll(true);
+    for (const entity of remaining) {
+      await createEntity(entity, colorHexes[entity.name]);
+    }
+    setCreatingAll(false);
+    onEntitiesCreated();
+  };
+
+  const handleCreateSingle = async (entity: MissingEntity) => {
+    await createEntity(entity, colorHexes[entity.name]);
+  };
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)] text-sm">
+            Éléments manquants ({remaining.length})
+          </h3>
+          <p className="text-xs text-amber-700 mt-0.5 font-[family-name:var(--font-roboto)]">
+            Ces éléments n'existent pas encore en base. Créez-les pour débloquer l'import.
+          </p>
+        </div>
+        {remaining.length > 0 && (
+          <button
+            onClick={createAll}
+            disabled={creatingAll}
+            className="btn-primary text-xs disabled:opacity-50"
+          >
+            {creatingAll ? "Création en cours…" : `Tout créer (${remaining.length})`}
+          </button>
+        )}
+        {remaining.length === 0 && (
+          <button onClick={onEntitiesCreated} className="btn-primary text-xs">
+            Re-analyser le fichier
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        {(Object.keys(ENTITY_LABELS) as MissingEntity["type"][]).map((type) => {
+          const items = grouped[type];
+          if (!items?.length) return null;
+
+          return (
+            <div key={type}>
+              <p className="text-xs font-medium text-[#666] mb-1.5 uppercase tracking-wide">
+                {ENTITY_LABELS[type].icon} {ENTITY_LABELS[type].plural} ({items.length})
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {items.map((entity) => {
+                  const key = `${entity.type}:${entity.name}`;
+                  const isCreated = created.has(key);
+                  const isCreating = creating.has(key);
+
+                  return (
+                    <div key={key} className="flex items-center gap-1.5">
+                      {type === "color" && !isCreated && (
+                        <input
+                          type="color"
+                          value={colorHexes[entity.name] ?? "#9CA3AF"}
+                          onChange={(e) => setColorHexes((prev) => ({ ...prev, [entity.name]: e.target.value }))}
+                          className="w-6 h-6 rounded border border-[#E5E5E5] cursor-pointer p-0"
+                          title="Choisir la couleur hex"
+                        />
+                      )}
+                      <button
+                        onClick={() => handleCreateSingle(entity)}
+                        disabled={isCreated || isCreating}
+                        className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                          isCreated
+                            ? "bg-green-50 border-green-200 text-green-700 cursor-default"
+                            : isCreating
+                            ? "bg-white border-[#E5E5E5] text-[#999] cursor-wait"
+                            : "bg-white border-[#E5E5E5] text-[#1A1A1A] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] cursor-pointer"
+                        }`}
+                      >
+                        {isCreated ? (
+                          <span className="text-green-600">✓</span>
+                        ) : isCreating ? (
+                          <span className="inline-block w-3 h-3 border-2 border-[#999] border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <span className="text-[#999]">+</span>
+                        )}
+                        <span className="font-medium">{entity.name}</span>
+                        <span className="text-[10px] text-[#999]">({entity.usedBy} produit{entity.usedBy > 1 ? "s" : ""})</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -418,7 +693,13 @@ function ProductPreviewRow({ product: p }: { product: PreviewProduct }) {
               </div>
             ))}
             {p.category && !p.categoryFound && (
-              <div className="p-2 rounded-lg bg-amber-50 text-amber-700 text-xs">⚠️ Catégorie &laquo;{p.category}&raquo; introuvable — elle sera ignorée lors de l'import.</div>
+              <div className="p-2 rounded-lg bg-amber-50 text-amber-700 text-xs">⚠️ Catégorie &laquo;{p.category}&raquo; introuvable.</div>
+            )}
+            {p.composition && !p.compositionsFound && (
+              <div className="p-2 rounded-lg bg-amber-50 text-amber-700 text-xs">⚠️ Composition(s) introuvable(s) : {p.composition}</div>
+            )}
+            {p.subCategories && !p.subCategoriesFound && (
+              <div className="p-2 rounded-lg bg-amber-50 text-amber-700 text-xs">⚠️ Sous-catégorie(s) introuvable(s) : {p.subCategories}</div>
             )}
           </div>
         </div>
