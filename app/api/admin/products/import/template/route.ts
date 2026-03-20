@@ -59,16 +59,16 @@ interface ColumnDef {
 }
 
 const COLUMNS: ColumnDef[] = [
-  { key: "reference", header: "reference *", width: 14, required: true, description: "Référence unique du produit", example: "BJ-001" },
-  { key: "name", header: "name *", width: 28, required: true, description: "Nom du produit (en français)", example: "Collier Étoile" },
+  { key: "reference", header: "reference", width: 14, required: true, description: "Référence unique du produit", example: "BJ-001" },
+  { key: "name", header: "name", width: 28, required: true, description: "Nom du produit (en français)", example: "Collier Étoile" },
   { key: "description", header: "description", width: 38, required: false, description: "Description du produit", example: "Collier fin avec pendentif étoile" },
   { key: "category", header: "category", width: 20, required: false, description: "Catégorie (doit exister dans la base)", example: "Colliers" },
   { key: "sub_categories", header: "sub_categories", width: 22, required: false, description: "Sous-catégories séparées par des virgules", example: "Sautoir,Fin" },
-  { key: "color", header: "color *", width: 24, required: true, description: "Couleur (multi-couleurs séparées par /)", example: "Doré" },
-  { key: "sale_type", header: "sale_type *", width: 13, required: true, description: "UNIT ou PACK", example: "UNIT" },
-  { key: "unit_price", header: "unit_price *", width: 14, required: true, description: "Prix unitaire HT en euros", example: "12.50" },
+  { key: "color", header: "color", width: 24, required: true, description: "Couleur (multi-couleurs séparées par /)", example: "Doré" },
+  { key: "sale_type", header: "sale_type", width: 13, required: true, description: "UNIT ou PACK", example: "UNIT" },
+  { key: "unit_price", header: "unit_price", width: 14, required: true, description: "Prix unitaire HT en euros", example: "12.50" },
   { key: "pack_qty", header: "pack_qty", width: 12, required: false, description: "Quantité par pack (requis si PACK)", example: "" },
-  { key: "stock", header: "stock *", width: 10, required: true, description: "Quantité en stock", example: "200" },
+  { key: "stock", header: "stock", width: 10, required: true, description: "Quantité en stock", example: "200" },
   { key: "weight_g", header: "weight_g", width: 12, required: false, description: "Poids en grammes", example: "30" },
   { key: "is_primary", header: "is_primary", width: 12, required: false, description: "true = variante principale (1 par produit)", example: "true" },
   { key: "discount_type", header: "discount_type", width: 15, required: false, description: "PERCENT ou AMOUNT", example: "" },
@@ -77,28 +77,33 @@ const COLUMNS: ColumnDef[] = [
   { key: "tags", header: "tags", width: 26, required: false, description: "Mots-clés séparés par des virgules", example: "étoile,fin,tendance" },
   { key: "composition", header: "composition", width: 32, required: false, description: "Matière:pourcentage (ex: Acier:85,Or:15)", example: "Acier inoxydable:100" },
   { key: "similar_refs", header: "similar_refs", width: 22, required: false, description: "Références produits similaires (virgules)", example: "BJ-002,BJ-003" },
+  { key: "dimension_length", header: "dimension_length", width: 16, required: false, description: "Longueur en cm", example: "45" },
+  { key: "dimension_width", header: "dimension_width", width: 16, required: false, description: "Largeur en cm", example: "2" },
+  { key: "dimension_height", header: "dimension_height", width: 16, required: false, description: "Hauteur en cm", example: "" },
+  { key: "dimension_diameter", header: "dimension_diameter", width: 16, required: false, description: "Diamètre en cm", example: "6.5" },
+  { key: "dimension_circumference", header: "dimension_circumference", width: 20, required: false, description: "Circonférence en cm", example: "" },
 ];
 
 // ── Sample data ──
 const SAMPLE_DATA = [
   // Produit simple : 1 couleur, UNIT
-  { reference: "BJ-001", name: "Collier Étoile", description: "Collier fin avec pendentif étoile", category: "Colliers", sub_categories: "Sautoir", color: "Doré", sale_type: "UNIT", unit_price: 12.50, pack_qty: "", stock: 200, weight_g: 30, is_primary: "true", discount_type: "", discount_value: "", size: "", tags: "étoile,fin,tendance", composition: "Acier inoxydable:100", similar_refs: "BJ-002,BJ-003" },
+  { reference: "BJ-001", name: "Collier Étoile", description: "Collier fin avec pendentif étoile", category: "Colliers", sub_categories: "Sautoir", color: "Doré", sale_type: "UNIT", unit_price: 12.50, pack_qty: "", stock: 200, weight_g: 30, is_primary: "true", discount_type: "", discount_value: "", size: "", tags: "étoile,fin,tendance", composition: "Acier inoxydable:100", similar_refs: "BJ-002,BJ-003", dimension_length: 45, dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Multi-variantes : Doré UNIT
-  { reference: "BJ-002", name: "Bracelet Jonc Classique", description: "Bracelet jonc ajustable, finition polie", category: "Bracelets", sub_categories: "Jonc,Ajustable", color: "Doré", sale_type: "UNIT", unit_price: 8.99, pack_qty: "", stock: 500, weight_g: 45, is_primary: "true", discount_type: "", discount_value: "", size: "", tags: "jonc,classique", composition: "Acier inoxydable:85,Or:15", similar_refs: "BJ-001" },
+  { reference: "BJ-002", name: "Bracelet Jonc Classique", description: "Bracelet jonc ajustable, finition polie", category: "Bracelets", sub_categories: "Jonc,Ajustable", color: "Doré", sale_type: "UNIT", unit_price: 8.99, pack_qty: "", stock: 500, weight_g: 45, is_primary: "true", discount_type: "", discount_value: "", size: "", tags: "jonc,classique", composition: "Acier inoxydable:85,Or:15", similar_refs: "BJ-001", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: 6.5, dimension_circumference: "" },
   // Même produit : Doré PACK
-  { reference: "BJ-002", name: "", description: "", category: "", sub_categories: "", color: "Doré", sale_type: "PACK", unit_price: 7.50, pack_qty: 12, stock: 100, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "" },
+  { reference: "BJ-002", name: "", description: "", category: "", sub_categories: "", color: "Doré", sale_type: "PACK", unit_price: 7.50, pack_qty: 12, stock: 100, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Même produit : Argenté UNIT
-  { reference: "BJ-002", name: "", description: "", category: "", sub_categories: "", color: "Argenté", sale_type: "UNIT", unit_price: 8.99, pack_qty: "", stock: 300, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "" },
+  { reference: "BJ-002", name: "", description: "", category: "", sub_categories: "", color: "Argenté", sale_type: "UNIT", unit_price: 8.99, pack_qty: "", stock: 300, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Même produit : Argenté PACK
-  { reference: "BJ-002", name: "", description: "", category: "", sub_categories: "", color: "Argenté", sale_type: "PACK", unit_price: 7.50, pack_qty: 12, stock: 80, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "" },
+  { reference: "BJ-002", name: "", description: "", category: "", sub_categories: "", color: "Argenté", sale_type: "PACK", unit_price: 7.50, pack_qty: 12, stock: 80, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Même produit : Or Rose UNIT
-  { reference: "BJ-002", name: "", description: "", category: "", sub_categories: "", color: "Or Rose", sale_type: "UNIT", unit_price: 9.99, pack_qty: "", stock: 200, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "" },
+  { reference: "BJ-002", name: "", description: "", category: "", sub_categories: "", color: "Or Rose", sale_type: "UNIT", unit_price: 9.99, pack_qty: "", stock: 200, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Multi-couleurs
-  { reference: "BJ-003", name: "Bague Trio", description: "Bague tricolore empilable", category: "Bagues", sub_categories: "", color: "Doré/Argenté/Or Rose", sale_type: "UNIT", unit_price: 6.50, pack_qty: "", stock: 150, weight_g: 15, is_primary: "true", discount_type: "", discount_value: "", size: "17", tags: "trio,empilable", composition: "", similar_refs: "BJ-002" },
+  { reference: "BJ-003", name: "Bague Trio", description: "Bague tricolore empilable", category: "Bagues", sub_categories: "", color: "Doré/Argenté/Or Rose", sale_type: "UNIT", unit_price: 6.50, pack_qty: "", stock: 150, weight_g: 15, is_primary: "true", discount_type: "", discount_value: "", size: "17", tags: "trio,empilable", composition: "", similar_refs: "BJ-002", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: 17 },
   // Même produit : PACK multi-couleurs
-  { reference: "BJ-003", name: "", description: "", category: "", sub_categories: "", color: "Doré/Argenté/Or Rose", sale_type: "PACK", unit_price: 5.50, pack_qty: 24, stock: 40, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "" },
+  { reference: "BJ-003", name: "", description: "", category: "", sub_categories: "", color: "Doré/Argenté/Or Rose", sale_type: "PACK", unit_price: 5.50, pack_qty: 24, stock: 40, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Produit avec remise
-  { reference: "BJ-004", name: "Boucles Créoles", description: "Créoles dorées élégantes", category: "Boucles d'oreilles", sub_categories: "", color: "Doré", sale_type: "UNIT", unit_price: 5.99, pack_qty: "", stock: 800, weight_g: 20, is_primary: "true", discount_type: "PERCENT", discount_value: 10, size: "", tags: "créoles", composition: "Acier inoxydable:100", similar_refs: "BJ-002,BJ-003" },
+  { reference: "BJ-004", name: "Boucles Créoles", description: "Créoles dorées élégantes", category: "Boucles d'oreilles", sub_categories: "", color: "Doré", sale_type: "UNIT", unit_price: 5.99, pack_qty: "", stock: 800, weight_g: 20, is_primary: "true", discount_type: "PERCENT", discount_value: 10, size: "", tags: "créoles", composition: "Acier inoxydable:100", similar_refs: "BJ-002,BJ-003", dimension_length: 3, dimension_width: 3, dimension_height: "", dimension_diameter: 3, dimension_circumference: "" },
 ];
 
 // Track which reference groups for alternating colors
@@ -190,6 +195,14 @@ export async function GET() {
     "• tags : séparés par des virgules → étoile,fin,tendance",
     "• composition : format Matière:pourcentage → Acier inoxydable:85,Or:15",
     "• similar_refs : références de produits similaires, séparées par des virgules.",
+  ]);
+
+  addSection("📐  Dimensions", [
+    "• Toutes les dimensions sont en centimètres (cm).",
+    "• dimension_length, dimension_width, dimension_height : longueur, largeur, hauteur.",
+    "• dimension_diameter : diamètre (ex: bague, bracelet).",
+    "• dimension_circumference : circonférence (ex: tour de doigt, tour de poignet).",
+    "• Les dimensions sont des champs produit : elles ne doivent être renseignées que sur la ligne principale.",
   ]);
 
   // Column reference table
@@ -344,7 +357,7 @@ export async function GET() {
       }
 
       // Center numeric / short columns
-      if (["sale_type", "unit_price", "pack_qty", "stock", "weight_g", "is_primary", "discount_type", "discount_value", "size"].includes(colDef.key)) {
+      if (["sale_type", "unit_price", "pack_qty", "stock", "weight_g", "is_primary", "discount_type", "discount_value", "size", "dimension_length", "dimension_width", "dimension_height", "dimension_diameter", "dimension_circumference"].includes(colDef.key)) {
         cell.alignment = { horizontal: "center", vertical: "middle" };
       }
     });

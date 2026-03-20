@@ -137,7 +137,12 @@ export default function AdminMobileNav({ userName, initials, warnings = {} }: Pr
                       </svg>
                       <span className="flex-1">{item.label}</span>
                       {item.href === "/admin/suivi" && <LiveCountBadge />}
-                      {warningCount > 0 && (
+                      {item.href === "/admin/commandes" && warningCount > 0 && (
+                        <span className="flex items-center justify-center text-[11px] bg-blue-100 text-blue-700 border border-blue-200 rounded-full min-w-[22px] h-[22px] px-1.5 font-semibold shrink-0">
+                          {warningCount}
+                        </span>
+                      )}
+                      {item.href !== "/admin/commandes" && warningCount > 0 && (
                         <span className="flex items-center gap-1 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 font-medium shrink-0">
                           ⚠ {warningCount}
                         </span>

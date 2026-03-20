@@ -2,34 +2,47 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import DeleteCollectionButton from "@/components/admin/collections/DeleteCollectionButton";
+import CollectionsTranslateAll from "@/components/admin/collections/CollectionsTranslateAll";
 
 export const metadata: Metadata = { title: "Collections — Admin" };
 
 export default async function AdminCollectionsPage() {
   const collections = await prisma.collection.findMany({
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { products: true } } },
+    include: {
+      _count: { select: { products: true } },
+      translations: true,
+    },
   });
 
   return (
     <div className="space-y-6">
       {/* En-tête */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="page-title">Collections</h1>
           <p className="page-subtitle font-[family-name:var(--font-roboto)]">
             Gérez les collections de bijoux de la boutique.
           </p>
         </div>
-        <Link
-          href="/admin/collections/nouveau"
-          className="btn-primary inline-flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Nouvelle collection
-        </Link>
+        <div className="flex items-center gap-3">
+          <CollectionsTranslateAll
+            collections={collections.map((c) => ({
+              id: c.id,
+              name: c.name,
+              hasTranslations: c.translations.length > 0,
+            }))}
+          />
+          <Link
+            href="/admin/collections/nouveau"
+            className="btn-primary inline-flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Nouvelle collection
+          </Link>
+        </div>
       </div>
 
       {/* État vide */}

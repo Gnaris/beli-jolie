@@ -36,6 +36,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     unusedTagsCount,
     untranslatedCategoriesCount,
     untranslatedSubCategoriesCount,
+    pendingOrdersCount,
   } = await getCachedAdminWarnings();
 
   const warningCounts: Record<string, { count: number; tooltip: string } | undefined> = {
@@ -83,6 +84,17 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                       </span>
                       <span className="flex-1">{item.label}</span>
                       {item.href === "/admin/suivi" && <LiveCountBadge />}
+                      {item.href === "/admin/commandes" && pendingOrdersCount > 0 && (
+                        <span className="relative group/tooltip">
+                          <span className="flex items-center justify-center text-[11px] bg-blue-100 text-blue-700 border border-blue-200 rounded-full min-w-[22px] h-[22px] px-1.5 font-semibold">
+                            {pendingOrdersCount}
+                          </span>
+                          <span className="absolute right-0 bottom-full mb-2 hidden group-hover/tooltip:block w-48 bg-[#1A1A1A] text-white text-xs rounded-lg px-3 py-2 z-50 pointer-events-none shadow-lg">
+                            {pendingOrdersCount} commande{pendingOrdersCount > 1 ? "s" : ""} en attente
+                            <span className="absolute top-full right-3 border-4 border-transparent border-t-[#1A1A1A]" />
+                          </span>
+                        </span>
+                      )}
                       {warning && (
                         <span className="relative group/tooltip">
                           <span className="flex items-center gap-1 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 font-medium">
@@ -137,6 +149,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             "/admin/compositions": unusedCompositionsCount > 0   ? unusedCompositionsCount   : 0,
             "/admin/mots-cles":    unusedTagsCount > 0           ? unusedTagsCount           : 0,
             "/admin/categories":   untranslatedCategoriesCount + untranslatedSubCategoriesCount,
+            "/admin/commandes":    pendingOrdersCount,
           }}
         />
 

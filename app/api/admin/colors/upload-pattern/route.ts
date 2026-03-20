@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { writeFile, unlink } from "fs/promises";
+import { writeFile, unlink, mkdir } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 
@@ -39,7 +39,13 @@ export async function POST(req: NextRequest) {
   const filename = `${randomUUID()}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  await writeFile(path.join(UPLOAD_DIR, filename), buffer);
+  try {
+    await mkdir(UPLOAD_DIR, { recursive: true });
+    await writeFile(path.join(UPLOAD_DIR, filename), buffer);
+  } catch (err) {
+    console.error("[upload-pattern] Write error:", err);
+    return NextResponse.json({ error: "Erreur lors de l'enregistrement du fichier." }, { status: 500 });
+  }
 
   return NextResponse.json({ path: `/uploads/patterns/${filename}` });
 }

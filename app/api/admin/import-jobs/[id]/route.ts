@@ -79,6 +79,13 @@ export async function POST(
         await writeFileAsync(resPath, resolutionsJson, "utf-8");
       }
 
+      // Write file overrides (position/color changes) if provided
+      const overridesJson = formData.get("overrides") as string | null;
+      if (overridesJson) {
+        const ovPath = path.join(tempDirAbs, "_overrides.json");
+        await writeFileAsync(ovPath, overridesJson, "utf-8");
+      }
+
       await prisma.importJob.update({
         where: { id },
         data: { totalItems: imageCount, status: "PENDING" },

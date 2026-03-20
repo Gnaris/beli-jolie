@@ -41,6 +41,7 @@ export interface MissingEntity {
   type: "category" | "color" | "subcategory" | "composition";
   name: string;
   usedBy: number; // how many products reference this entity
+  parentCategoryName?: string; // for subcategories: name of the category that uses it
 }
 
 export interface PreviewResult {
@@ -61,21 +62,27 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
   const str = (v: unknown) => (v != null ? String(v).trim() : "");
   const num = (v: unknown) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return isNaN(n) ? undefined : n; };
   const int = (v: unknown) => { const n = parseInt(String(v ?? "")); return isNaN(n) ? undefined : n; };
-  const saleTypeRaw = str(raw["sale_type"] ?? raw["saleType"] ?? raw["type_vente"] ?? "UNIT").toUpperCase();
+  // Support headers with asterisks from template (e.g. "reference *", "name *")
+  const saleTypeRaw = str(raw["sale_type"] ?? raw["sale_type *"] ?? raw["saleType"] ?? raw["type_vente"] ?? "UNIT").toUpperCase();
   return {
     _rowIndex: index + 2,
-    reference: str(raw["reference"] ?? raw["ref"] ?? raw["référence"]),
-    name: str(raw["name"] ?? raw["nom"] ?? raw["name_fr"]),
+    reference: str(raw["reference"] ?? raw["reference *"] ?? raw["ref"] ?? raw["référence"]),
+    name: str(raw["name"] ?? raw["name *"] ?? raw["nom"] ?? raw["name_fr"]),
     description: str(raw["description"] ?? raw["description_fr"]) || undefined,
     category: str(raw["category"] ?? raw["categorie"] ?? raw["catégorie"]) || undefined,
     subCategories: str(raw["sub_categories"] ?? raw["sous_categories"] ?? raw["subCategories"]) || undefined,
-    color: str(raw["color"] ?? raw["couleur"]),
+    color: str(raw["color"] ?? raw["color *"] ?? raw["couleur"]),
     saleType: saleTypeRaw === "PACK" ? "PACK" as const : "UNIT" as const,
-    unitPrice: num(raw["unit_price"] ?? raw["prix"] ?? raw["price"]) ?? 0,
+    unitPrice: num(raw["unit_price"] ?? raw["unit_price *"] ?? raw["prix"] ?? raw["price"]) ?? 0,
     packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"]),
-    stock: int(raw["stock"] ?? raw["quantite"] ?? raw["qty"]) ?? 0,
+    stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"]) ?? 0,
     tags: str(raw["tags"]) || undefined,
     composition: str(raw["composition"]) || undefined,
+    dimensionLength: num(raw["dimension_length"] ?? raw["longueur"]),
+    dimensionWidth: num(raw["dimension_width"] ?? raw["largeur"]),
+    dimensionHeight: num(raw["dimension_height"] ?? raw["hauteur"]),
+    dimensionDiameter: num(raw["dimension_diameter"] ?? raw["diametre"] ?? raw["diamètre"]),
+    dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"]),
   };
 }
 
@@ -105,6 +112,11 @@ function parseJSON(text: string) {
         subCategories: Array.isArray(item.subCategories) ? item.subCategories.join(",")
           : Array.isArray(item.sub_categories) ? item.sub_categories.join(",")
           : (item.subCategories ?? item.sub_categories ?? undefined),
+        dimensionLength: item.dimensionLength ?? item.dimension_length ?? undefined,
+        dimensionWidth: item.dimensionWidth ?? item.dimension_width ?? undefined,
+        dimensionHeight: item.dimensionHeight ?? item.dimension_height ?? undefined,
+        dimensionDiameter: item.dimensionDiameter ?? item.dimension_diameter ?? undefined,
+        dimensionCircumference: item.dimensionCircumference ?? item.dimension_circumference ?? undefined,
       });
       idx++;
     }
@@ -114,9 +126,26 @@ function parseJSON(text: string) {
 
 function parseExcel(buffer: ArrayBuffer) {
   const wb = XLSX.read(buffer, { type: "array" });
-  const ws = wb.Sheets[wb.SheetNames[0]];
+  // Use "Produits" sheet if it exists (template has Instructions + Produits), fallback to first sheet
+  const ws = wb.Sheets["Produits"] ?? wb.Sheets[wb.SheetNames[0]];
   const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
-  return data.map((row, i) => normalizeRow(row, i));
+
+  // Skip the description row (row 2 in template) — detect by checking if "reference" looks like a description
+  // Do NOT skip rows with empty reference — they inherit from the previous row
+  const filtered = data.filter((row) => {
+    const ref = String(row["reference"] ?? row["reference *"] ?? row["ref"] ?? row["référence"] ?? "").trim();
+    // Description row has values like "Référence unique du produit" — not a valid product row
+    if (ref.toLowerCase().startsWith("référence unique") || ref.toLowerCase().startsWith("reference unique")) return false;
+    // Also skip rows where sale_type contains description text instead of UNIT/PACK
+    const saleType = String(row["sale_type"] ?? row["sale_type *"] ?? row["saleType"] ?? "").trim().toUpperCase();
+    if (saleType && saleType !== "UNIT" && saleType !== "PACK" && saleType.length > 10) return false;
+    // Skip completely empty rows (no ref AND no color)
+    const color = String(row["color"] ?? row["color *"] ?? row["couleur"] ?? "").trim();
+    if (!ref && !color) return false;
+    return true;
+  });
+
+  return filtered.map((row, i) => normalizeRow(row, i));
 }
 
 // ─────────────────────────────────────────────
@@ -153,6 +182,17 @@ export async function POST(req: NextRequest) {
 
     if (rows.length === 0) return NextResponse.json({ error: "Fichier vide." }, { status: 400 });
 
+    // Propagate reference from previous row when empty (Excel users often only fill
+    // the reference on the first row of a multi-variant product)
+    let lastRef = "";
+    for (const row of rows) {
+      if (row.reference) {
+        lastRef = row.reference;
+      } else if (lastRef) {
+        row.reference = lastRef;
+      }
+    }
+
     // Pre-load DB data for validation
     // Split multi-colors "Bleu/Rose/Vert" into individual color names
     const colorNames = [...new Set(
@@ -179,7 +219,7 @@ export async function POST(req: NextRequest) {
       prisma.color.findMany({ where: { name: { in: colorNames } }, select: { name: true, id: true } }),
       prisma.category.findMany({ where: { name: { in: categoryNames } }, select: { name: true, id: true } }),
       prisma.composition.findMany({ where: { name: { in: compositionMaterials } }, select: { name: true, id: true } }),
-      prisma.subCategory.findMany({ where: { name: { in: subCatNames } }, select: { name: true, id: true } }),
+      prisma.subCategory.findMany({ select: { name: true, id: true } }),
       prisma.product.findMany({ where: { reference: { in: references } }, select: { reference: true } }),
     ]);
 
@@ -191,21 +231,37 @@ export async function POST(req: NextRequest) {
 
     // Track missing entities with usage counts
     const missingMap = new Map<string, MissingEntity>();
-    const addMissing = (type: MissingEntity["type"], name: string) => {
+    const addMissing = (type: MissingEntity["type"], name: string, parentCategoryName?: string) => {
       const key = `${type}:${name.toLowerCase()}`;
       if (missingMap.has(key)) {
         missingMap.get(key)!.usedBy++;
       } else {
-        missingMap.set(key, { type, name, usedBy: 1 });
+        missingMap.set(key, { type, name, usedBy: 1, ...(parentCategoryName ? { parentCategoryName } : {}) });
       }
     };
 
     // Group rows by reference
     const grouped = new Map<string, ReturnType<typeof normalizeRow>[]>();
     for (const row of rows) {
+      if (!row.reference) continue;
       const ref = row.reference.toUpperCase();
       if (!grouped.has(ref)) grouped.set(ref, []);
       grouped.get(ref)!.push(row);
+    }
+
+    // Inherit product-level fields from the group: find the first row that has each
+    // field and propagate to all rows (field can be on any row, not just the first)
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference"] as const;
+    for (const [, groupRows] of grouped) {
+      for (const field of productFields) {
+        const source = groupRows.find((r) => r[field as keyof typeof r]);
+        if (!source) continue;
+        for (const row of groupRows) {
+          if (!row[field as keyof typeof row] && source[field as keyof typeof source]) {
+            (row as Record<string, unknown>)[field] = source[field as keyof typeof source];
+          }
+        }
+      }
     }
 
     const products: PreviewProduct[] = [];
@@ -238,7 +294,7 @@ export async function POST(req: NextRequest) {
         for (const scName of firstRow.subCategories.split(",").map((s) => s.trim()).filter(Boolean)) {
           if (!subCatSet.has(scName.toLowerCase())) {
             subCategoriesFound = false;
-            addMissing("subcategory", scName);
+            addMissing("subcategory", scName, firstRow.category);
           }
         }
       }

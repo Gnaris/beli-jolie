@@ -8,6 +8,7 @@
  *   action: "create_category" | "create_color" | "create_subcategory" | "create_composition"
  *   name: string
  *   colorHex?: string           (for create_color, default #9CA3AF)
+ *   patternImage?: string       (for create_color — if set, hex is ignored)
  *   parentCategoryId?: string   (for create_subcategory, optional)
  * }
  */
@@ -27,13 +28,23 @@ export async function POST(req: NextRequest) {
     action: string;
     name?: string;
     colorHex?: string;
+    patternImage?: string;
     parentCategoryId?: string;
+    parentCategoryName?: string;
   } = await req.json();
 
-  const name = body.name?.trim();
-  if (!name) return NextResponse.json({ error: "Nom requis." }, { status: 400 });
-
   try {
+    // list_colors doesn't need a name
+    if (body.action === "list_colors") {
+      const colors = await prisma.color.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, hex: true, patternImage: true },
+      });
+      return NextResponse.json({ ok: true, colors });
+    }
+
+    const name = body.name?.trim();
+    if (!name) return NextResponse.json({ error: "Nom requis." }, { status: 400 });
     if (body.action === "create_category") {
       const existing = await prisma.category.findFirst({ where: { name } });
       if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
@@ -48,22 +59,29 @@ export async function POST(req: NextRequest) {
       const existing = await prisma.color.findFirst({ where: { name } });
       if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
 
-      const hex = body.colorHex?.trim() || "#9CA3AF";
-      const color = await prisma.color.create({ data: { name, hex } });
+      const patternImage = body.patternImage?.trim() || null;
+      const hex = patternImage ? null : (body.colorHex?.trim() || "#9CA3AF");
+      const color = await prisma.color.create({ data: { name, hex, patternImage } });
       revalidateTag("colors", "default");
       return NextResponse.json({ ok: true, entity: color });
     }
 
     if (body.action === "create_subcategory") {
-      const existing = await prisma.subCategory.findFirst({ where: { name } });
-      if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
-
+      // Resolve parent category: by ID, by name, or fallback to first
       let categoryId = body.parentCategoryId;
+      if (!categoryId && body.parentCategoryName) {
+        const cat = await prisma.category.findFirst({ where: { name: body.parentCategoryName } });
+        categoryId = cat?.id;
+      }
       if (!categoryId) {
         const firstCat = await prisma.category.findFirst();
         categoryId = firstCat?.id;
       }
       if (!categoryId) return NextResponse.json({ error: "Aucune catégorie disponible." }, { status: 400 });
+
+      // Check if already exists in this specific category
+      const existing = await prisma.subCategory.findFirst({ where: { name, categoryId } });
+      if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
 
       const slug = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
       const subCategory = await prisma.subCategory.create({ data: { name, slug, categoryId } });

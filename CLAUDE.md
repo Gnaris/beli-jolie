@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **Endpoints API** : voir `.claude/memory/api-endpoints.md`
 > **Design monochrome** : voir `.claude/memory/design-monochrome.md`
 > **Préférences utilisateur** : voir `.claude/memory/feedback-preferences.md`
-> **Session 19 mars 2026** : voir `.claude/memory/session-2026-03-19.md`
+> **Thème printemps** : voir `.claude/memory/theme-printemps.md`
 
 ---
 
@@ -47,6 +47,7 @@ EE_SENDER_PHONE / EE_SENDER_MOBILE / EE_SENDER_STREET / EE_SENDER_CITY
 EE_SENDER_POSTAL_CODE / EE_SENDER_COUNTRY="FR"
 GMAIL_USER / GMAIL_APP_PASSWORD / NOTIFY_EMAIL
 STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ANTHROPIC_API_KEY
 ```
 
 ## Architecture
@@ -89,7 +90,7 @@ Product
 - `Color` model has optional `patternImage` (leopard, camouflage, etc.) — takes priority over hex
 - `ProductStatus` enum: `OFFLINE` | `ONLINE` | `ARCHIVED` (archived = invisible but preserved for order history)
 - Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied
-- **Multi-color variants**: two variants can share the same main `colorId` (e.g. "Doré/Argenté/Or Rose" and "Doré/Argenté/Or Rose/Vert/Jaune"). They are distinguished by their sub-colors via a `groupKey` = `colorId::sortedSubColorNames`. `ProductColorImage.productColorId` links images to the specific variant. The admin form's `ColorImageState` uses `groupKey` (not `colorId` or `variantTempId`) — variants with the same color+sub-colors selection (e.g. UNIT + PACK) share the same image group. Helper: `variantGroupKeyFromState()` exported from `ColorVariantManager.tsx`.
+- **Multi-color variants**: two variants can share the same main `colorId` (e.g. "Doré/Argenté/Or Rose" and "Doré/Argenté/Or Rose/Vert/Jaune"). They are distinguished by their sub-colors via a `groupKey` = `colorId::orderedSubColorNames` (**order matters**: "Doré/Rouge" ≠ "Rouge/Doré"). First selected color = main, rest = sub-colors in selection order. `ProductColorImage.productColorId` links images to the specific variant. The admin form's `ColorImageState` uses `groupKey` (not `colorId` or `variantTempId`) — variants with the same color+sub-colors selection in the same order (e.g. UNIT + PACK) share the same image group. Helper: `variantGroupKeyFromState()` exported from `ColorVariantManager.tsx`.
 
 ### Order Data Model
 ```
@@ -108,6 +109,7 @@ Order
 |------|------|--------|
 | Product images | `public/uploads/products/` | Public (direct) |
 | Collection images | `public/uploads/collections/` | Public (direct) |
+| Color patterns | `public/uploads/patterns/` | Public (direct) |
 | Kbis documents | `private/uploads/kbis/` | ADMIN via `/api/admin/kbis/[filename]` |
 | Invoices | `private/uploads/invoices/` | ADMIN or owner client via API |
 
@@ -120,6 +122,7 @@ Order
 - **`AccountLockout`** — progressive lockout per email (11 levels: 1min → permanent); `lib/security.ts`
 - **`RegistrationLog`** — anti-spam: logs IP/email/phone/siret per registration; 3h cooldown enforced
 - **`ImportJob`** — tracks bulk import history (products + images); linked to user
+- **`ImportDraft`** — stores error rows from bulk import for manual resolution (type: PRODUCTS or IMAGES); linked to admin
 - **`RestockAlert`** — client subscribes to out-of-stock variant; notified when restocked
 - **`AccessCode`** — now includes `prefillFirstName/LastName/Company/Email/Phone` for pre-filling registration forms
 
@@ -161,7 +164,7 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Product form**: `ProductForm.tsx` — 4 separate blocks (fiche produit, mots-clés, dimensions, composition)
 - **Live client tracking**: `LiveClientsTracker.tsx` — real-time view of connected clients at `/admin/suivi`
 - **Cart modal**: `CartModal.tsx` — admin can peek at a client's current cart
-- **Reusable UI**: `ConfirmDialog.tsx` (replaces window.confirm), `CustomSelect.tsx` (searchable select), `Toast.tsx`
+- **Reusable UI**: `ConfirmDialog.tsx` (replaces window.confirm), `CustomSelect.tsx` (searchable select), `Toast.tsx`, `ColorSwatch.tsx` (single/multi-color swatch with patternImage support — renders camembert pie chart for multi-color variants)
 - **Import history**: `ImportHistoryClient.tsx` — view past import jobs at `/admin/produits/importer/historique`
 
 ### Security Layer (`lib/security.ts`)
@@ -206,7 +209,7 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - `PendingSimilar` links are auto-resolved — when creating a product, check for pending similar refs matching the new product's reference
 - `Color.patternImage` takes priority over `Color.hex` when rendering — always check patternImage first
 - `UserActivity.cartAddsCount`/`favAddsCount` are session counters sent by HeartbeatTracker — reset on disconnect
-- **Never group/display color variants by `colorId` alone** — always use `groupKey` (colorId + sorted sub-color names). Keying by `colorId` merges variants with different sub-colors; keying by `variantTempId` prevents UNIT/PACK image sharing. See `variantGroupKeyFromState()` in `ColorVariantManager.tsx`
+- **Never group/display color variants by `colorId` alone** — always use `groupKey` (colorId + ordered sub-color names, **order matters**). Keying by `colorId` merges variants with different sub-colors; keying by `variantTempId` prevents UNIT/PACK image sharing. See `variantGroupKeyFromState()` in `ColorVariantManager.tsx`
 
 ### Key Libraries
 - **Next.js 16.1.6** (App Router, Server Components)

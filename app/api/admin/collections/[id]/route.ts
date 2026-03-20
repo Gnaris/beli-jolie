@@ -21,6 +21,7 @@ export async function GET(
   const collection = await prisma.collection.findUnique({
     where: { id },
     include: {
+      translations: true,
       products: {
         orderBy: { position: "asc" },
         include: {
@@ -61,10 +62,16 @@ export async function GET(
   }
 
   // Reshape for the client
+  const translationsMap: Record<string, string> = {};
+  for (const t of collection.translations) {
+    translationsMap[t.locale] = t.name;
+  }
+
   const shaped = {
     id:    collection.id,
     name:  collection.name,
     image: collection.image,
+    translations: translationsMap,
     products: collection.products.map((cp) => {
       // Deduplicate colors by colorId
       const colorMap = new Map<string, { id: string; name: string; hex: string | null; images: { path: string }[] }>();

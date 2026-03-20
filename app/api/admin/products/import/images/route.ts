@@ -21,7 +21,13 @@ export interface ImageImportRow {
   errors: string[];
   productId?: string;
   colorId?: string;
-  availableColors?: { id: string; name: string; hex: string }[];
+  availableColors?: {
+    id: string;
+    name: string;
+    hex: string;
+    patternImage?: string | null;
+    subColors?: { hex: string; patternImage?: string | null }[];
+  }[];
 }
 
 // ─────────────────────────────────────────────
@@ -199,9 +205,30 @@ export async function POST(req: NextRequest) {
         const bytes = await file.arrayBuffer();
         await writeFile(fullPath, Buffer.from(bytes));
 
-        const availableColors = [
-          ...new Map(product.colors.map((pc) => [pc.colorId, pc.color])).values(),
-        ].map((c) => ({ id: c.id, name: c.name, hex: c.hex ?? "#9CA3AF" }));
+        // Group variants by groupKey (colorId + sorted sub-color names) to avoid duplicates
+        const groupedVariants = new Map<string, { id: string; name: string; hex: string; patternImage: string | null; subColors: { hex: string; patternImage: string | null }[] }>();
+        for (const pc of product.colors) {
+          const subNames = pc.subColors.map((sc) => sc.color.name);
+          const groupKey = subNames.length > 0
+            ? `${pc.colorId}::${subNames.join(",")}`
+            : pc.colorId;
+          if (!groupedVariants.has(groupKey)) {
+            const fullName = subNames.length > 0
+              ? [pc.color.name, ...subNames].join("/")
+              : pc.color.name;
+            groupedVariants.set(groupKey, {
+              id: pc.id,
+              name: fullName,
+              hex: pc.color.hex ?? "#9CA3AF",
+              patternImage: pc.color.patternImage ?? null,
+              subColors: pc.subColors.map((sc) => ({
+                hex: sc.color.hex ?? "#9CA3AF",
+                patternImage: sc.color.patternImage ?? null,
+              })),
+            });
+          }
+        }
+        const availableColors = [...groupedVariants.values()];
 
         errorRows.push({
           filename: file.name,

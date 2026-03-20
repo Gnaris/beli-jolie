@@ -35,6 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     categoryName?: string;
     colorName?: string;
     colorHex?: string;
+    colorPatternImage?: string;
     subcategoryName?: string;
     parentCategoryId?: string;
     compositionName?: string;
@@ -56,14 +57,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (body.action === "create_color") {
       const name = body.colorName?.trim();
-      const hex = body.colorHex?.trim() || "#9CA3AF";
+      const patternImage = body.colorPatternImage?.trim() || null;
+      const hex = patternImage ? null : (body.colorHex?.trim() || "#9CA3AF");
       if (!name) return NextResponse.json({ error: "Nom de couleur requis." }, { status: 400 });
 
       const existing = await prisma.color.findFirst({ where: { name } });
       if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
 
-      const color = await prisma.color.create({ data: { name, hex } });
+      const color = await prisma.color.create({ data: { name, hex, patternImage } });
       return NextResponse.json({ ok: true, entity: color });
+    }
+
+    if (body.action === "list_colors") {
+      const colors = await prisma.color.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, hex: true, patternImage: true },
+      });
+      return NextResponse.json({ ok: true, colors });
     }
 
     if (body.action === "create_subcategory") {
@@ -115,7 +125,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           reference: true,
           name: true,
           colors: {
-            include: { color: true },
+            include: {
+              color: true,
+              subColors: { orderBy: { position: "asc" }, include: { color: true } },
+            },
           },
         },
         take: 20,
@@ -123,17 +136,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       return NextResponse.json({
         ok: true,
-        products: products.map((p) => ({
-          id: p.id,
-          reference: p.reference,
-          name: p.name,
-          colors: [...new Map(p.colors.map((pc) => [pc.colorId, {
-            id: pc.color.id,
-            name: pc.color.name,
-            hex: pc.color.hex ?? "#9CA3AF",
-            productColorId: pc.id,
-          }])).values()],
-        })),
+        products: products.map((p) => {
+          // Group by color composition (groupKey) to avoid showing UNIT + PACK duplicates
+          const grouped = new Map<string, { id: string; name: string; hex: string; patternImage: string | null; subColors: { hex: string; patternImage: string | null }[] }>();
+          for (const pc of p.colors) {
+            const subNames = pc.subColors.map((sc) => sc.color.name);
+            const groupKey = subNames.length > 0
+              ? `${pc.colorId}::${subNames.join(",")}`
+              : pc.colorId;
+            if (!grouped.has(groupKey)) {
+              const fullName = subNames.length > 0
+                ? [pc.color.name, ...subNames].join("/")
+                : pc.color.name;
+              grouped.set(groupKey, {
+                id: pc.id,
+                name: fullName,
+                hex: pc.color.hex ?? "#9CA3AF",
+                patternImage: pc.color.patternImage ?? null,
+                subColors: pc.subColors.map((sc) => ({
+                  hex: sc.color.hex ?? "#9CA3AF",
+                  patternImage: sc.color.patternImage ?? null,
+                })),
+              });
+            }
+          }
+          return {
+            id: p.id,
+            reference: p.reference,
+            name: p.name,
+            colors: [...grouped.values()],
+          };
+        }),
       });
     }
 

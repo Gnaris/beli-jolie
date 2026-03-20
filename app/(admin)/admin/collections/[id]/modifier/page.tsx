@@ -5,6 +5,8 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import CollectionProductManager from "@/components/admin/collections/CollectionProductManager";
 import { updateCollection } from "@/app/actions/admin/collections";
+import TranslateButton from "@/components/admin/TranslateButton";
+import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 
 interface ColorData {
   id: string;
@@ -36,6 +38,7 @@ interface CollectionData {
   id: string;
   name: string;
   image: string | null;
+  translations: Record<string, string>;
   products: CollectionItem[];
 }
 
@@ -46,6 +49,7 @@ export default function EditCollectionPage() {
   const [collection, setCollection]       = useState<CollectionData | null>(null);
   const [availableProducts, setAvailable] = useState<AvailableProduct[]>([]);
   const [name, setName]                   = useState("");
+  const [translations, setTranslations]   = useState<Record<string, string>>({});
   const [image, setImage]                 = useState<string | null>(null);
   const [preview, setPreview]             = useState<string | null>(null);
   const [uploading, setUploading]         = useState(false);
@@ -66,6 +70,7 @@ export default function EditCollectionPage() {
         setName(col.name);
         setImage(col.image);
         setPreview(col.image);
+        setTranslations(col.translations ?? {});
       }
       if (prodRes.ok) {
         setAvailable(await prodRes.json());
@@ -103,6 +108,13 @@ export default function EditCollectionPage() {
     const fd = new FormData();
     fd.append("name", name);
     if (image) fd.append("image", image);
+
+    // Append translations
+    for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+      if (translations[locale]) {
+        fd.append(`translation_${locale}`, translations[locale]);
+      }
+    }
 
     const result = await updateCollection(params.id, fd);
     setSaving(false);
@@ -163,11 +175,18 @@ export default function EditCollectionPage() {
             </div>
           )}
 
-          {/* Nom */}
+          {/* Nom (FR) */}
           <div>
-            <label className="field-label font-[family-name:var(--font-roboto)]">
-              Nom <span className="text-error">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="field-label font-[family-name:var(--font-roboto)] mb-0">
+                Nom (Français) <span className="text-error">*</span>
+              </label>
+              <TranslateButton
+                text={name}
+                onTranslated={(t) => setTranslations((prev) => ({ ...prev, ...t }))}
+                disabled={!name.trim()}
+              />
+            </div>
             <input
               type="text"
               value={name}
@@ -175,6 +194,32 @@ export default function EditCollectionPage() {
               required
               className="field-input"
             />
+          </div>
+
+          {/* Traductions */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-3">
+              Traductions (optionnel)
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {VALID_LOCALES.filter((l) => l !== "fr").map((locale) => (
+                <div key={locale}>
+                  <label className="field-label uppercase tracking-wider text-xs font-semibold font-[family-name:var(--font-roboto)]">
+                    {LOCALE_FULL_NAMES[locale]}
+                  </label>
+                  <input
+                    type="text"
+                    value={translations[locale] ?? ""}
+                    onChange={(e) =>
+                      setTranslations((prev) => ({ ...prev, [locale]: e.target.value }))
+                    }
+                    className="field-input text-sm"
+                    placeholder={LOCALE_FULL_NAMES[locale]}
+                    dir={locale === "ar" ? "rtl" : undefined}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Image */}

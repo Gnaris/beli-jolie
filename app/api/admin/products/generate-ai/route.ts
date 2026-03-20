@@ -2,21 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { anthropic, estimateAiCost, computeActualCost } from "@/lib/claude";
-import { VALID_LOCALES } from "@/i18n/locales";
 import fs from "fs";
 import path from "path";
 import type Anthropic from "@anthropic-ai/sdk";
-
-// Human-readable language names for the prompt
-const LOCALE_NAMES: Record<string, string> = {
-  fr: "French",
-  en: "English",
-  ar: "Arabic",
-  zh: "Chinese (Simplified)",
-  de: "German",
-  es: "Spanish",
-  it: "Italian",
-};
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -29,7 +17,6 @@ export async function POST(req: NextRequest) {
     estimateOnly = false,
     productInfo = {},
     imagePaths = [] as string[],
-    locales = [...VALID_LOCALES] as string[],
   } = body;
 
   // ── Build text context from product info ───────────────────────────
@@ -86,22 +73,18 @@ export async function POST(req: NextRequest) {
     } catch { /* skip unreadable images */ }
   }
 
-  // ── Build prompt ────────────────────────────────────────────────────
-  const localeList = (locales as string[])
-    .map((l) => `  "${l}": { "name": "...", "description": "..." }  /* in ${LOCALE_NAMES[l] ?? l} */`)
-    .join(",\n");
-
+  // ── Build prompt (FR only) ──────────────────────────────────────────
   const systemPrompt =
-    `You are a B2B jewelry and accessories product copywriter. ` +
+    `You are a B2B jewelry and accessories product copywriter specializing in French. ` +
     `Given product data (and optionally images), generate a commercial product name and a clear, ` +
-    `SEO-friendly description for each requested language. ` +
+    `SEO-friendly description in French. ` +
     `The name must be concise (3-8 words). The description must be 2-4 sentences, ` +
     `simple, precise, and highlight key product characteristics (material, colors, dimensions). ` +
     `Output ONLY valid JSON — no markdown, no comments, no extra keys.`;
 
   const userText =
     `Product information:\n${textContext || "(no additional info provided)"}\n\n` +
-    `Return ONLY this JSON structure (fill in real values):\n{\n${localeList}\n}`;
+    `Return ONLY this JSON structure (fill in real values):\n{\n  "fr": { "name": "...", "description": "..." }\n}`;
 
   const userContent: (Anthropic.TextBlockParam | Anthropic.ImageBlockParam)[] = [
     ...imageBlocks,
@@ -112,7 +95,7 @@ export async function POST(req: NextRequest) {
   try {
     const response = await anthropic.messages.create({
       model:      "claude-sonnet-4-6",
-      max_tokens: 1_500,
+      max_tokens: 500,
       system:     systemPrompt,
       messages:   [{ role: "user", content: userContent }],
     });

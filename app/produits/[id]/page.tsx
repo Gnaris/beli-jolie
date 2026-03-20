@@ -137,10 +137,10 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     ? product.colors
     : product.colors.filter((pc) => pc.stock > 0);
 
-  // Build variant group keys: colorId + sorted sub-color names
+  // Build variant group keys: colorId + ordered sub-color names (order matters)
   function variantGroupKey(colorId: string, subColorNames: string[]): string {
     if (subColorNames.length === 0) return colorId;
-    return `${colorId}::${[...subColorNames].sort().join(",")}`;
+    return `${colorId}::${subColorNames.join(",")}`;
   }
   const pcGroupKeys = new Map<string, string>();
   for (const pc of filteredColors) {

@@ -35,7 +35,7 @@ export interface VariantState {
 }
 
 export interface ColorImageState {
-  groupKey: string;       // colorId + sorted sub-color names — shared by variants with same color selection
+  groupKey: string;       // colorId + ordered sub-color names — shared by variants with same color selection (order matters)
   colorId: string;
   colorName: string;      // Full display name including sub-colors (e.g. "Doré / Argenté / Or Rose")
   colorHex: string;
@@ -90,10 +90,12 @@ export function computeFinalPrice(v: VariantState): number | null {
 
 export function uid() { return Math.random().toString(36).slice(2, 9); }
 
-/** Unique key for a color+sub-colors combination. Variants sharing this key share images. */
+/** Unique key for a color+sub-colors combination. Variants sharing this key share images.
+ *  Order matters: "Doré/Rouge" ≠ "Rouge/Doré". The first color is the main color (colorId),
+ *  the rest are sub-colors in selection order. */
 export function variantGroupKeyFromState(v: { colorId: string; subColors: { colorName: string }[] }): string {
   if (v.subColors.length === 0) return v.colorId;
-  return `${v.colorId}::${[...v.subColors.map(sc => sc.colorName)].sort().join(",")}`;
+  return `${v.colorId}::${v.subColors.map(sc => sc.colorName).join(",")}`;
 }
 
 function defaultVariant(_availableColors: AvailableColor[]): VariantState {
@@ -135,80 +137,210 @@ function defaultBulkEdit(): BulkEditState {
 }
 
 // ─────────────────────────────────────────────
-// MultiColorSelect — unified multi-select (first = main, rest = sub-colors)
+// MultiColorSelect — modal-based multi-select (first = main, rest = sub-colors)
+// With drag & drop reordering + remove in the selection zone
 // ─────────────────────────────────────────────
-function MultiColorSelect({ selected, options, onChange }: {
+function MultiColorSelect({ selected, options, onChange, existingVariants, onCreateColor }: {
   selected: { colorId: string; colorName: string; colorHex: string }[];
   options: AvailableColor[];
   onChange: (colors: { colorId: string; colorName: string; colorHex: string }[]) => void;
+  existingVariants?: VariantState[];
+  onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
-  const btnRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const portalId = useRef(`multicolor-portal-${Math.random().toString(36).slice(2, 7)}`).current;
 
-  const close = useCallback(() => { setOpen(false); setSearch(""); }, []);
+  // Local draft so user can review before confirming
+  const [draft, setDraft] = useState(selected);
 
-  const openDropdown = useCallback(() => {
-    if (btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + window.scrollY + 2, left: r.left + window.scrollX, width: Math.max(r.width, 220) });
-    }
+  // Drag state for reordering
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  // Create color form state
+  const [showCreate, setShowCreate] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createHex, setCreateHex] = useState("#9CA3AF");
+  const [createMode, setCreateMode] = useState<"hex" | "pattern">("hex");
+  const [, setCreatePatternFile] = useState<File | null>(null);
+  const [createPatternPreview, setCreatePatternPreview] = useState<string | null>(null);
+  const [createPatternPath, setCreatePatternPath] = useState<string | null>(null);
+  const [createSaving, setCreateSaving] = useState(false);
+  const [createUploading, setCreateUploading] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  const openModal = useCallback(() => {
+    setDraft(selected);
+    setSearch("");
+    setShowCreate(false);
+    setCreateName("");
+    setCreateHex("#9CA3AF");
+    setCreateMode("hex");
+    setCreatePatternFile(null);
+    setCreatePatternPreview(null);
+    setCreatePatternPath(null);
+    setCreateError("");
     setOpen(true);
+  }, [selected]);
+
+  const confirm = useCallback(() => {
+    onChange(draft);
+    setOpen(false);
+  }, [draft, onChange]);
+
+  const cancel = useCallback(() => {
+    setOpen(false);
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-    function onMouse(e: MouseEvent) {
-      const target = e.target as Node;
-      if (btnRef.current?.contains(target)) return;
-      const portal = document.getElementById(portalId);
-      if (portal?.contains(target)) return;
-      close();
-    }
-    function onScroll() { close(); }
-    document.addEventListener("mousedown", onMouse);
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      document.removeEventListener("mousedown", onMouse);
-      window.removeEventListener("scroll", onScroll, true);
-    };
-  }, [open, close, portalId]);
+    if (open) setTimeout(() => searchRef.current?.focus(), 50);
+  }, [open]);
 
+  // Lock body scroll when modal is open
   useEffect(() => {
-    if (open) setTimeout(() => searchRef.current?.focus(), 10);
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
   }, [open]);
 
   const filtered = search.trim()
     ? options.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()))
     : options;
 
-  const selectedIds = new Set(selected.map((s) => s.colorId));
+  const draftIds = new Set(draft.map((s) => s.colorId));
+
+  // Build unique existing color combinations from variants
+  const existingCombinations = (() => {
+    if (!existingVariants || existingVariants.length === 0) return [];
+    const seen = new Set<string>();
+    const combos: { key: string; colors: { colorId: string; colorName: string; colorHex: string }[]; saleTypes: string[] }[] = [];
+    for (const v of existingVariants) {
+      if (!v.colorId) continue;
+      const gk = variantGroupKeyFromState(v);
+      if (seen.has(gk)) {
+        // Add saleType to existing entry
+        const existing = combos.find((c) => c.key === gk);
+        if (existing && !existing.saleTypes.includes(v.saleType)) {
+          existing.saleTypes.push(v.saleType);
+        }
+        continue;
+      }
+      seen.add(gk);
+      const colors = [
+        { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
+        ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
+      ];
+      combos.push({ key: gk, colors, saleTypes: [v.saleType] });
+    }
+    return combos;
+  })();
+
+  // Check if draft matches an existing combination
+  const draftGroupKey = draft.length > 0
+    ? (draft.length === 1 ? draft[0].colorId : `${draft[0].colorId}::${draft.slice(1).map((s) => s.colorName).join(",")}`)
+    : "";
+  const matchingCombo = existingCombinations.find((c) => c.key === draftGroupKey);
+
+  function selectCombination(combo: typeof existingCombinations[0]) {
+    setDraft(combo.colors);
+  }
 
   function toggle(opt: AvailableColor) {
-    if (selectedIds.has(opt.id)) {
-      onChange(selected.filter((s) => s.colorId !== opt.id));
+    if (draftIds.has(opt.id)) {
+      setDraft(draft.filter((s) => s.colorId !== opt.id));
     } else {
-      onChange([...selected, { colorId: opt.id, colorName: opt.name, colorHex: opt.hex ?? "#9CA3AF" }]);
+      setDraft([...draft, { colorId: opt.id, colorName: opt.name, colorHex: opt.hex ?? "#9CA3AF" }]);
     }
   }
 
-  // Build display: camembert + name list
+  function removeFromDraft(colorId: string) {
+    setDraft(draft.filter((s) => s.colorId !== colorId));
+  }
+
+  // Drag & drop handlers for reordering
+  function handleDragStart(idx: number) {
+    setDragIdx(idx);
+  }
+  function handleDragOver(e: React.DragEvent, idx: number) {
+    e.preventDefault();
+    setDragOverIdx(idx);
+  }
+  function handleDragEnd() {
+    if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+      const updated = [...draft];
+      const [moved] = updated.splice(dragIdx, 1);
+      updated.splice(dragOverIdx, 0, moved);
+      setDraft(updated);
+    }
+    setDragIdx(null);
+    setDragOverIdx(null);
+  }
+
+  // ── Create color helpers ──
+  async function handleCreatePatternUpload(file: File) {
+    const validTypes = ["image/png", "image/jpeg", "image/webp"];
+    if (!validTypes.includes(file.type)) { setCreateError("Format non supporté (PNG, JPG, WebP)."); return; }
+    if (file.size > 512 * 1024) { setCreateError("Image trop lourde (max 500 Ko)."); return; }
+    setCreateUploading(true);
+    setCreateError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/colors/upload-pattern", { method: "POST", body: fd });
+      const data = await res.json();
+      if (res.ok && data.path) {
+        setCreatePatternPath(data.path);
+        setCreatePatternPreview(URL.createObjectURL(file));
+        setCreatePatternFile(file);
+      } else {
+        setCreateError(data.error || "Erreur upload motif.");
+      }
+    } catch {
+      setCreateError("Erreur réseau upload motif.");
+    } finally {
+      setCreateUploading(false);
+    }
+  }
+
+  async function handleCreateColorSave() {
+    if (!createName.trim() || !onCreateColor) return;
+    setCreateSaving(true);
+    setCreateError("");
+    try {
+      const hex = createMode === "hex" ? createHex : null;
+      const pattern = createMode === "pattern" ? createPatternPath : null;
+      const created = await onCreateColor(createName.trim(), hex, pattern);
+      // Auto-select the new color
+      setDraft((prev) => [...prev, { colorId: created.id, colorName: created.name, colorHex: created.hex ?? "#9CA3AF" }]);
+      // Reset form
+      setShowCreate(false);
+      setCreateName("");
+      setCreateHex("#9CA3AF");
+      setCreateMode("hex");
+      setCreatePatternFile(null);
+      setCreatePatternPreview(null);
+      setCreatePatternPath(null);
+    } catch (e: unknown) {
+      setCreateError(e instanceof Error ? e.message : "Erreur création couleur.");
+    } finally {
+      setCreateSaving(false);
+    }
+  }
+
+  // Build display for the trigger button
   const displayName = selected.map((s) => s.colorName).join(" / ");
-  // Build segments for camembert (look up patternImage from options)
   const selectedSegments = selected.map((s) => {
     const opt = options.find((o) => o.id === s.colorId);
     return { hex: s.colorHex, patternImage: opt?.patternImage ?? null };
   });
 
   return (
-    <div className="relative" style={{ minWidth: 180 }}>
+    <div style={{ minWidth: 180 }}>
       <button
-        ref={btnRef}
         type="button"
-        onClick={() => open ? close() : openDropdown()}
+        onClick={openModal}
         className="w-full flex items-center gap-1.5 bg-white border border-[#E5E5E5] px-2.5 py-2 text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A] focus:outline-none focus:border-[#1A1A1A] hover:border-[#9CA3AF] transition-colors text-left min-h-[34px]"
       >
         {selected.length === 0 ? (
@@ -216,87 +348,356 @@ function MultiColorSelect({ selected, options, onChange }: {
         ) : (
           <>
             {selectedSegments.length === 1 ? (
-              <ColorSwatch
-                hex={selectedSegments[0].hex}
-                patternImage={selectedSegments[0].patternImage}
-                size={16}
-                rounded="full"
-              />
+              <ColorSwatch hex={selectedSegments[0].hex} patternImage={selectedSegments[0].patternImage} size={16} rounded="full" />
             ) : (
-              <ColorSwatch
-                hex={selectedSegments[0]?.hex}
-                patternImage={selectedSegments[0]?.patternImage}
-                subColors={selectedSegments.slice(1)}
-                size={16}
-                rounded="full"
-              />
+              <ColorSwatch hex={selectedSegments[0]?.hex} patternImage={selectedSegments[0]?.patternImage} subColors={selectedSegments.slice(1)} size={16} rounded="full" />
             )}
             <span className="flex-1 truncate">{displayName}</span>
           </>
         )}
-        <svg className={`w-3 h-3 text-[#9CA3AF] shrink-0 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-3 h-3 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
-      {open && typeof document !== "undefined" && createPortal(
-        <div
-          id={portalId}
-          className="bg-white border border-[#E5E5E5] shadow-xl rounded"
-          style={{ position: "absolute", top: pos.top, left: pos.left, width: pos.width, zIndex: 9000 }}
-        >
-          {/* Hint */}
-          <div className="px-3 py-1.5 bg-[#F7F7F8] border-b border-[#E5E5E5]">
-            <p className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-              1re couleur = principale, les suivantes = sous-couleurs
-            </p>
-          </div>
-          {/* Search bar */}
-          <div className="px-2 py-1.5 border-b border-[#E5E5E5]">
-            <div className="flex items-center gap-1.5 bg-[#F7F7F8] border border-[#E5E5E5] px-2 py-1 rounded">
-              <svg className="w-3 h-3 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-              </svg>
-              <input
-                ref={searchRef}
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Rechercher..."
-                className="flex-1 bg-transparent text-xs text-[#1A1A1A] placeholder-[#9CA3AF] outline-none min-w-0"
-              />
-              {search && (
-                <button type="button" onClick={() => setSearch("")} className="text-[#9CA3AF] hover:text-[#1A1A1A]">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
+      {/* Modal */}
+      {open && createPortal(
+        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-4" onClick={cancel}>
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40" />
+          {/* Panel */}
+          <div
+            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col"
+            style={{ maxHeight: "min(90vh, 780px)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5]">
+              <div>
+                <h3 className="text-sm font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+                  Sélectionner les couleurs
+                </h3>
+                <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+                  1re = principale. Glissez pour réordonner.
+                </p>
+              </div>
+              <button type="button" onClick={cancel} className="p-1.5 hover:bg-[#F7F7F8] rounded-lg transition-colors" aria-label="Fermer">
+                <svg className="w-4 h-4 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-          </div>
-          {/* Options list */}
-          <div className="max-h-52 overflow-y-auto">
-            {filtered.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-[#9CA3AF]">Aucun résultat</div>
-            ) : filtered.map((opt) => {
-              const isChecked = selectedIds.has(opt.id);
-              const position = selected.findIndex((s) => s.colorId === opt.id);
-              return (
-                <button key={opt.id} type="button"
-                  onClick={() => toggle(opt)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[#F7F7F8] transition-colors text-left ${isChecked ? "bg-[#F0FDF4]" : ""}`}
-                >
-                  <input type="checkbox" checked={isChecked} readOnly className="accent-[#22C55E] w-3 h-3 pointer-events-none" />
-                  <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={14} rounded="full" />
-                  <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{opt.name}</span>
-                  {isChecked && (
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${position === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
-                      {position === 0 ? "principale" : `+${position}`}
+
+            {/* Selected colors — drag & drop reorderable */}
+            {draft.length > 0 && (
+              <div className="px-4 py-3 bg-[#F7F7F8] border-b border-[#E5E5E5] shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
+                    Ordre des couleurs ({draft.length})
+                  </span>
+                  {draft.length > 1 && (
+                    <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                      Glissez pour réordonner
                     </span>
                   )}
+                </div>
+                <div className="space-y-1 max-h-36 overflow-y-auto">
+                  {draft.map((s, i) => {
+                    const opt = options.find((o) => o.id === s.colorId);
+                    const isDragging = dragIdx === i;
+                    const isDragOver = dragOverIdx === i && dragIdx !== i;
+                    return (
+                      <div
+                        key={s.colorId}
+                        draggable
+                        onDragStart={() => handleDragStart(i)}
+                        onDragOver={(e) => handleDragOver(e, i)}
+                        onDragEnd={handleDragEnd}
+                        className={`flex items-center gap-2 bg-white border rounded-lg px-2.5 py-2 cursor-grab active:cursor-grabbing transition-all
+                          ${isDragging ? "opacity-40 scale-95" : ""}
+                          ${isDragOver ? "border-[#1A1A1A] shadow-sm" : "border-[#E5E5E5]"}
+                        `}
+                      >
+                        {/* Drag handle */}
+                        <svg className="w-3.5 h-3.5 text-[#C0C0C0] shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                          <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
+                          <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                          <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+                        </svg>
+                        {/* Position badge */}
+                        <span className={`text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shrink-0
+                          ${i === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}
+                        `}>
+                          {i + 1}
+                        </span>
+                        <ColorSwatch hex={s.colorHex} patternImage={opt?.patternImage ?? null} size={16} rounded="full" />
+                        <span className="flex-1 text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{s.colorName}</span>
+                        {i === 0 && (
+                          <span className="text-[9px] font-semibold bg-[#22C55E] text-white px-1.5 py-0.5 rounded">principale</span>
+                        )}
+                        {/* Remove button */}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeFromDraft(s.colorId); }}
+                          className="p-1 hover:bg-red-50 rounded transition-colors shrink-0"
+                          aria-label={`Retirer ${s.colorName}`}
+                        >
+                          <svg className="w-3.5 h-3.5 text-[#C0C0C0] hover:text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Existing variant combinations */}
+            {existingCombinations.length > 0 && (
+              <div className="px-4 py-3 border-b border-[#E5E5E5] shrink-0">
+                <span className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
+                  Combinaisons existantes
+                </span>
+                <div className="flex flex-wrap gap-1.5 mt-2 max-h-24 overflow-y-auto">
+                  {existingCombinations.map((combo) => {
+                    const isActive = combo.key === draftGroupKey;
+                    return (
+                      <button
+                        key={combo.key}
+                        type="button"
+                        onClick={() => selectCombination(combo)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-[family-name:var(--font-roboto)] rounded-lg border transition-colors
+                          ${isActive
+                            ? "bg-[#F0FDF4] border-[#22C55E] text-[#166534]"
+                            : "bg-white border-[#E5E5E5] text-[#1A1A1A] hover:border-[#9CA3AF] hover:bg-[#F7F7F8]"
+                          }`}
+                      >
+                        {combo.colors.length === 1 ? (
+                          <ColorSwatch hex={combo.colors[0].colorHex} patternImage={options.find((o) => o.id === combo.colors[0].colorId)?.patternImage ?? null} size={14} rounded="full" />
+                        ) : (
+                          <ColorSwatch
+                            hex={combo.colors[0].colorHex}
+                            patternImage={options.find((o) => o.id === combo.colors[0].colorId)?.patternImage ?? null}
+                            subColors={combo.colors.slice(1).map((c) => ({ hex: c.colorHex, patternImage: options.find((o) => o.id === c.colorId)?.patternImage ?? null }))}
+                            size={14}
+                            rounded="full"
+                          />
+                        )}
+                        <span>{combo.colors.map((c) => c.colorName).join(" / ")}</span>
+                        <span className="text-[9px] text-[#9CA3AF]">
+                          ({combo.saleTypes.join("+")})
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Matching variant message */}
+            {matchingCombo && draft.length > 0 && (
+              <div className="px-4 py-2 bg-[#F0FDF4] border-b border-[#E5E5E5] flex items-center gap-2">
+                <svg className="w-4 h-4 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-[11px] text-[#166534] font-[family-name:var(--font-roboto)]">
+                  Cette sélection correspond à une variante existante ({matchingCombo.saleTypes.join(" + ")})
+                </span>
+              </div>
+            )}
+
+            {/* Search */}
+            <div className="px-4 py-3 border-b border-[#E5E5E5]">
+              <div className="flex items-center gap-2 bg-[#F7F7F8] border border-[#E5E5E5] px-3 py-2 rounded-lg">
+                <svg className="w-4 h-4 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                </svg>
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Rechercher une couleur..."
+                  className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder-[#9CA3AF] outline-none min-w-0 font-[family-name:var(--font-roboto)]"
+                />
+                {search && (
+                  <button type="button" onClick={() => setSearch("")} className="text-[#9CA3AF] hover:text-[#1A1A1A]">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Color list */}
+            <div className="flex-1 overflow-y-auto" style={{ minHeight: 180 }}>
+              {filtered.length === 0 ? (
+                <div className="px-5 py-8 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucun résultat</div>
+              ) : filtered.map((opt) => {
+                const isChecked = draftIds.has(opt.id);
+                const position = draft.findIndex((s) => s.colorId === opt.id);
+                return (
+                  <button key={opt.id} type="button"
+                    onClick={() => toggle(opt)}
+                    className={`w-full flex items-center gap-3 px-5 py-3 text-sm hover:bg-[#F7F7F8] transition-colors text-left border-b border-[#F0F0F0] last:border-b-0 ${isChecked ? "bg-[#F0FDF4]" : ""}`}
+                  >
+                    <input type="checkbox" checked={isChecked} readOnly className="accent-[#22C55E] w-4 h-4 pointer-events-none shrink-0" />
+                    <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={20} rounded="full" />
+                    <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{opt.name}</span>
+                    {isChecked && (
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${position === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
+                        {position === 0 ? "principale" : `+${position + 1}`}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Create new color */}
+            {onCreateColor && (
+              <div className="border-t border-[#E5E5E5] px-4 py-3 bg-[#FAFAFA] shrink-0">
+                {!showCreate ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowCreate(true)}
+                    className="text-sm text-[#1A1A1A] font-medium hover:underline flex items-center gap-1.5 font-[family-name:var(--font-roboto)]"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Créer une couleur
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">Nouvelle couleur</p>
+                    <input
+                      className="field-input w-full"
+                      placeholder="Nom de la couleur"
+                      value={createName}
+                      onChange={(e) => setCreateName(e.target.value)}
+                      autoFocus
+                    />
+                    {/* Mode toggle */}
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setCreateMode("hex")}
+                        className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                          createMode === "hex"
+                            ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                            : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"
+                        }`}
+                      >
+                        Couleur unie
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCreateMode("pattern")}
+                        className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                          createMode === "pattern"
+                            ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                            : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"
+                        }`}
+                      >
+                        Motif / Image
+                      </button>
+                    </div>
+
+                    {createMode === "hex" ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={createHex}
+                          onChange={(e) => setCreateHex(e.target.value)}
+                          className="w-10 h-9 rounded cursor-pointer border border-[#E5E5E5]"
+                        />
+                        <input
+                          className="field-input w-28 font-mono text-sm"
+                          value={createHex}
+                          onChange={(e) => setCreateHex(e.target.value)}
+                        />
+                      </div>
+                    ) : (
+                      <div>
+                        {createPatternPreview ? (
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="w-16 h-16 rounded-lg border border-[#E5E5E5]"
+                              style={{ backgroundImage: `url(${createPatternPreview})`, backgroundSize: "cover", backgroundPosition: "center" }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => { setCreatePatternFile(null); setCreatePatternPreview(null); setCreatePatternPath(null); }}
+                              className="text-xs text-red-500 hover:underline font-[family-name:var(--font-roboto)]"
+                            >
+                              Supprimer
+                            </button>
+                          </div>
+                        ) : (
+                          <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-[#E5E5E5] rounded-lg cursor-pointer hover:border-[#9CA3AF] transition-colors ${createUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                            <svg className="w-5 h-5 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span className="text-xs text-[#9CA3AF]">{createUploading ? "Upload..." : "PNG, JPG, WebP — max 500 Ko"}</span>
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleCreatePatternUpload(file);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                        )}
+                      </div>
+                    )}
+
+                    {createError && <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{createError}</p>}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCreateColorSave}
+                        disabled={createSaving || createUploading || !createName.trim() || (createMode === "pattern" && !createPatternPath)}
+                        className="btn-primary text-sm disabled:opacity-50"
+                      >
+                        {createSaving ? "Création..." : "Créer"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowCreate(false); setCreateName(""); setCreatePatternFile(null); setCreatePatternPreview(null); setCreatePatternPath(null); setCreateError(""); }}
+                        className="btn-secondary text-sm"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-t border-[#E5E5E5] bg-[#FAFAFA] rounded-b-2xl">
+              <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                {draft.length === 0 ? "Aucune couleur" : `${draft.length} couleur${draft.length > 1 ? "s" : ""}`}
+              </span>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={cancel}
+                  className="px-4 py-2 text-xs font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
+                >
+                  Annuler
                 </button>
-              );
-            })}
+                <button type="button" onClick={confirm}
+                  className="px-4 py-2 text-xs font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-lg hover:bg-[#333] transition-colors"
+                >
+                  Valider
+                </button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body
@@ -1148,6 +1549,8 @@ export default function ColorVariantManager({
                             ] : []}
                             options={availableColors}
                             onChange={(colors) => handleMultiColorChange(v.tempId, colors)}
+                            existingVariants={variants}
+                            onCreateColor={onQuickCreateColor}
                           />
                         </td>
 

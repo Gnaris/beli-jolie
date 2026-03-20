@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useTransition, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, uid as genUid, variantGroupKeyFromState } from "./ColorVariantManager";
-import { createProduct, updateProduct } from "@/app/actions/admin/products";
+import { createProduct, updateProduct, saveProductTranslations } from "@/app/actions/admin/products";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
 import CustomSelect from "@/components/ui/CustomSelect";
 import AiCostDialog from "./AiCostDialog";
-import TranslateButton from "@/components/admin/TranslateButton";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 
 interface Category {
   id: string;
@@ -99,7 +99,6 @@ export default function ProductForm({
   productId,
   initialData,
 }: ProductFormProps) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   // ── Local lists — allow modal creation to append items ───────────────
@@ -218,6 +217,116 @@ export default function ProductForm({
     imagePaths: string[];
   } | null>(null);
   const [aiSuccess, setAiSuccess] = useState("");
+
+  // ── Translate all (name + description) ─────────────────────────────
+  const [translateLoading, setTranslateLoading] = useState(false);
+  const [translateError, setTranslateError] = useState("");
+  const [translateSuccess, setTranslateSuccess] = useState("");
+  const { confirm } = useConfirm();
+
+  const localeListStr = Object.entries(LOCALE_FULL_NAMES)
+    .filter(([k]) => k !== "fr")
+    .map(([, v]) => v)
+    .join(", ");
+
+  async function handleTranslateAll() {
+    if (!name.trim() && !description.trim()) return;
+    setTranslateError("");
+    setTranslateSuccess("");
+
+    // Fetch quota
+    let remaining: number;
+    let resetDate: string;
+    try {
+      const res = await fetch("/api/admin/translate");
+      const data = await res.json();
+      remaining = data.remaining;
+      resetDate = data.resetDate;
+    } catch {
+      setTranslateError("Impossible de vérifier le quota.");
+      return;
+    }
+
+    const texts = [name.trim(), description.trim()].filter(Boolean);
+    const totalChars = texts.reduce((sum, t) => sum + t.length, 0) * 6;
+
+    if (remaining < totalChars) {
+      const formatted = new Date(resetDate).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+      setTranslateError(`Quota insuffisant. Réinitialisation le ${formatted}.`);
+      return;
+    }
+
+    const confirmed = await confirm({
+      type: "info",
+      title: "Tout traduire (nom + description)",
+      message: `Traduire le nom et la description vers ${localeListStr}.\n\nCaractères nécessaires : ${totalChars.toLocaleString("fr-FR")} (× 6 langues)\nCaractères restants : ${remaining.toLocaleString("fr-FR")} / 500 000`,
+      confirmLabel: "Traduire",
+      cancelLabel: "Annuler",
+    });
+    if (!confirmed) return;
+
+    setTranslateLoading(true);
+    try {
+      const res = await fetch("/api/admin/translate-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texts }),
+      });
+
+      if (res.status === 429) {
+        const data = await res.json();
+        setTranslateError(data.message);
+        return;
+      }
+      if (!res.ok) throw new Error("Erreur traduction");
+
+      const data = await res.json();
+      const results: Record<string, string>[] = data.results;
+
+      // results[0] = name translations, results[1] = description translations (if both provided)
+      const nameIdx = name.trim() ? 0 : -1;
+      const descIdx = name.trim() && description.trim() ? 1 : description.trim() ? 0 : -1;
+
+      const newTranslations: Record<string, { name: string; description: string }> = {};
+      for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+        newTranslations[locale] = {
+          name: nameIdx >= 0 ? (results[nameIdx]?.[locale] ?? "") : "",
+          description: descIdx >= 0 ? (results[descIdx]?.[locale] ?? "") : "",
+        };
+      }
+
+      setTranslations((prev) => {
+        const next = { ...prev };
+        for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
+          next[locale] = {
+            name: newTranslations[locale].name || (next[locale]?.name ?? ""),
+            description: newTranslations[locale].description || (next[locale]?.description ?? ""),
+          };
+        }
+        return next;
+      });
+
+      // Auto-save translations in edit mode
+      if (mode === "edit" && productId) {
+        try {
+          const toSave = Object.entries(newTranslations)
+            .filter(([, t]) => t.name.trim() || t.description.trim())
+            .map(([locale, t]) => ({ locale, name: t.name, description: t.description }));
+          await saveProductTranslations(productId, toSave);
+          setTranslateSuccess("Traductions générées et enregistrées !");
+        } catch {
+          setTranslateSuccess("Traductions générées (erreur lors de la sauvegarde automatique).");
+        }
+      } else {
+        setTranslateSuccess("Traductions générées avec succès !");
+      }
+      setTimeout(() => setTranslateSuccess(""), 4000);
+    } catch {
+      setTranslateError("Erreur lors de la traduction.");
+    } finally {
+      setTranslateLoading(false);
+    }
+  }
 
   // ── Derived ──────────────────────────────────────────────────────────
   const selectedCategory = localCategories.find((c) => c.id === categoryId);
@@ -394,7 +503,7 @@ export default function ProductForm({
       const res  = await fetch("/api/admin/products/generate-ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productInfo, imagePaths, locales: VALID_LOCALES }),
+        body: JSON.stringify({ productInfo, imagePaths, locales: ["fr"] }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erreur IA");
@@ -405,14 +514,9 @@ export default function ProductForm({
         setName(aiTranslations.fr.name);
         setDescription(aiTranslations.fr.description);
       }
-      const newTr = { ...translations };
-      for (const [locale, t] of Object.entries(aiTranslations)) {
-        if (locale !== "fr") newTr[locale] = { name: t.name, description: t.description };
-      }
-      setTranslations(newTr);
 
       const actualCost = data.actualCostUsd ?? data.estimatedCostUsd ?? 0;
-      setAiSuccess(`Généré avec succès ! Coût réel : $${actualCost.toFixed(4)}`);
+      setAiSuccess(`Généré avec succès ! Coût réel : $${actualCost.toFixed(4)}. Utilisez "Tout traduire" pour les autres langues.`);
       setTimeout(() => setAiSuccess(""), 6000);
     } catch (e) {
       setAiError(e instanceof Error ? e.message : "Erreur lors de la génération IA.");
@@ -472,18 +576,20 @@ export default function ProductForm({
         if (isNaN(qty) || qty < 2) return setError(`Quantité paquet invalide pour "${v.colorName}" (minimum 2).`);
       }
     }
-    // Duplicate variant checks
-    const unitByColor = new Map<string, boolean>();
+    // Duplicate variant checks — use full groupKey (colorId + ordered sub-colors)
+    const unitByGroup = new Map<string, boolean>();
     for (const v of variants) {
       if (v.saleType === "UNIT") {
-        if (unitByColor.has(v.colorId)) return setError(`La couleur "${v.colorName}" a déjà une variante à l'unité.`);
-        unitByColor.set(v.colorId, true);
+        const gk = variantGroupKeyFromState(v);
+        if (unitByGroup.has(gk)) return setError(`La couleur "${v.colorName}" a déjà une variante à l'unité.`);
+        unitByGroup.set(gk, true);
       }
     }
     const packKeys2 = new Set<string>();
     for (const v of variants) {
       if (v.saleType === "PACK" && v.packQuantity) {
-        const key = `${v.colorId}__${v.packQuantity}`;
+        const gk = variantGroupKeyFromState(v);
+        const key = `${gk}__${v.packQuantity}`;
         if (packKeys2.has(key)) return setError(`La couleur "${v.colorName}" a deux paquets de même quantité.`);
         packKeys2.add(key);
       }
@@ -550,7 +656,6 @@ export default function ProductForm({
           await createProduct(payload);
         }
         setProductStatus(targetStatus);
-        router.push("/admin/produits");
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
       }
@@ -604,6 +709,22 @@ export default function ProductForm({
                   )}
                   Générer avec l&apos;IA
                 </button>
+                <button
+                  type="button"
+                  onClick={handleTranslateAll}
+                  disabled={translateLoading || (!name.trim() && !description.trim())}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F7F7F8] hover:bg-[#E5E5E5] text-[#1A1A1A] border border-[#E5E5E5] text-xs font-medium rounded-lg transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)] shrink-0"
+                >
+                  {translateLoading ? (
+                    <span className="w-3.5 h-3.5 border-2 border-[#1A1A1A]/30 border-t-[#1A1A1A] rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="m10.5 21 5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 0 1 6-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 0 1-3.827-5.802" />
+                    </svg>
+                  )}
+                  Tout traduire
+                </button>
               </div>
 
               {/* AI feedback */}
@@ -615,6 +736,16 @@ export default function ProductForm({
               {aiSuccess && (
                 <p className="text-xs text-[#15803D] font-[family-name:var(--font-roboto)] bg-[#F0FDF4] px-3 py-2 rounded-lg">
                   {aiSuccess}
+                </p>
+              )}
+              {translateError && (
+                <p className="text-xs text-[#DC2626] font-[family-name:var(--font-roboto)] bg-[#FEF2F2] px-3 py-2 rounded-lg">
+                  {translateError}
+                </p>
+              )}
+              {translateSuccess && (
+                <p className="text-xs text-[#15803D] font-[family-name:var(--font-roboto)] bg-[#F0FDF4] px-3 py-2 rounded-lg">
+                  {translateSuccess}
                 </p>
               )}
 
@@ -650,21 +781,6 @@ export default function ProductForm({
                   <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">
                     Nom du produit *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
                   </label>
-                  {activeLocale === "fr" && (
-                    <TranslateButton
-                      text={name}
-                      onTranslated={(t) => {
-                        setTranslations((prev) => {
-                          const next = { ...prev };
-                          for (const [locale, val] of Object.entries(t)) {
-                            next[locale] = { name: val, description: next[locale]?.description ?? "" };
-                          }
-                          return next;
-                        });
-                      }}
-                      disabled={!name.trim()}
-                    />
-                  )}
                 </div>
                 <input
                   type="text"
@@ -741,21 +857,6 @@ export default function ProductForm({
                   <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">
                     Description *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
                   </label>
-                  {activeLocale === "fr" && (
-                    <TranslateButton
-                      text={description}
-                      onTranslated={(t) => {
-                        setTranslations((prev) => {
-                          const next = { ...prev };
-                          for (const [locale, val] of Object.entries(t)) {
-                            next[locale] = { name: next[locale]?.name ?? "", description: val };
-                          }
-                          return next;
-                        });
-                      }}
-                      disabled={!description.trim()}
-                    />
-                  )}
                 </div>
                 <textarea
                   value={activeDescription}
@@ -1037,7 +1138,7 @@ export default function ProductForm({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              Mettre en ligne
+              Enregistrer et mettre en ligne
             </button>
           ) : (
             <button
@@ -1049,12 +1150,15 @@ export default function ProductForm({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
               </svg>
-              Mettre hors ligne
+              Enregistrer et mettre hors ligne
             </button>
           )}
 
           <a href="/admin/produits" className="btn-secondary px-7 py-3.5 text-sm">
             Annuler
+          </a>
+          <a href="/admin/produits" className="text-sm text-[#6B6B6B] underline hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
+            Retourner à la page des produits
           </a>
         </div>
       </form>

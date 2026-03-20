@@ -10,6 +10,8 @@ import {
   updateCategoryDirect,
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
+import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
+import TranslateAllButton from "@/components/admin/TranslateAllButton";
 
 interface SubCategoryItem {
   id: string;
@@ -46,8 +48,51 @@ export default function CategoriesManager({ categories }: { categories: Category
     router.refresh();
   }
 
+  // Build items for "Tout traduire" — categories + all subcategories
+  const allTranslateItems = [
+    ...categories.map((c) => ({
+      id: `cat:${c.id}`,
+      text: c.name,
+      hasTranslations: Object.keys(c.translations).length > 0,
+    })),
+    ...categories.flatMap((c) =>
+      c.subCategories.map((s) => ({
+        id: `sub:${s.id}`,
+        text: s.name,
+        hasTranslations: Object.keys(s.translations).length > 0,
+      }))
+    ),
+  ];
+
+  async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
+    const catItems: { id: string; translations: Record<string, string> }[] = [];
+    const subItems: { id: string; translations: Record<string, string> }[] = [];
+
+    for (const [key, t] of Object.entries(translations)) {
+      if (key.startsWith("cat:")) {
+        catItems.push({ id: key.slice(4), translations: t });
+      } else if (key.startsWith("sub:")) {
+        subItems.push({ id: key.slice(4), translations: t });
+      }
+    }
+
+    if (catItems.length > 0) await batchUpdateTranslations("category", catItems);
+    if (subItems.length > 0) await batchUpdateTranslations("subcategory", subItems);
+    router.refresh();
+  }
+
   return (
     <>
+      {/* Tout traduire */}
+      <div className="flex justify-end mb-4">
+        <TranslateAllButton
+          items={allTranslateItems}
+          onTranslated={handleTranslateAll}
+          label="Tout traduire"
+          onlyMissing
+        />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
         {/* -- Colonne gauche : Catégories principales -- */}

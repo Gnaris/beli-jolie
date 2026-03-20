@@ -17,7 +17,7 @@ interface SubColorInfo {
 
 interface VariantData {
   id: string;
-  groupKey: string;              // Unique key: colorId + sorted sub-color names
+  groupKey: string;              // Unique key: colorId + ordered sub-color names (order matters)
   colorId: string;
   colorName: string;
   colorHex: string | null;

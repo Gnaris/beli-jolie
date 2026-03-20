@@ -31,7 +31,7 @@ const PRODUCT_INCLUDE = {
 
 function apiVariantGroupKey(colorId: string, subColorNames: string[]): string {
   if (subColorNames.length === 0) return colorId;
-  return `${colorId}::${[...subColorNames].sort().join(",")}`;
+  return `${colorId}::${subColorNames.join(",")}`;
 }
 
 // Shape products: group variants by color group key (colorId + sub-colors) + attach first image

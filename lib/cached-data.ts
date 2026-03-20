@@ -96,6 +96,7 @@ export const getCachedAdminWarnings = unstable_cache(
       unusedTagsCount,
       untranslatedCategoriesCount,
       untranslatedSubCategoriesCount,
+      pendingOrdersCount,
     ] = await Promise.all([
       prisma.product.count(),
       prisma.product.count({
@@ -106,6 +107,7 @@ export const getCachedAdminWarnings = unstable_cache(
       prisma.tag.count({ where: { translations: { none: {} } } }),
       prisma.category.count({ where: { translations: { none: {} } } }),
       prisma.subCategory.count({ where: { translations: { none: {} } } }),
+      prisma.order.count({ where: { status: "PENDING" } }),
     ]);
 
     const untranslatedCount = totalProducts - fullyTranslatedProducts;
@@ -117,10 +119,11 @@ export const getCachedAdminWarnings = unstable_cache(
       unusedTagsCount,
       untranslatedCategoriesCount,
       untranslatedSubCategoriesCount,
+      pendingOrdersCount,
     };
   },
   ["admin-warnings"],
-  { revalidate: 300, tags: ["products", "categories", "colors", "tags", "compositions"] }
+  { revalidate: 300, tags: ["products", "categories", "colors", "tags", "compositions", "orders"] }
 );
 
 // ─── Dashboard aggregate stats (expensive, cache 5min) ──────────────────────

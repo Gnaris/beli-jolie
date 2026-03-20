@@ -70,23 +70,31 @@ export interface ProductInput {
 // Server-side variant validation
 // ─────────────────────────────────────────────
 
+/** Build a group key from ColorInput (colorId + ordered sub-color IDs). Order matters. */
+function colorInputGroupKey(c: ColorInput): string {
+  if (!c.subColorIds || c.subColorIds.length === 0) return c.colorId;
+  return `${c.colorId}::${c.subColorIds.join(",")}`;
+}
+
 function validateVariants(colors: ColorInput[]): void {
-  // No two UNIT variants with same colorId
+  // No two UNIT variants with same color group (colorId + ordered sub-colors)
   const unitByColor = new Map<string, boolean>();
   for (const c of colors) {
     if (c.saleType === "UNIT") {
-      if (unitByColor.has(c.colorId)) {
+      const gk = colorInputGroupKey(c);
+      if (unitByColor.has(gk)) {
         throw new Error("Une couleur ne peut avoir qu'une variante à l'unité.");
       }
-      unitByColor.set(c.colorId, true);
+      unitByColor.set(gk, true);
     }
   }
 
-  // No two PACK variants with same colorId + packQuantity + size
+  // No two PACK variants with same color group + packQuantity + size
   const packKeys = new Set<string>();
   for (const c of colors) {
     if (c.saleType === "PACK") {
-      const key = `${c.colorId}__${c.packQuantity ?? ""}__${(c.size ?? "").trim().toLowerCase()}`;
+      const gk = colorInputGroupKey(c);
+      const key = `${gk}__${c.packQuantity ?? ""}__${(c.size ?? "").trim().toLowerCase()}`;
       if (packKeys.has(key)) {
         throw new Error("Une couleur ne peut pas avoir deux paquets de même quantité et de même taille.");
       }
@@ -133,20 +141,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       dimensionHeight:       input.dimensionHeight,
       dimensionDiameter:     input.dimensionDiameter,
       dimensionCircumference: input.dimensionCircumference,
-      colors: {
-        create: input.colors.map((color, idx) => ({
-          colorId:       color.colorId,
-          unitPrice:     color.unitPrice,
-          weight:        color.weight,
-          stock:         color.stock,
-          isPrimary:     color.isPrimary || idx === 0,
-          saleType:      color.saleType,
-          packQuantity:  color.packQuantity,
-          size:          color.size,
-          discountType:  color.discountType,
-          discountValue: color.discountValue,
-        })),
-      },
       compositions: {
         create: input.compositions.map((c) => ({
           compositionId: c.compositionId,
@@ -156,65 +150,59 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     },
   });
 
-  // Sub-colors: create ProductColorSubColor entries
-  const createdVariants = await prisma.productColor.findMany({
-    where: { productId: product.id },
-    select: { id: true, colorId: true, saleType: true, packQuantity: true, size: true },
-    orderBy: { createdAt: "asc" },
-  });
-  // Match created variants to input colors by position (same order)
-  const subColorData: { productColorId: string; colorId: string; position: number }[] = [];
+  // Create variants one by one to guarantee order + inline sub-colors
+  // (bulk nested create via colors.create doesn't guarantee insertion order when
+  //  multiple variants share the same colorId, causing sub-color mismatch)
+  const createdVariants: { id: string; colorId: string }[] = [];
   for (let i = 0; i < input.colors.length; i++) {
-    const colorInput = input.colors[i];
-    const variant = createdVariants[i];
-    if (variant && colorInput.subColorIds && colorInput.subColorIds.length > 0) {
-      for (let pos = 0; pos < colorInput.subColorIds.length; pos++) {
-        subColorData.push({ productColorId: variant.id, colorId: colorInput.subColorIds[pos], position: pos });
-      }
-    }
-  }
-  if (subColorData.length > 0) {
-    await prisma.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
+    const color = input.colors[i];
+    const variant = await prisma.productColor.create({
+      data: {
+        productId:     product.id,
+        colorId:       color.colorId,
+        unitPrice:     color.unitPrice,
+        weight:        color.weight,
+        stock:         color.stock,
+        isPrimary:     color.isPrimary || i === 0,
+        saleType:      color.saleType,
+        packQuantity:  color.packQuantity,
+        size:          color.size,
+        discountType:  color.discountType,
+        discountValue: color.discountValue,
+        subColors: color.subColorIds && color.subColorIds.length > 0
+          ? { create: color.subColorIds.map((scId, pos) => ({ colorId: scId, position: pos })) }
+          : undefined,
+      },
+      select: { id: true, colorId: true },
+    });
+    createdVariants.push(variant);
   }
 
   // Images: create ProductColorImage entries linked to specific ProductColor variant
   if (input.imagePaths && input.imagePaths.length > 0) {
-    // Fetch sub-colors per variant to enable matching by full color set
-    const variantsWithSubs = await prisma.productColor.findMany({
-      where: { productId: product.id },
-      select: { id: true, colorId: true },
-      orderBy: { createdAt: "asc" },
-    });
-    const variantSubColors = await prisma.productColorSubColor.findMany({
-      where: { productColorId: { in: variantsWithSubs.map((v) => v.id) } },
-      select: { productColorId: true, colorId: true },
-      orderBy: { position: "asc" },
-    });
-    const subColorsByVariant = new Map<string, string[]>();
-    for (const sc of variantSubColors) {
-      const arr = subColorsByVariant.get(sc.productColorId) ?? [];
-      arr.push(sc.colorId);
-      subColorsByVariant.set(sc.productColorId, arr);
-    }
-
     const imageData: { productId: string; colorId: string; productColorId: string; path: string; order: number }[] = [];
     const usedVariantIds = new Set<string>();
     for (const group of input.imagePaths) {
       if (group.paths.length === 0) continue;
-      // Match variant by colorId + sorted subColorIds
-      const groupSubIds = [...(group.subColorIds ?? [])].sort();
-      const variant = variantsWithSubs.find((v) => {
-        if (usedVariantIds.has(v.id)) return false;
-        if (v.colorId !== group.colorId) return false;
-        const vSubs = [...(subColorsByVariant.get(v.id) ?? [])].sort();
-        if (vSubs.length !== groupSubIds.length) return false;
-        return vSubs.every((s, i) => s === groupSubIds[i]);
-      });
-      if (!variant) continue;
-      usedVariantIds.add(variant.id);
+      // Match variant by colorId + ordered subColorIds (order matters)
+      const groupSubIds = group.subColorIds ?? [];
+      let matched: { id: string; colorId: string } | undefined;
+      for (let i = 0; i < input.colors.length; i++) {
+        const cv = createdVariants[i];
+        if (!cv || usedVariantIds.has(cv.id)) continue;
+        if (cv.colorId !== group.colorId) continue;
+        const inputSubs = input.colors[i].subColorIds ?? [];
+        if (inputSubs.length !== groupSubIds.length) continue;
+        if (inputSubs.every((s, j) => s === groupSubIds[j])) {
+          matched = cv;
+          break;
+        }
+      }
+      if (!matched) continue;
+      usedVariantIds.add(matched.id);
       group.paths.forEach((path, idx) => {
         const order = group.orders?.[idx] ?? idx;
-        imageData.push({ productId: product.id, colorId: group.colorId, productColorId: variant.id, path, order });
+        imageData.push({ productId: product.id, colorId: group.colorId, productColorId: matched!.id, path, order });
       });
     }
     if (imageData.length > 0) {
@@ -441,13 +429,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         let variant = group.variantDbId
           ? currentVariants.find((v) => v.id === group.variantDbId)
           : undefined;
-        // Fallback: match by colorId + sorted subColorIds
+        // Fallback: match by colorId + ordered subColorIds (order matters)
         if (!variant) {
-          const groupSubIds = [...(group.subColorIds ?? [])].sort();
+          const groupSubIds = group.subColorIds ?? [];
           variant = currentVariants.find((v) => {
             if (usedVariantIds.has(v.id)) return false;
             if (v.colorId !== group.colorId) return false;
-            const vSubs = [...(subColorsByVariant.get(v.id) ?? [])].sort();
+            const vSubs = subColorsByVariant.get(v.id) ?? [];
             if (vSubs.length !== groupSubIds.length) return false;
             return vSubs.every((s, i) => s === groupSubIds[i]);
           });
@@ -847,4 +835,33 @@ export async function updateTag(id: string, formData: FormData) {
 
   revalidatePath("/admin/mots-cles");
   revalidatePath("/produits");
+}
+
+// ─────────────────────────────────────────────
+// Save only translations for an existing product
+// ─────────────────────────────────────────────
+
+export async function saveProductTranslations(
+  productId: string,
+  translations: { locale: string; name: string; description: string }[]
+) {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({ where: { id: productId } });
+  if (!product) throw new Error("Produit introuvable.");
+
+  await prisma.productTranslation.deleteMany({ where: { productId } });
+
+  const valid = translations.filter((t) => t.name.trim() || t.description.trim());
+  if (valid.length > 0) {
+    await prisma.productTranslation.createMany({
+      data: valid.map((t) => ({
+        productId,
+        locale: t.locale,
+        name: t.name,
+        description: t.description,
+      })),
+      skipDuplicates: true,
+    });
+  }
 }

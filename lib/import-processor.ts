@@ -53,6 +53,11 @@ interface ProductImportRow {
   tags?: string;
   composition?: string;
   similarRefs?: string;     // comma-separated references of similar products
+  dimensionLength?: number;
+  dimensionWidth?: number;
+  dimensionHeight?: number;
+  dimensionDiameter?: number;
+  dimensionCircumference?: number;
 }
 
 interface DraftProductRow extends ProductImportRow {
@@ -76,7 +81,7 @@ interface ImageDraftRow {
   errors: string[];
   productId?: string;
   colorId?: string;
-  availableColors?: { id: string; name: string; hex: string }[];
+  availableColors?: { id: string; name: string; hex: string; patternImage?: string | null; subColors?: { hex: string; patternImage?: string | null }[] }[];
   availableRefs?: string[];
 }
 
@@ -95,21 +100,22 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     return isNaN(n) ? undefined : n;
   };
 
-  const saleTypeRaw = str(raw["sale_type"] ?? raw["saleType"] ?? raw["type_vente"] ?? "UNIT").toUpperCase();
+  // Support headers with asterisks from template (e.g. "reference *", "name *")
+  const saleTypeRaw = str(raw["sale_type"] ?? raw["sale_type *"] ?? raw["saleType"] ?? raw["type_vente"] ?? "UNIT").toUpperCase();
 
   return {
     _rowIndex: index + 2,
-    reference: str(raw["reference"] ?? raw["ref"] ?? raw["référence"]),
-    name: str(raw["name"] ?? raw["nom"] ?? raw["name_fr"]),
+    reference: str(raw["reference"] ?? raw["reference *"] ?? raw["ref"] ?? raw["référence"]),
+    name: str(raw["name"] ?? raw["name *"] ?? raw["nom"] ?? raw["name_fr"]),
     description: str(raw["description"] ?? raw["description_fr"]) || undefined,
     category: str(raw["category"] ?? raw["categorie"] ?? raw["catégorie"]) || undefined,
-    color: str(raw["color"] ?? raw["couleur"]),
+    color: str(raw["color"] ?? raw["color *"] ?? raw["couleur"]),
     saleType: saleTypeRaw === "PACK" ? "PACK" : "UNIT",
-    unitPrice: num(raw["unit_price"] ?? raw["prix"] ?? raw["price"]) ?? 0,
+    unitPrice: num(raw["unit_price"] ?? raw["unit_price *"] ?? raw["prix"] ?? raw["price"]) ?? 0,
     packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"]),
-    stock: int(raw["stock"] ?? raw["quantite"] ?? raw["qty"]) ?? 0,
+    stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"]) ?? 0,
     weight: num(raw["weight_g"] ?? raw["poids_g"] ?? raw["poids"]) ?? undefined,
-    isPrimary: String(raw["is_primary"] ?? raw["primaire"] ?? "").toLowerCase() === "true" || String(raw["is_primary"] ?? "1") === "1",
+    isPrimary: String(raw["is_primary"] ?? raw["primaire"] ?? "").toLowerCase() === "true",
     discountType: (str(raw["discount_type"] ?? raw["remise_type"]).toUpperCase() as "PERCENT" | "AMOUNT") || undefined,
     discountValue: num(raw["discount_value"] ?? raw["remise_valeur"]),
     size: str(raw["size"] ?? raw["taille"]) || undefined,
@@ -117,6 +123,11 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     composition: str(raw["composition"]) || undefined,
     subCategories: str(raw["sub_categories"] ?? raw["sous_categories"] ?? raw["subCategories"]) || undefined,
     similarRefs: str(raw["similar_refs"] ?? raw["produits_similaires"] ?? raw["similarRefs"]) || undefined,
+    dimensionLength: num(raw["dimension_length"] ?? raw["longueur"]),
+    dimensionWidth: num(raw["dimension_width"] ?? raw["largeur"]),
+    dimensionHeight: num(raw["dimension_height"] ?? raw["hauteur"]),
+    dimensionDiameter: num(raw["dimension_diameter"] ?? raw["diametre"] ?? raw["diamètre"]),
+    dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"]),
   };
 }
 
@@ -154,6 +165,11 @@ function parseJSON(text: string): ProductImportRow[] {
         similarRefs: Array.isArray(item.similarRefs) ? item.similarRefs.join(",")
           : Array.isArray(item.similar_refs) ? item.similar_refs.join(",")
           : (item.similarRefs ?? item.similar_refs ?? undefined),
+        dimensionLength: item.dimensionLength ?? item.dimension_length ?? undefined,
+        dimensionWidth: item.dimensionWidth ?? item.dimension_width ?? undefined,
+        dimensionHeight: item.dimensionHeight ?? item.dimension_height ?? undefined,
+        dimensionDiameter: item.dimensionDiameter ?? item.dimension_diameter ?? undefined,
+        dimensionCircumference: item.dimensionCircumference ?? item.dimension_circumference ?? undefined,
       });
       idx++;
     }
@@ -163,15 +179,31 @@ function parseJSON(text: string): ProductImportRow[] {
 
 function parseExcel(buffer: Buffer): ProductImportRow[] {
   const wb = XLSX.read(buffer, { type: "buffer" });
-  const ws = wb.Sheets[wb.SheetNames[0]];
+  // Use "Produits" sheet if it exists (template has Instructions + Produits), fallback to first sheet
+  const ws = wb.Sheets["Produits"] ?? wb.Sheets[wb.SheetNames[0]];
   const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
-  return data.map((row, i) => normalizeRow(row, i));
+
+  // Skip the description row (row 2 in template) — detect by checking if "reference" looks like a description
+  // Do NOT skip rows with empty reference — they inherit from the previous row
+  const filtered = data.filter((row) => {
+    const ref = String(row["reference"] ?? row["reference *"] ?? row["ref"] ?? row["référence"] ?? "").trim();
+    if (ref.toLowerCase().startsWith("référence unique") || ref.toLowerCase().startsWith("reference unique")) return false;
+    const saleType = String(row["sale_type"] ?? row["sale_type *"] ?? row["saleType"] ?? "").trim().toUpperCase();
+    if (saleType && saleType !== "UNIT" && saleType !== "PACK" && saleType.length > 10) return false;
+    // Skip completely empty rows (no ref AND no color)
+    const color = String(row["color"] ?? row["color *"] ?? row["couleur"] ?? "").trim();
+    if (!ref && !color) return false;
+    return true;
+  });
+
+  return filtered.map((row, i) => normalizeRow(row, i));
 }
 
-function validateRow(row: ProductImportRow): string[] {
+/** Validate a single variant row. Product-level fields (name, category) are
+ *  checked separately after grouping, so only variant-level fields are validated here. */
+function validateVariantRow(row: ProductImportRow): string[] {
   const errors: string[] = [];
   if (!row.reference) errors.push("Référence manquante.");
-  if (!row.name) errors.push("Nom manquant.");
   if (!row.color) errors.push("Couleur manquante.");
   if (!["UNIT", "PACK"].includes(row.saleType)) errors.push("Type de vente invalide (UNIT ou PACK).");
   if (row.saleType === "PACK" && (!row.packQuantity || row.packQuantity < 1))
@@ -209,19 +241,66 @@ export async function processProductImport(jobId: string): Promise<void> {
     }
 
     // Update total
-    // Group by reference to count products
+    // Propagate reference from previous row when empty (Excel users often only fill
+    // the reference on the first row of a multi-variant product)
+    let lastRef = "";
+    for (const row of rows) {
+      if (row.reference) {
+        lastRef = row.reference;
+      } else if (lastRef) {
+        row.reference = lastRef;
+      }
+    }
+
+    // Group by reference FIRST, then inherit product-level fields from first row,
+    // then validate. This allows multi-row products (same reference) where only the
+    // first row has the name/description/category filled in.
+    const preGrouped = new Map<string, ProductImportRow[]>();
+    for (const row of rows) {
+      if (!row.reference) continue; // skip rows without reference entirely
+      const ref = row.reference.toUpperCase();
+      if (!preGrouped.has(ref)) preGrouped.set(ref, []);
+      preGrouped.get(ref)!.push(row);
+    }
+
+    // Inherit product-level fields from the group: find the first row that has each
+    // field and propagate to all rows. This handles cases where product-level fields
+    // (name, category, composition, etc.) are on any row, not just the first.
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "similarRefs", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference"] as const;
+    for (const [, groupRows] of preGrouped) {
+      for (const field of productFields) {
+        // Find the first row that has this field
+        const source = groupRows.find((r) => r[field]);
+        if (!source) continue;
+        for (const row of groupRows) {
+          if (!row[field] && source[field]) {
+            (row as unknown as Record<string, unknown>)[field] = source[field];
+          }
+        }
+      }
+    }
+
     const grouped = new Map<string, ProductImportRow[]>();
     const errorRows: DraftProductRow[] = [];
 
-    for (const row of rows) {
-      const errs = validateRow(row);
-      if (errs.length > 0) {
-        errorRows.push({ ...row, errors: errs });
+    // Now validate each row (variant-level only — name is inherited from first row)
+    for (const [ref, groupRows] of preGrouped) {
+      // Check product-level: at least the first row must have a name
+      if (!groupRows[0].name) {
+        for (const row of groupRows) {
+          errorRows.push({ ...row, errors: ["Nom manquant (première ligne de la référence)."] });
+        }
         continue;
       }
-      const ref = row.reference.toUpperCase();
-      if (!grouped.has(ref)) grouped.set(ref, []);
-      grouped.get(ref)!.push(row);
+      for (const row of groupRows) {
+        const errs = validateVariantRow(row);
+        if (errs.length > 0) {
+          errorRows.push({ ...row, errors: errs });
+          continue;
+        }
+        if (!grouped.has(ref)) grouped.set(ref, []);
+        grouped.get(ref)!.push(row);
+      }
     }
 
     const totalProducts = grouped.size;
@@ -266,7 +345,7 @@ export async function processProductImport(jobId: string): Promise<void> {
       prisma.category.findMany({ where: { name: { in: categoryNames } } }),
       prisma.tag.findMany({ where: { name: { in: tagNames } } }),
       prisma.composition.findMany({ where: { name: { in: compositionMaterials } } }),
-      prisma.subCategory.findMany({ where: { name: { in: subCatNames } } }),
+      prisma.subCategory.findMany(),
       prisma.product.findMany({ where: { reference: { in: [...grouped.keys()] } }, select: { reference: true } }),
     ]);
 
@@ -398,14 +477,23 @@ export async function processProductImport(jobId: string): Promise<void> {
         if (compError) { processedCount++; continue; }
 
         // Sub-categories — error if not found
+        // Prefer sub-category from the same category, fallback to any match by name
         const subCatIds: string[] = [];
         let subCatError = false;
+        console.log(`[import] Ref=${ref} subCategories="${firstRow.subCategories}" (dbSubCategories count=${dbSubCategories.length})`);
         if (firstRow.subCategories) {
           for (const scName of firstRow.subCategories.split(",").map((s) => s.trim()).filter(Boolean)) {
-            const sc = subCatMap.get(scName.toLowerCase());
+            const scLower = scName.toLowerCase();
+            // Prefer match in the same category
+            const sc = dbSubCategories.find(
+              (s) => s.name.toLowerCase() === scLower && (categoryId ? s.categoryId === categoryId : true)
+            ) ?? dbSubCategories.find((s) => s.name.toLowerCase() === scLower);
             if (sc) {
+              console.log(`[import] ✓ SubCat "${scName}" → id=${sc.id}`);
               subCatIds.push(sc.id);
             } else {
+              console.log(`[import] ✗ SubCat "${scName}" NOT FOUND. DB names: ${dbSubCategories.map((s) => s.name).join(", ")}`);
+
               for (const row of colorRows) {
                 if (!errorRows.some((e) => e._rowIndex === row._rowIndex)) {
                   errorRows.push({ ...row, errors: [`Sous-catégorie "${scName}" introuvable.`] });
@@ -423,6 +511,7 @@ export async function processProductImport(jobId: string): Promise<void> {
           : [];
 
         try {
+          console.log(`[import] Creating product ${ref}: subCatIds=[${subCatIds.join(",")}], compPairs=${compPairs.length}, tagIds=${tagIds.length}`);
           const product = await prisma.product.create({
             data: {
               reference: ref,
@@ -431,16 +520,25 @@ export async function processProductImport(jobId: string): Promise<void> {
               categoryId: categoryId ?? (await prisma.category.findFirst().then((c) => c?.id ?? "")),
               status: "OFFLINE",
               isBestSeller: false,
+              dimensionLength: firstRow.dimensionLength ?? null,
+              dimensionWidth: firstRow.dimensionWidth ?? null,
+              dimensionHeight: firstRow.dimensionHeight ?? null,
+              dimensionDiameter: firstRow.dimensionDiameter ?? null,
+              dimensionCircumference: firstRow.dimensionCircumference ?? null,
               tags: tagIds.length > 0 ? { create: tagIds.map((id) => ({ tagId: id })) } : undefined,
               compositions: compPairs.length > 0 ? { create: compPairs } : undefined,
               subCategories: subCatIds.length > 0 ? { connect: subCatIds.map((id) => ({ id })) } : undefined,
               colors: {
-                create: resolvedColors.map(({ row, mainColor, subColors }, ci) => ({
+                // Determine which variant is primary: use explicit is_primary from Excel,
+                // or default to the first variant if none is explicitly marked
+                create: (() => {
+                  const hasExplicitPrimary = resolvedColors.some(({ row }) => row.isPrimary);
+                  return resolvedColors.map(({ row, mainColor, subColors }, ci) => ({
                   colorId: mainColor.id,
                   unitPrice: row.unitPrice,
                   weight: row.weight ? row.weight / 1000 : 0.1,
                   stock: row.stock,
-                  isPrimary: row.isPrimary || ci === 0,
+                  isPrimary: hasExplicitPrimary ? (row.isPrimary === true) : ci === 0,
                   saleType: row.saleType,
                   packQuantity: row.saleType === "PACK" ? (row.packQuantity ?? null) : null,
                   size: row.size ?? null,
@@ -450,7 +548,8 @@ export async function processProductImport(jobId: string): Promise<void> {
                   subColors: subColors.length > 0
                     ? { create: subColors.map((sc, idx) => ({ colorId: sc.id, position: idx })) }
                     : undefined,
-                })),
+                }));
+                })(),
               },
             },
           });
@@ -685,6 +784,16 @@ export async function processImageImport(jobId: string): Promise<void> {
     }
     const perFileMap = new Map(resolutions.perFile.map((r) => [r.filename, r]));
 
+    // Load file overrides (position/color changes from preview editing)
+    let fileOverrides: Record<string, { position?: number; color?: string }> = {};
+    try {
+      const ovPath = path.join(tempDirFull, "_overrides.json");
+      const ovData = await readFile(ovPath, "utf-8");
+      fileOverrides = JSON.parse(ovData);
+    } catch {
+      // No overrides file
+    }
+
     await prisma.importJob.update({
       where: { id: jobId },
       data: { totalItems: imageFiles.length },
@@ -707,11 +816,12 @@ export async function processImageImport(jobId: string): Promise<void> {
         });
         continue;
       }
+      const ov = fileOverrides[filename];
       validFiles.push({
         filename,
         reference: parsed.reference,
-        color: parsed.color,
-        position: parsed.position,
+        color: ov?.color ?? parsed.color,
+        position: ov?.position ?? parsed.position,
         filePath: path.join(tempDirFull, filename),
       });
     }
@@ -768,23 +878,23 @@ export async function processImageImport(jobId: string): Promise<void> {
           continue;
         }
 
-        // Match color — compare the full set of colors (main + sub-colors)
-        // File: "Doré,Argenté,Or Rose" → must match a variant with exactly these colors
+        // Match color — compare the ordered list of colors (main + sub-colors)
+        // File: "Doré,Argenté,Or Rose" → main=Doré, sub=[Argenté, Or Rose] in order
         // Comma separator in filenames (since "/" is forbidden)
-        const fileColorParts = file.color.split(",").map((c) => normalizeColorName(c.trim())).sort();
+        const fileColorParts = file.color.split(",").map((c) => normalizeColorName(c.trim()));
 
-        // Build the full color set for each variant (main color + sub-colors)
+        // Build the ordered color list for each variant (main color + sub-colors by position)
         let matchingVariants = product.colors.filter((pc) => {
           const variantColors = [
             normalizeColorName(pc.color.name),
             ...pc.subColors.map((sc) => normalizeColorName(sc.color.name)),
-          ].sort();
-          // Exact set match
+          ];
+          // Exact ordered match (order matters: Doré,Rouge ≠ Rouge,Doré)
           return variantColors.length === fileColorParts.length &&
             variantColors.every((c, i) => c === fileColorParts[i]);
         });
 
-        // Fallback: if no exact set match, try matching by main color only (single-color files)
+        // Fallback: if no exact ordered match, try matching by main color only (single-color files)
         if (matchingVariants.length === 0 && fileColorParts.length === 1) {
           matchingVariants = product.colors.filter(
             (pc) => normalizeColorName(pc.color.name) === fileColorParts[0]
@@ -792,9 +902,28 @@ export async function processImageImport(jobId: string): Promise<void> {
         }
 
         if (matchingVariants.length === 0) {
-          const availableColors = [
-            ...new Map(product.colors.map((pc) => [pc.colorId, pc.color])).values(),
-          ].map((c) => ({ id: c.id, name: c.name, hex: c.hex ?? "#9CA3AF" }));
+          // List all variant combinations (main + sub-colors) for error correction UI
+          const availableColors = product.colors.map((pc) => {
+            const subNames = pc.subColors
+              .sort((a, b) => a.position - b.position)
+              .map((sc) => sc.color.name);
+            const fullName = subNames.length > 0
+              ? [pc.color.name, ...subNames].join("/")
+              : pc.color.name;
+            return {
+              id: pc.id,              // ProductColor ID (variant), not Color ID
+              name: fullName,
+              hex: pc.color.hex ?? "#9CA3AF",
+              patternImage: pc.color.patternImage ?? null,
+              subColors: pc.subColors
+                .sort((a, b) => a.position - b.position)
+                .map((sc) => ({
+                  hex: sc.color.hex ?? "#9CA3AF",
+                  patternImage: sc.color.patternImage ?? null,
+                })),
+              saleType: pc.saleType,
+            };
+          });
 
           errorRows.push({
             filename: file.filename,

@@ -126,7 +126,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
                 }>();
                 for (const v of p.colors) {
                   const subNames: string[] = (v as any).subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
-                  const gk = subNames.length === 0 ? v.colorId : `${v.colorId}::${[...subNames].sort().join(",")}`;
+                  const gk = subNames.length === 0 ? v.colorId : `${v.colorId}::${subNames.join(",")}`;
                   if (!colorMap.has(gk)) {
                     const subs = (v as any).subColors?.map((sc: { color: { name: string; hex: string | null; patternImage?: string | null } }) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage })) ?? [];
                     colorMap.set(gk, {

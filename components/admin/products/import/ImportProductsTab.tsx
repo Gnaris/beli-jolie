@@ -482,6 +482,11 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   const [created, setCreated] = useState<Set<string>>(new Set());
   const [creatingAll, setCreatingAll] = useState(false);
   const [colorHexes, setColorHexes] = useState<Record<string, string>>({});
+  // Pattern image state per color name
+  const [colorModes, setColorModes] = useState<Record<string, "hex" | "pattern">>({});
+  const [colorPatterns, setColorPatterns] = useState<Record<string, string>>({});
+  const [uploadingPattern, setUploadingPattern] = useState<Set<string>>(new Set());
+  const patternInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const grouped = entities.reduce<Record<string, MissingEntity[]>>((acc, e) => {
     (acc[e.type] ??= []).push(e);
@@ -489,6 +494,48 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   }, {});
 
   const remaining = entities.filter((e) => !created.has(`${e.type}:${e.name}`));
+
+  const handlePatternUpload = async (colorName: string, file: File) => {
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      alert("Format non supporté. Utilisez PNG, JPG ou WebP.");
+      return;
+    }
+    if (file.size > 512 * 1024) {
+      alert("Image trop lourde (max 500 KB).");
+      return;
+    }
+    setUploadingPattern((prev) => new Set(prev).add(colorName));
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/admin/colors/upload-pattern", { method: "POST", body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        setColorPatterns((prev) => ({ ...prev, [colorName]: data.path }));
+      }
+    } catch {
+      // silently ignore
+    } finally {
+      setUploadingPattern((prev) => { const s = new Set(prev); s.delete(colorName); return s; });
+    }
+  };
+
+  const removePattern = async (colorName: string) => {
+    const patternPath = colorPatterns[colorName];
+    if (patternPath) {
+      try {
+        await fetch("/api/admin/colors/upload-pattern", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filePath: patternPath }),
+        });
+      } catch { /* ignore */ }
+    }
+    setColorPatterns((prev) => { const n = { ...prev }; delete n[colorName]; return n; });
+    // Reset file input
+    const inp = patternInputRefs.current[colorName];
+    if (inp) inp.value = "";
+  };
 
   const createEntity = async (entity: MissingEntity, hex?: string) => {
     const key = `${entity.type}:${entity.name}`;
@@ -500,7 +547,17 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
         action: ENTITY_LABELS[entity.type].action,
         name: entity.name,
       };
-      if (entity.type === "color" && hex) body.colorHex = hex;
+      if (entity.type === "color") {
+        const mode = colorModes[entity.name] ?? "hex";
+        if (mode === "pattern" && colorPatterns[entity.name]) {
+          body.patternImage = colorPatterns[entity.name];
+        } else if (hex) {
+          body.colorHex = hex;
+        }
+      }
+      if (entity.type === "subcategory" && entity.parentCategoryName) {
+        body.parentCategoryName = entity.parentCategoryName;
+      }
 
       const res = await fetch("/api/admin/products/import/quick-create", {
         method: "POST",
@@ -519,7 +576,12 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
 
   const createAll = async () => {
     setCreatingAll(true);
-    for (const entity of remaining) {
+    // Create categories first so subcategories can reference them
+    const sorted = [...remaining].sort((a, b) => {
+      const order: Record<string, number> = { category: 0, color: 1, composition: 2, subcategory: 3 };
+      return (order[a.type] ?? 9) - (order[b.type] ?? 9);
+    });
+    for (const entity of sorted) {
       await createEntity(entity, colorHexes[entity.name]);
     }
     setCreatingAll(false);
@@ -573,20 +635,84 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                   const isCreated = created.has(key);
                   const isCreating = creating.has(key);
 
+                  const mode = colorModes[entity.name] ?? "hex";
+                  const patternPath = colorPatterns[entity.name];
+                  const isUploading = uploadingPattern.has(entity.name);
+
                   return (
                     <div key={key} className="flex items-center gap-1.5">
                       {type === "color" && !isCreated && (
-                        <input
-                          type="color"
-                          value={colorHexes[entity.name] ?? "#9CA3AF"}
-                          onChange={(e) => setColorHexes((prev) => ({ ...prev, [entity.name]: e.target.value }))}
-                          className="w-6 h-6 rounded border border-[#E5E5E5] cursor-pointer p-0"
-                          title="Choisir la couleur hex"
-                        />
+                        <>
+                          {/* Toggle hex / pattern */}
+                          <button
+                            type="button"
+                            onClick={() => setColorModes((prev) => ({ ...prev, [entity.name]: mode === "hex" ? "pattern" : "hex" }))}
+                            className="w-6 h-6 rounded border border-[#E5E5E5] flex items-center justify-center cursor-pointer hover:border-[#1A1A1A] transition-colors"
+                            title={mode === "hex" ? "Passer en mode motif/image" : "Passer en mode couleur unie"}
+                          >
+                            {mode === "hex" ? (
+                              <span className="text-[10px]">🎨</span>
+                            ) : (
+                              <span className="text-[10px]">🖼️</span>
+                            )}
+                          </button>
+
+                          {mode === "hex" ? (
+                            <input
+                              type="color"
+                              value={colorHexes[entity.name] ?? "#9CA3AF"}
+                              onChange={(e) => setColorHexes((prev) => ({ ...prev, [entity.name]: e.target.value }))}
+                              className="w-6 h-6 rounded border border-[#E5E5E5] cursor-pointer p-0"
+                              title="Choisir la couleur hex"
+                            />
+                          ) : (
+                            <>
+                              {patternPath ? (
+                                <div className="relative w-6 h-6 rounded border border-[#E5E5E5] overflow-hidden group">
+                                  <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); removePattern(entity.name); }}
+                                    className="absolute inset-0 bg-black/50 text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                    title="Supprimer le motif"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <label
+                                  className={`w-6 h-6 rounded border border-dashed border-[#999] flex items-center justify-center cursor-pointer hover:border-[#1A1A1A] transition-colors ${isUploading ? "opacity-50 pointer-events-none" : ""}`}
+                                  title="Uploader une image motif (PNG, JPG, WebP — max 500KB)"
+                                >
+                                  {isUploading ? (
+                                    <span className="inline-block w-3 h-3 border-2 border-[#999] border-t-transparent rounded-full animate-spin" />
+                                  ) : (
+                                    <span className="text-[10px] text-[#999]">+</span>
+                                  )}
+                                  <input
+                                    ref={(el) => { patternInputRefs.current[entity.name] = el; }}
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handlePatternUpload(entity.name, file);
+                                    }}
+                                  />
+                                </label>
+                              )}
+                            </>
+                          )}
+                        </>
+                      )}
+                      {type === "color" && isCreated && patternPath && (
+                        <div className="w-6 h-6 rounded border border-green-200 overflow-hidden">
+                          <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
+                        </div>
                       )}
                       <button
                         onClick={() => handleCreateSingle(entity)}
-                        disabled={isCreated || isCreating}
+                        disabled={isCreated || isCreating || (type === "color" && mode === "pattern" && !patternPath && !colorHexes[entity.name])}
                         className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
                           isCreated
                             ? "bg-green-50 border-green-200 text-green-700 cursor-default"
@@ -603,6 +729,9 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                           <span className="text-[#999]">+</span>
                         )}
                         <span className="font-medium">{entity.name}</span>
+                        {entity.parentCategoryName && (
+                          <span className="text-[10px] text-[#666] italic">→ {entity.parentCategoryName}</span>
+                        )}
                         <span className="text-[10px] text-[#999]">({entity.usedBy} produit{entity.usedBy > 1 ? "s" : ""})</span>
                       </button>
                     </div>

@@ -55,10 +55,10 @@ interface PageProps {
   }>;
 }
 
-// Variant group key: colorId + sorted sub-color names (distinguishes multi-color variants)
+// Variant group key: colorId + ordered sub-color names (order matters)
 function variantGroupKey(colorId: string, subColorNames: string[]): string {
   if (subColorNames.length === 0) return colorId;
-  return `${colorId}::${[...subColorNames].sort().join(",")}`;
+  return `${colorId}::${subColorNames.join(",")}`;
 }
 
 // Shape raw Prisma products into ProductCard-friendly format

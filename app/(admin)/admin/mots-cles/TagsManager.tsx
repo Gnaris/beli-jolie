@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteTag, updateTagDirect } from "@/app/actions/admin/products";
+import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import EntityEditModal from "@/components/admin/EntityEditModal";
+import TranslateAllButton from "@/components/admin/TranslateAllButton";
 
 interface TagItem {
   id: string;
@@ -44,6 +46,12 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
     router.refresh();
   }
 
+  async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
+    const items = Object.entries(translations).map(([id, t]) => ({ id, translations: t }));
+    await batchUpdateTranslations("tag", items);
+    router.refresh();
+  }
+
   return (
     <div className="space-y-6">
       {/* Barre d'actions */}
@@ -62,6 +70,16 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
           </svg>
         </div>
         <div className="flex items-center gap-3">
+          <TranslateAllButton
+            items={initialTags.map((t) => ({
+              id: t.id,
+              text: t.name,
+              hasTranslations: Object.keys(t.translations).length > 0,
+            }))}
+            onTranslated={handleTranslateAll}
+            label="Tout traduire"
+            onlyMissing
+          />
           <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
             {filtered.length} mot{filtered.length !== 1 ? "s" : ""} clé{filtered.length !== 1 ? "s" : ""}
           </span>

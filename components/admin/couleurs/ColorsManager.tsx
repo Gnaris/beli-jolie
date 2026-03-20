@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteColor, updateColorDirect } from "@/app/actions/admin/colors";
+import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import EntityEditModal from "@/components/admin/EntityEditModal";
+import TranslateAllButton from "@/components/admin/TranslateAllButton";
 
 interface ColorItem {
   id: string;
@@ -44,21 +46,39 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
     router.refresh();
   }
 
+  async function handleTranslateAll(translations: Record<string, Record<string, string>>) {
+    const items = Object.entries(translations).map(([id, t]) => ({ id, translations: t }));
+    await batchUpdateTranslations("color", items);
+    router.refresh();
+  }
+
   return (
     <>
-      {/* Recherche */}
-      <div className="relative">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher une couleur…"
-          className="field-input w-full sm:w-72"
-          style={{ paddingLeft: "2.25rem" }}
+      {/* Recherche + Tout traduire */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="relative">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher une couleur…"
+            className="field-input w-full sm:w-72"
+            style={{ paddingLeft: "2.25rem" }}
+          />
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+        </div>
+        <TranslateAllButton
+          items={initialColors.map((c) => ({
+            id: c.id,
+            text: c.name,
+            hasTranslations: Object.keys(c.translations).length > 0,
+          }))}
+          onTranslated={handleTranslateAll}
+          label="Tout traduire"
+          onlyMissing
         />
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-        </svg>
       </div>
 
       {error && (

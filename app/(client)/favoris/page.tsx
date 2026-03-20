@@ -135,7 +135,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
 
   function favGroupKey(colorId: string, subColorNames: string[]): string {
     if (subColorNames.length === 0) return colorId;
-    return `${colorId}::${[...subColorNames].sort().join(",")}`;
+    return `${colorId}::${subColorNames.join(",")}`;
   }
 
   // Group variants by color group key (colorId + sub-colors)

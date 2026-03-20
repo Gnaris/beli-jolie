@@ -103,10 +103,10 @@ export default async function ModifierProduitPage({
     discountValue: pc.discountValue != null ? String(pc.discountValue) : "",
   }));
 
-  // Build group key for each ProductColor (colorId + sorted sub-color names)
+  // Build group key for each ProductColor (colorId + ordered sub-color names — order matters)
   function editGroupKey(pc: { colorId: string; subColors: { color: { name: string } }[] }): string {
     if (pc.subColors.length === 0) return pc.colorId;
-    return `${pc.colorId}::${[...pc.subColors.map(sc => sc.color.name)].sort().join(",")}`;
+    return `${pc.colorId}::${pc.subColors.map(sc => sc.color.name).join(",")}`;
   }
 
   // Map ProductColor.id (dbId) → groupKey

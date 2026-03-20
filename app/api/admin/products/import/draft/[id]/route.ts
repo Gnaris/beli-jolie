@@ -203,6 +203,15 @@ async function handleImageRowFix(
     newColorName?: string;
     newColorHex?: string;
     productId?: string;       // override product (reference reassignment)
+    createVariant?: {         // create new variant with multi-color selection
+      colorIds: string[];     // Color model IDs — first = main, rest = sub-colors
+      unitPrice?: number;
+      stock?: number;
+      weight?: number;
+      saleType?: "UNIT" | "PACK";
+      packQuantity?: number;
+      size?: string;
+    };
   },
   _adminId: string
 ) {
@@ -226,16 +235,45 @@ async function handleImageRowFix(
   // Use overridden productId if provided (reference reassignment)
   const productId = body.productId || String(row.productId || "");
 
-  // Create new color variant if requested
-  let colorId = body.colorId;
-  if (!colorId && body.newColorName && body.newColorHex && productId) {
+  // body.colorId is now actually a productColorId (variant ID) from the availableColors list
+  let productColorId = body.colorId;
+
+  // Create new variant with multi-color selection (main + sub-colors)
+  if (!productColorId && body.createVariant?.colorIds?.length && productId) {
+    const cv = body.createVariant;
+    const [mainColorId, ...subColorIds] = cv.colorIds;
+    const saleType = cv.saleType === "PACK" ? "PACK" : "UNIT";
+    const newVariant = await prisma.productColor.create({
+      data: {
+        productId,
+        colorId: mainColorId,
+        unitPrice: cv.unitPrice && cv.unitPrice > 0 ? cv.unitPrice : 0,
+        weight: cv.weight && cv.weight > 0 ? cv.weight : 0.1,
+        stock: cv.stock != null && cv.stock >= 0 ? cv.stock : 0,
+        isPrimary: false,
+        saleType,
+        packQuantity: saleType === "PACK" && cv.packQuantity ? cv.packQuantity : null,
+        size: cv.size?.trim() || null,
+        subColors: subColorIds.length > 0 ? {
+          create: subColorIds.map((id, i) => ({
+            colorId: id,
+            position: i,
+          })),
+        } : undefined,
+      },
+    });
+    productColorId = newVariant.id;
+  }
+
+  // Create new color variant if requested (legacy single-color flow)
+  if (!productColorId && body.newColorName && body.newColorHex && productId) {
     const color = await prisma.color.upsert({
       where: { name: body.newColorName },
       update: {},
       create: { name: body.newColorName, hex: body.newColorHex },
     });
 
-    await prisma.productColor.create({
+    const newVariant = await prisma.productColor.create({
       data: {
         productId,
         colorId: color.id,
@@ -246,11 +284,20 @@ async function handleImageRowFix(
         saleType: "UNIT",
       },
     });
-    colorId = color.id;
+    productColorId = newVariant.id;
   }
 
-  if (!colorId || !productId) {
+  if (!productColorId || !productId) {
     return NextResponse.json({ ok: false, errors: ["Couleur ou produit manquant."] }, { status: 400 });
+  }
+
+  // Verify the variant exists and belongs to this product
+  const variant = await prisma.productColor.findFirst({
+    where: { id: productColorId, productId },
+    select: { id: true, colorId: true },
+  });
+  if (!variant) {
+    return NextResponse.json({ ok: false, errors: ["Variante introuvable sur ce produit."] }, { status: 400 });
   }
 
   // Process image through Sharp WebP pipeline
@@ -258,18 +305,18 @@ async function handleImageRowFix(
   const fullTempPath = path.join(process.cwd(), "public", tempPath);
   const position = Number(row.position) || 1;
   const safeFilename = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const destDir = path.join(process.cwd(), "public", "uploads", "products");
+  const destDir = "public/uploads/products";
 
   try {
     const { readFile } = await import("fs/promises");
     const bytes = await readFile(fullTempPath);
-    await mkdir(destDir, { recursive: true });
     const result = await processProductImage(bytes, destDir, safeFilename);
 
     await prisma.productColorImage.create({
       data: {
         productId,
-        colorId,
+        colorId: variant.colorId,
+        productColorId: variant.id,
         path: result.dbPath,
         order: position - 1,
       },

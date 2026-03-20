@@ -358,7 +358,12 @@ function ProductRow({
   const [refreshing, startRefresh] = useTransition();
   const { confirm } = useConfirm();
 
-  const uniqueColors = [...new Map(product.colors.map((c) => [c.colorId, c])).values()];
+  // Group by colorId + ordered sub-colors (not colorId alone — variants with same main color but different sub-colors are distinct)
+  const uniqueColors = [...new Map(product.colors.map((c) => {
+    const subNames = c.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
+    const gk = subNames.length === 0 ? c.colorId : `${c.colorId}::${subNames.join(",")}`;
+    return [gk, c] as const;
+  })).values()];
   const minPrice = product.colors.length > 0
     ? Math.min(...product.colors.map((c) => c.unitPrice))
     : NaN;
@@ -458,9 +463,11 @@ function ProductRow({
                 swatchStyle = { backgroundColor: mainHex };
               }
               const isOos = c.stock === 0;
+              const subNamesForKey = c.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
+              const colorKey = subNamesForKey.length === 0 ? c.colorId : `${c.colorId}::${subNamesForKey.join(",")}`;
               return (
                 <span
-                  key={c.colorId}
+                  key={colorKey}
                   title={`${fullName}${isOos ? " — Rupture" : ""}`}
                   className="inline-block w-5 h-5 rounded-full relative shrink-0"
                   style={swatchStyle}

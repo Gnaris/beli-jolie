@@ -87,6 +87,21 @@ export async function updateCollection(id: string, formData: FormData) {
     },
   });
 
+  // Save translations if present
+  const locales = ["en", "ar", "zh", "de", "es", "it"];
+  for (const locale of locales) {
+    const val = (formData.get(`translation_${locale}`) as string)?.trim();
+    if (val) {
+      await prisma.collectionTranslation.upsert({
+        where: { collectionId_locale: { collectionId: id, locale } },
+        update: { name: val },
+        create: { collectionId: id, locale, name: val },
+      });
+    } else {
+      await prisma.collectionTranslation.deleteMany({ where: { collectionId: id, locale } });
+    }
+  }
+
   revalidatePath("/admin/collections");
   revalidateTag("collections", "default");
   revalidatePath(`/admin/collections/${id}/modifier`);

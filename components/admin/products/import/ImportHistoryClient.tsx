@@ -2,6 +2,9 @@
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
+import { deleteImportJobs } from "@/app/actions/admin/import-jobs";
 
 // ─────────────────────────────────────────────
 // Types
@@ -101,6 +104,25 @@ export default function ImportHistoryClient({
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("ALL");
   const [loading, setLoading] = useState(false);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const { confirm } = useConfirm();
+  const { toast } = useToast();
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) =>
+      prev.size === jobs.length ? new Set() : new Set(jobs.map((j) => j.id))
+    );
+  }, [jobs]);
 
   const fetchData = useCallback(
     async (newType: FilterType, newStatus: FilterStatus, newPage: number) => {
@@ -127,18 +149,47 @@ export default function ImportHistoryClient({
     []
   );
 
+  const handleDelete = useCallback(async () => {
+    const count = selectedIds.size;
+    if (count === 0) return;
+
+    const confirmed = await confirm({
+      type: "danger",
+      title: "Supprimer définitivement",
+      message: `Êtes-vous sûr de vouloir supprimer ${count} import${count > 1 ? "s" : ""} ? Cette action est irréversible.`,
+      confirmLabel: "Supprimer",
+      cancelLabel: "Annuler",
+    });
+    if (!confirmed) return;
+
+    setDeleting(true);
+    try {
+      const result = await deleteImportJobs([...selectedIds]);
+      toast({ type: "success", title: `${result.deleted} import${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""}` });
+      setSelectedIds(new Set());
+      fetchData(typeFilter, statusFilter, page);
+    } catch (err) {
+      toast({ type: "error", title: "Erreur", message: err instanceof Error ? err.message : "Erreur lors de la suppression." });
+    } finally {
+      setDeleting(false);
+    }
+  }, [selectedIds, confirm, toast, fetchData, typeFilter, statusFilter, page]);
+
   const handleTypeFilter = (t: FilterType) => {
     setTypeFilter(t);
+    setSelectedIds(new Set());
     fetchData(t, statusFilter, 1);
   };
 
   const handleStatusFilter = (s: FilterStatus) => {
     setStatusFilter(s);
+    setSelectedIds(new Set());
     fetchData(typeFilter, s, 1);
   };
 
   const handlePage = (p: number) => {
     if (p < 1 || p > totalPages) return;
+    setSelectedIds(new Set());
     fetchData(typeFilter, statusFilter, p);
   };
 
@@ -297,9 +348,9 @@ export default function ImportHistoryClient({
         </p>
       </div>
 
-      {/* Filters */}
+      {/* Filters + Delete bar */}
       <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-[#666] mr-1">Type :</span>
             <Pill active={typeFilter === "ALL"} onClick={() => handleTypeFilter("ALL")}>
@@ -324,6 +375,30 @@ export default function ImportHistoryClient({
               Échoué
             </Pill>
           </div>
+
+          {/* Delete button — appears when selection is active */}
+          {selectedIds.size > 0 && (
+            <div className="sm:ml-auto flex items-center gap-3">
+              <span className="text-sm text-[#666]">
+                {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
+              </span>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white bg-[#EF4444] hover:bg-[#DC2626] transition-colors disabled:opacity-50"
+                aria-label={`Supprimer ${selectedIds.size} import${selectedIds.size > 1 ? "s" : ""}`}
+              >
+                {deleting ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                )}
+                Supprimer
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -350,6 +425,18 @@ export default function ImportHistoryClient({
             <table className="w-full">
               <thead>
                 <tr className="table-header">
+                  <th className="w-12 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={jobs.length > 0 && selectedIds.size === jobs.length}
+                      ref={(el) => {
+                        if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < jobs.length;
+                      }}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-[#D1D5DB] text-[#1A1A1A] focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
+                      aria-label="Tout sélectionner"
+                    />
+                  </th>
                   <th className="text-left px-4 py-3 text-sm font-medium">Type</th>
                   <th className="text-left px-4 py-3 text-sm font-medium">Fichier</th>
                   <th className="text-left px-4 py-3 text-sm font-medium">Date</th>
@@ -366,6 +453,8 @@ export default function ImportHistoryClient({
                     job={job}
                     expanded={expandedJobId === job.id}
                     onToggle={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)}
+                    selected={selectedIds.has(job.id)}
+                    onSelect={() => toggleSelect(job.id)}
                     StatusBadge={StatusBadge}
                     ActionsCell={ActionsCell}
                   />
@@ -376,12 +465,28 @@ export default function ImportHistoryClient({
 
           {/* Mobile cards */}
           <div className="md:hidden space-y-3">
+            {/* Mobile select all */}
+            <div className="flex items-center gap-3 px-1">
+              <input
+                type="checkbox"
+                checked={jobs.length > 0 && selectedIds.size === jobs.length}
+                ref={(el) => {
+                  if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < jobs.length;
+                }}
+                onChange={toggleSelectAll}
+                className="w-5 h-5 rounded border-[#D1D5DB] text-[#1A1A1A] focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
+                aria-label="Tout sélectionner"
+              />
+              <span className="text-sm text-[#666]">Tout sélectionner</span>
+            </div>
             {jobs.map((job) => (
               <JobCardMobile
                 key={job.id}
                 job={job}
                 expanded={expandedJobId === job.id}
                 onToggle={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)}
+                selected={selectedIds.has(job.id)}
+                onSelect={() => toggleSelect(job.id)}
                 StatusBadge={StatusBadge}
                 ActionsCell={ActionsCell}
               />
@@ -427,21 +532,34 @@ function JobRowDesktop({
   job,
   expanded,
   onToggle,
+  selected,
+  onSelect,
   StatusBadge,
   ActionsCell,
 }: {
   job: ImportJobWithDraft;
   expanded: boolean;
   onToggle: () => void;
+  selected: boolean;
+  onSelect: () => void;
   StatusBadge: React.FC<{ job: ImportJobWithDraft }>;
   ActionsCell: React.FC<{ job: ImportJobWithDraft }>;
 }) {
   return (
     <>
       <tr
-        className="table-row cursor-pointer hover:bg-[#FAFAFA] transition-colors"
+        className={`table-row cursor-pointer transition-colors ${selected ? "bg-[#F0F7FF]" : "hover:bg-[#FAFAFA]"}`}
         onClick={onToggle}
       >
+        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onSelect}
+            className="w-4 h-4 rounded border-[#D1D5DB] text-[#1A1A1A] focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
+            aria-label={`Sélectionner ${job.filename || job.id}`}
+          />
+        </td>
         <td className="px-4 py-3">
           <span
             className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
@@ -481,7 +599,7 @@ function JobRowDesktop({
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={7} className="p-0">
+          <td colSpan={8} className="p-0">
             <JobDetailPanel job={job} />
           </td>
         </tr>
@@ -498,28 +616,42 @@ function JobCardMobile({
   job,
   expanded,
   onToggle,
+  selected,
+  onSelect,
   StatusBadge,
   ActionsCell,
 }: {
   job: ImportJobWithDraft;
   expanded: boolean;
   onToggle: () => void;
+  selected: boolean;
+  onSelect: () => void;
   StatusBadge: React.FC<{ job: ImportJobWithDraft }>;
   ActionsCell: React.FC<{ job: ImportJobWithDraft }>;
 }) {
   return (
-    <div className="bg-white border border-[#E5E5E5] rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
+    <div className={`bg-white border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden ${selected ? "border-[#3B82F6] bg-[#F0F7FF]" : "border-[#E5E5E5]"}`}>
       <div className="p-4 cursor-pointer" onClick={onToggle}>
         <div className="flex items-center justify-between mb-3">
-          <span
-            className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              job.type === "PRODUCTS"
-                ? "bg-[#F0F0F0] text-[#1A1A1A]"
-                : "bg-[#E8F0FE] text-[#3B82F6]"
-            }`}
-          >
-            {job.type === "PRODUCTS" ? "Produits" : "Images"}
-          </span>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onSelect}
+              onClick={(e) => e.stopPropagation()}
+              className="w-5 h-5 rounded border-[#D1D5DB] text-[#1A1A1A] focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
+              aria-label={`Sélectionner ${job.filename || job.id}`}
+            />
+            <span
+              className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                job.type === "PRODUCTS"
+                  ? "bg-[#F0F0F0] text-[#1A1A1A]"
+                  : "bg-[#E8F0FE] text-[#3B82F6]"
+              }`}
+            >
+              {job.type === "PRODUCTS" ? "Produits" : "Images"}
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <StatusBadge job={job} />
             <span className="text-[#999] text-xs">{expanded ? "▲" : "▼"}</span>
