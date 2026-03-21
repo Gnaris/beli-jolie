@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useRef, useEffect } from "react";
+import Link from "next/link";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, uid as genUid, variantGroupKeyFromState } from "./ColorVariantManager";
 import { createProduct, updateProduct, saveProductTranslations } from "@/app/actions/admin/products";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
@@ -42,7 +43,6 @@ interface ProductFormProps {
   categories: Category[];
   availableColors: AvailableColor[];
   availableCompositions: AvailableComposition[];
-  allProducts: AvailableProduct[];
   availableTags?: { id: string; name: string }[];
   mode?: "create" | "edit";
   productId?: string;
@@ -93,7 +93,6 @@ export default function ProductForm({
   categories,
   availableColors,
   availableCompositions,
-  allProducts,
   availableTags = [],
   mode = "create",
   productId,
@@ -1154,12 +1153,12 @@ export default function ProductForm({
             </button>
           )}
 
-          <a href="/admin/produits" className="btn-secondary px-7 py-3.5 text-sm">
+          <Link href="/admin/produits" className="btn-secondary px-7 py-3.5 text-sm">
             Annuler
-          </a>
-          <a href="/admin/produits" className="text-sm text-[#6B6B6B] underline hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
+          </Link>
+          <Link href="/admin/produits" className="text-sm text-[#6B6B6B] underline hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
             Retourner à la page des produits
-          </a>
+          </Link>
         </div>
       </form>
 

@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
 import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
+import { getCachedCategories, getCachedColors, getCachedTags } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 
@@ -19,7 +20,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, allProducts, tags, existingTranslations, colorImagesDb] = await Promise.all([
+  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -57,17 +58,10 @@ export default async function ModifierProduitPage({
         tags:            { include: { tag: true } },
       },
     }),
-    prisma.category.findMany({
-      orderBy: { name: "asc" },
-      include: { subCategories: { orderBy: { name: "asc" } } },
-    }),
-    prisma.color.findMany({ orderBy: { name: "asc" } }),
+    getCachedCategories(),
+    getCachedColors(),
     prisma.composition.findMany({ orderBy: { name: "asc" } }),
-    prisma.product.findMany({
-      orderBy: { name: "asc" },
-      select:  { id: true, name: true, reference: true },
-    }),
-    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    getCachedTags(),
     prisma.productTranslation.findMany({
       where:  { productId: id },
       select: { locale: true, name: true, description: true },
@@ -190,7 +184,6 @@ export default async function ModifierProduitPage({
         categories={categories}
         availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
-        allProducts={allProducts.filter((p) => p.id !== id)}
         availableTags={tags}
         mode="edit"
         productId={product.id}

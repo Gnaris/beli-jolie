@@ -2,22 +2,16 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
+import { getCachedCategories, getCachedColors, getCachedTags } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Nouveau produit" };
 
 export default async function NouveauProduitPage() {
-  const [categories, colors, compositions, allProducts, tags] = await Promise.all([
-    prisma.category.findMany({
-      orderBy: { name: "asc" },
-      include: { subCategories: { orderBy: { name: "asc" } } },
-    }),
-    prisma.color.findMany({ orderBy: { name: "asc" } }),
+  const [categories, colors, compositions, tags] = await Promise.all([
+    getCachedCategories(),
+    getCachedColors(),
     prisma.composition.findMany({ orderBy: { name: "asc" } }),
-    prisma.product.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, reference: true },
-    }),
-    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    getCachedTags(),
   ]);
 
   return (
@@ -51,7 +45,6 @@ export default async function NouveauProduitPage() {
         categories={categories}
         availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
-        allProducts={allProducts}
         availableTags={tags}
       />
     </div>

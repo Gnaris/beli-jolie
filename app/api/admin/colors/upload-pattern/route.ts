@@ -61,7 +61,8 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
   }
 
-  const absolute = path.join(process.cwd(), "public", filePath);
+  const safeName = path.basename(filePath);
+  const absolute = path.join(process.cwd(), "public", "uploads", "patterns", safeName);
   try {
     await unlink(absolute);
   } catch {

@@ -3,6 +3,17 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
+import { z } from "zod";
+
+const CreateIntentSchema = z.object({
+  addressId: z.string().min(1),
+  carrierId: z.string().min(1),
+  carrierName: z.string().min(1),
+  carrierPrice: z.number().min(0),
+  tvaRate: z.number().refine((v) => [0, 0.2].includes(v), {
+    message: "Taux de TVA invalide.",
+  }),
+});
 
 /**
  * POST /api/payments/create-intent
@@ -17,13 +28,11 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
 
   const body = await req.json();
-  const { addressId, carrierId, carrierName, carrierPrice, tvaRate } = body as {
-    addressId: string;
-    carrierId: string;
-    carrierName: string;
-    carrierPrice: number;
-    tvaRate: number;
-  };
+  const parsed = CreateIntentSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  }
+  const { addressId, carrierId, carrierName, carrierPrice, tvaRate } = parsed.data;
 
   const userId = session.user.id;
 

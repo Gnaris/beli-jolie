@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateOrderStatus } from "@/app/actions/admin/orders";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 const TRANSITIONS: Record<string, { next: string; label: string; variant: string }[]> = {
   PENDING:    [
@@ -27,11 +28,22 @@ export default function OrderStatusActions({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { confirm } = useConfirm();
 
   const actions = TRANSITIONS[currentStatus] ?? [];
   if (actions.length === 0) return null;
 
-  function handleUpdate(nextStatus: string) {
+  async function handleUpdate(nextStatus: string) {
+    if (nextStatus === "CANCELLED") {
+      const ok = await confirm({
+        type: "danger",
+        title: "Annuler cette commande ?",
+        message: "Cette action est irréversible. La commande sera définitivement annulée.",
+        confirmLabel: "Annuler la commande",
+        cancelLabel: "Retour",
+      });
+      if (!ok) return;
+    }
     startTransition(async () => {
       await updateOrderStatus(orderId, nextStatus);
       router.refresh();
@@ -46,7 +58,7 @@ export default function OrderStatusActions({
           type="button"
           disabled={isPending}
           onClick={() => handleUpdate(action.next)}
-          className={`${action.variant} text-xs px-3 py-1.5 rounded-lg disabled:opacity-50`}
+          className={`${action.variant} text-xs px-4 py-2.5 rounded-lg disabled:opacity-50`}
         >
           {isPending ? "…" : action.label}
         </button>

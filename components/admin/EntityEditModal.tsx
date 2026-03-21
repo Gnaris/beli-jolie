@@ -144,16 +144,17 @@ export default function EntityEditModal({
       />
 
       {/* Panel */}
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-fadeIn">
+      <div className="relative bg-bg-primary rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-fadeIn">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5]">
-          <h2 className="text-base font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-semibold font-[family-name:var(--font-poppins)] text-text-primary">
             {title}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors"
+            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors"
+            aria-label="Fermer"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -171,14 +172,14 @@ export default function EntityEditModal({
                 <label className="field-label uppercase tracking-wider text-xs font-semibold mb-2 block">
                   Type de couleur
                 </label>
-                <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden">
+                <div className="flex rounded-lg border border-border overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setColorMode("hex")}
                     className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
                       colorMode === "hex"
-                        ? "bg-[#1A1A1A] text-white"
-                        : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                        ? "bg-text-primary text-bg-primary"
+                        : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
                     }`}
                   >
                     Couleur unie
@@ -188,8 +189,8 @@ export default function EntityEditModal({
                     onClick={() => setColorMode("pattern")}
                     className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
                       colorMode === "pattern"
-                        ? "bg-[#1A1A1A] text-white"
-                        : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                        ? "bg-text-primary text-bg-primary"
+                        : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
                     }`}
                   >
                     Motif / Image
@@ -207,7 +208,7 @@ export default function EntityEditModal({
                       type="color"
                       value={hex}
                       onChange={(e) => setHex(e.target.value)}
-                      className="h-10 w-16 border border-[#E5E5E5] rounded-lg p-0.5 cursor-pointer"
+                      className="h-10 w-16 border border-border rounded-lg p-0.5 cursor-pointer"
                     />
                     <span className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">{hex}</span>
                   </div>
@@ -221,7 +222,7 @@ export default function EntityEditModal({
                     PNG, JPG ou WebP · max 500 KB
                   </p>
                   <label
-                    className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-[#E5E5E5] rounded-xl cursor-pointer hover:border-[#1A1A1A] transition-colors overflow-hidden relative"
+                    className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-text-primary transition-colors overflow-hidden relative"
                   >
                     {patternPreview ? (
                       <div

@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = req.headers.get("x-forwarded-for") || "unknown";
+    const { success } = rateLimit(`reset-password:${ip}`, 10, 60 * 60 * 1000);
+    if (!success) {
+      return NextResponse.json({ error: "Trop de tentatives. Réessayez plus tard." }, { status: 429 });
+    }
     const { token, password } = await req.json();
     if (!token || !password || password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
       return NextResponse.json({ error: "Mot de passe invalide : 8 caractères min., 1 majuscule et 1 chiffre requis." }, { status: 400 });

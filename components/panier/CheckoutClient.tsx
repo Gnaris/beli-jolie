@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -1006,9 +1007,9 @@ export default function CheckoutClient({
                   <div key={item.id} className="flex items-start gap-2 text-xs font-[family-name:var(--font-roboto)]">
                     <div className="w-8 h-8 rounded-lg overflow-hidden bg-bg-secondary shrink-0">
                       {item.variantImages[0]?.path ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={item.variantImages[0]!.path}
+                        <Image src={item.variantImages[0]!.path}
                           alt={item.variant.product.name}
+                          width={80} height={80} unoptimized
                           className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full bg-bg-secondary" />

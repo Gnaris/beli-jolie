@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo, useRef } from "react";
+import { useState, useTransition, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   updateCatalog,
@@ -51,7 +51,6 @@ interface CatalogData {
 
 interface Props {
   catalog: CatalogData;
-  allProducts: ProductSnap[];
 }
 
 // ─── Type couleur dédupliquée ─────────────────────────────────────────────────
@@ -100,7 +99,7 @@ function deduplicateColors(raw: RawColorVariant[], images: RawImage[]): UniqueCo
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 
-export default function CatalogEditor({ catalog, allProducts }: Props) {
+export default function CatalogEditor({ catalog }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -120,15 +119,37 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
   // IDs déjà dans le catalogue
   const selectedIds = useMemo(() => new Set(selectedProducts.map((p) => p.productId)), [selectedProducts]);
 
-  // Produits filtrés pour la recherche
-  const filteredProducts = useMemo(() => {
-    const q = search.toLowerCase();
-    return allProducts.filter(
-      (p) =>
-        !selectedIds.has(p.id) &&
-        (p.name.toLowerCase().includes(q) || p.reference.toLowerCase().includes(q))
-    );
-  }, [allProducts, search, selectedIds]);
+  // Debounced API search for products
+  const [filteredProducts, setFilteredProducts] = useState<ProductSnap[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const doSearch = useCallback((q: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.trim().length < 1) {
+      setFilteredProducts([]);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/admin/products/search?q=${encodeURIComponent(q.trim())}&fields=catalog`);
+        const data = await res.json();
+        const products: ProductSnap[] = data.products ?? [];
+        setFilteredProducts(products.filter((p) => !selectedIds.has(p.id)));
+      } catch {
+        setFilteredProducts([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+  }, [selectedIds]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearch(value);
+    doSearch(value);
+  }, [doSearch]);
 
   // ─── Upload photo de fond ──────────────────────────────────────────────────
   const handleCoverUpload = async (file: File) => {
@@ -218,8 +239,8 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
       <div className="xl:col-span-1 space-y-5">
 
         {/* Bloc infos */}
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] space-y-5">
-          <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm">
+        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] space-y-5">
+          <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm">
             Informations
           </h2>
 
@@ -246,7 +267,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                   className={`flex-1 py-2 rounded-lg text-sm font-[family-name:var(--font-roboto)] border transition-colors ${
                     status === s
                       ? "border-[#1A1A1A] bg-[#1A1A1A] text-white"
-                      : "border-[#E5E5E5] bg-white text-[#6B7280] hover:border-[#9CA3AF]"
+                      : "border-border bg-bg-primary text-[#6B7280] hover:border-[#9CA3AF]"
                   }`}
                 >
                   {s === "DRAFT" ? "Brouillon" : "Publié"}
@@ -259,13 +280,13 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
           <div>
             <label className="field-label">Lien partageable</label>
             <div className="flex items-center gap-2">
-              <p className="flex-1 font-mono text-xs text-[#6B7280] bg-[#F7F7F8] border border-[#E5E5E5] rounded-lg px-3 py-2 truncate">
+              <p className="flex-1 font-mono text-xs text-[#6B7280] bg-bg-secondary border border-border rounded-lg px-3 py-2 truncate">
                 /catalogue/{catalog.token}
               </p>
               <button
                 onClick={handleCopyLink}
                 title="Copier le lien"
-                className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-[#E5E5E5] hover:bg-[#F7F7F8] transition-colors text-[#6B7280] hover:text-[#1A1A1A]"
+                className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors text-[#6B7280] hover:text-text-primary"
               >
                 {copyDone ? (
                   <svg className="w-4 h-4 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -283,7 +304,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                 target="_blank"
                 rel="noopener noreferrer"
                 title="Visualiser"
-                className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-[#E5E5E5] hover:bg-[#F7F7F8] transition-colors text-[#6B7280] hover:text-[#1A1A1A]"
+                className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors text-[#6B7280] hover:text-text-primary"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -296,20 +317,20 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
         </div>
 
         {/* Bloc fond du catalogue : Couleur ou Photo */}
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] space-y-4">
-          <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm">
+        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] space-y-4">
+          <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm">
             Fond du catalogue
           </h2>
 
           {/* Onglets Couleur / Photo */}
-          <div className="flex gap-2 p-1 bg-[#F7F7F8] rounded-xl">
+          <div className="flex gap-2 p-1 bg-bg-secondary rounded-xl">
             <button
               type="button"
               onClick={() => setCoverTab("color")}
               className={`flex-1 py-1.5 text-xs font-[family-name:var(--font-roboto)] rounded-lg transition-colors ${
                 coverTab === "color"
-                  ? "bg-white shadow-sm text-[#1A1A1A] font-medium"
-                  : "text-[#6B7280] hover:text-[#1A1A1A]"
+                  ? "bg-bg-primary shadow-sm text-text-primary font-medium"
+                  : "text-[#6B7280] hover:text-text-primary"
               }`}
             >
               Couleur
@@ -319,8 +340,8 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
               onClick={() => setCoverTab("photo")}
               className={`flex-1 py-1.5 text-xs font-[family-name:var(--font-roboto)] rounded-lg transition-colors ${
                 coverTab === "photo"
-                  ? "bg-white shadow-sm text-[#1A1A1A] font-medium"
-                  : "text-[#6B7280] hover:text-[#1A1A1A]"
+                  ? "bg-bg-primary shadow-sm text-text-primary font-medium"
+                  : "text-[#6B7280] hover:text-text-primary"
               }`}
             >
               Photo
@@ -347,7 +368,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                 ))}
               </div>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl border border-[#E5E5E5] shrink-0" style={{ backgroundColor: color }} />
+                <div className="w-10 h-10 rounded-xl border border-border shrink-0" style={{ backgroundColor: color }} />
                 <input
                   type="text"
                   className="field-input font-mono text-sm"
@@ -360,7 +381,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                   type="color"
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
-                  className="w-10 h-10 rounded cursor-pointer border border-[#E5E5E5] p-0.5"
+                  className="w-10 h-10 rounded cursor-pointer border border-border p-0.5"
                   title="Choisir une couleur"
                 />
               </div>
@@ -371,12 +392,12 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                 La photo sera utilisée comme fond de l&apos;en-tête du catalogue partagé.
               </p>
               {coverImagePath ? (
-                <div className="relative rounded-xl overflow-hidden border border-[#E5E5E5]">
+                <div className="relative rounded-xl overflow-hidden border border-border">
                   <img src={coverImagePath} alt="Photo de fond" className="w-full h-28 object-cover" />
                   <button
                     type="button"
                     onClick={() => setCoverImagePath(null)}
-                    className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-lg bg-white/90 hover:bg-white border border-[#E5E5E5] text-[#EF4444] transition-colors"
+                    className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-lg bg-bg-primary/90 hover:bg-bg-primary border border-border text-[#EF4444] transition-colors"
                     title="Supprimer la photo"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -389,7 +410,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                   type="button"
                   onClick={() => coverInputRef.current?.click()}
                   disabled={uploadingCover}
-                  className="w-full border-2 border-dashed border-[#E5E5E5] rounded-xl py-8 flex flex-col items-center gap-2 hover:border-[#9CA3AF] hover:bg-[#F7F7F8] transition-colors disabled:opacity-50"
+                  className="w-full border-2 border-dashed border-border rounded-xl py-8 flex flex-col items-center gap-2 hover:border-[#9CA3AF] hover:bg-bg-secondary transition-colors disabled:opacity-50"
                 >
                   {uploadingCover ? (
                     <span className="text-sm text-[#6B7280] font-[family-name:var(--font-roboto)]">Téléchargement…</span>
@@ -421,7 +442,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                   type="button"
                   onClick={() => coverInputRef.current?.click()}
                   disabled={uploadingCover}
-                  className="w-full text-xs text-[#6B7280] hover:text-[#1A1A1A] py-1.5 transition-colors disabled:opacity-50"
+                  className="w-full text-xs text-[#6B7280] hover:text-text-primary py-1.5 transition-colors disabled:opacity-50"
                 >
                   Changer la photo
                 </button>
@@ -445,9 +466,9 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
       <div className="xl:col-span-2 space-y-5">
 
         {/* Produits sélectionnés */}
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm">
+            <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm">
               Produits sélectionnés
             </h2>
             <span className="text-xs px-2 py-1 rounded-full bg-[#F3F4F6] text-[#6B7280]">
@@ -457,7 +478,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
 
           {selectedProducts.length === 0 ? (
             <div className="py-10 flex flex-col items-center text-center">
-              <div className="w-14 h-14 rounded-xl bg-[#F7F7F8] flex items-center justify-center mb-3">
+              <div className="w-14 h-14 rounded-xl bg-bg-secondary flex items-center justify-center mb-3">
                 <svg className="w-6 h-6 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
@@ -492,12 +513,12 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                 return (
                   <div
                     key={row.productId}
-                    className="p-3 rounded-xl border border-[#F3F4F6] hover:border-[#E5E5E5] transition-colors group"
+                    className="p-3 rounded-xl border border-[#F3F4F6] hover:border-border transition-colors group"
                   >
                     {/* Ligne principale */}
                     <div className="flex items-start gap-3">
                       {/* Miniature */}
-                      <div className="w-14 h-14 rounded-lg bg-[#F7F7F8] overflow-hidden shrink-0">
+                      <div className="w-14 h-14 rounded-lg bg-bg-secondary overflow-hidden shrink-0">
                         {displayImage ? (
                           <img src={displayImage} alt={row.product.name} className="w-full h-full object-cover" />
                         ) : (
@@ -512,7 +533,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
 
                       {/* Infos */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-[family-name:var(--font-poppins)] font-medium text-[#1A1A1A] truncate">
+                        <p className="text-sm font-[family-name:var(--font-poppins)] font-medium text-text-primary truncate">
                           {row.product.name}
                         </p>
                         <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
@@ -552,8 +573,8 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                             title="Couleur par défaut (primaire)"
                             className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold transition-all ${
                               row.selectedColorId === null
-                                ? "border-[#1A1A1A] bg-[#F7F7F8] text-[#1A1A1A] scale-110"
-                                : "border-[#E5E5E5] bg-[#F7F7F8] text-[#9CA3AF] hover:border-[#9CA3AF]"
+                                ? "border-[#1A1A1A] bg-bg-secondary text-text-primary scale-110"
+                                : "border-border bg-bg-secondary text-[#9CA3AF] hover:border-[#9CA3AF]"
                             }`}
                           >
                             ★
@@ -569,7 +590,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                               className={`w-6 h-6 rounded-full border-2 transition-all ${
                                 row.selectedColorId === cv.colorId
                                   ? "border-[#1A1A1A] scale-110"
-                                  : "border-[#E5E5E5] hover:border-[#9CA3AF]"
+                                  : "border-border hover:border-[#9CA3AF]"
                               }`}
                               style={{
                                 backgroundColor: cv.hex ?? "#E5E5E5",
@@ -611,7 +632,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                                 className={`w-12 h-12 rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 ${
                                   isSelected
                                     ? "border-[#1A1A1A] scale-105"
-                                    : "border-[#E5E5E5] hover:border-[#9CA3AF]"
+                                    : "border-border hover:border-[#9CA3AF]"
                                 }`}
                               >
                                 <img
@@ -633,8 +654,8 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
         </div>
 
         {/* Recherche de produits à ajouter */}
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm mb-4">
+        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+          <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm mb-4">
             Ajouter des produits
           </h2>
 
@@ -655,13 +676,13 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
               style={{ paddingLeft: "2.25rem" }}
               placeholder="Rechercher un produit…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
             />
           </div>
 
           {filteredProducts.length === 0 ? (
             <p className="text-center text-sm text-[#9CA3AF] py-6 font-[family-name:var(--font-roboto)]">
-              {search ? "Aucun produit trouvé." : "Tous les produits sont déjà dans le catalogue."}
+              {searchLoading ? "Recherche..." : search ? "Aucun produit trouve." : "Tapez pour rechercher un produit."}
             </p>
           ) : (
             <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
@@ -672,10 +693,10 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                 return (
                   <div
                     key={product.id}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-[#F3F4F6] hover:border-[#E5E5E5] transition-colors group cursor-pointer"
+                    className="flex items-center gap-3 p-3 rounded-xl border border-[#F3F4F6] hover:border-border transition-colors group cursor-pointer"
                     onClick={() => handleAdd(product)}
                   >
-                    <div className="w-12 h-12 rounded-lg bg-[#F7F7F8] overflow-hidden shrink-0">
+                    <div className="w-12 h-12 rounded-lg bg-bg-secondary overflow-hidden shrink-0">
                       {image ? (
                         <img src={image} alt={product.name} className="w-full h-full object-cover" />
                       ) : (
@@ -688,7 +709,7 @@ export default function CatalogEditor({ catalog, allProducts }: Props) {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-[family-name:var(--font-poppins)] font-medium text-[#1A1A1A] truncate">
+                      <p className="text-sm font-[family-name:var(--font-poppins)] font-medium text-text-primary truncate">
                         {product.name}
                       </p>
                       <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">

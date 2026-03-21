@@ -134,8 +134,8 @@ export default function ImportImagesTab() {
   // Multi-color selection in modal
   interface SelectedColor { colorId: string; colorName: string; colorHex: string; patternImage: string | null }
   const [selectedColors, setSelectedColors] = useState<SelectedColor[]>([]);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [chipDragIdx, setChipDragIdx] = useState<number | null>(null);
+  const [chipDragOverIdx, setChipDragOverIdx] = useState<number | null>(null);
 
   // Variant attributes form (shown when combination is new)
   const [showVariantForm, setShowVariantForm] = useState(false);
@@ -233,17 +233,28 @@ export default function ImportImagesTab() {
     setSelectedColors(selectedColors.filter((s) => s.colorId !== colorId));
   };
 
-  const handleDragStart = (idx: number) => setDragIdx(idx);
-  const handleDragOver = (e: React.DragEvent, idx: number) => { e.preventDefault(); setDragOverIdx(idx); };
-  const handleDragEnd = () => {
-    if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+  // Drag & drop for reordering selected color chips
+  const handleChipDragStart = (e: React.DragEvent, idx: number) => {
+    setChipDragIdx(idx);
+    e.dataTransfer.effectAllowed = "move";
+    if (e.currentTarget instanceof HTMLElement) {
+      e.dataTransfer.setDragImage(e.currentTarget, 20, 20);
+    }
+  };
+  const handleChipDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setChipDragOverIdx(idx);
+  };
+  const handleChipDragEnd = () => {
+    if (chipDragIdx !== null && chipDragOverIdx !== null && chipDragIdx !== chipDragOverIdx) {
       const updated = [...selectedColors];
-      const [moved] = updated.splice(dragIdx, 1);
-      updated.splice(dragOverIdx, 0, moved);
+      const [moved] = updated.splice(chipDragIdx, 1);
+      updated.splice(chipDragOverIdx, 0, moved);
       setSelectedColors(updated);
     }
-    setDragIdx(null);
-    setDragOverIdx(null);
+    setChipDragIdx(null);
+    setChipDragOverIdx(null);
   };
 
   const validateColorSelection = () => {
@@ -265,7 +276,7 @@ export default function ImportImagesTab() {
   };
 
   const submitVariantCreation = async () => {
-    if (!colorModalRef || !colorModalFilename || selectedColors.length === 0) return;
+    if (!colorModalRef || !colorModalFilename || !canSubmitVariant) return;
     const price = parseFloat(variantAttrs.unitPrice);
     if (isNaN(price) || price <= 0) return;
     setCreatingVariant(true);
@@ -358,6 +369,16 @@ export default function ImportImagesTab() {
   const filteredModalColors = colorModalSearch.trim()
     ? allColors.filter((c) => c.name.toLowerCase().includes(colorModalSearch.trim().toLowerCase()))
     : allColors;
+
+  // Variant form validation
+  const vaPriceNum = variantAttrs.unitPrice ? parseFloat(variantAttrs.unitPrice) : 0;
+  const vaWeightNum = variantAttrs.weight ? parseFloat(variantAttrs.weight) : 0;
+  const vaPackQtyNum = variantAttrs.packQuantity ? parseInt(variantAttrs.packQuantity) : 0;
+  const canSubmitVariant =
+    selectedColors.length > 0 &&
+    vaPriceNum > 0 &&
+    vaWeightNum > 0 &&
+    (variantAttrs.saleType === "UNIT" || vaPackQtyNum >= 2);
 
   const getEffectiveValues = (file: { name: string; color: string; position: number }) => {
     const ov = overrides.get(file.name);
@@ -949,37 +970,38 @@ export default function ImportImagesTab() {
       {/* Color selection modal (portal) */}
       {colorModalOpen && createPortal(
         <div className="fixed inset-0 z-[9000] flex items-center justify-center p-4" onClick={closeColorModal}>
-          <div className="absolute inset-0 bg-black/40" />
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
           <div
-            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col"
+            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden"
             style={{ maxHeight: "min(90vh, 780px)" }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5]">
-              <div>
-                <h3 className="text-sm font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
-                  Sélectionner les couleurs
-                </h3>
-                <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
-                  1re = principale. Glissez pour réordonner.
-                </p>
-              </div>
-              <button type="button" onClick={closeColorModal} className="p-1.5 hover:bg-[#F7F7F8] rounded-lg transition-colors" aria-label="Fermer">
-                <svg className="w-4 h-4 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
+            {/* ═══ PAGE 1: Color selection ═══ */}
             {!showVariantForm ? (
               <>
-                {/* Selected colors — drag & drop reorderable */}
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5] shrink-0">
+                  <div>
+                    <h3 className="text-sm font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+                      Sélectionner les couleurs
+                    </h3>
+                    <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+                      1re couleur = principale
+                    </p>
+                  </div>
+                  <button type="button" onClick={closeColorModal} className="w-8 h-8 flex items-center justify-center hover:bg-[#F7F7F8] rounded-lg transition-colors" aria-label="Fermer">
+                    <svg className="w-4 h-4 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Selected colors — draggable chips */}
                 {selectedColors.length > 0 && (
-                  <div className="px-4 py-3 bg-[#F7F7F8] border-b border-[#E5E5E5] shrink-0">
+                  <div className="px-5 py-3 bg-[#F7F7F8] border-b border-[#E5E5E5] shrink-0">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
-                        Ordre des couleurs ({selectedColors.length})
+                        Sélection ({selectedColors.length})
                       </span>
                       {selectedColors.length > 1 && (
                         <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
@@ -987,22 +1009,23 @@ export default function ImportImagesTab() {
                         </span>
                       )}
                     </div>
-                    <div className="space-y-1 max-h-36 overflow-y-auto">
+                    <div className="flex flex-wrap gap-2">
                       {selectedColors.map((s, idx) => {
-                        const isDragging = dragIdx === idx;
-                        const isDragOver = dragOverIdx === idx && dragIdx !== idx;
+                        const isDragging = chipDragIdx === idx;
+                        const isDragOver = chipDragOverIdx === idx && chipDragIdx !== idx;
                         return (
                           <div
                             key={s.colorId}
                             draggable
-                            onDragStart={() => handleDragStart(idx)}
-                            onDragOver={(e) => handleDragOver(e, idx)}
-                            onDragEnd={handleDragEnd}
-                            className={`flex items-center gap-2 bg-white border rounded-lg px-2.5 py-2 cursor-grab active:cursor-grabbing transition-all
+                            onDragStart={(e) => handleChipDragStart(e, idx)}
+                            onDragOver={(e) => handleChipDragOver(e, idx)}
+                            onDragEnd={handleChipDragEnd}
+                            className={`flex items-center gap-2 bg-white border-2 rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing transition-all select-none
                               ${isDragging ? "opacity-40 scale-95" : ""}
-                              ${isDragOver ? "border-[#1A1A1A] shadow-sm" : "border-[#E5E5E5]"}
+                              ${isDragOver ? "border-[#1A1A1A] shadow-md" : "border-[#E5E5E5]"}
                             `}
                           >
+                            {/* Drag handle */}
                             <svg className="w-3.5 h-3.5 text-[#C0C0C0] shrink-0" viewBox="0 0 24 24" fill="currentColor">
                               <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
                               <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
@@ -1013,19 +1036,22 @@ export default function ImportImagesTab() {
                             `}>
                               {idx + 1}
                             </span>
-                            <ColorSwatch hex={s.colorHex} patternImage={s.patternImage} size={16} rounded="full" />
-                            <span className="flex-1 text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{s.colorName}</span>
+                            <ColorSwatch hex={s.colorHex} patternImage={s.patternImage} size={22} rounded="full" />
+                            <span className="text-xs font-medium font-[family-name:var(--font-roboto)] text-[#1A1A1A] max-w-[100px] truncate">
+                              {s.colorName}
+                            </span>
                             {idx === 0 && (
-                              <span className="text-[9px] font-semibold bg-[#22C55E] text-white px-1.5 py-0.5 rounded">principale</span>
+                              <span className="text-[9px] font-semibold bg-[#22C55E] text-white px-1.5 py-0.5 rounded">1re</span>
                             )}
+                            {/* Remove */}
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); removeSelectedColor(s.colorId); }}
-                              className="p-1 hover:bg-red-50 rounded transition-colors shrink-0"
+                              className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-50 transition-colors shrink-0 ml-0.5"
                               aria-label={`Retirer ${s.colorName}`}
                             >
                               <svg className="w-3.5 h-3.5 text-[#C0C0C0] hover:text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                               </svg>
                             </button>
                           </div>
@@ -1037,12 +1063,12 @@ export default function ImportImagesTab() {
 
                 {/* Existing variants for quick assignment */}
                 {loadingVariants && (
-                  <div className="px-4 py-3 bg-[#FAFAFA] border-b border-[#E5E5E5] shrink-0">
+                  <div className="px-5 py-3 bg-[#FAFAFA] border-b border-[#E5E5E5] shrink-0">
                     <p className="text-xs text-[#666]">Chargement des variantes...</p>
                   </div>
                 )}
                 {!loadingVariants && colorVariants.length > 0 && (
-                  <div className="px-4 py-3 bg-[#FAFAFA] border-b border-[#E5E5E5] shrink-0">
+                  <div className="px-5 py-3 bg-[#FAFAFA] border-b border-[#E5E5E5] shrink-0">
                     <span className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
                       Combinaisons existantes
                     </span>
@@ -1071,8 +1097,8 @@ export default function ImportImagesTab() {
                 )}
 
                 {/* Search */}
-                <div className="px-4 py-3 border-b border-[#E5E5E5]">
-                  <div className="flex items-center gap-2 bg-[#F7F7F8] border border-[#E5E5E5] px-3 py-2 rounded-lg">
+                <div className="px-5 py-3 border-b border-[#E5E5E5] shrink-0">
+                  <div className="flex items-center gap-2 bg-[#F7F7F8] border border-[#E5E5E5] px-3 py-2.5 rounded-xl">
                     <svg className="w-4 h-4 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
                     </svg>
@@ -1085,7 +1111,7 @@ export default function ImportImagesTab() {
                       className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder-[#9CA3AF] outline-none min-w-0 font-[family-name:var(--font-roboto)]"
                     />
                     {colorModalSearch && (
-                      <button type="button" onClick={() => setColorModalSearch("")} className="text-[#9CA3AF] hover:text-[#1A1A1A]">
+                      <button type="button" onClick={() => setColorModalSearch("")} className="w-5 h-5 flex items-center justify-center text-[#9CA3AF] hover:text-[#1A1A1A]">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -1094,222 +1120,346 @@ export default function ImportImagesTab() {
                   </div>
                 </div>
 
-                {/* Color list with checkboxes */}
-                <div className="flex-1 overflow-y-auto" style={{ minHeight: 180 }}>
+                {/* Color grid */}
+                <div className="flex-1 overflow-y-auto px-5 py-3" style={{ minHeight: 160 }}>
                   {loadingAllColors ? (
-                    <div className="px-5 py-8 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Chargement...</div>
+                    <div className="py-10 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Chargement...</div>
                   ) : filteredModalColors.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucun résultat</div>
-                  ) : filteredModalColors.map((opt) => {
-                    const isChecked = selectedColorIds.has(opt.id);
-                    const position = selectedColors.findIndex((s) => s.colorId === opt.id);
-                    return (
-                      <button key={opt.id} type="button"
-                        onClick={() => toggleColor(opt)}
-                        className={`w-full flex items-center gap-3 px-5 py-3 text-sm hover:bg-[#F7F7F8] transition-colors text-left border-b border-[#F0F0F0] last:border-b-0 ${isChecked ? "bg-[#F0FDF4]" : ""}`}
-                      >
-                        <input type="checkbox" checked={isChecked} readOnly className="accent-[#22C55E] w-4 h-4 pointer-events-none shrink-0" />
-                        <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={20} rounded="full" />
-                        <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{opt.name}</span>
-                        {isChecked && (
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${position === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
-                            {position === 0 ? "principale" : `+${position + 1}`}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
+                    <div className="py-10 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucun résultat</div>
+                  ) : (
+                    <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                      {filteredModalColors.map((opt) => {
+                        const isChecked = selectedColorIds.has(opt.id);
+                        const position = selectedColors.findIndex((s) => s.colorId === opt.id);
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => toggleColor(opt)}
+                            className={`relative flex flex-col items-center gap-1.5 p-2.5 rounded-xl border-2 transition-all text-center
+                              ${isChecked
+                                ? "border-[#1A1A1A] bg-[#F7F7F8] shadow-sm"
+                                : "border-transparent hover:border-[#E5E5E5] hover:bg-[#FAFAFA]"
+                              }
+                            `}
+                            title={opt.name}
+                          >
+                            {/* Checkmark badge */}
+                            {isChecked && (
+                              <span className={`absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full text-[9px] font-bold shadow-sm
+                                ${position === 0 ? "bg-[#22C55E] text-white" : "bg-[#1A1A1A] text-white"}
+                              `}>
+                                {position + 1}
+                              </span>
+                            )}
+                            {/* Color swatch */}
+                            <div
+                              className={`w-10 h-10 rounded-full border-2 transition-all shrink-0
+                                ${isChecked ? "border-[#1A1A1A] scale-110" : "border-[#E5E5E5]"}
+                              `}
+                              style={
+                                opt.patternImage
+                                  ? { backgroundImage: `url(${opt.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+                                  : { backgroundColor: opt.hex || "#9CA3AF" }
+                              }
+                            />
+                            {/* Name */}
+                            <span className="text-[10px] leading-tight font-[family-name:var(--font-roboto)] text-[#6B6B6B] w-full truncate">
+                              {opt.name}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
-                {/* Create new color form */}
-                <div className="border-t border-[#E5E5E5] px-4 py-3 bg-[#FAFAFA]">
+                {/* Create new color — collapsible */}
+                <div className="border-t border-[#E5E5E5] shrink-0">
                   {!creatingColor ? (
                     <button
                       type="button"
                       onClick={() => setCreatingColor(true)}
-                      className="text-sm text-[#1A1A1A] font-medium hover:underline flex items-center gap-1.5"
+                      className="w-full flex items-center justify-center gap-2 px-5 py-3 text-sm text-[#6B6B6B] font-medium hover:text-[#1A1A1A] hover:bg-[#FAFAFA] transition-colors"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                       </svg>
-                      Créer une couleur
+                      Créer une nouvelle couleur
                     </button>
                   ) : (
-                    <div className="space-y-3">
-                      <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide">Nouvelle couleur</p>
-                      <input
-                        className="field-input w-full"
-                        placeholder="Nom de la couleur"
-                        value={newColorName}
-                        onChange={(e) => setNewColorName(e.target.value)}
-                        autoFocus
-                      />
-                      <div className="flex gap-1">
-                        <button type="button" onClick={() => setNewColorMode("hex")}
-                          className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${newColorMode === "hex" ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"}`}
-                        >Couleur unie</button>
-                        <button type="button" onClick={() => setNewColorMode("pattern")}
-                          className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${newColorMode === "pattern" ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"}`}
-                        >Motif / Image</button>
-                      </div>
-                      {newColorMode === "hex" ? (
-                        <div className="flex items-center gap-2">
-                          <input type="color" value={newColorHex} onChange={(e) => setNewColorHex(e.target.value)} className="w-10 h-9 rounded cursor-pointer border border-[#E5E5E5]" />
-                          <input className="field-input w-28 font-mono text-sm" value={newColorHex} onChange={(e) => setNewColorHex(e.target.value)} />
-                        </div>
-                      ) : (
-                        <div>
-                          {newColorPatternPreview ? (
-                            <div className="flex items-center gap-3">
-                              <div className="w-16 h-16 rounded-lg border border-[#E5E5E5]" style={{ backgroundImage: `url(${newColorPatternPreview})`, backgroundSize: "cover", backgroundPosition: "center" }} />
-                              <button type="button" onClick={() => { setNewColorPatternFile(null); setNewColorPatternPreview(null); }} className="text-xs text-red-500 hover:underline">Supprimer</button>
-                            </div>
-                          ) : (
-                            <label className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-[#E5E5E5] rounded-lg cursor-pointer hover:border-[#9CA3AF] transition-colors">
-                              <svg className="w-5 h-5 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                              <span className="text-xs text-[#9CA3AF]">PNG, JPG, WebP — max 500 Ko</span>
-                              <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handlePatternFileChange} />
-                            </label>
-                          )}
-                        </div>
-                      )}
-                      <div className="flex gap-2">
-                        <button type="button" onClick={createNewColorInModal} disabled={savingColor || !newColorName.trim() || (newColorMode === "pattern" && !newColorPatternFile)} className="btn-primary text-sm disabled:opacity-50">
-                          {savingColor ? "Création..." : "Créer"}
+                    <div className="px-5 py-4 bg-[#FAFAFA] space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">Nouvelle couleur</p>
+                        <button
+                          type="button"
+                          onClick={() => { setCreatingColor(false); setNewColorName(""); setNewColorPatternFile(null); setNewColorPatternPreview(null); }}
+                          className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-[#E5E5E5] transition-colors"
+                          aria-label="Fermer"
+                        >
+                          <svg className="w-3.5 h-3.5 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
-                        <button type="button" onClick={() => { setCreatingColor(false); setNewColorName(""); setNewColorPatternFile(null); setNewColorPatternPreview(null); }} className="btn-secondary text-sm">Annuler</button>
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          className="field-input flex-1"
+                          placeholder="Nom de la couleur"
+                          value={newColorName}
+                          onChange={(e) => setNewColorName(e.target.value)}
+                          autoFocus
+                        />
+                        <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setNewColorMode("hex")}
+                            className={`text-[11px] px-2.5 py-2 transition-colors ${
+                              newColorMode === "hex" ? "bg-[#1A1A1A] text-white" : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                            }`}
+                          >
+                            Unie
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewColorMode("pattern")}
+                            className={`text-[11px] px-2.5 py-2 border-l border-[#E5E5E5] transition-colors ${
+                              newColorMode === "pattern" ? "bg-[#1A1A1A] text-white" : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                            }`}
+                          >
+                            Motif
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {newColorMode === "hex" ? (
+                          <>
+                            <input
+                              type="color"
+                              value={newColorHex}
+                              onChange={(e) => setNewColorHex(e.target.value)}
+                              className="w-9 h-9 rounded-lg cursor-pointer border border-[#E5E5E5] shrink-0"
+                            />
+                            <input
+                              className="field-input w-24 font-mono text-xs"
+                              value={newColorHex}
+                              onChange={(e) => setNewColorHex(e.target.value)}
+                            />
+                          </>
+                        ) : (
+                          <>
+                            {newColorPatternPreview ? (
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-9 h-9 rounded-lg border border-[#E5E5E5] shrink-0"
+                                  style={{ backgroundImage: `url(${newColorPatternPreview})`, backgroundSize: "cover", backgroundPosition: "center" }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => { setNewColorPatternFile(null); setNewColorPatternPreview(null); }}
+                                  className="text-[11px] text-red-500 hover:underline"
+                                >
+                                  Supprimer
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="flex items-center gap-2 px-3 py-2 border border-dashed border-[#D0D0D0] rounded-lg cursor-pointer hover:border-[#9CA3AF] transition-colors">
+                                <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                <span className="text-[11px] text-[#9CA3AF]">PNG, JPG, WebP — max 500 Ko</span>
+                                <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handlePatternFileChange} />
+                              </label>
+                            )}
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onClick={createNewColorInModal}
+                          disabled={savingColor || !newColorName.trim() || (newColorMode === "pattern" && !newColorPatternFile)}
+                          className="btn-primary text-xs px-3 py-2 ml-auto disabled:opacity-50 shrink-0"
+                        >
+                          {savingColor ? "..." : "Créer"}
+                        </button>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Footer with validate button */}
-                <div className="flex items-center justify-between px-5 py-3.5 border-t border-[#E5E5E5] bg-[#FAFAFA] rounded-b-2xl">
+                {/* Footer — page 1 */}
+                <div className="flex items-center justify-between px-5 py-3.5 border-t border-[#E5E5E5] bg-white shrink-0">
                   <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
                     {selectedColors.length === 0 ? "Aucune couleur" : `${selectedColors.length} couleur${selectedColors.length > 1 ? "s" : ""}`}
                   </span>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={closeColorModal}
-                      className="px-4 py-2 text-xs font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
-                    >Annuler</button>
+                      className="px-4 py-2.5 text-xs font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
+                    >
+                      Annuler
+                    </button>
                     <button type="button" onClick={validateColorSelection} disabled={selectedColors.length === 0}
-                      className="px-4 py-2 text-xs font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-lg hover:bg-[#333] transition-colors disabled:opacity-50"
-                    >Valider</button>
+                      className="px-4 py-2.5 text-xs font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-lg hover:bg-[#333] transition-colors disabled:opacity-40"
+                    >
+                      Valider
+                    </button>
                   </div>
                 </div>
               </>
             ) : (
+              /* ═══ PAGE 2: Variant attributes form ═══ */
               <>
-                {/* Variant attributes form */}
-                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-                  {/* Summary of selected colors */}
-                  <div className="p-3 bg-[#F7F7F8] border border-[#E5E5E5] rounded-xl">
-                    <p className="text-[11px] font-semibold text-[#6B6B6B] uppercase tracking-wide mb-2">Nouvelle variante</p>
-                    <div className="flex items-center gap-2">
-                      <ColorSwatch
-                        hex={selectedColors[0]?.colorHex}
-                        patternImage={selectedColors[0]?.patternImage}
-                        subColors={selectedColors.slice(1).map((s) => ({ hex: s.colorHex, patternImage: s.patternImage }))}
-                        size={24}
-                        rounded="full"
-                      />
-                      <span className="text-sm font-medium font-[family-name:var(--font-roboto)] text-[#1A1A1A]">
-                        {selectedColors.map((s) => s.colorName).join(" / ")}
-                      </span>
+                {/* Header — page 2 */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5] shrink-0">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowVariantForm(false)}
+                      className="w-8 h-8 flex items-center justify-center hover:bg-[#F7F7F8] rounded-lg transition-colors"
+                      aria-label="Retour"
+                    >
+                      <svg className="w-4 h-4 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <div>
+                      <h3 className="text-sm font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+                        Nouvelle variante
+                      </h3>
+                      <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+                        Combinaison inexistante sur <strong className="text-[#1A1A1A]">{colorModalRef}</strong>
+                      </p>
                     </div>
                   </div>
+                  <button type="button" onClick={closeColorModal} className="w-8 h-8 flex items-center justify-center hover:bg-[#F7F7F8] rounded-lg transition-colors" aria-label="Fermer">
+                    <svg className="w-4 h-4 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
 
-                  <p className="text-xs text-[#666] font-[family-name:var(--font-roboto)]">
-                    Cette combinaison n&apos;existe pas encore sur le produit <strong>{colorModalRef}</strong>. Renseignez les attributs de la variante :
+                {/* Selected colors summary */}
+                <div className="px-5 py-3 bg-[#F7F7F8] border-b border-[#E5E5E5] shrink-0">
+                  <p className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide mb-2">
+                    Couleurs sélectionnées
                   </p>
-
-                  {/* Sale type */}
-                  <div>
-                    <label className="field-label">Type de vente</label>
-                    <div className="flex gap-2 mt-1">
-                      <button type="button" onClick={() => setVariantAttrs((p) => ({ ...p, saleType: "UNIT" }))}
-                        className={`flex-1 text-xs px-3 py-2 rounded-lg border transition-colors ${variantAttrs.saleType === "UNIT" ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5]"}`}
-                      >Unité</button>
-                      <button type="button" onClick={() => setVariantAttrs((p) => ({ ...p, saleType: "PACK" }))}
-                        className={`flex-1 text-xs px-3 py-2 rounded-lg border transition-colors ${variantAttrs.saleType === "PACK" ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5]"}`}
-                      >Pack</button>
-                    </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedColors.map((s, idx) => (
+                      <div key={s.colorId} className="flex items-center gap-1.5 bg-white border border-[#E5E5E5] rounded-full px-2.5 py-1">
+                        <span className={`text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full shrink-0
+                          ${idx === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}
+                        `}>
+                          {idx + 1}
+                        </span>
+                        <ColorSwatch hex={s.colorHex} patternImage={s.patternImage} size={14} rounded="full" />
+                        <span className="text-[11px] font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{s.colorName}</span>
+                      </div>
+                    ))}
                   </div>
+                </div>
 
-                  {/* Price + Weight */}
+                {/* Form fields */}
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="field-label">Prix unitaire (€) *</label>
+                      <label className="field-label">Prix unitaire HT (€) <span className="text-red-500">*</span></label>
                       <input
                         type="number"
                         step="0.01"
-                        min="0"
-                        className="field-input w-full mt-1"
-                        placeholder="0.00"
+                        min="0.01"
+                        className={`field-input w-full ${variantAttrs.unitPrice && vaPriceNum <= 0 ? "!border-red-400" : ""}`}
+                        placeholder="Ex : 4.50"
                         value={variantAttrs.unitPrice}
                         onChange={(e) => setVariantAttrs((p) => ({ ...p, unitPrice: e.target.value }))}
                         autoFocus
                       />
+                      {variantAttrs.unitPrice && vaPriceNum <= 0 && (
+                        <p className="text-[10px] text-red-500 mt-0.5">Le prix doit être supérieur à 0</p>
+                      )}
                     </div>
                     <div>
-                      <label className="field-label">Poids (kg)</label>
+                      <label className="field-label">Poids (g) <span className="text-red-500">*</span></label>
                       <input
                         type="number"
-                        step="0.01"
-                        min="0"
-                        className="field-input w-full mt-1"
-                        placeholder="0.10"
+                        min="1"
+                        className={`field-input w-full ${variantAttrs.weight && vaWeightNum <= 0 ? "!border-red-400" : ""}`}
+                        placeholder="Ex : 8"
                         value={variantAttrs.weight}
                         onChange={(e) => setVariantAttrs((p) => ({ ...p, weight: e.target.value }))}
                       />
+                      {variantAttrs.weight && vaWeightNum <= 0 && (
+                        <p className="text-[10px] text-red-500 mt-0.5">Le poids doit être supérieur à 0</p>
+                      )}
                     </div>
-                  </div>
-
-                  {/* Stock + Pack qty */}
-                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="field-label">Stock</label>
                       <input
                         type="number"
                         min="0"
-                        className="field-input w-full mt-1"
+                        className="field-input w-full"
+                        placeholder="0"
                         value={variantAttrs.stock}
                         onChange={(e) => setVariantAttrs((p) => ({ ...p, stock: e.target.value }))}
                       />
                     </div>
-                    {variantAttrs.saleType === "PACK" && (
-                      <div>
-                        <label className="field-label">Qté par paquet</label>
-                        <input
-                          type="number"
-                          min="1"
-                          className="field-input w-full mt-1"
-                          placeholder="6"
-                          value={variantAttrs.packQuantity}
-                          onChange={(e) => setVariantAttrs((p) => ({ ...p, packQuantity: e.target.value }))}
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="field-label">Taille</label>
+                      <input
+                        type="text"
+                        className="field-input w-full"
+                        placeholder="Ex : 17, L, XL"
+                        value={variantAttrs.size}
+                        onChange={(e) => setVariantAttrs((p) => ({ ...p, size: e.target.value }))}
+                      />
+                    </div>
                   </div>
 
-                  {/* Size */}
                   <div>
-                    <label className="field-label">Taille (optionnel)</label>
-                    <input
-                      type="text"
-                      className="field-input w-full mt-1"
-                      placeholder="Ex: M, 42, 18cm..."
-                      value={variantAttrs.size}
-                      onChange={(e) => setVariantAttrs((p) => ({ ...p, size: e.target.value }))}
-                    />
+                    <label className="field-label">Type de vente <span className="text-red-500">*</span></label>
+                    <div className="flex gap-2 mt-1">
+                      <button type="button" onClick={() => setVariantAttrs((p) => ({ ...p, saleType: "UNIT" }))}
+                        className={`flex-1 text-sm px-4 py-2.5 rounded-lg border transition-colors font-medium ${
+                          variantAttrs.saleType === "UNIT"
+                            ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                            : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"
+                        }`}
+                      >
+                        Unité
+                      </button>
+                      <button type="button" onClick={() => setVariantAttrs((p) => ({ ...p, saleType: "PACK" }))}
+                        className={`flex-1 text-sm px-4 py-2.5 rounded-lg border transition-colors font-medium ${
+                          variantAttrs.saleType === "PACK"
+                            ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                            : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"
+                        }`}
+                      >
+                        Pack
+                      </button>
+                    </div>
                   </div>
+
+                  {variantAttrs.saleType === "PACK" && (
+                    <div>
+                      <label className="field-label">Quantité par pack <span className="text-red-500">*</span></label>
+                      <input
+                        type="number"
+                        min="2"
+                        className={`field-input w-full ${variantAttrs.packQuantity && vaPackQtyNum < 2 ? "!border-red-400" : ""}`}
+                        placeholder="Ex : 6"
+                        value={variantAttrs.packQuantity}
+                        onChange={(e) => setVariantAttrs((p) => ({ ...p, packQuantity: e.target.value }))}
+                      />
+                      {variantAttrs.packQuantity && vaPackQtyNum < 2 && (
+                        <p className="text-[10px] text-red-500 mt-0.5">Minimum 2 unités par pack</p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Discount */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="field-label">Remise (optionnel)</label>
+                      <label className="field-label">Remise</label>
                       <select
-                        className="field-input w-full mt-1"
+                        className="field-input w-full"
                         value={variantAttrs.discountType}
                         onChange={(e) => setVariantAttrs((p) => ({ ...p, discountType: e.target.value as "" | "PERCENT" | "AMOUNT" }))}
                       >
@@ -1325,7 +1475,7 @@ export default function ImportImagesTab() {
                           type="number"
                           step="0.01"
                           min="0"
-                          className="field-input w-full mt-1"
+                          className="field-input w-full"
                           placeholder={variantAttrs.discountType === "PERCENT" ? "10" : "5.00"}
                           value={variantAttrs.discountValue}
                           onChange={(e) => setVariantAttrs((p) => ({ ...p, discountValue: e.target.value }))}
@@ -1333,18 +1483,37 @@ export default function ImportImagesTab() {
                       </div>
                     )}
                   </div>
+
+                  {/* Validation summary */}
+                  {!canSubmitVariant && (variantAttrs.unitPrice || variantAttrs.weight) && (
+                    <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                      <svg className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-[11px] text-amber-700 font-[family-name:var(--font-roboto)]">
+                        Remplissez les champs obligatoires (<span className="text-red-500">*</span>) pour continuer.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
-                {/* Footer */}
-                <div className="flex items-center justify-between px-5 py-3.5 border-t border-[#E5E5E5] bg-[#FAFAFA] rounded-b-2xl">
-                  <button type="button" onClick={() => setShowVariantForm(false)}
-                    className="px-4 py-2 text-xs font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
-                  >← Retour</button>
+                {/* Footer — page 2 */}
+                <div className="flex items-center justify-between px-5 py-3.5 border-t border-[#E5E5E5] bg-white shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowVariantForm(false)}
+                    className="px-4 py-2.5 text-xs font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors flex items-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Retour
+                  </button>
                   <button
                     type="button"
                     onClick={submitVariantCreation}
-                    disabled={creatingVariant || !variantAttrs.unitPrice || parseFloat(variantAttrs.unitPrice) <= 0}
-                    className="px-4 py-2 text-xs font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-lg hover:bg-[#333] transition-colors disabled:opacity-50"
+                    disabled={!canSubmitVariant || creatingVariant}
+                    className="px-5 py-2.5 text-xs font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-lg hover:bg-[#333] transition-colors disabled:opacity-40"
                   >
                     {creatingVariant ? "Création..." : "Créer la variante et assigner"}
                   </button>

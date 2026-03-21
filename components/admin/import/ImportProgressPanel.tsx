@@ -126,7 +126,7 @@ export default function ImportProgressPanel() {
 
       {/* Body */}
       {!collapsed && (
-        <div className="bg-white border border-t-0 border-[#E5E5E5] rounded-b-xl lg:rounded-b-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[400px] overflow-y-auto">
+        <div className="bg-bg-primary border border-t-0 border-border rounded-b-xl lg:rounded-b-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] max-h-[400px] overflow-y-auto">
           <div className="divide-y divide-[#F0F0F0]">
             {/* Active jobs first */}
             {activeJobs.map((job) => (

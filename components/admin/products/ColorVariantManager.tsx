@@ -362,337 +362,290 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
 
       {/* Modal */}
       {open && createPortal(
-        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-4" onClick={cancel}>
+        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onClick={cancel}>
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/40" />
-          {/* Panel */}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          {/* Panel — wide two-column layout */}
           <div
-            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col"
-            style={{ maxHeight: "min(90vh, 780px)" }}
+            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col"
+            style={{ maxHeight: "min(92vh, 700px)" }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] shrink-0">
               <div>
-                <h3 className="text-sm font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+                <h3 className="text-base font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
                   Sélectionner les couleurs
                 </h3>
-                <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
-                  1re = principale. Glissez pour réordonner.
+                <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+                  La 1re couleur sélectionnée sera la principale. Glissez pour réordonner.
                 </p>
               </div>
-              <button type="button" onClick={cancel} className="p-1.5 hover:bg-[#F7F7F8] rounded-lg transition-colors" aria-label="Fermer">
-                <svg className="w-4 h-4 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <button type="button" onClick={cancel} className="p-2 hover:bg-[#F7F7F8] rounded-xl transition-colors" aria-label="Fermer">
+                <svg className="w-5 h-5 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {/* Selected colors — drag & drop reorderable */}
-            {draft.length > 0 && (
-              <div className="px-4 py-3 bg-[#F7F7F8] border-b border-[#E5E5E5] shrink-0">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
-                    Ordre des couleurs ({draft.length})
-                  </span>
-                  {draft.length > 1 && (
-                    <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-                      Glissez pour réordonner
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-1 max-h-36 overflow-y-auto">
-                  {draft.map((s, i) => {
-                    const opt = options.find((o) => o.id === s.colorId);
-                    const isDragging = dragIdx === i;
-                    const isDragOver = dragOverIdx === i && dragIdx !== i;
-                    return (
-                      <div
-                        key={s.colorId}
-                        draggable
-                        onDragStart={() => handleDragStart(i)}
-                        onDragOver={(e) => handleDragOver(e, i)}
-                        onDragEnd={handleDragEnd}
-                        className={`flex items-center gap-2 bg-white border rounded-lg px-2.5 py-2 cursor-grab active:cursor-grabbing transition-all
-                          ${isDragging ? "opacity-40 scale-95" : ""}
-                          ${isDragOver ? "border-[#1A1A1A] shadow-sm" : "border-[#E5E5E5]"}
-                        `}
-                      >
-                        {/* Drag handle */}
-                        <svg className="w-3.5 h-3.5 text-[#C0C0C0] shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                          <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
-                          <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
-                          <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
-                        </svg>
-                        {/* Position badge */}
-                        <span className={`text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shrink-0
-                          ${i === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}
-                        `}>
-                          {i + 1}
-                        </span>
-                        <ColorSwatch hex={s.colorHex} patternImage={opt?.patternImage ?? null} size={16} rounded="full" />
-                        <span className="flex-1 text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{s.colorName}</span>
-                        {i === 0 && (
-                          <span className="text-[9px] font-semibold bg-[#22C55E] text-white px-1.5 py-0.5 rounded">principale</span>
-                        )}
-                        {/* Remove button */}
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); removeFromDraft(s.colorId); }}
-                          className="p-1 hover:bg-red-50 rounded transition-colors shrink-0"
-                          aria-label={`Retirer ${s.colorName}`}
-                        >
-                          <svg className="w-3.5 h-3.5 text-[#C0C0C0] hover:text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            {/* Two-column body */}
+            <div className="flex flex-1 min-h-0">
 
-            {/* Existing variant combinations */}
-            {existingCombinations.length > 0 && (
-              <div className="px-4 py-3 border-b border-[#E5E5E5] shrink-0">
-                <span className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
-                  Combinaisons existantes
-                </span>
-                <div className="flex flex-wrap gap-1.5 mt-2 max-h-24 overflow-y-auto">
-                  {existingCombinations.map((combo) => {
-                    const isActive = combo.key === draftGroupKey;
-                    return (
-                      <button
-                        key={combo.key}
-                        type="button"
-                        onClick={() => selectCombination(combo)}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-[family-name:var(--font-roboto)] rounded-lg border transition-colors
-                          ${isActive
-                            ? "bg-[#F0FDF4] border-[#22C55E] text-[#166534]"
-                            : "bg-white border-[#E5E5E5] text-[#1A1A1A] hover:border-[#9CA3AF] hover:bg-[#F7F7F8]"
-                          }`}
-                      >
-                        {combo.colors.length === 1 ? (
-                          <ColorSwatch hex={combo.colors[0].colorHex} patternImage={options.find((o) => o.id === combo.colors[0].colorId)?.patternImage ?? null} size={14} rounded="full" />
-                        ) : (
-                          <ColorSwatch
-                            hex={combo.colors[0].colorHex}
-                            patternImage={options.find((o) => o.id === combo.colors[0].colorId)?.patternImage ?? null}
-                            subColors={combo.colors.slice(1).map((c) => ({ hex: c.colorHex, patternImage: options.find((o) => o.id === c.colorId)?.patternImage ?? null }))}
-                            size={14}
-                            rounded="full"
-                          />
-                        )}
-                        <span>{combo.colors.map((c) => c.colorName).join(" / ")}</span>
-                        <span className="text-[9px] text-[#9CA3AF]">
-                          ({combo.saleTypes.join("+")})
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Matching variant message */}
-            {matchingCombo && draft.length > 0 && (
-              <div className="px-4 py-2 bg-[#F0FDF4] border-b border-[#E5E5E5] flex items-center gap-2">
-                <svg className="w-4 h-4 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="text-[11px] text-[#166534] font-[family-name:var(--font-roboto)]">
-                  Cette sélection correspond à une variante existante ({matchingCombo.saleTypes.join(" + ")})
-                </span>
-              </div>
-            )}
-
-            {/* Search */}
-            <div className="px-4 py-3 border-b border-[#E5E5E5]">
-              <div className="flex items-center gap-2 bg-[#F7F7F8] border border-[#E5E5E5] px-3 py-2 rounded-lg">
-                <svg className="w-4 h-4 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-                </svg>
-                <input
-                  ref={searchRef}
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Rechercher une couleur..."
-                  className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder-[#9CA3AF] outline-none min-w-0 font-[family-name:var(--font-roboto)]"
-                />
-                {search && (
-                  <button type="button" onClick={() => setSearch("")} className="text-[#9CA3AF] hover:text-[#1A1A1A]">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              {/* ── LEFT COLUMN: Catalogue couleurs ── */}
+              <div className="flex-1 flex flex-col border-r border-[#E5E5E5] min-w-0">
+                {/* Search */}
+                <div className="px-5 py-3 border-b border-[#E5E5E5] shrink-0">
+                  <div className="flex items-center gap-2.5 bg-[#F7F7F8] border border-[#E5E5E5] px-3.5 py-2.5 rounded-xl">
+                    <svg className="w-4.5 h-4.5 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
                     </svg>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Color list */}
-            <div className="flex-1 overflow-y-auto" style={{ minHeight: 180 }}>
-              {filtered.length === 0 ? (
-                <div className="px-5 py-8 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucun résultat</div>
-              ) : filtered.map((opt) => {
-                const isChecked = draftIds.has(opt.id);
-                const position = draft.findIndex((s) => s.colorId === opt.id);
-                return (
-                  <button key={opt.id} type="button"
-                    onClick={() => toggle(opt)}
-                    className={`w-full flex items-center gap-3 px-5 py-3 text-sm hover:bg-[#F7F7F8] transition-colors text-left border-b border-[#F0F0F0] last:border-b-0 ${isChecked ? "bg-[#F0FDF4]" : ""}`}
-                  >
-                    <input type="checkbox" checked={isChecked} readOnly className="accent-[#22C55E] w-4 h-4 pointer-events-none shrink-0" />
-                    <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={20} rounded="full" />
-                    <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{opt.name}</span>
-                    {isChecked && (
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${position === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
-                        {position === 0 ? "principale" : `+${position + 1}`}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Create new color */}
-            {onCreateColor && (
-              <div className="border-t border-[#E5E5E5] px-4 py-3 bg-[#FAFAFA] shrink-0">
-                {!showCreate ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowCreate(true)}
-                    className="text-sm text-[#1A1A1A] font-medium hover:underline flex items-center gap-1.5 font-[family-name:var(--font-roboto)]"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Créer une couleur
-                  </button>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">Nouvelle couleur</p>
                     <input
-                      className="field-input w-full"
-                      placeholder="Nom de la couleur"
-                      value={createName}
-                      onChange={(e) => setCreateName(e.target.value)}
-                      autoFocus
+                      ref={searchRef}
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Rechercher une couleur..."
+                      className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder-[#9CA3AF] outline-none min-w-0 font-[family-name:var(--font-roboto)]"
                     />
-                    {/* Mode toggle */}
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setCreateMode("hex")}
-                        className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                          createMode === "hex"
-                            ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                            : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"
-                        }`}
-                      >
-                        Couleur unie
+                    {search && (
+                      <button type="button" onClick={() => setSearch("")} className="p-0.5 text-[#9CA3AF] hover:text-[#1A1A1A]">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setCreateMode("pattern")}
-                        className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                          createMode === "pattern"
-                            ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                            : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"
-                        }`}
-                      >
-                        Motif / Image
-                      </button>
-                    </div>
+                    )}
+                  </div>
+                </div>
 
-                    {createMode === "hex" ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={createHex}
-                          onChange={(e) => setCreateHex(e.target.value)}
-                          className="w-10 h-9 rounded cursor-pointer border border-[#E5E5E5]"
-                        />
-                        <input
-                          className="field-input w-28 font-mono text-sm"
-                          value={createHex}
-                          onChange={(e) => setCreateHex(e.target.value)}
-                        />
-                      </div>
+                {/* Color list */}
+                <div className="flex-1 overflow-y-auto">
+                  {filtered.length === 0 ? (
+                    <div className="px-5 py-12 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucun résultat</div>
+                  ) : filtered.map((opt) => {
+                    const isChecked = draftIds.has(opt.id);
+                    const position = draft.findIndex((s) => s.colorId === opt.id);
+                    return (
+                      <button key={opt.id} type="button"
+                        onClick={() => toggle(opt)}
+                        className={`w-full flex items-center gap-3.5 px-5 py-3 text-left hover:bg-[#F7F7F8] transition-colors border-b border-[#F0F0F0] last:border-b-0 ${isChecked ? "bg-[#F0FDF4]" : ""}`}
+                      >
+                        <input type="checkbox" checked={isChecked} readOnly className="accent-[#22C55E] w-4 h-4 pointer-events-none shrink-0" />
+                        <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={24} rounded="full" />
+                        <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#1A1A1A] text-sm truncate">{opt.name}</span>
+                        {isChecked && (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${position === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
+                            {position === 0 ? "1re" : `+${position + 1}`}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Create new color */}
+                {onCreateColor && (
+                  <div className="border-t border-[#E5E5E5] px-5 py-3 bg-[#FAFAFA] shrink-0">
+                    {!showCreate ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowCreate(true)}
+                        className="text-sm text-[#1A1A1A] font-medium hover:underline flex items-center gap-2 font-[family-name:var(--font-roboto)]"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Créer une couleur
+                      </button>
                     ) : (
-                      <div>
-                        {createPatternPreview ? (
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="w-16 h-16 rounded-lg border border-[#E5E5E5]"
-                              style={{ backgroundImage: `url(${createPatternPreview})`, backgroundSize: "cover", backgroundPosition: "center" }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => { setCreatePatternFile(null); setCreatePatternPreview(null); setCreatePatternPath(null); }}
-                              className="text-xs text-red-500 hover:underline font-[family-name:var(--font-roboto)]"
-                            >
-                              Supprimer
-                            </button>
+                      <div className="space-y-2.5">
+                        <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">Nouvelle couleur</p>
+                        <input
+                          className="field-input w-full text-sm"
+                          placeholder="Nom de la couleur"
+                          value={createName}
+                          onChange={(e) => setCreateName(e.target.value)}
+                          autoFocus
+                        />
+                        <div className="flex gap-1.5">
+                          <button type="button" onClick={() => setCreateMode("hex")}
+                            className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${createMode === "hex" ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"}`}
+                          >Couleur unie</button>
+                          <button type="button" onClick={() => setCreateMode("pattern")}
+                            className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${createMode === "pattern" ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"}`}
+                          >Motif / Image</button>
+                        </div>
+                        {createMode === "hex" ? (
+                          <div className="flex items-center gap-2">
+                            <input type="color" value={createHex} onChange={(e) => setCreateHex(e.target.value)} className="w-9 h-9 rounded-lg cursor-pointer border border-[#E5E5E5]" />
+                            <input className="field-input w-28 font-mono text-sm" value={createHex} onChange={(e) => setCreateHex(e.target.value)} />
                           </div>
                         ) : (
-                          <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-[#E5E5E5] rounded-lg cursor-pointer hover:border-[#9CA3AF] transition-colors ${createUploading ? "opacity-50 pointer-events-none" : ""}`}>
-                            <svg className="w-5 h-5 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                            <span className="text-xs text-[#9CA3AF]">{createUploading ? "Upload..." : "PNG, JPG, WebP — max 500 Ko"}</span>
-                            <input
-                              type="file"
-                              accept="image/png,image/jpeg,image/webp"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleCreatePatternUpload(file);
-                                e.target.value = "";
-                              }}
-                            />
-                          </label>
+                          <div>
+                            {createPatternPreview ? (
+                              <div className="flex items-center gap-3">
+                                <div className="w-14 h-14 rounded-lg border border-[#E5E5E5]" style={{ backgroundImage: `url(${createPatternPreview})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+                                <button type="button" onClick={() => { setCreatePatternFile(null); setCreatePatternPreview(null); setCreatePatternPath(null); }} className="text-xs text-red-500 hover:underline font-[family-name:var(--font-roboto)]">Supprimer</button>
+                              </div>
+                            ) : (
+                              <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-[#E5E5E5] rounded-lg cursor-pointer hover:border-[#9CA3AF] transition-colors ${createUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                                <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                <span className="text-xs text-[#9CA3AF]">{createUploading ? "Upload..." : "PNG, JPG, WebP — max 500 Ko"}</span>
+                                <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleCreatePatternUpload(file); e.target.value = ""; }} />
+                              </label>
+                            )}
+                          </div>
                         )}
+                        {createError && <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{createError}</p>}
+                        <div className="flex gap-2">
+                          <button type="button" onClick={handleCreateColorSave} disabled={createSaving || createUploading || !createName.trim() || (createMode === "pattern" && !createPatternPath)} className="btn-primary text-xs disabled:opacity-50">{createSaving ? "Création..." : "Créer"}</button>
+                          <button type="button" onClick={() => { setShowCreate(false); setCreateName(""); setCreatePatternFile(null); setCreatePatternPreview(null); setCreatePatternPath(null); setCreateError(""); }} className="btn-secondary text-xs">Annuler</button>
+                        </div>
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
 
-                    {createError && <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{createError}</p>}
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={handleCreateColorSave}
-                        disabled={createSaving || createUploading || !createName.trim() || (createMode === "pattern" && !createPatternPath)}
-                        className="btn-primary text-sm disabled:opacity-50"
-                      >
-                        {createSaving ? "Création..." : "Créer"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setShowCreate(false); setCreateName(""); setCreatePatternFile(null); setCreatePatternPreview(null); setCreatePatternPath(null); setCreateError(""); }}
-                        className="btn-secondary text-sm"
-                      >
-                        Annuler
-                      </button>
+              {/* ── RIGHT COLUMN: Sélection + combinaisons ── */}
+              <div className="w-[320px] shrink-0 flex flex-col bg-[#FAFAFA]">
+
+                {/* Selected colors — drag & drop */}
+                <div className="px-5 pt-4 pb-3 shrink-0">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
+                      Sélection {draft.length > 0 && <span className="text-[#1A1A1A]">({draft.length})</span>}
+                    </span>
+                    {draft.length > 1 && (
+                      <span className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] italic">
+                        Glissez pour réordonner
+                      </span>
+                    )}
+                  </div>
+
+                  {draft.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                      <div className="w-12 h-12 rounded-full bg-[#F0F0F0] flex items-center justify-center mb-3">
+                        <svg className="w-5 h-5 text-[#C0C0C0]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                        </svg>
+                      </div>
+                      <p className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucune couleur</p>
+                      <p className="text-xs text-[#C0C0C0] font-[family-name:var(--font-roboto)] mt-0.5">Cliquez sur une couleur à gauche</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1">
+                      {draft.map((s, i) => {
+                        const opt = options.find((o) => o.id === s.colorId);
+                        const isDragging = dragIdx === i;
+                        const isDragOver = dragOverIdx === i && dragIdx !== i;
+                        return (
+                          <div
+                            key={s.colorId}
+                            draggable
+                            onDragStart={() => handleDragStart(i)}
+                            onDragOver={(e) => handleDragOver(e, i)}
+                            onDragEnd={handleDragEnd}
+                            className={`flex items-center gap-2.5 bg-white border rounded-xl px-3 py-2.5 cursor-grab active:cursor-grabbing transition-all
+                              ${isDragging ? "opacity-40 scale-95" : ""}
+                              ${isDragOver ? "border-[#1A1A1A] shadow-sm" : "border-[#E5E5E5]"}
+                            `}
+                          >
+                            <svg className="w-3.5 h-3.5 text-[#C0C0C0] shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                              <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
+                              <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                              <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+                            </svg>
+                            <span className={`text-[11px] font-bold w-5 h-5 flex items-center justify-center rounded-full shrink-0
+                              ${i === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}
+                            `}>{i + 1}</span>
+                            <ColorSwatch hex={s.colorHex} patternImage={opt?.patternImage ?? null} size={20} rounded="full" />
+                            <span className="flex-1 text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] truncate">{s.colorName}</span>
+                            {i === 0 && (
+                              <span className="text-[10px] font-semibold bg-[#22C55E] text-white px-1.5 py-0.5 rounded shrink-0">1re</span>
+                            )}
+                            <button type="button" onClick={(e) => { e.stopPropagation(); removeFromDraft(s.colorId); }}
+                              className="p-1 hover:bg-red-50 rounded-lg transition-colors shrink-0" aria-label={`Retirer ${s.colorName}`}>
+                              <svg className="w-3.5 h-3.5 text-[#C0C0C0] hover:text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Matching variant message */}
+                {matchingCombo && draft.length > 0 && (
+                  <div className="mx-5 mb-3 px-3 py-2 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg flex items-center gap-2 shrink-0">
+                    <svg className="w-4 h-4 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-xs text-[#166534] font-[family-name:var(--font-roboto)]">
+                      Variante existante ({matchingCombo.saleTypes.join(" + ")})
+                    </span>
+                  </div>
+                )}
+
+                {/* Existing combinations */}
+                {existingCombinations.length > 0 && (
+                  <div className="px-5 pb-4 shrink-0 border-t border-[#E5E5E5] pt-3 mt-auto">
+                    <span className="text-xs font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
+                      Raccourcis
+                    </span>
+                    <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-2">
+                      Reprendre une combinaison existante
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {existingCombinations.map((combo) => {
+                        const isActive = combo.key === draftGroupKey;
+                        return (
+                          <button
+                            key={combo.key}
+                            type="button"
+                            onClick={() => selectCombination(combo)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-[family-name:var(--font-roboto)] rounded-lg border transition-colors
+                              ${isActive
+                                ? "bg-[#F0FDF4] border-[#22C55E] text-[#166534]"
+                                : "bg-white border-[#E5E5E5] text-[#1A1A1A] hover:border-[#9CA3AF] hover:bg-white"
+                              }`}
+                          >
+                            {combo.colors.length === 1 ? (
+                              <ColorSwatch hex={combo.colors[0].colorHex} patternImage={options.find((o) => o.id === combo.colors[0].colorId)?.patternImage ?? null} size={16} rounded="full" />
+                            ) : (
+                              <ColorSwatch
+                                hex={combo.colors[0].colorHex}
+                                patternImage={options.find((o) => o.id === combo.colors[0].colorId)?.patternImage ?? null}
+                                subColors={combo.colors.slice(1).map((c) => ({ hex: c.colorHex, patternImage: options.find((o) => o.id === c.colorId)?.patternImage ?? null }))}
+                                size={16}
+                                rounded="full"
+                              />
+                            )}
+                            <span className="truncate max-w-[140px]">{combo.colors.map((c) => c.colorName).join(" / ")}</span>
+                            <span className="text-[10px] text-[#9CA3AF]">({combo.saleTypes.join("+")})</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
               </div>
-            )}
+            </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-t border-[#E5E5E5] bg-[#FAFAFA] rounded-b-2xl">
-              <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-                {draft.length === 0 ? "Aucune couleur" : `${draft.length} couleur${draft.length > 1 ? "s" : ""}`}
+            <div className="flex items-center justify-between px-6 py-3.5 border-t border-[#E5E5E5] bg-white rounded-b-2xl shrink-0">
+              <span className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                {draft.length === 0 ? "Aucune couleur sélectionnée" : `${draft.length} couleur${draft.length > 1 ? "s" : ""} sélectionnée${draft.length > 1 ? "s" : ""}`}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <button type="button" onClick={cancel}
-                  className="px-4 py-2 text-xs font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
+                  className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-xl hover:bg-[#F7F7F8] transition-colors"
                 >
                   Annuler
                 </button>
                 <button type="button" onClick={confirm}
-                  className="px-4 py-2 text-xs font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-lg hover:bg-[#333] transition-colors"
+                  className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-xl hover:bg-[#333] transition-colors"
                 >
                   Valider
                 </button>

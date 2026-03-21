@@ -26,6 +26,7 @@ const CollectionSchema = z.object({
 // Lister toutes les collections
 // ─────────────────────────────────────────────
 export async function getCollections() {
+  await requireAdmin();
   return prisma.collection.findMany({
     orderBy: { createdAt: "desc" },
     include: {

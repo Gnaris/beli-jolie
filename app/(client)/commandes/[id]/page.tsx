@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
@@ -207,8 +208,7 @@ export default async function CommandeDetailPage({
               {/* Image */}
               <div className="w-14 h-14 bg-[#EFEFEF] rounded-lg overflow-hidden shrink-0">
                 {item.imagePath ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.imagePath} alt={item.productName} className="w-full h-full object-cover" />
+                  <Image src={item.imagePath} alt={item.productName} width={80} height={80} unoptimized className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
                     <svg className="w-5 h-5 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -18,9 +18,12 @@ export default function AiCostDialog({ estimatedCostUsd, onConfirm, onCancel }: 
     <div
       className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Générer avec l'IA"
     >
       <div
-        className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-[0_20px_60px_rgba(0,0,0,0.4)] space-y-5"
+        className="bg-bg-primary rounded-2xl p-6 w-full max-w-sm shadow-[0_20px_60px_rgba(0,0,0,0.4)] space-y-5"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -32,10 +35,10 @@ export default function AiCostDialog({ estimatedCostUsd, onConfirm, onCancel }: 
             </svg>
           </div>
           <div>
-            <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
+            <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
               Générer avec l&apos;IA
             </h3>
-            <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-1">
+            <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mt-1">
               L&apos;IA va analyser les images et les informations du produit pour générer
               le nom et la description dans toutes les langues.
             </p>
@@ -43,10 +46,10 @@ export default function AiCostDialog({ estimatedCostUsd, onConfirm, onCancel }: 
         </div>
 
         {/* Cost */}
-        <div className="bg-[#F7F7F8] border border-[#E5E5E5] rounded-xl p-4 space-y-1">
+        <div className="bg-bg-secondary border border-border rounded-xl p-4 space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Coût estimé</span>
-            <span className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A]">
+            <span className="text-sm text-text-secondary font-[family-name:var(--font-roboto)]">Coût estimé</span>
+            <span className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary">
               ~${estimatedCostUsd.toFixed(4)}
             </span>
           </div>
@@ -67,7 +70,7 @@ export default function AiCostDialog({ estimatedCostUsd, onConfirm, onCancel }: 
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 border border-[#E5E5E5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
+            className="flex-1 border border-border text-text-secondary hover:border-[#1A1A1A] hover:text-text-primary text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
           >
             Annuler
           </button>

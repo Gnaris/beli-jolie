@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -17,18 +18,51 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
+const getProduct = cache(async (id: string) => {
+  return prisma.product.findUnique({
+    where: { id },
+    include: {
+      category:      { select: { name: true } },
+      subCategories: { select: { name: true } },
+      tags:          { include: { tag: { select: { id: true, name: true } } } },
+      colors: {
+        include: {
+          color: { select: { name: true, hex: true, patternImage: true } },
+          subColors: {
+            orderBy: { position: "asc" },
+            include: { color: { select: { name: true, hex: true, patternImage: true } } },
+          },
+        },
+        orderBy: { isPrimary: "desc" },
+      },
+      compositions: {
+        include: { composition: { select: { name: true } } },
+        orderBy:  { percentage: "desc" },
+      },
+      similarProducts: {
+        include: {
+          similar: {
+            select: {
+              id:        true,
+              name:      true,
+              reference: true,
+              colors: {
+                orderBy: { isPrimary: "desc" },
+                take:    1,
+                select:  { colorId: true, unitPrice: true, color: { select: { name: true } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+});
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
   const [product, firstImage] = await Promise.all([
-    prisma.product.findUnique({
-      where: { id },
-      select: {
-        name: true,
-        description: true,
-        reference: true,
-        category: { select: { name: true } },
-      },
-    }),
+    getProduct(id),
     prisma.productColorImage.findFirst({
       where: { productId: id },
       orderBy: { order: "asc" },
@@ -60,50 +94,13 @@ export default async function ProduitDetailPage({ params }: PageProps) {
 
   // Fetch product, session, config, and locale in parallel
   const [product, session, stockVariantsConfig, locale] = await Promise.all([
-    prisma.product.findUnique({
-      where: { id, status: "ONLINE" },
-      include: {
-        category:      { select: { name: true } },
-        subCategories: { select: { name: true } },
-        tags:          { include: { tag: { select: { id: true, name: true } } } },
-        colors: {
-          include: {
-            color: { select: { name: true, hex: true, patternImage: true } },
-            subColors: {
-              orderBy: { position: "asc" },
-              include: { color: { select: { name: true, hex: true, patternImage: true } } },
-            },
-          },
-          orderBy: { isPrimary: "desc" },
-        },
-        compositions: {
-          include: { composition: { select: { name: true } } },
-          orderBy:  { percentage: "desc" },
-        },
-        similarProducts: {
-          include: {
-            similar: {
-              select: {
-                id:        true,
-                name:      true,
-                reference: true,
-                colors: {
-                  orderBy: { isPrimary: "desc" },
-                  take:    1,
-                  select:  { colorId: true, unitPrice: true, color: { select: { name: true } } },
-                },
-              },
-            },
-          },
-        },
-      },
-    }),
+    getProduct(id),
     getServerSession(authOptions),
     getCachedSiteConfig("show_out_of_stock_variants"),
     getLocale(),
   ]);
 
-  if (!product) notFound();
+  if (!product || product.status !== "ONLINE") notFound();
 
   const similarProductIds = product.similarProducts.map((sp) => sp.similar.id);
 

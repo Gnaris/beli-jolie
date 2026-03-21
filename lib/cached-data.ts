@@ -163,6 +163,7 @@ export const getCachedDashboardStats = unstable_cache(
       prisma.order.findMany({
         where: { createdAt: { gte: startOf6MonthsAgo }, status: { not: "CANCELLED" } },
         select: { createdAt: true, totalTTC: true },
+        take: 1000,
       }),
       prisma.order.groupBy({ by: ["status"], _count: true }),
       prisma.orderItem.groupBy({

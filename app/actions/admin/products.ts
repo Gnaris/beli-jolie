@@ -1,7 +1,7 @@
 "use server";
 
 import { getServerSession } from "next-auth";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -238,6 +238,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   }
 
   revalidatePath("/admin/produits");
+  revalidateTag("products", "default");
+  revalidateTag("tags", "default");
   return { id: product.id };
 }
 
@@ -502,6 +504,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${id}/modifier`);
   revalidatePath(`/produits/${id}`);
+  revalidateTag("products", "default");
+  revalidateTag("tags", "default");
 }
 
 // ─────────────────────────────────────────────
@@ -524,6 +528,7 @@ export async function deleteProduct(id: string) {
 
   await prisma.product.delete({ where: { id } });
   revalidatePath("/admin/produits");
+  revalidateTag("products", "default");
   redirect("/admin/produits");
 }
 
@@ -536,6 +541,7 @@ export async function archiveProduct(id: string) {
   await prisma.product.update({ where: { id }, data: { status: "ARCHIVED" } });
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
+  revalidateTag("products", "default");
 }
 
 export async function unarchiveProduct(id: string) {
@@ -543,6 +549,7 @@ export async function unarchiveProduct(id: string) {
   await prisma.product.update({ where: { id }, data: { status: "OFFLINE" } });
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
+  revalidateTag("products", "default");
 }
 
 // ─────────────────────────────────────────────
@@ -601,6 +608,7 @@ export async function bulkUpdateProductStatus(
 
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
+  revalidateTag("products", "default");
   return { success, errors };
 }
 
@@ -647,6 +655,7 @@ export async function bulkDeleteProducts(
 
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
+  revalidateTag("products", "default");
   return { deleted, protected: protectedProducts };
 }
 

@@ -80,7 +80,7 @@ export default async function PublicCatalogPage({ params }: Props) {
             <p className="text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Ce catalogue est vide.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {catalog.products.map(({ product, selectedColorId, selectedImagePath }) => {
               // Variante couleur : selectedColorId en priorité, sinon la primaire
               const variant = selectedColorId
@@ -103,12 +103,12 @@ export default async function PublicCatalogPage({ params }: Props) {
                   className="bg-white rounded-2xl overflow-hidden shadow-[0_1px_6px_rgba(0,0,0,0.07)] hover:shadow-[0_4px_18px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-200"
                 >
                   {/* Image */}
-                  <div className="relative aspect-square bg-[#F7F7F8] overflow-hidden">
+                  <div className="relative aspect-[4/5] bg-[#F7F7F8] overflow-hidden">
                     {image ? (
                       <img
                         src={image}
                         alt={product.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain p-2"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">

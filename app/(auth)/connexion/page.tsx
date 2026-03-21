@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import Link from "next/link";
 import LoginForm from "@/components/auth/LoginForm";
 import AccessCodeForm from "@/components/auth/AccessCodeForm";
 
@@ -44,9 +45,9 @@ export default function ConnexionPage() {
         </a>
       </p>
       <p className="text-center mt-3">
-        <a href="/mot-de-passe-oublie" className="text-sm text-text-muted font-[family-name:var(--font-roboto)] hover:text-text-secondary transition-colors">
+        <Link href="/mot-de-passe-oublie" className="text-sm text-text-muted font-[family-name:var(--font-roboto)] hover:text-text-secondary transition-colors">
           Mot de passe oublié ?
-        </a>
+        </Link>
       </p>
 
       {/* Séparateur */}

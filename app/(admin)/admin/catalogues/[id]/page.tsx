@@ -36,21 +36,6 @@ export default async function AdminCatalogEditPage({ params }: Props) {
 
   if (!catalog) notFound();
 
-  // Tous les produits en ligne pour la recherche
-  const allProducts = await prisma.product.findMany({
-    where: { status: "ONLINE" },
-    orderBy: { name: "asc" },
-    include: {
-      colorImages: { orderBy: { order: "asc" } },
-      colors: {
-        where: { saleType: "UNIT" },
-        include: {
-          color: { select: { id: true, name: true, hex: true } },
-        },
-      },
-    },
-  });
-
   return (
     <div className="space-y-6">
       <div>
@@ -59,7 +44,7 @@ export default async function AdminCatalogEditPage({ params }: Props) {
           Sélectionnez les produits, personnalisez le titre, la couleur ou la photo de fond.
         </p>
       </div>
-      <CatalogEditor catalog={catalog as any} allProducts={allProducts as any} />
+      <CatalogEditor catalog={catalog as any} />
     </div>
   );
 }

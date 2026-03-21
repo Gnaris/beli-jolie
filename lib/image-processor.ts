@@ -97,17 +97,23 @@ export async function processProductImage(
   const mdName = `${filename}_md.webp`;
   const thumbName = `${filename}_thumb.webp`;
 
+  // Auto-rotate based on EXIF orientation before resizing (fixes rotated images from bulk import)
+  const oriented = sharp(buffer).rotate();
+
   // Process all 3 sizes in parallel
   const [largeBuffer, mediumBuffer, thumbBuffer] = await Promise.all([
-    sharp(buffer)
+    oriented
+      .clone()
       .resize(SIZES.large.width, SIZES.large.height, { fit: "inside", withoutEnlargement: true })
       .webp({ quality: SIZES.large.quality })
       .toBuffer(),
-    sharp(buffer)
+    oriented
+      .clone()
       .resize(SIZES.medium.width, SIZES.medium.height, { fit: "inside", withoutEnlargement: true })
       .webp({ quality: SIZES.medium.quality })
       .toBuffer(),
-    sharp(buffer)
+    oriented
+      .clone()
       .resize(SIZES.thumb.width, SIZES.thumb.height, { fit: "inside", withoutEnlargement: true })
       .webp({ quality: SIZES.thumb.quality })
       .toBuffer(),

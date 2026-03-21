@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags } from "@/lib/cached-data";
 import SearchFilters from "@/components/produits/SearchFilters";
 import ProductCard from "@/components/produits/ProductCard";
 import Link from "next/link";
@@ -21,6 +22,7 @@ interface PageProps {
     bestseller?: string; new?: string;
     minPrice?: string; maxPrice?: string;
     exactRef?: string;
+    page?: string;
   }>;
 }
 
@@ -41,6 +43,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
     bestseller, new: isNewParam,
     minPrice: minPriceParam, maxPrice: maxPriceParam,
     exactRef: exactRefParam,
+    page: pageParam,
   } = await searchParams;
 
   const bestseller_ = bestseller === "1";
@@ -48,6 +51,8 @@ export default async function FavorisPage({ searchParams }: PageProps) {
   const minPrice    = minPriceParam ? parseFloat(minPriceParam) : null;
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
   const exactRef    = exactRefParam === "1";
+  const page        = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
+  const PAGE_SIZE   = 20;
 
   // Build the product filter (mirrors /produits logic)
   const productWhere: Record<string, unknown> = {
@@ -109,16 +114,16 @@ export default async function FavorisPage({ searchParams }: PageProps) {
         },
       },
       orderBy: { createdAt: "desc" },
+      take: PAGE_SIZE,
+      skip: (page - 1) * PAGE_SIZE,
     }),
     prisma.favorite.count({ where: { userId: session.user.id, product: productWhere } }),
-    prisma.category.findMany({
-      orderBy: { name: "asc" },
-      include: { subCategories: { orderBy: { name: "asc" } } },
-    }),
-    prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.color.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, hex: true } }),
-    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    getCachedCategories(),
+    getCachedCollections(),
+    getCachedColors(),
+    getCachedTags(),
   ]);
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   // Fetch first images per (productId, colorId)
   const favProductIds = rawFavorites.map((f) => f.product.id);
@@ -282,6 +287,31 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                     isNew={product.createdAt.getTime() > now - NEW_THRESHOLD_MS}
                   />
                 ))}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-6">
+                {page > 1 && (
+                  <Link
+                    href={`/favoris?${new URLSearchParams({ ...(q && { q }), ...(cat && { cat }), ...(subcat && { subcat }), ...(collection && { collection }), ...(colorId && { color: colorId }), ...(tagId && { tag: tagId }), page: String(page - 1) }).toString()}`}
+                    className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+                  >
+                    &larr;
+                  </Link>
+                )}
+                <span className="text-sm font-[family-name:var(--font-roboto)] text-text-muted">
+                  {page} / {totalPages}
+                </span>
+                {page < totalPages && (
+                  <Link
+                    href={`/favoris?${new URLSearchParams({ ...(q && { q }), ...(cat && { cat }), ...(subcat && { subcat }), ...(collection && { collection }), ...(colorId && { color: colorId }), ...(tagId && { tag: tagId }), page: String(page + 1) }).toString()}`}
+                    className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+                  >
+                    &rarr;
+                  </Link>
+                )}
               </div>
             )}
           </div>

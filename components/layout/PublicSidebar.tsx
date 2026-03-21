@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useTransition, useCallback } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useTranslations, useLocale } from "next-intl";
@@ -316,8 +317,7 @@ export default function PublicSidebar() {
                       >
                         <div className="w-11 h-11 bg-bg-tertiary rounded-lg overflow-hidden shrink-0">
                           {r.image ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={r.image} alt={r.name} className="w-full h-full object-cover" />
+                            <Image src={r.image} alt={r.name} width={80} height={80} unoptimized className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
                               <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">

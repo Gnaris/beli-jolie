@@ -57,28 +57,41 @@ export function getTrackingUrl(carrierName: string, trackingId: string): string 
   return null;
 }
 
-export default async function CommandesPage() {
+interface CommandesPageProps {
+  searchParams: Promise<{ page?: string }>;
+}
+
+export default async function CommandesPage({ searchParams }: CommandesPageProps) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/connexion?callbackUrl=/commandes");
 
   const t = await getTranslations("orders");
+  const { page: pageParam } = await searchParams;
+  const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
+  const PAGE_SIZE = 20;
 
-  const orders = await prisma.order.findMany({
-    where: { userId: session.user.id },
-    include: {
-      items: {
-        select: {
-          productName: true,
-          colorName: true,
-          quantity: true,
-          saleType: true,
-          packQty: true,
-          size: true,
+  const [orders, totalCount] = await Promise.all([
+    prisma.order.findMany({
+      where: { userId: session.user.id },
+      include: {
+        items: {
+          select: {
+            productName: true,
+            colorName: true,
+            quantity: true,
+            saleType: true,
+            packQty: true,
+            size: true,
+          },
         },
       },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+      take: PAGE_SIZE,
+      skip: (page - 1) * PAGE_SIZE,
+    }),
+    prisma.order.count({ where: { userId: session.user.id } }),
+  ]);
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   return (
     <div className="p-4 md:p-6 lg:p-10 w-full relative overflow-hidden">
@@ -89,7 +102,7 @@ export default async function CommandesPage() {
           {t("title")}
         </h1>
         <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mt-0.5">
-          {orders.length !== 1 ? t("count_plural", { count: orders.length }) : t("count", { count: orders.length })}
+          {totalCount !== 1 ? t("count_plural", { count: totalCount }) : t("count", { count: totalCount })}
         </p>
       </div>
 
@@ -210,6 +223,31 @@ export default async function CommandesPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-6">
+          {page > 1 && (
+            <Link
+              href={`/commandes?page=${page - 1}`}
+              className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+            >
+              &larr;
+            </Link>
+          )}
+          <span className="text-sm font-[family-name:var(--font-roboto)] text-text-muted">
+            {page} / {totalPages}
+          </span>
+          {page < totalPages && (
+            <Link
+              href={`/commandes?page=${page + 1}`}
+              className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+            >
+              &rarr;
+            </Link>
+          )}
         </div>
       )}
     </div>

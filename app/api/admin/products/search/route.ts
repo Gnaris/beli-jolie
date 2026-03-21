@@ -4,9 +4,10 @@ import { authOptions } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * GET /api/admin/products/search?q=xxx&exclude=productId
- * Recherche produits pour le sélecteur de produits similaires (admin).
- * Renvoie les produits avec image principale, référence, catégorie.
+ * GET /api/admin/products/search?q=xxx&exclude=productId&fields=catalog
+ * Recherche produits pour le selecteur de produits similaires (admin).
+ * Renvoie les produits avec image principale, reference, categorie.
+ * fields=catalog : renvoie aussi colorImages et colors (pour CatalogEditor).
  */
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -17,9 +18,49 @@ export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
   const exclude = request.nextUrl.searchParams.get("exclude") ?? "";
   const exactRef = request.nextUrl.searchParams.get("exactRef") === "1";
+  const fields = request.nextUrl.searchParams.get("fields") ?? "";
 
   if (q.length < 1) return NextResponse.json({ products: [] });
 
+  const whereClause = {
+    status: "ONLINE" as const,
+    ...(exclude && { NOT: { id: exclude } }),
+    ...(exactRef
+      ? { reference: { equals: q.toUpperCase() } }
+      : { OR: [
+          { reference: { contains: q } },
+          { name: { contains: q } },
+        ] }
+    ),
+  };
+
+  // Catalog mode: return full ProductSnap data
+  if (fields === "catalog") {
+    const products = await prisma.product.findMany({
+      where: whereClause,
+      take: 20,
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        reference: true,
+        colorImages: { orderBy: { order: "asc" }, select: { path: true, colorId: true } },
+        colors: {
+          where: { saleType: "UNIT" },
+          select: {
+            colorId: true,
+            isPrimary: true,
+            unitPrice: true,
+            color: { select: { id: true, name: true, hex: true } },
+          },
+        },
+      },
+    });
+
+    return NextResponse.json({ products });
+  }
+
+  // Default mode: lightweight results for similar product picker
   const products = await prisma.product.findMany({
     where: {
       ...(exclude && { NOT: { id: exclude } }),

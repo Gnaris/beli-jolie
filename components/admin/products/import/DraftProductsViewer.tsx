@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 
@@ -262,7 +263,7 @@ export default function DraftProductsViewer({ draftId, initialRows, successCount
     return (
       <div className="bg-green-50 border border-green-200 rounded-2xl p-8 text-center">
         <p className="text-green-700 font-medium text-lg">✓ Toutes les lignes ont été traitées.</p>
-        <a href="/admin/produits" className="btn-primary mt-4 inline-block text-sm">Voir les produits</a>
+        <Link href="/admin/produits" className="btn-primary mt-4 inline-block text-sm">Voir les produits</Link>
       </div>
     );
   }

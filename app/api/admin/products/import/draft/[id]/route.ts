@@ -241,14 +241,26 @@ async function handleImageRowFix(
   // Create new variant with multi-color selection (main + sub-colors)
   if (!productColorId && body.createVariant?.colorIds?.length && productId) {
     const cv = body.createVariant;
-    const [mainColorId, ...subColorIds] = cv.colorIds;
+
+    // Validate required fields
+    if (!cv.unitPrice || cv.unitPrice <= 0) {
+      return NextResponse.json({ ok: false, errors: ["Le prix unitaire est obligatoire et doit être supérieur à 0."] }, { status: 400 });
+    }
+    if (!cv.weight || cv.weight <= 0) {
+      return NextResponse.json({ ok: false, errors: ["Le poids est obligatoire et doit être supérieur à 0."] }, { status: 400 });
+    }
     const saleType = cv.saleType === "PACK" ? "PACK" : "UNIT";
+    if (saleType === "PACK" && (!cv.packQuantity || cv.packQuantity < 2)) {
+      return NextResponse.json({ ok: false, errors: ["La quantité par pack doit être d'au moins 2."] }, { status: 400 });
+    }
+
+    const [mainColorId, ...subColorIds] = cv.colorIds;
     const newVariant = await prisma.productColor.create({
       data: {
         productId,
         colorId: mainColorId,
-        unitPrice: cv.unitPrice && cv.unitPrice > 0 ? cv.unitPrice : 0,
-        weight: cv.weight && cv.weight > 0 ? cv.weight : 0.1,
+        unitPrice: cv.unitPrice,
+        weight: cv.weight,
         stock: cv.stock != null && cv.stock >= 0 ? cv.stock : 0,
         isPrimary: false,
         saleType,

@@ -7,7 +7,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **Endpoints API** : voir `.claude/memory/api-endpoints.md`
 > **Design monochrome** : voir `.claude/memory/design-monochrome.md`
 > **Préférences utilisateur** : voir `.claude/memory/feedback-preferences.md`
-> **Thème printemps** : voir `.claude/memory/theme-printemps.md`
+> **API Paris Fashion Shop** : voir `API_DOCUMENTATION.md`
+
+---
+
+## Règles de travail obligatoires
+
+### Auto-maintenance de CLAUDE.md
+Après chaque tâche terminée, vérifier si CLAUDE.md doit être mis à jour (nouveau système, nouvelle convention, nouvelle env var, nouveau endpoint, etc.). Si oui, le mettre à jour immédiatement.
+
+### Parallélisation via sous-agents
+Quand une tâche peut être découpée en sous-tâches indépendantes, **toujours** lancer plusieurs sous-agents en parallèle pour accélérer le travail. Ne jamais faire séquentiellement ce qui peut être fait en parallèle. Les agents spécialisés (Designer, Front-End, Back-End, SEO, Hackeur Éthique) doivent être sollicités dès que leur domaine est concerné — ne pas hésiter à les invoquer pour obtenir des résultats plus optimaux.
+
+### Validation par 3 testeurs IA (obligatoire après chaque tâche)
+Après chaque tâche terminée, lancer **3 sous-agents testeurs** en parallèle. Chacun a un angle de test différent :
+
+1. **Testeur Fonctionnel** — Vérifie que le code fait exactement ce qui était demandé, pas de régression, les cas limites sont gérés, les données sont correctes.
+2. **Testeur UI/UX** — Vérifie le responsive (mobile/tablette/desktop), l'accessibilité (ARIA, touch targets 44px, contraste), les animations, la cohérence visuelle avec le design system monochrome.
+3. **Testeur Technique** — Vérifie le lint (`npm run lint`), la compatibilité TypeScript, les imports corrects, les conventions Prisma/NextAuth/Zod, la performance (pas de N+1, pas de re-renders inutiles).
+
+**Règle de consensus** : si **au moins un** testeur signale un problème, il produit un rapport détaillé. Le problème doit être corrigé, puis **les 3 testeurs repassent** jusqu'à ce que tous soient d'accord (aucun désaccord). On ne passe à la tâche suivante que quand les 3 testeurs valident.
 
 ---
 
@@ -26,8 +45,10 @@ npx prisma generate          # Regenerate Prisma client (required after schema c
 npx prisma studio            # Open Prisma Studio GUI
 
 # Scripts
-npx tsx scripts/create-admin.ts   # Crée le compte admin défini dans .env (ADMIN_EMAIL / ADMIN_PASSWORD)
-npm run clear:products            # Delete all products + related data (dev only)
+npx tsx scripts/create-admin.ts        # Crée le compte admin défini dans .env (ADMIN_EMAIL / ADMIN_PASSWORD)
+npx tsx scripts/generate-translations.ts  # Batch-generate missing translations for all entities
+npx tsx scripts/seed.ts                # Seed database with sample data (dev only)
+npm run clear:products                 # Delete all products + related data (dev only)
 ```
 
 > **After `prisma db push`**: restart the dev server — it locks the generated `.dll` file and `generate` will fail otherwise.
@@ -48,6 +69,8 @@ EE_SENDER_POSTAL_CODE / EE_SENDER_COUNTRY="FR"
 GMAIL_USER / GMAIL_APP_PASSWORD / NOTIFY_EMAIL
 STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ANTHROPIC_API_KEY
+DEEPL_API_KEY
+PFS_EMAIL / PFS_PASSWORD              # Paris Fashion Shop (marketplace B2B)
 ```
 
 ## Architecture
@@ -60,9 +83,14 @@ The app uses three Next.js route groups plus direct public routes:
 | `(auth)` | `/connexion`, `/inscription` | Unauthenticated only (redirects if logged in) |
 | `(admin)` | `/admin/*` | ADMIN role only |
 | `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*`, `/favoris` | CLIENT role (APPROVED) only |
-| *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public |
+| *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public (or guest via `bj_access_code` cookie) |
 
 Route protection is handled **twice**: in `middleware.ts` (edge, fast) and in each group `layout.tsx` (server-side fallback).
+
+**Middleware extras:**
+- **Maintenance mode**: checks `/api/site-status`; admins and auth routes bypass it
+- **Guest access**: `bj_access_code` cookie allows unauthenticated browsing of public product/collection pages
+- **Admin redirects**: logged-in admins accessing `/espace-pro` or `/panier` are redirected to `/admin` (unless preview mode `bj_admin_preview=1`)
 
 ### Auth Flow
 - **NextAuth v4** with Credentials provider + JWT strategy (30-day tokens)
@@ -113,6 +141,12 @@ Order
 | Kbis documents | `private/uploads/kbis/` | ADMIN via `/api/admin/kbis/[filename]` |
 | Invoices | `private/uploads/invoices/` | ADMIN or owner client via API |
 
+### Image Processing (`lib/image-processor.ts`)
+All image uploads (manual and bulk import) pass through `processProductImage()`:
+- Auto-rotates based on EXIF orientation, then converts to **WebP** in 3 sizes: large (1200px, q90), medium (800px, q82), thumb (400px, q80)
+- DB stores only the large path (e.g. `/uploads/products/abc.webp`); medium/thumb are `_md.webp` / `_thumb.webp` on disk
+- Use `getImageSrc(storedPath, "thumb"|"medium"|"large")` to derive the correct URL for display
+
 ### Additional DB Models
 - **`Favorite`** — user saves products; `@@unique([userId, productId])`
 - **`SiteConfig`** — key/value store (e.g. `min_order_ht`); managed via `/admin/parametres`
@@ -124,7 +158,10 @@ Order
 - **`ImportJob`** — tracks bulk import history (products + images); linked to user
 - **`ImportDraft`** — stores error rows from bulk import for manual resolution (type: PRODUCTS or IMAGES); linked to admin
 - **`RestockAlert`** — client subscribes to out-of-stock variant; notified when restocked
-- **`AccessCode`** — now includes `prefillFirstName/LastName/Company/Email/Phone` for pre-filling registration forms
+- **`AccessCode`** — guest browsing via `bj_access_code` cookie; includes `prefillFirstName/LastName/Company/Email/Phone` for pre-filling registration; tracks first/last access + navigation views; admin-set expiry
+- **`Catalog`** / **`CatalogProduct`** — shareable product catalogs via unique token (published/draft); admin creates catalogs to share with clients via public links; product entries can override color/image
+- **`TranslationQuota`** — tracks monthly character usage per translation provider (`provider` + `monthYear`); `@@unique([provider, monthYear])`
+- **`CategoryTranslation`** / **`SubCategoryTranslation`** / **`ColorTranslation`** / **`CompositionTranslation`** — auto-translated names per locale (same pattern as `ProductTranslation`)
 
 ### Internationalisation (i18n)
 - **next-intl** with cookie-based locale (`bj_locale`, 1-year TTL); default `fr`
@@ -132,6 +169,9 @@ Order
 - Message files in `messages/[locale].json`
 - Server action `setLocale()` in `app/actions/client/locale.ts` switches locale + revalidates layout
 - `ProductTranslation` table stores AI-generated product name/description per locale
+- **Translation engine**: DeepL Free API (500K chars/month, key ends with `:fx`); quota tracked via `TranslationQuota` model
+- **AI description generation**: Anthropic Claude Sonnet (`lib/claude.ts` + `/api/admin/products/generate-ai`) — generates product name/description from category, tags, compositions and images
+- Auto-translated entities: products, categories, subcategories, colors, compositions
 
 ### Admin Preview Mode
 Admins can browse the public site as a logged-in visitor via cookie `bj_admin_preview=1` (8h TTL).
@@ -146,16 +186,22 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - Image filenames use "," as separator (since "/" is forbidden in filenames): `REF_COULEUR1,COULEUR2_POSITION.ext`
 - Color matching is accent-insensitive via `normalizeColorName()` — strips accents + lowercases
 - Quick-create endpoint `/api/admin/products/import/quick-create` allows creating missing categories/colors/compositions from the preview screen
+- Product search API: `GET /api/admin/products/search?q=xxx&fields=catalog` — used by CatalogEditor and similar products picker (max 20 results, admin auth required)
 
 ### Styling Conventions
 - **Tailwind CSS v4** — no `tailwind.config.js`; theme tokens are defined in `app/globals.css` inside `@theme inline {}`
 - **Monochrome dashboard theme** (mars 2026) — see `.claude/memory/design-monochrome.md` for full palette
-- Primary: `#1A1A1A` (dark), surface: `#F7F7F8` (light gray), text: `#1A1A1A`, accent: `#22C55E` (green for success/positive)
+- Admin palette: primary `#1A1A1A` (dark), surface `#F7F7F8` (light gray), text `#1A1A1A`, status-accent `#22C55E` (green for success)
+- Public palette: accent gold `#D4AF37` (light `#FDF6E3`, dark `#B8960C`)
+- **Admin dark mode**: `.admin-dark` class on root — inverts colors/shadows across the admin panel (defined in `globals.css`)
 - Status: success `#22C55E`, warning `#F59E0B`, error `#EF4444`, info `#3B82F6`
 - Fonts via CSS variables: `var(--font-poppins)` for headings, `var(--font-roboto)` for body — reference them as `font-[family-name:var(--font-poppins)]` in Tailwind classes
 - Reusable CSS utilities: `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.field-input`, `.field-label`, `.container-site`, `.card`, `.card-hover`, `.badge-success`, `.badge-warning`, `.badge-error`, `.badge-neutral`, `.badge-info`, `.stat-card`, `.table-header`, `.table-row`, `.sidebar-item`, `.sidebar-active`, `.page-title`, `.page-subtitle`
-- Animations: `.animate-fadeIn` (opacity + translateY), `.animate-slideIn` (opacity + translateX)
-- Admin forms: split into separate blocks with `bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]`
+- Variant form utilities: `.drawer-variant-container`, `.variant-drawer`, `.variant-input`, `.variant-select`, `.bulk-variant-bar`
+- Scroll-reveal classes: `.reveal`, `.reveal-up`, `.reveal-down`, `.reveal-left`, `.reveal-right`, `.reveal-zoom`, `.reveal-blur` + `.stagger-1` through `.stagger-8`
+- Animations: `.animate-fadeIn`, `.animate-slideIn`, `.animate-float`, `.animate-shimmer`, `.animate-cart-bounce`, and many more keyframes in `globals.css`
+- Misc utilities: `.no-scrollbar` (hides scrollbars), `.checkbox-custom`, `.section-title`
+- Admin forms: split into separate blocks with `bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]` — always use CSS variable classes (`bg-bg-primary`, `text-text-primary`, `border-border`, `bg-bg-secondary`, `text-text-secondary`) for dark mode compatibility, never hardcode `bg-white` or `text-[#1A1A1A]` in admin components
 
 ### Key Components
 - **Public header**: `PublicSidebar.tsx` (NOT `Navbar.tsx`) — logo, functional search bar, nav links, cart
@@ -166,6 +212,9 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Cart modal**: `CartModal.tsx` — admin can peek at a client's current cart
 - **Reusable UI**: `ConfirmDialog.tsx` (replaces window.confirm), `CustomSelect.tsx` (searchable select), `Toast.tsx`, `ColorSwatch.tsx` (single/multi-color swatch with patternImage support — renders camembert pie chart for multi-color variants)
 - **Import history**: `ImportHistoryClient.tsx` — view past import jobs at `/admin/produits/importer/historique`
+
+### Rate Limiting (`lib/rate-limit.ts`)
+In-memory IP-based rate limiter used on sensitive endpoints: `forgot-password` (3/h), `reset-password` (10/h), `report-error` (3/15min). Usage: `rateLimit(key, maxAttempts, windowMs)` returns `{ success, remaining }`.
 
 ### Security Layer (`lib/security.ts`)
 - **Login brute force**: progressive lockout after 3 failures — 11 levels (1min → 48h → permanent)
@@ -221,8 +270,32 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - **Three.js 0.183.2** (3D jewelry animation)
 - **Recharts 3.8.0** (admin charts)
 - `bcryptjs` (12 salt rounds) for password hashing
-- `pdfkit` for PDF generation — requires `serverExternalPackages: ["pdfkit", "sharp"]` in `next.config.ts`
+- `pdfkit` for PDF generation — requires `serverExternalPackages: ["pdfkit", "sharp", "exceljs"]` in `next.config.ts`
+- `exceljs` for Excel import/export in bulk import
+- `@anthropic-ai/sdk` for AI product description generation (`lib/claude.ts`)
+- DeepL Free API for translations (`lib/translate.ts`) — no npm package, direct HTTP calls
 - `nodemailer` for transactional email (Gmail App Password)
+
+### Path Alias
+`@/*` maps to `./*` (tsconfig.json) — use `import { foo } from "@/lib/bar"` everywhere.
+
+### next.config.ts Highlights
+- **Security headers**: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, HSTS preload, Referrer-Policy, Permissions-Policy
+- **Image optimization**: AVIF/WebP, 30-day cache TTL, specific device sizes
+- **Static asset caching**: `/uploads/:path*` cached 1 year (immutable)
+
+### Paris Fashion Shop (PFS) — Marketplace B2B
+- **API Base URL**: `https://wholesaler-api.parisfashionshops.com/api/v1`
+- **Doc complète**: voir `API_DOCUMENTATION.md` à la racine
+- **Auth**: `POST /oauth/token` avec `PFS_EMAIL`/`PFS_PASSWORD` → Bearer JWT
+- **Brand ID**: `a01AZ00000314QgYAI` (obligatoire dans toutes les requêtes)
+- **Endpoint principal testé**: `GET /catalog/listProducts?page=N&per_page=100&brand={id}&status=ACTIVE`
+- **~9 251 produits actifs** (au 2026-03-21), paginés par 100
+- **Variants inline**: `listProducts` retourne les variants avec couleur (labels + hex), prix, stock, images
+- **Images CDN**: `https://static.parisfashionshops.com/...` — retirer `?image_process=resize,w_450` pour full-size
+- **Langues**: fr, en, de, es, it (pas ar ni zh → à générer via DeepL)
+- **API instable**: prévoir retry + backoff + headers réalistes (Cloudflare)
+- **Objectif**: import PFS → Beli Jolie (les produits BJ n'ont pas de ref, PFS = source de vérité)
 
 ### Easy-Express v3 Integration
 - Base URL: `https://easy-express.fr`

@@ -81,7 +81,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
       {/* Row 1 — Area + Bar */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Revenue AreaChart */}
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
           <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm mb-4">
             Revenus sur 6 mois
           </p>
@@ -121,7 +121,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
         </div>
 
         {/* Orders BarChart */}
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
           <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm mb-4">
             Commandes sur 6 mois
           </p>
@@ -150,7 +150,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
       {/* Row 2 — Pie + Top products */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Status PieChart */}
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
           <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm mb-4">
             Distribution des statuts
           </p>
@@ -199,7 +199,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
         </div>
 
         {/* Top 5 products — horizontal bars */}
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
           <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm mb-4">
             Top 5 produits commandés
           </p>
