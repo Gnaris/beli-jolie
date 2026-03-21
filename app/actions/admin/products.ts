@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
+import { emitProductEvent } from "@/lib/product-events";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -240,6 +241,11 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   revalidatePath("/admin/produits");
   revalidateTag("products", "default");
   revalidateTag("tags", "default");
+
+  if (input.status === "ONLINE") {
+    emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
+  }
+
   return { id: product.id };
 }
 
@@ -251,6 +257,11 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   await requireAdmin();
 
   validateVariants(input.colors);
+
+  const oldProduct = await prisma.product.findUnique({
+    where: { id },
+    select: { status: true, isBestSeller: true },
+  });
 
   const dup = await prisma.product.findFirst({
     where: { reference: input.reference.trim().toUpperCase(), NOT: { id } },
@@ -506,6 +517,19 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   revalidatePath(`/produits/${id}`);
   revalidateTag("products", "default");
   revalidateTag("tags", "default");
+
+  // Emit real-time events
+  if (oldProduct) {
+    if (oldProduct.status !== "ONLINE" && input.status === "ONLINE") {
+      emitProductEvent({ type: "PRODUCT_ONLINE", productId: id });
+    } else if (oldProduct.status === "ONLINE" && input.status !== "ONLINE") {
+      emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
+    } else if (oldProduct.isBestSeller !== input.isBestSeller) {
+      emitProductEvent({ type: "BESTSELLER_CHANGED", productId: id });
+    } else if (input.status === "ONLINE") {
+      emitProductEvent({ type: "PRODUCT_UPDATED", productId: id });
+    }
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -542,6 +566,7 @@ export async function archiveProduct(id: string) {
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
+  emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
 }
 
 export async function unarchiveProduct(id: string) {
@@ -550,6 +575,7 @@ export async function unarchiveProduct(id: string) {
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
+  emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
 }
 
 // ─────────────────────────────────────────────
@@ -609,6 +635,16 @@ export async function bulkUpdateProductStatus(
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
+
+  // Emit SSE events for each updated product
+  for (const pid of success) {
+    if (status === "ONLINE") {
+      emitProductEvent({ type: "PRODUCT_ONLINE", productId: pid });
+    } else {
+      emitProductEvent({ type: "PRODUCT_OFFLINE", productId: pid });
+    }
+  }
+
   return { success, errors };
 }
 
@@ -698,6 +734,7 @@ export async function updateVariantQuick(
 
   revalidatePath("/admin/produits");
   revalidatePath(`/produits/${variant.productId}`);
+  emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
 }
 
 // ─────────────────────────────────────────────
@@ -740,6 +777,7 @@ export async function bulkUpdateVariants(
   revalidatePath("/admin/produits");
   for (const pid of productIds) {
     revalidatePath(`/produits/${pid}`);
+    emitProductEvent({ type: "STOCK_CHANGED", productId: pid });
   }
 
   return { updated: variants.length };
@@ -808,7 +846,7 @@ export async function refreshProduct(productId: string): Promise<void> {
 
   const product = await prisma.product.findUnique({
     where: { id: productId },
-    select: { id: true },
+    select: { id: true, status: true },
   });
   if (!product) throw new Error("Produit introuvable.");
 
@@ -820,6 +858,11 @@ export async function refreshProduct(productId: string): Promise<void> {
   revalidatePath("/admin/produits");
   revalidatePath(`/produits/${productId}`);
   revalidatePath("/produits");
+  revalidateTag("products", "default");
+
+  if (product.status === "ONLINE") {
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId });
+  }
 }
 
 export async function updateTag(id: string, formData: FormData) {

@@ -277,6 +277,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
                   { value: "ONLINE", label: "En ligne" },
                   { value: "OFFLINE", label: "Hors ligne" },
                   { value: "ARCHIVED", label: "Archivé" },
+                  { value: "SYNCING", label: "Sync en cours" },
                 ]}
                 size="sm"
               />

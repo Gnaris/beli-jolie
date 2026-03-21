@@ -65,7 +65,7 @@ interface ProductFormProps {
     dimDiameter: string;
     dimCircumference: string;
     translations?: { locale: string; name: string; description: string }[];
-    status?: "OFFLINE" | "ONLINE" | "ARCHIVED";
+    status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
   };
 }
 
@@ -134,7 +134,7 @@ export default function ProductForm({
   const [error, setError] = useState("");
   const [onlineErrors, setOnlineErrors] = useState<string[]>([]);
   const [productStatus, setProductStatus] = useState<"OFFLINE" | "ONLINE" | "ARCHIVED">(
-    initialData?.status ?? "OFFLINE"
+    initialData?.status === "SYNCING" ? "OFFLINE" : (initialData?.status ?? "OFFLINE")
   );
 
   // ── Sync colorImages when variant colors change ───────────────────────

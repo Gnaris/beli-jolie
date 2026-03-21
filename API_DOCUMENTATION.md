@@ -392,20 +392,483 @@
 
 ---
 
-### 4-9. Endpoints d'écriture (NON TESTÉS — pour push futur)
+### 4. Créer un produit (TESTÉ - FONCTIONNEL)
 
-Les endpoints suivants existent pour la synchronisation BJ → PFS (push) :
+#### `POST /catalog/products`
 
-| # | Endpoint | Méthode | Usage |
-|---|----------|---------|-------|
-| 4 | `/catalog/products` | POST | Créer un produit |
-| 5 | `/catalog/products/batch/updateStatus` | PATCH | Batch status (READY_FOR_SALE / DELETED) |
-| 6 | `/catalog/products/{id}` | PATCH | Modifier un produit |
-| 7 | `/catalog/products/{id}/image` | POST | Upload image (JPEG, multipart) |
-| 8 | `/catalog/products/variants` | PATCH | Modifier stock variants |
-| 9 | `/catalog/products/variants/batch/setAvailability` | PATCH | Activer/désactiver variants |
+> Crée un ou plusieurs produits. Le body utilise un wrapper `data` contenant un **array** de produits.
 
-> Ces endpoints ne sont pas encore testés. Ils seront documentés quand on implémentera le push BJ → PFS.
+**Headers :** `Authorization: Bearer {token}`, `Content-Type: application/json`
+
+**Body :**
+```json
+{
+  "data": [
+    {
+      "reference": "T999VS1",
+      "reference_code": "T999VS1",
+      "gender": "WOMAN",
+      "gender_label": "Femme",
+      "brand_name": "Beli & Jolie",
+      "family": "a035J00000185J7QAI",
+      "category": "a045J000003KWwDQAW",
+      "season_name": "PE2026",
+      "label": {
+        "fr": "Nom du produit",
+        "en": "Product name",
+        "de": "Produktname",
+        "es": "Nombre del producto",
+        "it": "Nome del prodotto"
+      },
+      "description": {
+        "fr": "Description FR",
+        "en": "Description EN",
+        "de": "Description DE",
+        "es": "Description ES",
+        "it": "Description IT"
+      },
+      "material_composition": "ACIERINOXYDABLE",
+      "country_of_manufacture": "CN"
+    }
+  ]
+}
+```
+
+**Champs obligatoires :**
+| Champ | Type | Description |
+|-------|------|-------------|
+| `reference` | string | Référence produit (ex: `T999VS1`) |
+| `reference_code` | string | Même valeur que `reference` — **obligatoire sinon erreur "Référence non valide"** |
+| `gender` | string | `"WOMAN"` |
+| `gender_label` | string | `"Femme"` — label FR du genre |
+| `brand_name` | string | `"Beli & Jolie"` — doit correspondre exactement au nom de la marque PFS |
+| `family` | string | ID de la famille (ex: `a035J00000185J7QAI` = WOMAN/FASHIONJEWELRY) |
+| `category` | string | ID de la catégorie (ex: `a045J000003KWwDQAW` = Boucles d'oreilles) |
+| `season_name` | string | Référence ou label FR de la collection (ex: `"PE2026"` ou `"Printemps/Été 2026"`) |
+| `label` | object | Noms multilingues `{fr, en, de, es, it}` — les 5 langues PFS |
+| `description` | object | Descriptions multilingues `{fr, en, de, es, it}` |
+| `material_composition` | string | **String** avec la référence du matériau (ex: `"ACIERINOXYDABLE"`) — ⚠️ le format array crash en 500 (bug PFS) |
+| `country_of_manufacture` | string | Code ISO pays (ex: `"CN"`) |
+
+**Réponse 200 (succès) :**
+```json
+{
+  "resume": { "products": 1, "errors": 0 },
+  "data": [{
+    "id": "pro_57fc702bb74fef655d0200a54b4d",
+    "reference": "T999VS1",
+    "brand_id": "a01AZ00000314QgYAI",
+    "family_id": "...",
+    "category_id": "...",
+    "collection": { "id": "...", "reference": "PE2026", "labels": {...} },
+    "material_composition": [{ "id": "...", "reference": "ACIERINOXYDABLE", "value": 100 }],
+    "country_id": "a0y5800000DX9bKAAT"
+  }]
+}
+```
+
+**Réponse 200 (avec erreurs de validation) :**
+```json
+{
+  "resume": { "products": 0, "errors": 1 },
+  "data": [{
+    "errors": {
+      "gender_label": ["Genre non valide."],
+      "brand_name": ["Marque non valide."],
+      "reference_code": ["Référence non valide."],
+      "season_name": ["Collection non valide."],
+      "material_composition": ["Composition non valide."]
+    },
+    "error_fields": ["gender_label", "brand_name", ...]
+  }]
+}
+```
+
+**Notes importantes :**
+- Le produit est créé avec le statut `"NEW"` (pas DRAFT ni READY_FOR_SALE)
+- `material_composition` doit être une **string** (référence), pas un array d'objets — l'array crash en 500
+- `reference` et `reference_code` doivent tous les deux être présents avec la même valeur
+- La suppression d'un produit ne libère pas sa référence — il faut renommer la référence avant de supprimer si on veut la réutiliser
+- Batch : on peut envoyer plusieurs produits dans le tableau `data`
+
+---
+
+### 5. Modifier le statut de produits (TESTÉ - FONCTIONNEL)
+
+#### `PATCH /catalog/products/batch/updateStatus`
+
+**Headers :** `Authorization: Bearer {token}`, `Content-Type: application/json`
+
+**Body :**
+```json
+{
+  "data": [
+    { "id": "pro_xxx", "status": "READY_FOR_SALE" }
+  ]
+}
+```
+
+**Statuts disponibles :**
+| Statut PFS | Message retourné | Équivalent BJ | Prérequis |
+|------------|-----------------|---------------|-----------|
+| `READY_FOR_SALE` | "Le produit a été mis en vente" | ONLINE | Au moins 1 variant + 1 image par couleur |
+| `DRAFT` | "Le produit a été rédigé" | OFFLINE | Aucun |
+| `NEW` | "Le produit a été restauré" | — | Aucun |
+| `ARCHIVED` | "Le produit a été archivé" | ARCHIVED | Aucun |
+| `DELETED` | — | — | Non testé (irréversible sur la référence) |
+
+**Erreur si prérequis manquants :**
+```json
+{
+  "errors": [{
+    "id": "pro_xxx",
+    "message": "Échec de la mise en vente du produit.",
+    "issues": {
+      "variant": "Il n'y a pas de déclinaison rattachée à ce produit",
+      "SILVER": "Aucune image pour la couleur Argent"
+    }
+  }]
+}
+```
+
+**Mapping BJ → PFS :**
+| BJ `ProductStatus` | PFS status |
+|---------------------|-----------|
+| `ONLINE` | `READY_FOR_SALE` |
+| `OFFLINE` | `DRAFT` |
+| `ARCHIVED` | `ARCHIVED` |
+| `SYNCING` | Ne pas synchroniser |
+
+---
+
+### 6. Modifier un produit (TESTÉ - FONCTIONNEL)
+
+#### `PATCH /catalog/products/{id}`
+
+> Modifie les données textuelles d'un produit existant (label, description, composition...).
+
+**Headers :** `Authorization: Bearer {token}`, `Content-Type: application/json`
+
+**Body :**
+```json
+{
+  "data": {
+    "label": {
+      "fr": "Nouveau nom",
+      "en": "New name"
+    },
+    "description": {
+      "fr": "Nouvelle description"
+    }
+  }
+}
+```
+
+**⚠️ Important :** le wrapper est `{ data: { ... } }` (objet), pas `{ data: [ ... ] }` (array) comme pour POST.
+
+**Champs modifiables testés :**
+| Champ | Fonctionne | Notes |
+|-------|-----------|-------|
+| `label` | ✅ | Peut modifier une seule langue ou toutes |
+| `description` | ✅ | Idem |
+| `category` | ✅ | Passer l'ID PFS (ex: `"a045J000003KWwIQAW"`) |
+| `country_of_manufacture` | ✅ | Code ISO (ex: `"TR"`, `"CN"`) |
+| `season_name` | ✅ | Référence collection (ex: `"PE2026"`) |
+| `material_composition` | ✅ | String référence (ex: `"ACIERINOXYDABLE"`) |
+| `default_color` | ✅ | Référence couleur (ex: `"GOLDEN"`, `"SILVER"`) — change aussi l'image DEFAULT automatiquement |
+
+**Réponse 200 :** retourne le produit complet mis à jour (même format que `checkReference`).
+
+---
+
+### 7. Upload d'image (TESTÉ - FONCTIONNEL)
+
+#### `POST /catalog/products/{id}/image`
+
+> Upload une image pour un produit. Supporte le multipart/form-data ET l'URL distante.
+
+**Méthode 1 : Upload fichier (multipart/form-data)**
+
+| Champ | Type | Requis | Description |
+|-------|------|--------|-------------|
+| `image` | file | oui | Fichier image (JPEG/JPG/PNG **uniquement**, pas de WebP) |
+| `slot` | integer | oui | Position de l'image (1, 2, 3...) |
+| `color` | string | oui | Référence couleur (ex: `"GOLDEN"`, `"SILVER"`) |
+
+**⚠️ Le champ fichier s'appelle `image` (pas `file`).**
+
+```
+POST /catalog/products/{id}/image
+Content-Type: multipart/form-data
+
+image: [fichier JPEG]
+slot: 1
+color: GOLDEN
+```
+
+**Méthode 2 : URL distante (JSON)**
+
+```json
+{
+  "image_url": "https://example.com/image.jpg",
+  "slot": 2,
+  "color": "SILVER"
+}
+```
+
+**Réponse 200 :**
+```json
+{
+  "success": true,
+  "image_path": "https://static.parisfashionshops.com/.../image.jpg"
+}
+```
+
+**Notes :**
+- La première image uploadée pour une couleur définit automatiquement `default_color` du produit
+- Les images WebP ne sont **pas acceptées** — convertir en JPEG avant upload
+- `slot` est un entier (position de l'image), commençant à 1
+- L'image est hébergée sur le CDN PFS (`static.parisfashionshops.com`)
+- Pour READY_FOR_SALE, chaque couleur ayant un variant doit avoir au moins 1 image
+
+---
+
+### 8. Créer des variants (TESTÉ - FONCTIONNEL pour ITEM)
+
+#### `POST /catalog/products/{id}/variants`
+
+> Ajoute des variants (déclinaisons) à un produit.
+
+**Headers :** `Authorization: Bearer {token}`, `Content-Type: application/json`
+
+**Body :**
+```json
+{
+  "data": [
+    {
+      "type": "ITEM",
+      "color": "GOLDEN",
+      "size": "TU",
+      "price_eur_ex_vat": 5.0,
+      "stock_qty": 100,
+      "weight": 0.05,
+      "pieces": 1
+    }
+  ]
+}
+```
+
+**Format ITEM :**
+```json
+{
+  "data": [{
+    "type": "ITEM",
+    "color": "GOLDEN",
+    "size": "TU",
+    "price_eur_ex_vat": 5.0,
+    "stock_qty": 100,
+    "weight": 0.05,
+    "pieces": 1
+  }]
+}
+```
+
+**Format PACK :**
+```json
+{
+  "data": [{
+    "type": "PACK",
+    "packs": [
+      { "color": "GOLDEN", "size": "TU", "qty": 12 }
+    ],
+    "price_eur_ex_vat": 4.0,
+    "stock_qty": 100,
+    "weight": 0.05
+  }]
+}
+```
+
+**Format PACK multi-couleur :**
+```json
+{
+  "data": [{
+    "type": "PACK",
+    "packs": [
+      { "color": "GOLDEN", "size": "TU", "qty": 6 },
+      { "color": "SILVER", "size": "TU", "qty": 6 }
+    ],
+    "price_eur_ex_vat": 3.0,
+    "stock_qty": 50,
+    "weight": 0.06
+  }]
+}
+```
+
+**Champs communs :**
+| Champ | Type | Requis | Description |
+|-------|------|--------|-------------|
+| `type` | string | oui | `"ITEM"` (unité) ou `"PACK"` (lot) |
+| `price_eur_ex_vat` | number | oui | Prix unitaire HT en EUR — ⚠️ pas `price`, pas `price_sale` |
+| `stock_qty` | number | oui | Quantité en stock |
+| `weight` | number | oui | Poids en kg |
+
+**Champs ITEM :**
+| Champ | Type | Requis | Description |
+|-------|------|--------|-------------|
+| `color` | string | oui | Référence couleur PFS (ex: `"GOLDEN"`, `"SILVER"`) |
+| `size` | string | oui | Taille (ex: `"TU"`) |
+| `pieces` | number | non | Nombre de pièces (1 pour ITEM) |
+
+**Champs PACK :**
+| Champ | Type | Requis | Description |
+|-------|------|--------|-------------|
+| `packs` | array | oui | Array plat d'objets `{ color, size, qty }` |
+| `packs[].color` | string | oui | Référence couleur |
+| `packs[].size` | string | oui | Taille |
+| `packs[].qty` | number | oui | Quantité dans le pack pour cette couleur/taille |
+
+**⚠️ Important pour PACK :**
+- Le format `packs` est **plat** : `{ color, size, qty }` au même niveau (PAS `sizes: [{ size, qty }]` imbriqué — ce format crash)
+- `pieces` dans la réponse GET = somme des `qty` (ex: GOLDEN qty=6 + SILVER qty=6 → pieces=12)
+- `price_sale.total` = `price_sale.unit.value × pieces`
+
+**Réponse 200 (succès) :**
+```json
+{
+  "resume": { "products": 1, "errors": 0 },
+  "data": [{ "id": "pro_xxx", "type": "ITEM", "color": "GOLDEN", ... }]
+}
+```
+
+---
+
+### 9. Modifier des variants (TESTÉ - FONCTIONNEL)
+
+#### `PATCH /catalog/products/variants`
+
+> **Clé : utiliser `variant_id` (PAS `id`).** Avec le champ `id`, l'API retourne 200 mais `updated: 0`. Avec `variant_id`, la modification fonctionne correctement.
+
+**Body :**
+```json
+{
+  "data": [
+    {
+      "variant_id": "pro_variant_xxx",
+      "price_eur_ex_vat": 7.5,
+      "stock_qty": 500,
+      "weight": 0.12,
+      "discount_type": "PERCENT",
+      "discount_value": 10
+    }
+  ]
+}
+```
+
+**Champs modifiables testés :**
+| Champ | Type | Notes |
+|-------|------|-------|
+| `price_eur_ex_vat` | number | Prix unitaire HT |
+| `stock_qty` | number | Quantité en stock |
+| `weight` | number | Poids en kg |
+| `discount_type` | string\|null | `"PERCENT"` ou `"AMOUNT"`, `null` pour supprimer |
+| `discount_value` | number\|null | Valeur de la remise, `null` pour supprimer |
+
+**Réponse 200 :**
+```json
+{
+  "message": "Déclinaisons mises à jour avec succès",
+  "data": {
+    "resume": { "product_items": { "updated": 1, "total": 1 }, "errors": 0 },
+    "errors": []
+  }
+}
+```
+
+**Testé et vérifié le 2026-03-21 :** fonctionne sur ITEM et PACK. Supprimer le discount avec `discount_type: null, discount_value: null` fonctionne.
+
+**Solution alternative : DELETE + POST** (si PATCH ne suffit pas, e.g. changer la couleur/type)
+```typescript
+DELETE /catalog/products/variants/{variant_id}
+POST /catalog/products/{product_id}/variants
+{ "data": [{ ... }] }
+```
+
+---
+
+### 10. Activer/désactiver des variants (TESTÉ - FONCTIONNEL)
+
+Deux endpoints disponibles :
+
+#### a) Par variant individuel : `PATCH /catalog/products/variants/{variant_id}/setAvailability`
+
+**Body :** (pas de wrapper `data`)
+```json
+{ "enable": true }
+```
+
+**Réponse 200 :** `{ "success": true }`
+
+**⚠️ Uniquement PATCH** (POST retourne 405). Pas de wrapper `data` (retourne 422).
+
+#### b) En batch : `PATCH /catalog/products/variants/batch/setAvailability`
+
+**Body :**
+```json
+{
+  "data": [
+    { "id": "pro_variant_xxx", "enable": true },
+    { "id": "pro_variant_yyy", "enable": false }
+  ]
+}
+```
+
+**⚠️ Le champ s'appelle `enable` (pas `is_active`).**
+
+**Réponse 200 :** `{ "success": true }`
+
+---
+
+### 11. Supprimer un variant (TESTÉ - FONCTIONNEL)
+
+#### `DELETE /catalog/products/variants/{variant_id}`
+
+**Headers :** `Authorization: Bearer {token}`
+
+**Réponse 200 :** `{ "success": true }`
+
+**Note :** les images associées à la couleur du variant ne sont pas supprimées automatiquement.
+
+---
+
+### 12. Supprimer une image (TESTÉ - NON FONCTIONNEL)
+
+#### `DELETE /catalog/products/{id}/image`
+
+> **Crash en 500** — la suppression d'images via API ne fonctionne pas. Il faut passer par le frontend PFS.
+
+---
+
+### 13. Référentiels / Attributs (TESTÉ - FONCTIONNEL)
+
+> `GET /catalog/attributes/{type}` — retourne la liste complète des valeurs possibles pour chaque attribut PFS.
+
+| Endpoint | Count | Clé principale | Structure |
+|----------|-------|----------------|-----------|
+| `/catalog/attributes/collections` | 9 | `reference` (PE2026, AH2025...) | `id`, `reference`, `labels` (5 langues) |
+| `/catalog/attributes/categories` | 347 | `id` | `id`, `family` (id), `labels`, `gender` |
+| `/catalog/attributes/colors` | 142 | `reference` (GOLDEN, SILVER...) | `reference`, `value` (hex), `image`, `labels` |
+| `/catalog/attributes/compositions` | 114 | `reference` (ACIERINOXYDABLE...) | `id`, `reference`, `labels` |
+| `/catalog/attributes/countries` | 238 | `reference` (ISO: FR, CN, TR...) | `reference`, `labels`, `preview` (flag SVG) |
+| `/catalog/attributes/families` | 29 | `id` | `id`, `labels`, `gender` |
+| `/catalog/attributes/genders` | 4 | `reference` (MAN/WOMAN/KID/SUPPLIES) | `reference`, `labels` |
+| `/catalog/attributes/sizes` | 673 | `reference` (TU, S, M, L...) | `reference` uniquement |
+
+**Usage pour le reverse sync :**
+- `colors.reference` = valeur à passer dans `color` lors du POST variant ou `default_color` du PATCH product
+- `compositions.reference` = valeur à passer dans `material_composition` du POST/PATCH product
+- `categories.id` = valeur à passer dans `category` du POST/PATCH product
+- `collections.reference` = valeur à passer dans `season_name` du POST/PATCH product
+- `countries.reference` = valeur à passer dans `country_of_manufacture`
 
 ---
 
@@ -438,3 +901,70 @@ Les endpoints suivants existent pour la synchronisation BJ → PFS (push) :
 1. **`listProducts`** (paginé) — récupère la liste complète avec prix, stock, couleurs, images, traductions produit/catégorie
 2. **`/products/{id}/variants`** — pour chaque produit, récupère le **poids réel** et le **packQuantity réel** (corrige les bugs de `listProducts`)
 3. **`checkReference/{ref}`** — optionnel, pour enrichir avec **composition**, **description**, **collection**, **pays de fabrication**
+
+---
+
+## Mapping Beli Jolie → PFS (Push / Sync inverse)
+
+### IDs de référence (constants)
+| Entité | ID PFS | Reference |
+|--------|--------|-----------|
+| Brand (Beli & Jolie) | `a01AZ00000314QgYAI` | — |
+| Family (Bijoux fantaisie) | `a035J00000185J7QAI` | `WOMAN/FASHIONJEWELRY` |
+| Collection PE2026 | `a0cZ50k09p2mpLdIHG` | `PE2026` |
+
+### Catégories connues
+| Catégorie FR | ID PFS | Reference PFS |
+|-------------|--------|---------------|
+| Boucles d'oreilles | `a045J000003KWwDQAW` | `WOMAN/FASHIONJEWELRY/EARRINGS` |
+| Bracelets | `a045J000003KWwIQAW` | — |
+| Bagues | — | `WOMAN/FASHIONJEWELRY/RINGS` |
+| Colliers | — | `WOMAN/FASHIONJEWELRY/NECKLACES` |
+| Parures | — | — |
+
+> Les IDs de catégorie manquants doivent être récupérés depuis `listProducts` en cherchant un produit de cette catégorie.
+
+### Mapping des champs BJ → PFS
+
+| Donnée BJ | Champ PFS | Endpoint | Notes |
+|---|---|---|---|
+| `Product.reference` | `reference` + `reference_code` | POST create | Les deux doivent être identiques |
+| `Product.name` | `label.fr` | POST/PATCH | |
+| `ProductTranslation.{en,de,es,it}` | `label.{en,de,es,it}` | POST/PATCH | PFS supporte 5 langues (pas ar, zh) |
+| `Product.description` | `description.fr` | POST/PATCH | |
+| `Category` | `category` (ID) | POST create | Mapper catégorie BJ → ID PFS |
+| `ProductComposition.material.reference` | `material_composition` (string) | POST create | Référence matériau PFS (ex: `"ACIERINOXYDABLE"`) |
+| `ProductColor.saleType` | `type` (ITEM/PACK) | POST variants | UNIT→ITEM, PACK→PACK (⚠️ PACK crash) |
+| `Color.pfsReference` / détection | `color` (string) | POST variants | Référence couleur PFS (ex: `"GOLDEN"`) |
+| `ProductColor.unitPrice` | `price_eur_ex_vat` | POST variants | Prix HT — appliquer markup ×1.11 si nécessaire |
+| `ProductColor.stock` | `stock_qty` | POST variants | |
+| `ProductColor.weight` | `weight` | POST variants | En kg |
+| `ProductColorImage` → JPEG | `image` (file) + `slot` + `color` | POST image | Convertir WebP → JPEG avant upload |
+| `ProductStatus` | `status` | PATCH batch | ONLINE→READY_FOR_SALE, OFFLINE→DRAFT, ARCHIVED→ARCHIVED |
+
+### Stratégie de push recommandée
+
+1. **`checkReference/{ref}`** — vérifier si le produit existe déjà sur PFS
+2. Si **n'existe pas** → `POST /catalog/products` pour créer + `POST .../variants` pour chaque variant ITEM + `POST .../image` pour chaque image (WebP→JPEG)
+3. Si **existe** → comparer les données :
+   - `PATCH /catalog/products/{id}` pour label/description/default_color
+   - `PATCH /catalog/products/variants` avec `variant_id` pour modifier prix/stock/weight/discount
+   - `POST .../variants` pour les nouveaux variants / `DELETE .../variants/{id}` pour les supprimés
+   - `POST .../image` pour les images (à chaque sync — pas de comparaison fiable)
+   - `PATCH .../batch/updateStatus` si le statut a changé
+4. **Ordre important :** produit → variants → images → statut (READY_FOR_SALE nécessite variants + images)
+
+### Limitations connues (bugs PFS)
+- **`material_composition` en array** : crash 500 — utiliser une string (référence unique)
+- **PATCH variants avec `id`** : retourne 200 mais `updated: 0` — **utiliser `variant_id`** à la place (testé et fonctionnel)
+- **DELETE image** : crash 500 — pas possible via API
+- **Suppression produit** : ne libère pas la référence — renommer d'abord si on veut la réutiliser
+- **Composition multiple** : impossible via la string simple (1 seul matériau supporté)
+- **PACK format `sizes` imbriqué** : crash — utiliser le format plat `{ color, size, qty }` dans `packs`
+
+### Produit de test créé
+- **Référence :** `T999VS1`
+- **ID PFS :** `pro_57fc702bb74fef655d0200a54b4d`
+- **Statut :** `DRAFT` (mis en DRAFT après tests)
+- **Variants :** ITEM GOLDEN + ITEM SILVER + PACK GOLDEN + PACK SILVER + PACK GOLDEN+SILVER
+- **Images :** 2 GOLDEN + 2 SILVER

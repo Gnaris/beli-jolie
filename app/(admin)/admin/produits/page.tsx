@@ -63,7 +63,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   }
 
   if (cat) where.categoryId = cat;
-  if (statusFilter === "ONLINE" || statusFilter === "OFFLINE" || statusFilter === "ARCHIVED") where.status = statusFilter;
+  if (statusFilter === "ONLINE" || statusFilter === "OFFLINE" || statusFilter === "ARCHIVED" || statusFilter === "SYNCING") where.status = statusFilter;
 
   if (minPrice !== null || maxPrice !== null) {
     where.colors = {
@@ -144,7 +144,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     id:              p.id,
     reference:       p.reference,
     name:            p.name,
-    status:          p.status as "ONLINE" | "OFFLINE",
+    status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),

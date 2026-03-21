@@ -154,13 +154,16 @@ export interface PfsVariantsResponse {
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  maxRetries = 3,
+  maxRetries = 5,
 ): Promise<Response> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const res = await fetch(url, options);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeout);
 
       // 401 = token expired, invalidate and retry once
       if (res.status === 401 && attempt === 0) {
@@ -172,20 +175,27 @@ async function fetchWithRetry(
 
       if (res.ok) return res;
 
+      // 404 = resource not found — don't retry, clean error message
+      if (res.status === 404) {
+        throw new Error(`PFS API 404: ressource introuvable`);
+      }
+
       // Rate limited or server error — retry with backoff
       if (res.status === 429 || res.status >= 500) {
-        const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+        const delay = Math.min(2000 * Math.pow(2, attempt), 60000);
+        console.warn(`[PFS] HTTP ${res.status} — retry ${attempt + 1}/${maxRetries} in ${delay}ms`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
 
       // Other errors — don't retry
       const text = await res.text().catch(() => "");
-      throw new Error(`PFS API ${res.status}: ${text}`);
+      throw new Error(`PFS API ${res.status}: ${text.slice(0, 200)}`);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxRetries) {
-        const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+        const delay = Math.min(2000 * Math.pow(2, attempt), 60000);
+        console.warn(`[PFS] ${lastError.message} — retry ${attempt + 1}/${maxRetries} in ${delay}ms`);
         await new Promise((r) => setTimeout(r, delay));
       }
     }

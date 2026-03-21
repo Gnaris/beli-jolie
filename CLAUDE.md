@@ -116,7 +116,7 @@ Product
   └── RestockAlert[]          (client alerts when out-of-stock variant is restocked)
 ```
 - `Color` model has optional `patternImage` (leopard, camouflage, etc.) — takes priority over hex
-- `ProductStatus` enum: `OFFLINE` | `ONLINE` | `ARCHIVED` (archived = invisible but preserved for order history)
+- `ProductStatus` enum: `OFFLINE` | `ONLINE` | `ARCHIVED` | `SYNCING` (archived = invisible but preserved for order history; SYNCING = PFS sync in progress, becomes ONLINE after images downloaded)
 - Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied
 - **Multi-color variants**: two variants can share the same main `colorId` (e.g. "Doré/Argenté/Or Rose" and "Doré/Argenté/Or Rose/Vert/Jaune"). They are distinguished by their sub-colors via a `groupKey` = `colorId::orderedSubColorNames` (**order matters**: "Doré/Rouge" ≠ "Rouge/Doré"). First selected color = main, rest = sub-colors in selection order. `ProductColorImage.productColorId` links images to the specific variant. The admin form's `ColorImageState` uses `groupKey` (not `colorId` or `variantTempId`) — variants with the same color+sub-colors selection in the same order (e.g. UNIT + PACK) share the same image group. Helper: `variantGroupKeyFromState()` exported from `ColorVariantManager.tsx`.
 
@@ -140,12 +140,14 @@ Order
 | Color patterns | `public/uploads/patterns/` | Public (direct) |
 | Kbis documents | `private/uploads/kbis/` | ADMIN via `/api/admin/kbis/[filename]` |
 | Invoices | `private/uploads/invoices/` | ADMIN or owner client via API |
+| Email attachments | `private/uploads/email-attachments/` | Internal (sent via nodemailer) |
 
 ### Image Processing (`lib/image-processor.ts`)
 All image uploads (manual and bulk import) pass through `processProductImage()`:
 - Auto-rotates based on EXIF orientation, then converts to **WebP** in 3 sizes: large (1200px, q90), medium (800px, q82), thumb (400px, q80)
 - DB stores only the large path (e.g. `/uploads/products/abc.webp`); medium/thumb are `_md.webp` / `_thumb.webp` on disk
 - Use `getImageSrc(storedPath, "thumb"|"medium"|"large")` to derive the correct URL for display
+- **Manual rotation**: `POST /api/admin/products/images/rotate` rotates all 3 variants (large/md/thumb) 90° clockwise via sharp; returns `cacheBuster` to force browser refresh
 
 ### Additional DB Models
 - **`Favorite`** — user saves products; `@@unique([userId, productId])`
@@ -160,6 +162,7 @@ All image uploads (manual and bulk import) pass through `processProductImage()`:
 - **`RestockAlert`** — client subscribes to out-of-stock variant; notified when restocked
 - **`AccessCode`** — guest browsing via `bj_access_code` cookie; includes `prefillFirstName/LastName/Company/Email/Phone` for pre-filling registration; tracks first/last access + navigation views; admin-set expiry
 - **`Catalog`** / **`CatalogProduct`** — shareable product catalogs via unique token (published/draft); admin creates catalogs to share with clients via public links; product entries can override color/image
+- **`SentEmail`** — admin-sent emails history (toEmail, subject, htmlBody, attachments JSON, userId?, adminId); indexed by userId/toEmail/sentAt
 - **`TranslationQuota`** — tracks monthly character usage per translation provider (`provider` + `monthYear`); `@@unique([provider, monthYear])`
 - **`CategoryTranslation`** / **`SubCategoryTranslation`** / **`ColorTranslation`** / **`CompositionTranslation`** — auto-translated names per locale (same pattern as `ProductTranslation`)
 
@@ -213,6 +216,7 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Reusable UI**: `ConfirmDialog.tsx` (replaces window.confirm), `CustomSelect.tsx` (searchable select), `Toast.tsx`, `ColorSwatch.tsx` (single/multi-color swatch with patternImage support — renders camembert pie chart for multi-color variants)
 - **Import history**: `ImportHistoryClient.tsx` — view past import jobs at `/admin/produits/importer/historique`
 - **PFS Sync**: `/admin/pfs` — synchronize products from Paris Fashion Shop marketplace
+- **Admin email compose**: `ComposeEmailDrawer.tsx` — Gmail-style drawer (bottom-right, minimizable) with rich text editor, file attachments, client autocomplete. Context via `EmailComposeProvider` + `useEmailCompose()`. Trigger from anywhere via `SendEmailButton` component. API: `POST /api/admin/emails/send`, `GET /api/admin/emails` (history), `GET /api/admin/users/search` (autocomplete)
 
 ### PFS Sync System (`lib/pfs-auth.ts`, `lib/pfs-api.ts`, `lib/pfs-sync.ts`)
 - **Token management** (`lib/pfs-auth.ts`): in-memory cache with auto-refresh 10 min before expiration
@@ -226,12 +230,30 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
   - Downloads images from CDN → WebP with fallback (base ref → versioned ref)
   - Image download: 15s timeout, retry with 3s→6s→12s backoff, min 1KB size check
   - Supports resume via `lastPage` in `PfsSyncJob`
+  - **Price stripping**: PFS prices include 11% markup → `realPrice = Math.floor((pfsPrice / 1.11) * 10) / 10`
+  - **Reference versioning**: PFS refs end with "VS1"/"VS2" (e.g. "A200VS3") → stripped to base "A200" for BJ
+  - **Primary color detection**: `detectDefaultColorRef()` matches `DEFAULT` image key to a color variant, or uses `default_color` from checkReference
+  - **2-pipeline architecture**: product data creation (batches of 10) runs separately from image downloading (background pool of 15 concurrent tasks)
+  - Products created as `SYNCING` status → automatically set to `ONLINE` after images downloaded
+  - **Playwright fallback** for stubborn image downloads: single Chromium browser, up to 5 browser contexts with diverse fingerprints (different User-Agents, viewports, locales, timezones), lazy-initialized, closed at end of sync via `closePlaywright()`
+  - **Page-level parallelism**: fetches 10 API pages simultaneously (1000 products per wave)
 - **Pre-validation flow** (2-step sync):
-  1. `POST /api/admin/pfs-sync/analyze` — dry-run: scans PFS products, detects missing categories/colors/compositions
+  1. `POST /api/admin/pfs-sync/analyze` — SSE streaming dry-run: scans PFS products in parallel (10 pages at a time), detects missing categories/colors/compositions
   2. Admin reviews & edits names/hex/patterns in UI → `POST /api/admin/pfs-sync/create-entities` creates them + saves `PfsMapping`
   3. `POST /api/admin/pfs-sync` — actual sync starts (entities already exist)
-- **API routes**: `POST /api/admin/pfs-sync` (start), `GET /api/admin/pfs-sync` (status), `POST /api/admin/pfs-sync/resume` (resume failed), `POST /api/admin/pfs-sync/analyze` (dry-run), `POST /api/admin/pfs-sync/create-entities` (create validated entities)
-- **DB models**: `PfsSyncJob` tracks progress; `Product.pfsProductId` links to PFS product ID; `PfsMapping` remembers PFS name → BJ entity associations across syncs
+- **API routes**: `POST /api/admin/pfs-sync` (start), `GET /api/admin/pfs-sync` (status), `POST /api/admin/pfs-sync/resume` (resume failed), `POST /api/admin/pfs-sync/analyze` (dry-run SSE), `POST /api/admin/pfs-sync/create-entities` (create validated entities), `POST /api/admin/pfs-sync/retry` (retry failed products by reference), `POST /api/admin/pfs-sync/cancel` (cancel running sync + reset SYNCING products to OFFLINE)
+- **Dual console UI**: `/admin/pfs` displays two live consoles — product creation logs + image download logs with stats header (completed/active/pending/failed)
+- **DB models**: `PfsSyncJob` tracks progress (dual logs: `productLogs` + `imageLogs` + `imageStats` in `logs` JSON field); `Product.pfsProductId` links to PFS product ID; `PfsMapping` remembers PFS name → BJ entity associations across syncs
+
+### Real-Time Product Updates (SSE)
+- **Event emitter** (`lib/product-events.ts`): in-memory pub/sub via `globalThis` singleton (shared across server actions + API routes)
+- **SSE endpoint**: `GET /api/products/stream` — streams `ProductEvent` objects to connected clients; heartbeat every 30s; auto-cleanup on disconnect
+- **Single product fetch**: `GET /api/products/[id]/live` — returns a product in the same shape as the listing API (used by SSE clients to refresh card data)
+- **Client hook**: `useProductStream()` in `hooks/useProductStream.ts` — auto-reconnects after 5s on disconnect
+- **Integration**: `ProductsInfiniteScroll.tsx` listens to SSE and updates cards in real-time with animations (`animate-live-pop` for new/refreshed, `animate-live-pulse` for updates, fade-out for removed)
+- **Event types**: `PRODUCT_ONLINE`, `PRODUCT_OFFLINE`, `PRODUCT_UPDATED`, `STOCK_CHANGED`, `BESTSELLER_CHANGED`
+- **Emitters**: `createProduct`, `updateProduct`, `bulkUpdateProductStatus`, `archiveProduct`, `updateVariantQuick`, `bulkUpdateVariants`, `refreshProduct` all call `emitProductEvent()` after their DB mutations
+- **Important**: uses `globalThis` to share the listener Set — do NOT use module-level `const` (Next.js may create separate module instances for server actions vs API routes)
 
 ### Rate Limiting (`lib/rate-limit.ts`)
 In-memory IP-based rate limiter used on sensitive endpoints: `forgot-password` (3/h), `reset-password` (10/h), `report-error` (3/15min). Usage: `rateLimit(key, maxAttempts, windowMs)` returns `{ success, remaining }`.
@@ -295,6 +317,7 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - `@anthropic-ai/sdk` for AI product description generation (`lib/claude.ts`)
 - DeepL Free API for translations (`lib/translate.ts`) — no npm package, direct HTTP calls
 - `nodemailer` for transactional email (Gmail App Password)
+- `playwright` for PFS image download fallback (Chromium headless, multi-context fingerprinting)
 
 ### Path Alias
 `@/*` maps to `./*` (tsconfig.json) — use `import { foo } from "@/lib/bar"` everywhere.

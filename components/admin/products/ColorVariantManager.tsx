@@ -836,6 +836,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   }
 
   const [uploadingSlots, setUploadingSlots] = useState<Record<string, number | null>>({});
+  const [rotatingSlots, setRotatingSlots] = useState<Record<string, number | null>>({});
 
   async function handleAddImageAtPosition(groupKey: string, file: File, position: number) {
     const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
@@ -936,6 +937,88 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
       });
       return { ...c, orders: newOrders };
     }));
+  }
+
+  async function handleRotateAtPosition(groupKey: string, position: number) {
+    const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
+    if (!state) return;
+    const idx = state.orders.indexOf(position);
+    if (idx === -1) return;
+
+    const preview = state.imagePreviews[idx];
+    const uploadedPath = state.uploadedPaths[idx];
+    if (!preview && !uploadedPath) return;
+
+    setRotatingSlots((prev) => ({ ...prev, [groupKey]: position }));
+
+    try {
+      // Blob preview (freshly uploaded, not yet saved) — rotate client-side via canvas
+      if (preview?.startsWith("blob:")) {
+        const rotatedBlob = await rotateImageClientSide(preview);
+        const newBlobUrl = URL.createObjectURL(rotatedBlob);
+        // Re-upload rotated file
+        const fd = new FormData();
+        fd.append("image", rotatedBlob, "rotated.webp");
+        const res = await fetch("/api/admin/products/images", { method: "POST", body: fd });
+        const json = await res.json();
+        if (res.ok && json.path) {
+          onChange(colorImagesRef.current.map((c) => {
+            if (c.groupKey !== groupKey) return c;
+            const newPreviews = [...c.imagePreviews];
+            const newPaths = [...c.uploadedPaths];
+            newPreviews[idx] = newBlobUrl;
+            newPaths[idx] = json.path;
+            return { ...c, imagePreviews: newPreviews, uploadedPaths: newPaths };
+          }));
+        }
+      } else {
+        // Server path (from DB or after upload) — rotate server-side with sharp
+        const pathToRotate = uploadedPath || preview;
+        // Strip any existing cache buster query param
+        const cleanPath = pathToRotate.split("?")[0];
+        const res = await fetch("/api/admin/products/images/rotate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imagePath: cleanPath }),
+        });
+        const json = await res.json();
+        if (res.ok && json.cacheBuster) {
+          // Update preview URL with cache buster to force browser re-render
+          onChange(colorImagesRef.current.map((c) => {
+            if (c.groupKey !== groupKey) return c;
+            const newPreviews = [...c.imagePreviews];
+            newPreviews[idx] = `${cleanPath}?t=${json.cacheBuster}`;
+            return { ...c, imagePreviews: newPreviews };
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("[handleRotateAtPosition] Error:", err);
+    }
+
+    setRotatingSlots((prev) => ({ ...prev, [groupKey]: null }));
+  }
+
+  async function rotateImageClientSide(blobUrl: string): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.height;
+        canvas.height = img.width;
+        const ctx = canvas.getContext("2d")!;
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error("Canvas toBlob failed"));
+        }, "image/webp", 0.9);
+      };
+      img.onerror = reject;
+      img.src = blobUrl;
+    });
   }
 
   const totalPhotos = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
@@ -1042,6 +1125,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
                 onAddAtPosition={(file, pos) => handleAddImageAtPosition(cimg.groupKey, file, pos)}
                 onRemoveAtPosition={(pos) => handleRemoveImageAtPosition(cimg.groupKey, pos)}
                 onSwapPositions={(from, to) => handleSwapPositions(cimg.groupKey, from, to)}
+                onRotateAtPosition={(pos) => handleRotateAtPosition(cimg.groupKey, pos)}
                 onConfirmReplace={(pos) => confirmDialog({
                   type: "warning",
                   title: "Remplacer l'image ?",
@@ -1050,6 +1134,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
                 })}
                 uploading={cimg.uploading}
                 uploadingPosition={uploadingSlots[cimg.groupKey] ?? null}
+                rotatingPosition={rotatingSlots[cimg.groupKey] ?? null}
               />
             </div>
           );

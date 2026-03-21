@@ -1,22 +1,27 @@
 /**
- * PFS Sync Analyze Endpoint
+ * PFS Sync Analyze Endpoint (SSE streaming)
  *
  * Dry-run analysis of PFS products to detect missing categories, colors,
  * and compositions before the actual sync. Does NOT create or modify anything.
  *
+ * Streams progress via Server-Sent Events so the frontend can show real-time updates.
+ *
  * POST /api/admin/pfs-sync/analyze
  * Body: { limit?: number }  (10 for test, 0 or omitted for full scan)
+ *
+ * SSE events:
+ *   - { type: "progress", page, lastPage, totalScanned, missingColors, missingCategories }
+ *   - { type: "done", ...fullResult }
+ *   - { type: "error", message }
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   pfsListProducts,
-  pfsCheckReference,
   type PfsProduct,
-  type PfsCheckReferenceResponse,
 } from "@/lib/pfs-api";
 import { normalizeColorName } from "@/lib/import-processor";
 
@@ -31,33 +36,6 @@ function slugify(str: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
-}
-
-function stripVersionSuffix(ref: string): string {
-  return ref.replace(/VS\d+$/i, "");
-}
-
-/** Map PFS category reference to BJ category name. */
-function parsePfsCategoryRef(ref: string): string {
-  const parts = ref.split("/");
-  const last = parts[parts.length - 1];
-
-  const categoryMap: Record<string, string> = {
-    EARRINGS: "Boucles d'oreilles",
-    RINGS: "Bagues",
-    NECKLACES: "Colliers",
-    BRACELETS: "Bracelets",
-    PENDANTS: "Pendentifs",
-    PIERCINGS: "Piercings",
-    SETS: "Parures de bijoux",
-    KEYRINGS: "Porte-cles",
-    DISPLAYSETS: "Lots avec presentoir",
-    ANKLETS: "Bracelets de cheville",
-    BROOCHES: "Broches",
-    HAIRACCESSORIES: "Accessoires cheveux",
-  };
-
-  return categoryMap[last] ?? last;
 }
 
 // ─────────────────────────────────────────────
@@ -88,126 +66,201 @@ interface MissingComposition {
 }
 
 // ─────────────────────────────────────────────
-// POST handler
+// POST handler — SSE streaming
 // ─────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Non autorise" }, { status: 401 });
+    return new Response(JSON.stringify({ error: "Non autorise" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
+  // Parse optional limit
+  let limit = 0;
   try {
-    // Parse optional limit
-    let limit = 0;
-    try {
-      const body = await req.json();
-      limit = typeof body.limit === "number" ? body.limit : 0;
-    } catch {
-      // No body or invalid JSON — unlimited
-    }
-
-    // ── 1. Load existing DB entities ──
-    const dbCategories = await prisma.category.findMany({ select: { id: true, name: true, slug: true } });
-    const dbColors = await prisma.color.findMany({ select: { id: true, name: true } });
-    const dbCompositions = await prisma.composition.findMany({ select: { id: true, name: true } });
-    const pfsMappings = await prisma.pfsMapping.findMany({ select: { type: true, pfsName: true, bjName: true } });
-
-    // Build lookup sets
-    const categorySlugs = new Set<string>(dbCategories.map((c) => slugify(c.name)));
-    const categoryNames = new Set<string>(dbCategories.map((c) => c.name.toLowerCase()));
-
-    const colorNormalized = new Set<string>(dbColors.map((c) => normalizeColorName(c.name)));
-
-    const compositionNormalized = new Set<string>(dbCompositions.map((c) => normalizeColorName(c.name)));
-
-    // PfsMapping lookup: "type::normalizedPfsName" → bjName
-    const mappingSet = new Set<string>(
-      pfsMappings.map((m) => `${m.type}::${m.pfsName.toLowerCase()}`),
-    );
-
-    // ── 2. Paginate through PFS products ──
-    const missingCategories = new Map<string, MissingCategory>();
-    const missingColors = new Map<string, MissingColor>(); // keyed by normalized name
-    const missingCompositions = new Map<string, MissingComposition>();
-    let totalScanned = 0;
-    let page = 1;
-    let hasMore = true;
-
-    while (hasMore) {
-      if (limit > 0 && totalScanned >= limit) break;
-
-      const response = await pfsListProducts(page, 100);
-
-      if (!response.data || response.data.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      for (const product of response.data) {
-        if (limit > 0 && totalScanned >= limit) {
-          hasMore = false;
-          break;
-        }
-
-        // ── Analyze colors from variants ──
-        analyzeColors(product, missingColors, colorNormalized, mappingSet);
-
-        // ── Fetch composition data via checkReference ──
-        let refDetails: PfsCheckReferenceResponse | null = null;
-        try {
-          const cleanRef = stripVersionSuffix(product.reference.trim().toUpperCase());
-          refDetails = await pfsCheckReference(cleanRef);
-        } catch {
-          // Try with original reference
-          try {
-            refDetails = await pfsCheckReference(product.reference);
-          } catch {
-            // Non-critical — skip composition analysis for this product
-          }
-        }
-
-        // ── Analyze category (with refDetails if available for better name) ──
-        analyzeCategory(product, refDetails, missingCategories, categorySlugs, categoryNames, mappingSet);
-
-        // ── Analyze compositions ──
-        if (refDetails?.product?.material_composition) {
-          analyzeCompositions(
-            refDetails.product.material_composition,
-            missingCompositions,
-            compositionNormalized,
-            mappingSet,
-          );
-        }
-
-        totalScanned++;
-
-        // Rate limiting delay between API calls
-        await new Promise((r) => setTimeout(r, 200));
-      }
-
-      page++;
-
-      // Additional delay between pages
-      await new Promise((r) => setTimeout(r, 300));
-    }
-
-    // ── 3. Build response ──
-    const result = {
-      totalScanned,
-      missingEntities: {
-        categories: Array.from(missingCategories.values()).sort((a, b) => b.usedBy - a.usedBy),
-        colors: Array.from(missingColors.values()).sort((a, b) => b.usedBy - a.usedBy),
-        compositions: Array.from(missingCompositions.values()).sort((a, b) => b.usedBy - a.usedBy),
-      },
-      existingMappings: pfsMappings.length,
-    };
-
-    return NextResponse.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Erreur interne";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const body = await req.json();
+    limit = typeof body.limit === "number" ? body.limit : 0;
+  } catch {
+    // No body or invalid JSON — unlimited
   }
+
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      };
+
+      try {
+        send({ type: "progress", message: "Chargement des données existantes..." });
+
+        // ── 1. Load existing DB entities ──
+        const [dbCategories, dbColors, pfsMappings] = await Promise.all([
+          prisma.category.findMany({ select: { id: true, name: true, slug: true } }),
+          prisma.color.findMany({ select: { id: true, name: true } }),
+          prisma.pfsMapping.findMany({ select: { type: true, pfsName: true, bjName: true } }),
+        ]);
+
+        const categorySlugs = new Set<string>(dbCategories.map((c) => slugify(c.name)));
+        const categoryNames = new Set<string>(dbCategories.map((c) => c.name.toLowerCase()));
+        const colorNormalized = new Set<string>(dbColors.map((c) => normalizeColorName(c.name)));
+        const mappingSet = new Set<string>(
+          pfsMappings.map((m) => `${m.type}::${m.pfsName.toLowerCase()}`),
+        );
+
+        send({
+          type: "progress",
+          message: `${dbCategories.length} catégories, ${dbColors.length} couleurs, ${pfsMappings.length} mappings chargés`,
+        });
+
+        // ── 2. Paginate through PFS products ──
+        const missingCategories = new Map<string, MissingCategory>();
+        const missingColors = new Map<string, MissingColor>();
+        let totalScanned = 0;
+        let page = 1;
+        let lastPage = Infinity;
+        const PAGE_CONCURRENCY = 10;
+        let errorPages = 0;
+
+        // First request to discover lastPage
+        try {
+          const firstResponse = await pfsListProducts(1, 100);
+          if (firstResponse.meta?.last_page) {
+            lastPage = firstResponse.meta.last_page;
+          }
+          if (firstResponse.data && firstResponse.data.length > 0) {
+            for (const product of firstResponse.data) {
+              analyzeColors(product, missingColors, colorNormalized, mappingSet);
+              analyzeCategory(product, missingCategories, categorySlugs, categoryNames, mappingSet);
+              totalScanned++;
+            }
+          }
+          send({
+            type: "progress",
+            page: 1,
+            lastPage: lastPage < Infinity ? lastPage : null,
+            totalScanned,
+            missingColors: missingColors.size,
+            missingCategories: missingCategories.size,
+            message: `Page 1/${lastPage < Infinity ? lastPage : "?"} — ${totalScanned} produits analysés`,
+          });
+          page = 2;
+        } catch (err) {
+          send({ type: "error", message: err instanceof Error ? err.message : "Erreur page 1" });
+          controller.close();
+          return;
+        }
+
+        // Process remaining pages in parallel batches
+        while (page <= lastPage) {
+          if (limit > 0 && totalScanned >= limit) break;
+
+          // Build batch of page numbers
+          const batchEnd = Math.min(page + PAGE_CONCURRENCY - 1, lastPage);
+          const pageNumbers: number[] = [];
+          for (let p = page; p <= batchEnd; p++) {
+            pageNumbers.push(p);
+          }
+
+          send({
+            type: "progress",
+            page,
+            lastPage,
+            totalScanned,
+            missingColors: missingColors.size,
+            missingCategories: missingCategories.size,
+            message: `Pages ${page}-${batchEnd}/${lastPage} en parallèle — ${totalScanned} produits analysés...`,
+          });
+
+          // Fetch all pages in parallel
+          const results = await Promise.allSettled(
+            pageNumbers.map((p) => pfsListProducts(p, 100)),
+          );
+
+          let batchEmpty = true;
+          for (let i = 0; i < results.length; i++) {
+            const result = results[i];
+            if (result.status === "rejected") {
+              errorPages++;
+              send({
+                type: "progress",
+                page: pageNumbers[i],
+                lastPage,
+                totalScanned,
+                missingColors: missingColors.size,
+                missingCategories: missingCategories.size,
+                message: `⚠️ Page ${pageNumbers[i]} échouée — ${result.reason instanceof Error ? result.reason.message : "erreur"} (on continue)`,
+              });
+              continue;
+            }
+
+            const response = result.value;
+            if (!response.data || response.data.length === 0) continue;
+
+            batchEmpty = false;
+            let pageProducts = response.data;
+            if (limit > 0) {
+              const remaining = limit - totalScanned;
+              if (remaining <= 0) break;
+              pageProducts = pageProducts.slice(0, remaining);
+            }
+
+            for (const product of pageProducts) {
+              analyzeColors(product, missingColors, colorNormalized, mappingSet);
+              analyzeCategory(product, missingCategories, categorySlugs, categoryNames, mappingSet);
+              totalScanned++;
+            }
+          }
+
+          // If all pages in batch were empty, stop
+          if (batchEmpty && results.every((r) => r.status === "fulfilled")) break;
+
+          page = batchEnd + 1;
+          await new Promise((r) => setTimeout(r, 200));
+        }
+
+        if (errorPages > 0) {
+          send({
+            type: "progress",
+            totalScanned,
+            missingColors: missingColors.size,
+            missingCategories: missingCategories.size,
+            message: `⚠️ ${errorPages} page(s) en erreur — résultats partiels`,
+          });
+        }
+
+        // ── 3. Send final result ──
+        send({
+          type: "done",
+          totalScanned,
+          pagesScanned: page - 1,
+          missingEntities: {
+            categories: Array.from(missingCategories.values()).sort((a, b) => b.usedBy - a.usedBy),
+            colors: Array.from(missingColors.values()).sort((a, b) => b.usedBy - a.usedBy),
+            compositions: [] as MissingComposition[],
+          },
+          existingMappings: pfsMappings.length,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Erreur interne";
+        send({ type: "error", message });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -216,7 +269,6 @@ export async function POST(req: NextRequest) {
 
 function analyzeCategory(
   product: PfsProduct,
-  refDetails: PfsCheckReferenceResponse | null,
   missing: Map<string, MissingCategory>,
   categorySlugs: Set<string>,
   categoryNames: Set<string>,
@@ -225,35 +277,22 @@ function analyzeCategory(
   const categoryFr = product.category?.labels?.fr;
   if (!categoryFr) return;
 
-  // Determine the suggested BJ name
-  let suggestedName = categoryFr;
-  if (refDetails?.product?.category?.reference) {
-    suggestedName = parsePfsCategoryRef(refDetails.product.category.reference);
-  }
-
+  const suggestedName = categoryFr;
   const slug = slugify(suggestedName);
   const nameLower = suggestedName.toLowerCase();
 
-  // Check if already exists in DB
   if (categorySlugs.has(slug) || categoryNames.has(nameLower)) return;
 
-  // Check if already mapped via PfsMapping
   const mappingKey = `category::${categoryFr.toLowerCase()}`;
   if (mappingSet.has(mappingKey)) return;
 
-  // Also check mapping with suggested name
   const mappingKey2 = `category::${suggestedName.toLowerCase()}`;
   if (mappingSet.has(mappingKey2)) return;
 
-  // Key by lowercase categoryFr to avoid duplicates
   const key = categoryFr.toLowerCase();
   const existing = missing.get(key);
   if (existing) {
     existing.usedBy++;
-    // Update suggested name if refDetails provided a better one
-    if (suggestedName !== categoryFr) {
-      existing.suggestedName = suggestedName;
-    }
   } else {
     missing.set(key, {
       pfsName: categoryFr,
@@ -272,7 +311,6 @@ function analyzeColors(
 ) {
   if (!product.variants) return;
 
-  // Collect unique colors from this product's variants
   const seenColors = new Set<string>();
 
   for (const v of product.variants) {
@@ -289,18 +327,14 @@ function analyzeColors(
     const frLabel = colorInfo.labels?.fr || colorInfo.reference;
     const normalized = normalizeColorName(frLabel);
 
-    // Skip if already processed in this product
     if (seenColors.has(normalized)) continue;
     seenColors.add(normalized);
 
-    // Check if exists in DB
     if (colorNormalized.has(normalized)) continue;
 
-    // Check if mapped via PfsMapping
     const mappingKey = `color::${frLabel.toLowerCase()}`;
     if (mappingSet.has(mappingKey)) continue;
 
-    // Also check normalized version
     const mappingKey2 = `color::${normalized}`;
     if (mappingSet.has(mappingKey2)) continue;
 
@@ -320,41 +354,5 @@ function analyzeColors(
   }
 }
 
-function analyzeCompositions(
-  materials: {
-    id: string;
-    reference: string;
-    percentage: number;
-    labels: Record<string, string>;
-  }[],
-  missing: Map<string, MissingComposition>,
-  compositionNormalized: Set<string>,
-  mappingSet: Set<string>,
-) {
-  for (const mat of materials) {
-    const frName = mat.labels?.fr || mat.reference;
-    const normalized = normalizeColorName(frName);
-
-    // Check if exists in DB
-    if (compositionNormalized.has(normalized)) continue;
-
-    // Check if mapped via PfsMapping
-    const mappingKey = `composition::${frName.toLowerCase()}`;
-    if (mappingSet.has(mappingKey)) continue;
-
-    const mappingKey2 = `composition::${normalized}`;
-    if (mappingSet.has(mappingKey2)) continue;
-
-    const existingEntry = missing.get(normalized);
-    if (existingEntry) {
-      existingEntry.usedBy++;
-    } else {
-      missing.set(normalized, {
-        pfsName: frName,
-        suggestedName: frName,
-        usedBy: 1,
-        pfsLabels: mat.labels || {},
-      });
-    }
-  }
-}
+// Note: compositions are detected during sync (via checkReference API).
+// They are not analyzed here to avoid 9000+ individual API calls.

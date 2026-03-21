@@ -63,6 +63,7 @@ model User {
   accessCodes   AccessCode[]
   activity      UserActivity?
   restockAlerts RestockAlert[]
+  sentEmails    SentEmail[]
 }
 
 // ─────────────────────────────────────────────
@@ -100,6 +101,7 @@ enum ProductStatus {
   OFFLINE   // Hors ligne (brouillon)
   ONLINE    // En ligne (visible sur le catalogue public)
   ARCHIVED  // Archivé (invisible, conservé pour historique commandes)
+  SYNCING   // Synchronisation PFS en cours (invisible, passe ONLINE quand images prêtes)
 }
 
 // Catégorie principale (ex: Colliers, Bracelets)
@@ -873,6 +875,7 @@ model PfsSyncJob {
   lastPage        Int           @default(0)   // for resume — last fully processed page
   errorMessage    String?       @db.Text
   errorDetails    Json?                       // per-product errors
+  logs            Json?                       // detailed sync logs for frontend display
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   adminId         String
@@ -880,6 +883,28 @@ model PfsSyncJob {
 
   @@index([status])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Emails envoyés par l'admin
+// ─────────────────────────────────────────────
+
+model SentEmail {
+  id          String   @id @default(cuid())
+  toEmail     String
+  toName      String?
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  subject     String
+  htmlBody    String   @db.LongText
+  attachments Json?    // [{filename, path, size}]
+  sentAt      DateTime @default(now())
+  adminId     String   // Admin who sent it
+
+  @@index([userId])
+  @@index([toEmail])
+  @@index([sentAt])
+  @@index([adminId])
 }
 
 // PFS name → BJ entity mapping (remembered across syncs)

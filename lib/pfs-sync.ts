@@ -61,6 +61,15 @@ function getVersionSuffix(ref: string): string | null {
   return match ? match[1] : null;
 }
 
+/**
+ * PFS prices include an 11% markup over the real wholesale price.
+ * Strip it to get the true price: realPrice = pfsPrice / 1.11
+ * Result rounded to 2 decimals.
+ */
+function stripPfsMarkup(price: number): number {
+  return Math.floor((price / 1.11) * 10) / 10;
+}
+
 /** Remove ?image_process=... from PFS CDN URLs to get full-size image. */
 function fullSizeImageUrl(url: string): string {
   return url.replace(/\?image_process=.*$/, "");
@@ -79,20 +88,144 @@ function extractColorImages(
   return map;
 }
 
-/** Download an image from URL and return buffer. */
+/**
+ * Detect the primary/default color reference from the images object.
+ * Strategy:
+ *   1. Use `default_color` from checkReference if available
+ *   2. Compare DEFAULT image URLs with color-specific image URLs to find the match
+ *   3. Fall back to null (first variant becomes primary)
+ */
+function detectDefaultColorRef(
+  images: Record<string, string | string[]>,
+  defaultColorFromApi?: string | null,
+): string | null {
+  // 1. Direct API field
+  if (defaultColorFromApi) return defaultColorFromApi;
+
+  // 2. Match DEFAULT images to a color key
+  const defaultUrls = images["DEFAULT"];
+  if (!defaultUrls) return null;
+
+  const defaultArr = Array.isArray(defaultUrls) ? defaultUrls : [defaultUrls];
+  if (defaultArr.length === 0) return null;
+
+  // Normalize first DEFAULT URL for comparison
+  const defaultFirst = fullSizeImageUrl(defaultArr[0]);
+
+  for (const [colorRef, urls] of Object.entries(images)) {
+    if (colorRef === "DEFAULT") continue;
+    const colorArr = Array.isArray(urls) ? urls : [urls];
+    if (colorArr.length > 0 && fullSizeImageUrl(colorArr[0]) === defaultFirst) {
+      return colorRef;
+    }
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────
+// Playwright pool (up to MAX_PW_CONTEXTS, lazy, diverse fingerprints)
+// ─────────────────────────────────────────────
+
+const MAX_PW_CONTEXTS = 5;
+
+// Diverse browser fingerprints to avoid detection
+const PW_FINGERPRINTS = [
+  { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", viewport: { width: 1920, height: 1080 }, locale: "fr-FR" },
+  { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15", viewport: { width: 1440, height: 900 }, locale: "en-US" },
+  { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36", viewport: { width: 1366, height: 768 }, locale: "de-DE" },
+  { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0", viewport: { width: 1680, height: 1050 }, locale: "es-ES" },
+  { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36", viewport: { width: 2560, height: 1440 }, locale: "it-IT" },
+];
+
+let pwBrowser: import("playwright").Browser | null = null;
+const pwContexts: import("playwright").BrowserContext[] = [];
+let pwContextIdx = 0; // round-robin
+
+async function ensurePwBrowser(): Promise<import("playwright").Browser> {
+  if (!pwBrowser) {
+    const { chromium } = await import("playwright");
+    pwBrowser = await chromium.launch({ headless: true });
+  }
+  return pwBrowser;
+}
+
+/** Get a Playwright page from the pool, creating a new context if under limit. Round-robin. */
+async function getPlaywrightPage(): Promise<{ page: import("playwright").Page; ctxIdx: number }> {
+  const browser = await ensurePwBrowser();
+
+  // Create a new context if pool not full
+  if (pwContexts.length < MAX_PW_CONTEXTS) {
+    const fp = PW_FINGERPRINTS[pwContexts.length % PW_FINGERPRINTS.length];
+    const ctx = await browser.newContext({
+      userAgent: fp.userAgent,
+      viewport: fp.viewport,
+      locale: fp.locale,
+      timezoneId: ["Europe/Paris", "America/New_York", "Europe/Berlin", "Europe/Madrid", "Europe/Rome"][pwContexts.length % 5],
+    });
+    pwContexts.push(ctx);
+  }
+
+  // Round-robin across contexts
+  const idx = pwContextIdx % pwContexts.length;
+  pwContextIdx++;
+  const page = await pwContexts[idx].newPage();
+  return { page, ctxIdx: idx };
+}
+
+export async function closePlaywright(): Promise<void> {
+  for (const ctx of pwContexts) {
+    await ctx.close().catch(() => {});
+  }
+  pwContexts.length = 0;
+  pwContextIdx = 0;
+  if (pwBrowser) {
+    await pwBrowser.close().catch(() => {});
+    pwBrowser = null;
+  }
+}
+
+/** Download image via Playwright (fallback for stubborn CDNs). */
+async function downloadImagePlaywright(url: string): Promise<Buffer> {
+  const { page } = await getPlaywrightPage();
+  try {
+    const response = await page.goto(url, { waitUntil: "load", timeout: 20000 });
+    if (!response || !response.ok()) {
+      throw new Error(`Playwright HTTP ${response?.status()}`);
+    }
+    const buffer = await response.body();
+    if (buffer.length < 1024) {
+      throw new Error(`Playwright image too small (${buffer.length} bytes)`);
+    }
+    return buffer;
+  } finally {
+    await page.close();
+  }
+}
+
+// Rotating User-Agents for fetch-based downloads
+const FETCH_USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+];
+let fetchUaIdx = 0;
+
+/** Download an image from URL with fetch, fallback to Playwright. */
 async function downloadImage(url: string, maxRetries = 3): Promise<Buffer> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      // Use AbortController for timeout (15 seconds)
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
+      const ua = FETCH_USER_AGENTS[fetchUaIdx++ % FETCH_USER_AGENTS.length];
 
       const res = await fetch(url, {
         signal: controller.signal,
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "User-Agent": ua,
           Accept: "image/*,*/*;q=0.8",
           Referer: "https://www.parisfashionshops.com/",
         },
@@ -103,14 +236,12 @@ async function downloadImage(url: string, maxRetries = 3): Promise<Buffer> {
       if (res.ok) {
         const arrayBuffer = await res.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        // Sanity check: image should be at least 1KB
         if (buffer.length < 1024) {
           throw new Error(`Image too small (${buffer.length} bytes): ${url}`);
         }
         return buffer;
       }
 
-      // Retry on 403/429/5xx
       if ((res.status === 403 || res.status === 429 || res.status >= 500) && attempt < maxRetries) {
         const delay = Math.min(3000 * Math.pow(2, attempt), 30000);
         await new Promise((r) => setTimeout(r, delay));
@@ -128,7 +259,14 @@ async function downloadImage(url: string, maxRetries = 3): Promise<Buffer> {
     }
   }
 
-  throw lastError || new Error(`Failed after ${maxRetries} retries`);
+  // All fetch attempts failed — try Playwright as last resort
+  try {
+    return await downloadImagePlaywright(url);
+  } catch {
+    // Playwright also failed
+  }
+
+  throw lastError || new Error(`Failed after ${maxRetries} retries + Playwright`);
 }
 
 /** Map PFS category reference to BJ category name. */
@@ -374,44 +512,42 @@ async function downloadAndProcessImages(
   colorRef: string,
   fallbackUrls?: string[] | null,
 ): Promise<string[]> {
-  const paths: string[] = [];
+  // Download ALL images in parallel (no delay between them)
+  const results = await Promise.allSettled(
+    imageUrls.map(async (url, idx) => {
+      let buffer: Buffer | null = null;
 
-  for (let idx = 0; idx < imageUrls.length; idx++) {
-    // Small delay between downloads to avoid rate limiting
-    if (idx > 0) await new Promise((r) => setTimeout(r, 500));
-
-    let buffer: Buffer | null = null;
-
-    // Try primary URL
-    try {
-      buffer = await downloadImage(imageUrls[idx]);
-    } catch {
-      console.warn(`[PFS] Primary image failed for ${reference}/${colorRef}/${idx}, trying fallback...`);
-
-      // Try fallback URL if available
-      if (fallbackUrls && fallbackUrls[idx]) {
-        try {
-          await new Promise((r) => setTimeout(r, 1000));
-          buffer = await downloadImage(fallbackUrls[idx]);
-          console.log(`[PFS] Fallback image OK for ${reference}/${colorRef}/${idx}`);
-        } catch {
-          console.warn(`[PFS] Fallback image also failed for ${reference}/${colorRef}/${idx}`);
+      try {
+        buffer = await downloadImage(url);
+      } catch {
+        // Try fallback
+        if (fallbackUrls && fallbackUrls[idx]) {
+          try {
+            buffer = await downloadImage(fallbackUrls[idx]);
+          } catch {
+            // Both failed
+          }
         }
       }
-    }
 
-    if (!buffer) continue;
+      if (!buffer) return null;
 
-    try {
-      const filename = `pfs_${reference}_${colorRef}_${idx}_${Date.now()}`;
-      const result = await processProductImage(buffer, "public/uploads/products", filename);
-      paths.push(result.dbPath);
-    } catch {
-      console.warn(`[PFS] Image processing failed for ${reference}/${colorRef}/${idx}`);
-    }
-  }
+      try {
+        const filename = `pfs_${reference}_${colorRef}_${idx}_${Date.now()}`;
+        const result = await processProductImage(buffer, "public/uploads/products", filename);
+        return { path: result.dbPath, order: idx };
+      } catch {
+        return null;
+      }
+    }),
+  );
 
-  return paths;
+  // Collect successful results, sorted by original order
+  return results
+    .map((r) => (r.status === "fulfilled" && r.value ? r.value : null))
+    .filter((r): r is { path: string; order: number } => r !== null)
+    .sort((a, b) => a.order - b.order)
+    .map((r) => r.path);
 }
 
 // ─────────────────────────────────────────────
@@ -459,21 +595,29 @@ interface SyncResult {
   action: "created" | "updated" | "skipped" | "error";
   reference: string;
   error?: string;
+  /** Product DB id (for status update after images) */
+  productId?: string;
+  /** Image task to run in background after product is created/updated */
+  imageTask?: () => Promise<void>;
 }
 
 async function syncSingleProduct(
   pfsProduct: PfsProduct,
   variantDetails: PfsVariantDetail[],
   refDetails: PfsCheckReferenceResponse | null,
+  addLog: (msg: string) => void,
 ): Promise<SyncResult> {
   const pfsRef = pfsProduct.reference.trim().toUpperCase();
   // Strip VS suffix for the real BJ reference
   const bjRef = stripVersionSuffix(pfsRef);
 
   try {
+    addLog(`▶ ${bjRef} — "${pfsProduct.labels?.fr || "?"}" (${variantDetails.length} variantes)`);
+
     // ── Resolve category ──
     const categoryFr = pfsProduct.category?.labels?.fr;
     if (!categoryFr) {
+      addLog(`  ✗ ${bjRef} — Catégorie FR manquante`);
       return { action: "error", reference: bjRef, error: "Catégorie FR manquante" };
     }
 
@@ -483,6 +627,7 @@ async function syncSingleProduct(
     }
 
     const categoryId = await findOrCreateCategory(categoryName, pfsProduct.category.labels, categoryFr);
+    addLog(`  📂 Catégorie: ${categoryName}`);
 
     // ── Resolve compositions ──
     const compositions: { compositionId: string; percentage: number }[] = [];
@@ -492,6 +637,7 @@ async function syncSingleProduct(
         const compositionId = await findOrCreateComposition(frName, mat.labels);
         compositions.push({ compositionId, percentage: mat.percentage });
       }
+      addLog(`  🧪 Compositions: ${refDetails.product.material_composition.map((m) => `${m.labels?.fr || m.reference} ${m.percentage}%`).join(", ")}`);
     }
 
     // ── Build variant data ──
@@ -504,6 +650,7 @@ async function syncSingleProduct(
       .filter((v) => v.is_active);
 
     if (activeVariants.length === 0) {
+      addLog(`  ⏭ ${bjRef} — Aucune variante active, skip`);
       return { action: "skipped", reference: bjRef, error: "Aucune variante active" };
     }
 
@@ -521,8 +668,14 @@ async function syncSingleProduct(
       discountValue: number | null;
     }
 
+    // ── Detect default/primary color from images DEFAULT key ──
+    const allImages = pfsProduct.images;
+    const defaultColorRef = detectDefaultColorRef(
+      allImages,
+      refDetails?.product?.default_color,
+    );
+
     const variants: VariantData[] = [];
-    let firstVariant = true;
 
     for (const v of activeVariants) {
       const detail = variantMap.get(v.id);
@@ -535,6 +688,9 @@ async function syncSingleProduct(
           v.item.color.labels,
         );
 
+        const pfsPrice = v.price_sale.unit.value;
+        const bjPrice = stripPfsMarkup(pfsPrice);
+
         let discountType: "PERCENT" | "AMOUNT" | null = null;
         let discountValue: number | null = null;
         if (v.discount) {
@@ -542,20 +698,21 @@ async function syncSingleProduct(
           discountValue = v.discount.value;
         }
 
+        addLog(`  🎨 UNIT ${v.item.color.labels?.fr || v.item.color.reference} — PFS: ${pfsPrice}€ → BJ: ${bjPrice}€ | stock: ${v.stock_qty} | poids: ${weight}kg`);
+
         variants.push({
           colorId,
           colorRef: v.item.color.reference,
-          unitPrice: v.price_sale.unit.value,
+          unitPrice: bjPrice,
           weight,
           stock: v.stock_qty,
           saleType: "UNIT",
           packQuantity: null,
           size: v.item.size || null,
-          isPrimary: firstVariant,
+          isPrimary: false, // resolved below
           discountType,
           discountValue,
         });
-        firstVariant = false;
       } else if (v.type === "PACK" && v.packs && v.packs.length > 0) {
         const pack = v.packs[0];
         const colorId = await findOrCreateColor(
@@ -565,6 +722,8 @@ async function syncSingleProduct(
         );
 
         const packQty = detail?.pieces ?? pack.sizes?.[0]?.qty ?? v.pieces ?? 1;
+        const pfsPrice = v.price_sale.unit.value;
+        const bjPrice = stripPfsMarkup(pfsPrice);
 
         let discountType: "PERCENT" | "AMOUNT" | null = null;
         let discountValue: number | null = null;
@@ -573,24 +732,41 @@ async function syncSingleProduct(
           discountValue = v.discount.value;
         }
 
+        addLog(`  📦 PACK ×${packQty} ${pack.color.labels?.fr || pack.color.reference} — PFS: ${pfsPrice}€ → BJ: ${bjPrice}€ | stock: ${v.stock_qty} | poids: ${weight}kg`);
+
         variants.push({
           colorId,
           colorRef: pack.color.reference,
-          unitPrice: v.price_sale.unit.value,
+          unitPrice: bjPrice,
           weight,
           stock: v.stock_qty,
           saleType: "PACK",
           packQuantity: packQty,
           size: pack.sizes?.[0]?.size || null,
-          isPrimary: firstVariant,
+          isPrimary: false, // resolved below
           discountType,
           discountValue,
         });
-        firstVariant = false;
       }
     }
 
+    // ── Set isPrimary based on DEFAULT color ──
+    if (defaultColorRef && variants.length > 0) {
+      const primaryIdx = variants.findIndex((v) => v.colorRef === defaultColorRef);
+      if (primaryIdx >= 0) {
+        variants[primaryIdx].isPrimary = true;
+        addLog(`  ⭐ Couleur principale: ${defaultColorRef} (via DEFAULT)`);
+      } else {
+        variants[0].isPrimary = true;
+        addLog(`  ⭐ Couleur principale: ${variants[0].colorRef} (fallback, DEFAULT "${defaultColorRef}" non trouvé)`);
+      }
+    } else if (variants.length > 0) {
+      variants[0].isPrimary = true;
+      addLog(`  ⭐ Couleur principale: ${variants[0].colorRef} (fallback, pas de DEFAULT)`);
+    }
+
     if (variants.length === 0) {
+      addLog(`  ⏭ ${bjRef} — Aucune variante valide, skip`);
       return { action: "skipped", reference: bjRef, error: "Aucune variante valide" };
     }
 
@@ -621,38 +797,44 @@ async function syncSingleProduct(
     });
 
     const isUpdate = !!existing;
+    addLog(`  ${isUpdate ? "🔄 Mise à jour" : "✨ Création"} "${nameFr}"`);
 
-    // ── Get best image source (original ref first) ──
-    const bestImages = await getBestImageSource(pfsProduct);
+    // Use product images directly (no extra API call)
+    const imageSource = { primary: pfsProduct.images, fallback: null as Record<string, string | string[]> | null };
+    const imgColorCount = extractColorImages(imageSource.primary).size;
 
     if (isUpdate) {
       // ── UPDATE existing product ──
       const productId = existing!.id;
 
-      await prisma.product.update({
-        where: { id: productId },
-        data: {
-          name: nameFr,
-          description: descriptionFr,
-          pfsProductId: pfsProduct.id,
-          categoryId,
-          status: "ONLINE",
-        },
-      });
+      // Run independent DB operations in parallel
+      await Promise.all([
+        prisma.product.update({
+          where: { id: productId },
+          data: { name: nameFr, description: descriptionFr, pfsProductId: pfsProduct.id, categoryId, status: "SYNCING" },
+        }),
+        prisma.productComposition.deleteMany({ where: { productId } }),
+        prisma.productColorImage.deleteMany({ where: { productId } }),
+        prisma.productColor.deleteMany({ where: { productId } }),
+        prisma.productTranslation.deleteMany({ where: { productId } }),
+      ]);
 
-      // Compositions — rebuild
-      await prisma.productComposition.deleteMany({ where: { productId } });
+      // Compositions + translations in parallel
+      const dbOps: Promise<unknown>[] = [];
       if (compositions.length > 0) {
-        await prisma.productComposition.createMany({
+        dbOps.push(prisma.productComposition.createMany({
           data: compositions.map((c) => ({ productId, ...c })),
           skipDuplicates: true,
-        });
+        }));
+      }
+      if (translations.length > 0) {
+        dbOps.push(prisma.productTranslation.createMany({
+          data: translations.map((t) => ({ productId, ...t })),
+          skipDuplicates: true,
+        }));
       }
 
-      // Variants — delete existing, recreate
-      await prisma.productColorImage.deleteMany({ where: { productId } });
-      await prisma.productColor.deleteMany({ where: { productId } });
-
+      // Create variants (sequential for IDs)
       const createdVariants: { id: string; colorId: string; colorRef: string }[] = [];
       for (const v of variants) {
         const created = await prisma.productColor.create({
@@ -673,20 +855,13 @@ async function syncSingleProduct(
         });
         createdVariants.push({ ...created, colorRef: v.colorRef });
       }
+      await Promise.all(dbOps);
 
-      // Images — from best source (original ref first)
-      await syncProductImages(productId, bjRef, bestImages, createdVariants);
+      addLog(`  ✅ ${bjRef} mis à jour (${variants.length} var) — images en arrière-plan`);
 
-      // Translations
-      await prisma.productTranslation.deleteMany({ where: { productId } });
-      if (translations.length > 0) {
-        await prisma.productTranslation.createMany({
-          data: translations.map((t) => ({ productId, ...t })),
-          skipDuplicates: true,
-        });
-      }
-
-      return { action: "updated", reference: bjRef };
+      // Return image task to be run in background
+      const imgTask = () => syncProductImages(productId, bjRef, imageSource, createdVariants, addLog);
+      return { action: "updated", reference: bjRef, productId, imageTask: imgTask };
     } else {
       // ── CREATE new product ──
       const product = await prisma.product.create({
@@ -696,7 +871,7 @@ async function syncSingleProduct(
           name: nameFr,
           description: descriptionFr,
           categoryId,
-          status: "ONLINE",
+          status: "SYNCING",
           isBestSeller: pfsProduct.is_star === 1,
           compositions: {
             create: compositions.map((c) => ({
@@ -707,7 +882,7 @@ async function syncSingleProduct(
         },
       });
 
-      // Create variants
+      // Create variants (sequential — need IDs for images)
       const createdVariants: { id: string; colorId: string; colorRef: string }[] = [];
       for (const v of variants) {
         const created = await prisma.productColor.create({
@@ -729,44 +904,49 @@ async function syncSingleProduct(
         createdVariants.push({ ...created, colorRef: v.colorRef });
       }
 
-      // Images — from best source (original ref first)
-      await syncProductImages(product.id, bjRef, bestImages, createdVariants);
+      // Translations + pendingSimilar in parallel (fast DB ops)
+      const dbOps: Promise<unknown>[] = [];
 
-      // Translations
       if (translations.length > 0) {
-        await prisma.productTranslation.createMany({
+        dbOps.push(prisma.productTranslation.createMany({
           data: translations.map((t) => ({ productId: product.id, ...t })),
           skipDuplicates: true,
-        });
+        }));
       }
 
-      // PendingSimilar resolution
-      const pending = await prisma.pendingSimilar.findMany({
-        where: { similarRef: bjRef },
-      });
-      if (pending.length > 0) {
-        for (const p of pending) {
-          const sourceProduct = await prisma.product.findUnique({
-            where: { reference: p.productRef },
-            select: { id: true },
-          });
-          if (sourceProduct) {
-            await prisma.productSimilar.createMany({
-              data: [
-                { productId: sourceProduct.id, similarId: product.id },
-                { productId: product.id, similarId: sourceProduct.id },
-              ],
-              skipDuplicates: true,
+      dbOps.push(
+        prisma.pendingSimilar.findMany({ where: { similarRef: bjRef } }).then(async (pending) => {
+          if (pending.length === 0) return;
+          for (const p of pending) {
+            const sourceProduct = await prisma.product.findUnique({
+              where: { reference: p.productRef },
+              select: { id: true },
             });
+            if (sourceProduct) {
+              await prisma.productSimilar.createMany({
+                data: [
+                  { productId: sourceProduct.id, similarId: product.id },
+                  { productId: product.id, similarId: sourceProduct.id },
+                ],
+                skipDuplicates: true,
+              });
+            }
           }
-        }
-        await prisma.pendingSimilar.deleteMany({ where: { similarRef: bjRef } });
-      }
+          await prisma.pendingSimilar.deleteMany({ where: { similarRef: bjRef } });
+        }),
+      );
 
-      return { action: "created", reference: bjRef };
+      await Promise.all(dbOps);
+
+      addLog(`  ✅ ${bjRef} créé (${variants.length} var) — images en arrière-plan`);
+
+      // Return image task to be run in background
+      const imgTask = () => syncProductImages(product.id, bjRef, imageSource, createdVariants, addLog);
+      return { action: "created", reference: bjRef, productId: product.id, imageTask: imgTask };
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    addLog(`  ❌ ${bjRef} — Erreur: ${message}`);
     return { action: "error", reference: bjRef, error: message };
   }
 }
@@ -780,6 +960,7 @@ async function syncProductImages(
   bjRef: string,
   imageSource: { primary: Record<string, string | string[]>; fallback: Record<string, string | string[]> | null },
   createdVariants: { id: string; colorId: string; colorRef: string }[],
+  addLog: (msg: string) => void,
 ): Promise<void> {
   const primaryImages = extractColorImages(imageSource.primary);
   const fallbackImages = imageSource.fallback ? extractColorImages(imageSource.fallback) : null;
@@ -794,9 +975,13 @@ async function syncProductImages(
     // Also prepare fallback URLs for this color (if available)
     const fallbackUrls = fallbackImages?.get(colorRef)?.slice(0, 5) || null;
 
+    addLog(`  🖼️ Téléchargement ${limitedUrls.length} image(s) pour ${colorRef}...`);
     const paths = await downloadAndProcessImages(limitedUrls, bjRef, colorRef, fallbackUrls);
 
-    if (paths.length === 0) continue;
+    if (paths.length === 0) {
+      addLog(`  ⚠️ Aucune image récupérée pour ${colorRef}`);
+      continue;
+    }
 
     // Link images to the first matching variant (UNIT preferred)
     const primaryVariant = matchingVariants[0];
@@ -809,6 +994,7 @@ async function syncProductImages(
     }));
 
     await prisma.productColorImage.createMany({ data: imageData });
+    addLog(`  ✓ ${paths.length}/${limitedUrls.length} image(s) sauvegardées pour ${colorRef}`);
   }
 }
 
@@ -816,18 +1002,208 @@ async function syncProductImages(
 // Main sync orchestrator
 // ─────────────────────────────────────────────
 
+/**
+ * Retry sync for specific product references.
+ * Searches PFS for each reference, then runs syncSingleProduct.
+ */
+export async function retryPfsProducts(
+  references: string[],
+): Promise<SyncResult[]> {
+  const results: SyncResult[] = [];
+  const noop = () => {}; // no-op logger
+
+  for (const ref of references) {
+    try {
+      // Search PFS for this reference — paginate until found
+      let found: import("@/lib/pfs-api").PfsProduct | null = null;
+      let page = 1;
+      let lastPage = Infinity;
+
+      while (page <= lastPage && !found) {
+        const response = await pfsListProducts(page, 100);
+        if (response.meta?.last_page) lastPage = response.meta.last_page;
+        if (!response.data || response.data.length === 0) break;
+
+        found = response.data.find((p) => {
+          const pfsRef = p.reference.trim().toUpperCase();
+          return stripVersionSuffix(pfsRef) === ref.toUpperCase();
+        }) ?? null;
+
+        page++;
+      }
+
+      if (!found) {
+        results.push({ action: "error", reference: ref, error: "Produit non trouvé dans PFS" });
+        continue;
+      }
+
+      const { variantDetails, refDetails } = await fetchProductDetails(found);
+      const result = await syncSingleProduct(found, variantDetails, refDetails, noop);
+
+      // Run image task immediately
+      if (result.imageTask) {
+        try { await result.imageTask(); } catch { /* ignore image errors */ }
+      }
+
+      results.push(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      results.push({ action: "error", reference: ref, error: msg });
+    }
+  }
+
+  await closePlaywright();
+  return results;
+}
+
 export interface PfsSyncOptions {
   /** Max number of products to sync (0 = unlimited). For testing. */
   limit?: number;
 }
 
+/** Number of products to process in parallel per batch (data creation). */
+const PARALLEL_CONCURRENCY = 10;
+
+/** Number of PFS pages fetched in parallel (10 pages × 100 = 1000 products). */
+const PAGE_CONCURRENCY = 10;
+
+/** Number of image tasks running in parallel in the background pool. */
+const IMAGE_CONCURRENCY = 15;
+
+/**
+ * Fetch variant details + reference details for a single product.
+ * Returns the data needed by syncSingleProduct.
+ */
+async function fetchProductDetails(
+  pfsProduct: PfsProduct,
+): Promise<{ variantDetails: PfsVariantDetail[]; refDetails: PfsCheckReferenceResponse | null }> {
+  // Fetch variants and reference details in parallel
+  const [variantsResult, refResult] = await Promise.allSettled([
+    pfsGetVariants(pfsProduct.id),
+    pfsCheckReference(pfsProduct.reference),
+  ]);
+
+  const variantDetails = variantsResult.status === "fulfilled"
+    ? (variantsResult.value.data ?? [])
+    : [];
+
+  const refDetails = refResult.status === "fulfilled"
+    ? refResult.value
+    : null;
+
+  return { variantDetails, refDetails };
+}
+
+/**
+ * Process a batch of products in parallel (fetch details + sync).
+ */
+async function processBatch(
+  products: PfsProduct[],
+  addLog: (msg: string) => void,
+): Promise<SyncResult[]> {
+  const results = await Promise.allSettled(
+    products.map(async (pfsProduct) => {
+      const { variantDetails, refDetails } = await fetchProductDetails(pfsProduct);
+      return syncSingleProduct(pfsProduct, variantDetails, refDetails, addLog);
+    }),
+  );
+
+  return results.map((r, idx) => {
+    if (r.status === "fulfilled") return r.value;
+    const ref = products[idx].reference.trim().toUpperCase();
+    const errorMsg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+    addLog(`  ❌ ${stripVersionSuffix(ref)} — Erreur fatale: ${errorMsg}`);
+    return {
+      action: "error" as const,
+      reference: stripVersionSuffix(ref),
+      error: errorMsg,
+    };
+  });
+}
+
+/**
+ * Max logs kept in memory/DB to avoid unbounded growth.
+ * Only the last N entries are persisted — older ones are trimmed.
+ */
+const MAX_LOGS = 500;
+
 export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promise<void> {
   const maxProducts = options?.limit ?? 0;
 
+  // ── Dual log buffers (products + images) ──
+  const productLogs: string[] = [];
+  const imageLogs: string[] = [];
+  let totalImageTasks = 0;
+
+  const ts = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  const addProductLog = (msg: string) => {
+    productLogs.push(`[${ts()}] ${msg}`);
+    if (productLogs.length > MAX_LOGS) productLogs.splice(0, productLogs.length - MAX_LOGS);
+  };
+  const addImageLog = (msg: string) => {
+    imageLogs.push(`[${ts()}] ${msg}`);
+    if (imageLogs.length > MAX_LOGS) imageLogs.splice(0, imageLogs.length - MAX_LOGS);
+  };
+  // addLog used by syncSingleProduct — goes to product logs
+  const addLog = addProductLog;
+
+  const buildLogsPayload = () => ({
+    productLogs,
+    imageLogs,
+    imageStats: {
+      total: totalImageTasks,
+      completed: completedImageTasks,
+      failed: failedImageTasks,
+      active: activeImageTasks,
+      pending: pendingImageTasks.length,
+    },
+  });
+
+  // ── Background image pool ──
+  const pendingImageTasks: (() => Promise<void>)[] = [];
+  let activeImageTasks = 0;
+  let completedImageTasks = 0;
+  let failedImageTasks = 0;
+  let imagePoolDrained = false;
+
+  let resolveImagePool: () => void;
+  const imagePoolDone = new Promise<void>((resolve) => {
+    resolveImagePool = resolve;
+  });
+
+  function tryDrainImagePool() {
+    while (activeImageTasks < IMAGE_CONCURRENCY && pendingImageTasks.length > 0) {
+      const task = pendingImageTasks.shift()!;
+      activeImageTasks++;
+      task()
+        .then(() => { completedImageTasks++; })
+        .catch(() => { failedImageTasks++; })
+        .finally(() => {
+          activeImageTasks--;
+          tryDrainImagePool();
+          if (imagePoolDrained && activeImageTasks === 0 && pendingImageTasks.length === 0) {
+            resolveImagePool();
+          }
+        });
+    }
+    if (imagePoolDrained && activeImageTasks === 0 && pendingImageTasks.length === 0) {
+      resolveImagePool();
+    }
+  }
+
+  function enqueueImageTask(task: () => Promise<void>) {
+    pendingImageTasks.push(task);
+    totalImageTasks++;
+    tryDrainImagePool();
+  }
+
   try {
+    addProductLog("🚀 Démarrage de la synchronisation PFS...");
+    addImageLog("🖼 File d'attente images prête (max " + IMAGE_CONCURRENCY + " en parallèle)");
     await prisma.pfsSyncJob.update({
       where: { id: jobId },
-      data: { status: "RUNNING" },
+      data: { status: "RUNNING", logs: buildLogsPayload() },
     });
 
     const job = await prisma.pfsSyncJob.findUnique({ where: { id: jobId } });
@@ -835,7 +1211,7 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
 
     const startPage = job.lastPage + 1;
     let page = startPage;
-    let hasMore = true;
+    let lastPage = Infinity;
 
     const errors: { reference: string; error: string }[] = [];
     let created = job.createdProducts;
@@ -844,88 +1220,141 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
     let errored = job.errorProducts;
     let processed = job.processedProducts;
 
-    while (hasMore) {
-      // Check limit
-      if (maxProducts > 0 && processed >= maxProducts) {
-        break;
-      }
+    while (page <= lastPage) {
+      if (maxProducts > 0 && processed >= maxProducts) break;
 
-      const response = await pfsListProducts(page, 100);
+      // ── Fetch PAGE_CONCURRENCY pages in parallel ──
+      const batchEndPage = Math.min(page + PAGE_CONCURRENCY - 1, lastPage);
+      const pageNumbers: number[] = [];
+      for (let p = page; p <= batchEndPage; p++) pageNumbers.push(p);
 
-      if (!response.data || response.data.length === 0) {
-        hasMore = false;
-        break;
-      }
+      addProductLog(`📄 Chargement pages ${page}-${batchEndPage}${lastPage < Infinity ? `/${lastPage}` : ""} en parallèle...`);
 
-      // Update total on first page
-      if (page === startPage && response.state?.active) {
-        const total = maxProducts > 0
-          ? Math.min(response.state.active, maxProducts)
-          : response.state.active;
-        await prisma.pfsSyncJob.update({
-          where: { id: jobId },
-          data: { totalProducts: total },
-        });
-      }
+      const pageResults = await Promise.allSettled(
+        pageNumbers.map((p) => pfsListProducts(p, 100)),
+      );
 
-      for (const pfsProduct of response.data) {
-        // Check limit
-        if (maxProducts > 0 && processed >= maxProducts) {
-          hasMore = false;
-          break;
+      // Collect all products from successful pages
+      let allPageProducts: PfsProduct[] = [];
+      let highestSuccessPage = page - 1;
+
+      for (let i = 0; i < pageResults.length; i++) {
+        const result = pageResults[i];
+        if (result.status === "rejected") {
+          addProductLog(`  ⚠️ Page ${pageNumbers[i]} échouée — ${result.reason instanceof Error ? result.reason.message : "erreur"}`);
+          continue;
         }
 
-        // Fetch correct variant data
-        let variantDetails: PfsVariantDetail[] = [];
-        try {
-          const variantsRes = await pfsGetVariants(pfsProduct.id);
-          variantDetails = variantsRes.data ?? [];
-        } catch {
-          // Fall back to inline variants
+        const response = result.value;
+        if (response.meta?.last_page) {
+          lastPage = response.meta.last_page;
         }
 
-        // Fetch composition/description
-        let refDetails: PfsCheckReferenceResponse | null = null;
-        try {
-          refDetails = await pfsCheckReference(pfsProduct.reference);
-        } catch {
-          // Non-critical
-        }
-
-        // Small delay to avoid rate limiting
-        await new Promise((r) => setTimeout(r, 200));
-
-        const result = await syncSingleProduct(pfsProduct, variantDetails, refDetails);
-        processed++;
-
-        switch (result.action) {
-          case "created": created++; break;
-          case "updated": updated++; break;
-          case "skipped": skipped++; break;
-          case "error":
-            errored++;
-            errors.push({ reference: result.reference, error: result.error || "Unknown" });
-            break;
-        }
-
-        // Update progress every product in test mode, every 5 in full mode
-        const updateInterval = maxProducts > 0 ? 1 : 5;
-        if (processed % updateInterval === 0) {
+        // Update total on first batch
+        if (page === startPage && i === 0 && response.state?.active) {
+          const total = maxProducts > 0
+            ? Math.min(response.state.active, maxProducts)
+            : response.state.active;
+          addProductLog(`📊 Total produits actifs PFS: ${response.state.active}${maxProducts > 0 ? ` (limité à ${maxProducts})` : ""}`);
           await prisma.pfsSyncJob.update({
             where: { id: jobId },
-            data: {
-              processedProducts: processed,
-              createdProducts: created,
-              updatedProducts: updated,
-              skippedProducts: skipped,
-              errorProducts: errored,
-              lastPage: page,
-            },
+            data: { totalProducts: total, logs: buildLogsPayload() },
           });
+        }
+
+        if (response.data && response.data.length > 0) {
+          allPageProducts = allPageProducts.concat(response.data);
+          highestSuccessPage = pageNumbers[i];
         }
       }
 
-      // Save progress after each page
+      if (allPageProducts.length === 0) {
+        addProductLog(`📄 Pages ${page}-${batchEndPage} vides — fin de la liste`);
+        break;
+      }
+
+      addProductLog(`📄 ${allPageProducts.length} produits récupérés depuis ${pageNumbers.length} pages`);
+
+      // Apply limit
+      if (maxProducts > 0) {
+        const remaining = maxProducts - processed;
+        allPageProducts = allPageProducts.slice(0, remaining);
+      }
+
+      // ── Pipeline 1: Create/update product data in batches of PARALLEL_CONCURRENCY ──
+      for (let i = 0; i < allPageProducts.length; i += PARALLEL_CONCURRENCY) {
+        const batch = allPageProducts.slice(i, i + PARALLEL_CONCURRENCY);
+        const batchNum = Math.floor(i / PARALLEL_CONCURRENCY) + 1;
+        const totalBatches = Math.ceil(allPageProducts.length / PARALLEL_CONCURRENCY);
+        addProductLog(`── Batch ${batchNum}/${totalBatches} (${batch.length} produits en parallèle) ──`);
+
+        const results = await processBatch(batch, addLog);
+
+        for (const result of results) {
+          processed++;
+          switch (result.action) {
+            case "created": created++; break;
+            case "updated": updated++; break;
+            case "skipped": skipped++; break;
+            case "error":
+              errored++;
+              errors.push({ reference: result.reference, error: result.error || "Unknown" });
+              break;
+          }
+
+          // ── Pipeline 2: Enqueue image task ──
+          if (result.imageTask) {
+            const ref = result.reference;
+            const pid = result.productId;
+            addImageLog(`📥 ${ref} — ajouté à la file d'attente`);
+            enqueueImageTask(async () => {
+              addImageLog(`⬇️ ${ref} — téléchargement en cours...`);
+              try {
+                await result.imageTask!();
+                // Images done → set product ONLINE
+                if (pid) {
+                  await prisma.product.update({
+                    where: { id: pid },
+                    data: { status: "ONLINE" },
+                  });
+                }
+                addImageLog(`✅ ${ref} — images OK, produit en ligne`);
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                addImageLog(`❌ ${ref} — erreur: ${msg}`);
+                // Still set ONLINE even if images fail (product data is valid)
+                if (pid) {
+                  await prisma.product.update({
+                    where: { id: pid },
+                    data: { status: "ONLINE" },
+                  }).catch(() => {});
+                }
+              }
+            });
+          }
+        }
+
+        // Update progress after each batch
+        await prisma.pfsSyncJob.update({
+          where: { id: jobId },
+          data: {
+            processedProducts: processed,
+            createdProducts: created,
+            updatedProducts: updated,
+            skippedProducts: skipped,
+            errorProducts: errored,
+            lastPage: highestSuccessPage,
+            logs: buildLogsPayload(),
+          },
+        });
+
+        if (i + PARALLEL_CONCURRENCY < allPageProducts.length) {
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
+
+      addProductLog(`📄 Pages ${page}-${batchEndPage} terminées — ${processed} produits traités au total`);
+
       await prisma.pfsSyncJob.update({
         where: { id: jobId },
         data: {
@@ -934,15 +1363,31 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
           updatedProducts: updated,
           skippedProducts: skipped,
           errorProducts: errored,
-          lastPage: page,
+          lastPage: highestSuccessPage,
+          logs: buildLogsPayload(),
         },
       });
 
-      page++;
-      await new Promise((r) => setTimeout(r, 500));
+      page = batchEndPage + 1;
+      await new Promise((r) => setTimeout(r, 200));
     }
 
-    // Complete
+    // ── Wait for remaining image tasks ──
+    addProductLog(`🏁 Produits terminés — ${processed} traités (✨${created} 🔄${updated} ⏭${skipped} ❌${errored})`);
+    const remainingImages = activeImageTasks + pendingImageTasks.length;
+    if (remainingImages > 0) {
+      addImageLog(`⏳ Produits terminés — ${remainingImages} image(s) restante(s) en cours de traitement...`);
+    }
+
+    imagePoolDrained = true;
+    tryDrainImagePool();
+    await imagePoolDone;
+
+    addImageLog(`🏁 Images terminées — ${completedImageTasks} OK${failedImageTasks > 0 ? `, ${failedImageTasks} échouées` : ""}`);
+
+    await closePlaywright();
+    addProductLog(`🏁 Synchronisation complète — ${processed} produits, ${completedImageTasks} images`);
+
     await prisma.pfsSyncJob.update({
       where: { id: jobId },
       data: {
@@ -953,15 +1398,24 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
         skippedProducts: skipped,
         errorProducts: errored,
         errorDetails: errors.length > 0 ? errors : undefined,
+        logs: buildLogsPayload(),
       },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    addProductLog(`💥 Erreur fatale: ${message}`);
+
+    imagePoolDrained = true;
+    tryDrainImagePool();
+    await imagePoolDone.catch(() => {});
+    await closePlaywright();
+
     await prisma.pfsSyncJob.update({
       where: { id: jobId },
       data: {
         status: "FAILED",
         errorMessage: message,
+        logs: buildLogsPayload(),
       },
     }).catch(() => {});
   }

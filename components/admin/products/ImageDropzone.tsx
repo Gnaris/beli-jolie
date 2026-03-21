@@ -9,9 +9,11 @@ interface ImageDropzoneProps {
   onAddAtPosition: (file: File, position: number) => void;
   onRemoveAtPosition: (position: number) => void;
   onSwapPositions: (fromPos: number, toPos: number) => void;
+  onRotateAtPosition?: (position: number) => void;
   onConfirmReplace?: (position: number) => Promise<boolean>;
   uploading: boolean;
   uploadingPosition?: number | null;
+  rotatingPosition?: number | null;
 }
 
 const MAX_IMAGES = 5;
@@ -23,9 +25,11 @@ export default function ImageDropzone({
   onAddAtPosition,
   onRemoveAtPosition,
   onSwapPositions,
+  onRotateAtPosition,
   onConfirmReplace,
   uploading,
   uploadingPosition,
+  rotatingPosition,
 }: ImageDropzoneProps) {
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [draggedPos, setDraggedPos] = useState<number | null>(null);
@@ -109,6 +113,7 @@ export default function ImageDropzone({
         {Array.from({ length: MAX_IMAGES }, (_, pos) => {
           const img = getImageAtPosition(pos);
           const isUploading = uploading && uploadingPosition === pos;
+          const isRotating = rotatingPosition === pos;
           const isDraggedFrom = draggedPos === pos;
           const isDragOver = dragOverPos === pos;
 
@@ -152,17 +157,42 @@ export default function ImageDropzone({
                     onClick={() => setZoomedSrc(img.src)}
                     className="w-full h-full object-cover cursor-zoom-in"
                   />
+                  {/* Rotation overlay — visible on hover */}
+                  {onRotateAtPosition && (
+                    <div
+                      className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-200 flex items-center justify-center z-20"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        if (!isRotating) onRotateAtPosition(pos);
+                      }}
+                      style={{ cursor: isRotating ? "wait" : "pointer" }}
+                    >
+                      <div className={`w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${isRotating ? "opacity-100" : "hover:bg-white/40 hover:scale-110"}`}>
+                        {isRotating ? (
+                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12c0-4.14 3.36-7.5 7.5-7.5 2.485 0 4.69 1.21 6.06 3.07L19.5 4.5M19.5 4.5v4h-4M19.5 12c0 4.14-3.36 7.5-7.5 7.5a7.49 7.49 0 01-6.06-3.07L4.5 19.5M4.5 19.5v-4h4" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {/* Remove button */}
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onRemoveAtPosition(pos); }}
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-30"
                     aria-label="Supprimer l'image"
                   >
                     ×
                   </button>
                   {/* Drag handle */}
-                  <span className="absolute top-0.5 left-0.5 opacity-0 group-hover:opacity-70 transition-opacity">
+                  <span className="absolute top-0.5 left-0.5 opacity-0 group-hover:opacity-70 transition-opacity z-30">
                     <svg className="w-3 h-3 text-white drop-shadow" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M8 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm8-16a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
                     </svg>

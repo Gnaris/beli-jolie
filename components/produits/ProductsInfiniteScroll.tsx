@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useTranslations } from "next-intl";
 import ProductCard from "./ProductCard";
+import { useProductStream, type ProductEvent } from "@/hooks/useProductStream";
 
 type VariantItem = {
   id:           string;
@@ -77,6 +78,57 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
   const [hasMore,     setHasMore]     = useState(initialHasMore);
   const [loading,     setLoading]     = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  // Track product IDs that were just updated via SSE (for animation)
+  const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
+  // Track newly appeared product IDs (for entrance animation)
+  const [newlyAddedIds, setNewlyAddedIds] = useState<Set<string>>(new Set());
+
+  // SSE: listen for real-time product events
+  const handleProductEvent = useCallback(async (event: ProductEvent) => {
+    try {
+      const res = await fetch(`/api/products/${event.productId}/live`);
+      const data = await res.json();
+      if (!data.product) return;
+      const p = data.product;
+
+      if (event.type === "PRODUCT_ONLINE" && p.status === "ONLINE") {
+        // New product appeared — add to top with entrance animation
+        setProducts((prev) => {
+          if (prev.some((x) => x.id === p.id)) return prev;
+          return [p, ...prev];
+        });
+        setNewlyAddedIds((prev) => new Set(prev).add(p.id));
+        setTimeout(() => setNewlyAddedIds((prev) => { const s = new Set(prev); s.delete(p.id); return s; }), 1500);
+      } else if (event.type === "PRODUCT_OFFLINE" && p.status !== "ONLINE") {
+        // Product removed — fade out then remove
+        setAnimatingIds((prev) => new Set(prev).add(p.id));
+        setTimeout(() => {
+          setProducts((prev) => prev.filter((x) => x.id !== p.id));
+          setAnimatingIds((prev) => { const s = new Set(prev); s.delete(p.id); return s; });
+        }, 500);
+      } else {
+        // Update existing card (stock, bestseller, price changes)
+        // If createdAt was refreshed, move to top
+        const isRefreshed = p.createdAt && new Date(p.createdAt).getTime() > Date.now() - 5000;
+        setProducts((prev) => {
+          const without = prev.filter((x) => x.id !== p.id);
+          if (isRefreshed && prev.length > 0 && prev[0].id !== p.id) {
+            return [p, ...without];
+          }
+          return prev.map((x) => x.id === p.id ? p : x);
+        });
+        if (isRefreshed) {
+          setNewlyAddedIds((prev) => new Set(prev).add(p.id));
+          setTimeout(() => setNewlyAddedIds((prev) => { const s = new Set(prev); s.delete(p.id); return s; }), 1500);
+        } else {
+          setAnimatingIds((prev) => new Set(prev).add(p.id));
+          setTimeout(() => setAnimatingIds((prev) => { const s = new Set(prev); s.delete(p.id); return s; }), 1200);
+        }
+      }
+    } catch { /* ignore fetch errors */ }
+  }, []);
+
+  useProductStream(handleProductEvent);
 
   // Fetch favorites client-side once (CLIENT role only)
   useEffect(() => {
@@ -137,7 +189,11 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
     try {
       const res  = await fetch(`/api/products?${params.toString()}`);
       const data = await res.json();
-      setProducts((prev) => [...prev, ...data.products]);
+      setProducts((prev) => {
+            const existingIds = new Set(prev.map((p) => p.id));
+            const newItems = (data.products as ProductItem[]).filter((p) => !existingIds.has(p.id));
+            return [...prev, ...newItems];
+          });
       setPage(nextPage);
       setHasMore(data.hasMore);
     } catch {
@@ -181,8 +237,16 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
   return (
     <>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 lg:gap-5">
-        {products.map((product, idx) => (
-          <div key={product.id} className="stagger-card">
+        {products.map((product) => {
+          const isNewlyAdded = newlyAddedIds.has(product.id);
+          const isAnimating = animatingIds.has(product.id);
+          return (
+          <div
+            key={product.id}
+            className={`stagger-card transition-all duration-500 ${
+              isNewlyAdded ? "animate-live-pop" : ""
+            } ${isAnimating && !isNewlyAdded ? "animate-live-pulse" : ""}`}
+          >
           <ProductCard
             id={product.id}
             name={product.name}
@@ -198,7 +262,8 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
             filteredColorIds={filteredColorIds}
           />
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Sentinel pour l'infinite scroll */}

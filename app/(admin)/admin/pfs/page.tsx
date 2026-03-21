@@ -19,6 +19,17 @@ interface PfsSyncJob {
   lastPage: number;
   errorMessage: string | null;
   errorDetails: { reference: string; error: string }[] | null;
+  logs: {
+    productLogs: string[];
+    imageLogs: string[];
+    imageStats: {
+      total: number;
+      completed: number;
+      failed: number;
+      active: number;
+      pending: number;
+    };
+  } | string[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -91,6 +102,7 @@ type Step = "idle" | "analyzing" | "validation" | "creating" | "syncing";
 export default function PfsSyncPage() {
   const [step, setStep] = useState<Step>("idle");
   const [pendingLimit, setPendingLimit] = useState<number | undefined>(undefined);
+  const [customLimit, setCustomLimit] = useState("");
   const [analyzeProgress, setAnalyzeProgress] = useState("");
 
   // Analyze results (editable)
@@ -104,6 +116,12 @@ export default function PfsSyncPage() {
   const [job, setJob] = useState<PfsSyncJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showProductLogs, setShowProductLogs] = useState(true);
+  const [showImageLogs, setShowImageLogs] = useState(true);
+  const productLogsEndRef = useRef<HTMLDivElement>(null);
+  const imageLogsEndRef = useRef<HTMLDivElement>(null);
+  const [analyzeLogs, setAnalyzeLogs] = useState<string[]>([]);
+  const analyzeLogsEndRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch latest job on load ──
   const fetchJob = useCallback(async (jobId?: string) => {
@@ -132,6 +150,25 @@ export default function PfsSyncPage() {
     return () => clearInterval(interval);
   }, [job?.status, job?.id, fetchJob]);
 
+  // Auto-scroll logs to bottom
+  const logsData = job?.logs && !Array.isArray(job.logs) ? job.logs : null;
+  useEffect(() => {
+    if (showProductLogs && productLogsEndRef.current) {
+      productLogsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logsData?.productLogs, showProductLogs]);
+  useEffect(() => {
+    if (showImageLogs && imageLogsEndRef.current) {
+      imageLogsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logsData?.imageLogs, showImageLogs]);
+
+  useEffect(() => {
+    if (analyzeLogsEndRef.current) {
+      analyzeLogsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [analyzeLogs]);
+
   // When job completes, reset step
   useEffect(() => {
     if (job?.status === "COMPLETED" || job?.status === "FAILED") {
@@ -139,12 +176,13 @@ export default function PfsSyncPage() {
     }
   }, [job?.status]);
 
-  // ── Step 1: Analyze ──
+  // ── Step 1: Analyze (SSE streaming) ──
   const startAnalyze = async (limit?: number) => {
     setPendingLimit(limit);
     setStep("analyzing");
     setError(null);
-    setAnalyzeProgress("Analyse des produits PFS en cours...");
+    setAnalyzeLogs([]);
+    setAnalyzeProgress("Connexion au serveur...");
 
     try {
       const res = await fetch("/api/admin/pfs-sync/analyze", {
@@ -152,20 +190,69 @@ export default function PfsSyncPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(limit ? { limit } : {}),
       });
-      const data: AnalyzeResult = await res.json();
 
       if (!res.ok) {
-        setError((data as unknown as { error: string }).error || "Erreur lors de l'analyse");
+        const data = await res.json().catch(() => ({ error: "Erreur serveur" }));
+        setError(data.error || "Erreur lors de l'analyse");
         setStep("idle");
         return;
       }
 
-      setTotalScanned(data.totalScanned);
-      setExistingMappings(data.existingMappings);
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setError("Streaming non supporté");
+        setStep("idle");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalData: AnalyzeResult | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE lines
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === "progress") {
+              const time = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+              setAnalyzeLogs((prev) => [...prev, `[${time}] ${data.message}`]);
+              setAnalyzeProgress(data.message);
+            } else if (data.type === "done") {
+              finalData = data as AnalyzeResult;
+            } else if (data.type === "error") {
+              setError(data.message);
+              setStep("idle");
+              return;
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        }
+      }
+
+      if (!finalData) {
+        setError("Analyse interrompue sans résultat");
+        setStep("idle");
+        return;
+      }
+
+      setTotalScanned(finalData.totalScanned);
+      setExistingMappings(finalData.existingMappings);
 
       // Convert to editable state
       setEditCategories(
-        data.missingEntities.categories.map((c) => ({
+        finalData.missingEntities.categories.map((c) => ({
           pfsName: c.pfsName,
           name: c.suggestedName,
           labels: c.pfsLabels,
@@ -173,7 +260,7 @@ export default function PfsSyncPage() {
         })),
       );
       setEditColors(
-        data.missingEntities.colors.map((c) => ({
+        finalData.missingEntities.colors.map((c) => ({
           pfsName: c.pfsName,
           pfsReference: c.pfsReference,
           name: c.suggestedName,
@@ -185,7 +272,7 @@ export default function PfsSyncPage() {
         })),
       );
       setEditCompositions(
-        data.missingEntities.compositions.map((c) => ({
+        finalData.missingEntities.compositions.map((c) => ({
           pfsName: c.pfsName,
           name: c.suggestedName,
           labels: c.pfsLabels,
@@ -194,12 +281,17 @@ export default function PfsSyncPage() {
       );
 
       const totalMissing =
-        data.missingEntities.categories.length +
-        data.missingEntities.colors.length +
-        data.missingEntities.compositions.length;
+        finalData.missingEntities.categories.length +
+        finalData.missingEntities.colors.length +
+        finalData.missingEntities.compositions.length;
+
+      const time = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      setAnalyzeLogs((prev) => [
+        ...prev,
+        `[${time}] ✅ Analyse terminée — ${finalData!.totalScanned} produits, ${totalMissing} entités manquantes`,
+      ]);
 
       if (totalMissing === 0) {
-        // No missing entities — go straight to sync
         setStep("idle");
         await startSync(limit);
       } else {
@@ -305,6 +397,22 @@ export default function PfsSyncPage() {
     }
   };
 
+  const cancelSync = async () => {
+    if (!job) return;
+    if (!confirm("Annuler la synchronisation en cours ? Le job sera marqué comme échoué.")) return;
+    try {
+      await fetch("/api/admin/pfs-sync/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      fetchJob(job.id);
+      setStep("idle");
+    } catch {
+      // ignore
+    }
+  };
+
   const progress =
     job && job.totalProducts > 0
       ? Math.round((job.processedProducts / job.totalProducts) * 100)
@@ -345,14 +453,30 @@ export default function PfsSyncPage() {
       {/* STEP: IDLE — Action buttons              */}
       {/* ──────────────────────────────────────── */}
       {step === "idle" && !isRunning && (
-        <div className="flex gap-3 flex-wrap">
-          <button
-            onClick={() => startAnalyze(10)}
-            disabled={isBusy}
-            className="btn-secondary"
-          >
-            Test (10 produits)
-          </button>
+        <div className="flex gap-3 flex-wrap items-end">
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={10000}
+              placeholder="Nb produits"
+              value={customLimit}
+              onChange={(e) => setCustomLimit(e.target.value)}
+              className="field-input w-32 text-sm"
+            />
+            <button
+              onClick={() => {
+                const n = parseInt(customLimit, 10);
+                startAnalyze(n > 0 ? n : undefined);
+              }}
+              disabled={isBusy}
+              className="btn-secondary"
+            >
+              {customLimit && parseInt(customLimit, 10) > 0
+                ? `Analyser ${parseInt(customLimit, 10)} produits`
+                : "Test (10 produits)"}
+            </button>
+          </div>
 
           <button
             onClick={() => startAnalyze()}
@@ -400,27 +524,60 @@ export default function PfsSyncPage() {
       {/* STEP: ANALYZING                          */}
       {/* ──────────────────────────────────────── */}
       {step === "analyzing" && (
-        <div className="card p-8 text-center space-y-4">
-          <svg
-            className="animate-spin w-10 h-10 mx-auto text-text-secondary"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
-          </svg>
-          <p className="text-text-secondary text-sm">{analyzeProgress}</p>
+        <div className="space-y-4">
+          {/* Status bar */}
+          <div className="card p-6 flex items-center gap-4">
+            <svg
+              className="animate-spin w-6 h-6 text-[#22C55E] shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+            <p className="text-text-primary text-sm font-medium">{analyzeProgress}</p>
+          </div>
+
+          {/* Live console */}
+          {analyzeLogs.length > 0 && (
+            <div className="card overflow-hidden">
+              <div className="px-6 py-3 bg-[#1A1A1A] text-white flex items-center gap-3">
+                <svg className="w-4 h-4 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                <span className="font-[family-name:var(--font-poppins)] font-semibold text-sm">
+                  Console d&apos;analyse ({analyzeLogs.length} lignes)
+                </span>
+              </div>
+              <div className="bg-[#0D0D0D] text-[#E0E0E0] px-6 py-4 max-h-64 overflow-y-auto font-mono text-xs leading-relaxed">
+                {analyzeLogs.map((line, idx) => (
+                  <div
+                    key={idx}
+                    className={`py-0.5 ${
+                      line.includes("✅") ? "text-green-400"
+                        : line.includes("Page") ? "text-blue-300"
+                          : line.includes("chargé") ? "text-cyan-300"
+                            : ""
+                    }`}
+                  >
+                    {line}
+                  </div>
+                ))}
+                <div ref={analyzeLogsEndRef} />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -644,11 +801,19 @@ export default function PfsSyncPage() {
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <p className="text-sm text-text-secondary">
-                {job.processedProducts.toLocaleString()} /{" "}
-                {job.totalProducts.toLocaleString()} produits trait&eacute;s
-                {job.lastPage > 0 && ` (page ${job.lastPage})`}
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-text-secondary">
+                  {job.processedProducts.toLocaleString()} /{" "}
+                  {job.totalProducts.toLocaleString()} produits trait&eacute;s
+                  {job.lastPage > 0 && ` (page ${job.lastPage})`}
+                </p>
+                <button
+                  onClick={cancelSync}
+                  className="btn-danger text-xs px-3 py-1.5"
+                >
+                  Annuler
+                </button>
+              </div>
             </div>
           )}
 
@@ -695,6 +860,128 @@ export default function PfsSyncPage() {
             </div>
           )}
 
+          {/* ── Dual consoles: Products + Images ── */}
+          {(() => {
+            const structured = job.logs && !Array.isArray(job.logs) ? job.logs : null;
+            // Backward compat: old flat logs array
+            const legacyLogs = job.logs && Array.isArray(job.logs) ? job.logs : null;
+            const pLogs = structured?.productLogs ?? legacyLogs ?? [];
+            const iLogs = structured?.imageLogs ?? [];
+            const iStats = structured?.imageStats;
+
+            if (pLogs.length === 0 && iLogs.length === 0) return null;
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* ── Product creation console ── */}
+                {pLogs.length > 0 && (
+                  <div className="card overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowProductLogs((v) => !v)}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-[#1A1A1A] text-white hover:bg-[#2A2A2A] transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                        </svg>
+                        <span className="font-[family-name:var(--font-poppins)] font-semibold text-sm">
+                          Produits ({pLogs.length} lignes)
+                        </span>
+                      </div>
+                      <svg className={`w-4 h-4 transition-transform ${showProductLogs ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </button>
+                    {showProductLogs && (
+                      <div className="bg-[#0D0D0D] text-[#E0E0E0] px-4 py-3 max-h-80 overflow-y-auto font-mono text-[11px] leading-relaxed">
+                        {pLogs.map((line, idx) => (
+                          <div
+                            key={idx}
+                            className={`py-0.5 ${
+                              line.includes("❌") || line.includes("💥")
+                                ? "text-red-400"
+                                : line.includes("✅") || line.includes("🏁")
+                                  ? "text-green-400"
+                                  : line.includes("⚠️") || line.includes("⏭")
+                                    ? "text-yellow-400"
+                                    : line.includes("▶") || line.includes("──")
+                                      ? "text-blue-300"
+                                      : line.includes("🚀") || line.includes("📊") || line.includes("📄")
+                                        ? "text-cyan-300"
+                                        : ""
+                            }`}
+                          >
+                            {line}
+                          </div>
+                        ))}
+                        <div ref={productLogsEndRef} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Image download console ── */}
+                {(iLogs.length > 0 || iStats) && (
+                  <div className="card overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowImageLogs((v) => !v)}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-[#1A1A1A] text-white hover:bg-[#2A2A2A] transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                        </svg>
+                        <span className="font-[family-name:var(--font-poppins)] font-semibold text-sm">
+                          Images {iStats ? `(${iStats.completed}/${iStats.total})` : `(${iLogs.length} lignes)`}
+                        </span>
+                      </div>
+                      <svg className={`w-4 h-4 transition-transform ${showImageLogs ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </button>
+                    {/* Image stats bar */}
+                    {iStats && iStats.total > 0 && (
+                      <div className="bg-[#111] px-4 py-2 flex flex-wrap gap-3 text-[11px] font-mono border-b border-[#222]">
+                        <span className="text-green-400">{iStats.completed} OK</span>
+                        <span className="text-blue-400">{iStats.active} en cours</span>
+                        <span className="text-yellow-400">{iStats.pending} en attente</span>
+                        {iStats.failed > 0 && <span className="text-red-400">{iStats.failed} erreur{iStats.failed > 1 ? "s" : ""}</span>}
+                        <span className="text-[#888] ml-auto">{iStats.total - iStats.completed - iStats.failed} restant{iStats.total - iStats.completed - iStats.failed > 1 ? "s" : ""}</span>
+                      </div>
+                    )}
+                    {showImageLogs && (
+                      <div className="bg-[#0D0D0D] text-[#E0E0E0] px-4 py-3 max-h-80 overflow-y-auto font-mono text-[11px] leading-relaxed">
+                        {iLogs.map((line, idx) => (
+                          <div
+                            key={idx}
+                            className={`py-0.5 ${
+                              line.includes("❌")
+                                ? "text-red-400"
+                                : line.includes("✅") || line.includes("🏁")
+                                  ? "text-green-400"
+                                  : line.includes("⬇️")
+                                    ? "text-blue-300"
+                                    : line.includes("📥")
+                                      ? "text-[#888]"
+                                      : line.includes("⏳")
+                                        ? "text-yellow-400"
+                                        : ""
+                            }`}
+                          >
+                            {line}
+                          </div>
+                        ))}
+                        <div ref={imageLogsEndRef} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Stats grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <StatCard label="Total" value={job.totalProducts} color="neutral" />
@@ -705,28 +992,16 @@ export default function PfsSyncPage() {
             <StatCard label="Erreurs" value={job.errorProducts} color="red" />
           </div>
 
-          {/* Error details */}
+          {/* Error details with retry */}
           {job.errorDetails &&
             Array.isArray(job.errorDetails) &&
             job.errorDetails.length > 0 && (
-              <div className="card p-6">
-                <h3 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary mb-4">
-                  D&eacute;tails des erreurs ({job.errorDetails.length})
-                </h3>
-                <div className="max-h-80 overflow-y-auto space-y-1">
-                  {job.errorDetails.map((err, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-start gap-3 text-sm py-2 border-b border-border last:border-0"
-                    >
-                      <code className="text-text-primary font-medium whitespace-nowrap">
-                        {err.reference}
-                      </code>
-                      <span className="text-red-600">{err.error}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <ErrorDetailsPanel
+                errors={job.errorDetails}
+                jobId={job.id}
+                jobStatus={job.status}
+                onRetryDone={() => fetchJob(job.id)}
+              />
             )}
 
           {/* Job info */}
@@ -926,6 +1201,122 @@ function ColorEditor({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function ErrorDetailsPanel({
+  errors,
+  jobId,
+  jobStatus,
+  onRetryDone,
+}: {
+  errors: { reference: string; error: string }[];
+  jobId: string;
+  jobStatus: string;
+  onRetryDone: () => void;
+}) {
+  const [retrying, setRetrying] = useState<Record<string, boolean>>({});
+  const [retryResults, setRetryResults] = useState<Record<string, "success" | "failed">>({});
+  const [retryingAll, setRetryingAll] = useState(false);
+
+  const retryOne = async (reference: string) => {
+    setRetrying((prev) => ({ ...prev, [reference]: true }));
+    try {
+      const res = await fetch("/api/admin/pfs-sync/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, references: [reference] }),
+      });
+      const data = await res.json();
+      if (res.ok && data.results?.[0]?.action !== "error") {
+        setRetryResults((prev) => ({ ...prev, [reference]: "success" }));
+      } else {
+        setRetryResults((prev) => ({ ...prev, [reference]: "failed" }));
+      }
+    } catch {
+      setRetryResults((prev) => ({ ...prev, [reference]: "failed" }));
+    } finally {
+      setRetrying((prev) => ({ ...prev, [reference]: false }));
+      onRetryDone();
+    }
+  };
+
+  const retryAll = async () => {
+    setRetryingAll(true);
+    const refs = errors.map((e) => e.reference).filter((r) => retryResults[r] !== "success");
+    try {
+      const res = await fetch("/api/admin/pfs-sync/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, references: refs }),
+      });
+      const data = await res.json();
+      if (res.ok && data.results) {
+        const newResults: Record<string, "success" | "failed"> = {};
+        for (const r of data.results) {
+          newResults[r.reference] = r.action !== "error" ? "success" : "failed";
+        }
+        setRetryResults((prev) => ({ ...prev, ...newResults }));
+      }
+    } catch {
+      // ignore
+    } finally {
+      setRetryingAll(false);
+      onRetryDone();
+    }
+  };
+
+  const canRetry = jobStatus !== "RUNNING";
+  const remainingErrors = errors.filter((e) => retryResults[e.reference] !== "success");
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary">
+          Erreurs ({remainingErrors.length}/{errors.length})
+        </h3>
+        {canRetry && remainingErrors.length > 0 && (
+          <button
+            type="button"
+            className="btn-primary text-xs px-3 py-1.5"
+            onClick={retryAll}
+            disabled={retryingAll}
+          >
+            {retryingAll ? "Re-sync en cours..." : `Re-sync ${remainingErrors.length} produit${remainingErrors.length > 1 ? "s" : ""}`}
+          </button>
+        )}
+      </div>
+      <div className="max-h-80 overflow-y-auto space-y-1">
+        {errors.map((err, idx) => {
+          const status = retryResults[err.reference];
+          return (
+            <div
+              key={idx}
+              className={`flex items-center gap-3 text-sm py-2 border-b border-border last:border-0 ${
+                status === "success" ? "opacity-50" : ""
+              }`}
+            >
+              <code className="text-text-primary font-medium whitespace-nowrap min-w-[80px]">
+                {err.reference}
+              </code>
+              <span className={`flex-1 text-xs ${status === "success" ? "text-green-600" : "text-red-600"}`}>
+                {status === "success" ? "Re-sync OK" : err.error}
+              </span>
+              {canRetry && status !== "success" && (
+                <button
+                  type="button"
+                  className="text-xs px-2 py-1 rounded-lg border border-border hover:bg-bg-secondary transition-colors whitespace-nowrap"
+                  onClick={() => retryOne(err.reference)}
+                  disabled={retrying[err.reference]}
+                >
+                  {retrying[err.reference] ? "..." : "Retry"}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

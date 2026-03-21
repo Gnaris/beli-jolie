@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition, useCallback } from "react";
+import React, { useState, useTransition, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
 import {
   bulkUpdateProductStatus,
@@ -38,7 +38,7 @@ interface AdminProduct {
   id: string;
   reference: string;
   name: string;
-  status: "ONLINE" | "OFFLINE" | "ARCHIVED";
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   categoryName: string;
   subCategoryName: string | null;
   createdAt: string;
@@ -414,7 +414,7 @@ function ProductRow({
 
         {/* Référence */}
         <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
-          <span className="font-mono text-xs bg-bg-tertiary px-2 py-0.5 rounded text-text-secondary">
+          <span className="font-mono text-xs bg-bg-tertiary px-2 py-0.5 rounded text-text-secondary whitespace-nowrap">
             {product.reference}
           </span>
         </td>
@@ -422,7 +422,7 @@ function ProductRow({
         {/* Nom + prix */}
         <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
           <div className="flex items-center gap-2">
-            <p className="font-medium text-text-primary text-sm">{product.name}</p>
+            <p className="font-medium text-text-primary text-sm whitespace-nowrap">{product.name}</p>
             {hasMissingTranslations && (
               <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold shrink-0" title={`Traductions manquantes: ${missingLocales.join(", ")}`}>
                 ⓘ
@@ -430,21 +430,21 @@ function ProductRow({
             )}
           </div>
           {!isNaN(minPrice) && (
-            <p className="text-xs text-text-muted">à partir de {minPrice.toFixed(2)} €</p>
+            <p className="text-xs text-text-muted whitespace-nowrap">à partir de {minPrice.toFixed(2)} €</p>
           )}
         </td>
 
         {/* Catégorie */}
-        <td className="px-3 py-3 hidden md:table-cell cursor-pointer" onClick={onExpandToggle}>
-          <span className="text-xs text-text-secondary">{product.categoryName}</span>
+        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
+          <span className="text-xs text-text-secondary whitespace-nowrap">{product.categoryName}</span>
           {product.subCategoryName && (
-            <span className="text-xs text-text-muted"> / {product.subCategoryName}</span>
+            <span className="text-xs text-text-muted whitespace-nowrap"> / {product.subCategoryName}</span>
           )}
         </td>
 
         {/* Couleurs */}
-        <td className="px-3 py-3 hidden lg:table-cell cursor-pointer" onClick={onExpandToggle}>
-          <div className="flex items-center gap-1.5 flex-wrap">
+        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
+          <div className="flex items-center gap-1.5 flex-nowrap">
             {uniqueColors.slice(0, 6).map((c) => {
               const mainHex = c.color.hex ?? "#9CA3AF";
               const subs = c.subColors?.filter(sc => sc.color.hex) ?? [];
@@ -479,29 +479,31 @@ function ProductRow({
               );
             })}
             {uniqueColors.length > 6 && (
-              <span className="text-[10px] text-text-muted font-semibold">+{uniqueColors.length - 6}</span>
+              <span className="text-[10px] text-text-muted font-semibold whitespace-nowrap">+{uniqueColors.length - 6}</span>
             )}
           </div>
         </td>
 
         {/* Statut */}
-        <td className="px-3 py-3 hidden sm:table-cell cursor-pointer" onClick={onExpandToggle}>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
+          <div className="flex items-center gap-1.5 flex-nowrap">
+            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${
               product.status === "ONLINE"
                 ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+                : product.status === "SYNCING"
+                ? "bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]"
                 : product.status === "ARCHIVED"
                 ? "bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]"
                 : "bg-[#F7F7F8] text-[#6B6B6B] border border-[#E5E5E5]"
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full ${
-                product.status === "ONLINE" ? "bg-[#22C55E]" : product.status === "ARCHIVED" ? "bg-[#F59E0B]" : "bg-[#9CA3AF]"
+                product.status === "ONLINE" ? "bg-[#22C55E]" : product.status === "SYNCING" ? "bg-[#3B82F6] animate-pulse" : product.status === "ARCHIVED" ? "bg-[#F59E0B]" : "bg-[#9CA3AF]"
               }`} />
-              {product.status === "ONLINE" ? "En ligne" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
+              {product.status === "ONLINE" ? "En ligne" : product.status === "SYNCING" ? "Sync en cours" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
             </span>
             {isFullyOutOfStock && (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] whitespace-nowrap"
                 title="Toutes les variantes sont en rupture de stock"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444]" />
@@ -510,7 +512,7 @@ function ProductRow({
             )}
             {hasPartialOutOfStock && (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A]"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] whitespace-nowrap"
                 title="Certaines variantes sont en rupture de stock"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
@@ -1018,6 +1020,126 @@ function BulkVariantBar({
   );
 }
 
+// ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
+
+function TableWithTopScroll({
+  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants,
+}: {
+  products: AdminProduct[];
+  selectedIds: Set<string>;
+  allSelected: boolean;
+  toggleSelectAll: () => void;
+  toggleSelect: (id: string) => void;
+  expandedIds: Set<string>;
+  toggleExpand: (id: string) => void;
+  selectedVariantIds: Set<string>;
+  toggleVariant: (id: string) => void;
+  toggleAllVariants: (ids: string[], select: boolean) => void;
+}) {
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const topInnerRef = useRef<HTMLDivElement>(null);
+  const isSyncingRef = useRef<"top" | "bottom" | null>(null);
+
+  // Sync widths & show/hide top scrollbar
+  useEffect(() => {
+    const tableEl = tableScrollRef.current;
+    const topEl = topScrollRef.current;
+    const topInner = topInnerRef.current;
+    if (!tableEl || !topEl || !topInner) return;
+
+    const syncWidth = () => {
+      const scrollW = tableEl.scrollWidth;
+      const clientW = tableEl.clientWidth;
+      topInner.style.width = `${scrollW}px`;
+      // Hide top scrollbar when no overflow
+      topEl.style.display = scrollW > clientW ? "block" : "none";
+    };
+
+    syncWidth();
+
+    const ro = new ResizeObserver(syncWidth);
+    ro.observe(tableEl);
+    return () => ro.disconnect();
+  }, [products]);
+
+  // Sync scroll positions
+  useEffect(() => {
+    const topEl = topScrollRef.current;
+    const tableEl = tableScrollRef.current;
+    if (!topEl || !tableEl) return;
+
+    const onTopScroll = () => {
+      if (isSyncingRef.current === "bottom") return;
+      isSyncingRef.current = "top";
+      tableEl.scrollLeft = topEl.scrollLeft;
+      requestAnimationFrame(() => { isSyncingRef.current = null; });
+    };
+    const onTableScroll = () => {
+      if (isSyncingRef.current === "top") return;
+      isSyncingRef.current = "bottom";
+      topEl.scrollLeft = tableEl.scrollLeft;
+      requestAnimationFrame(() => { isSyncingRef.current = null; });
+    };
+
+    topEl.addEventListener("scroll", onTopScroll);
+    tableEl.addEventListener("scroll", onTableScroll);
+    return () => {
+      topEl.removeEventListener("scroll", onTopScroll);
+      tableEl.removeEventListener("scroll", onTableScroll);
+    };
+  }, []);
+
+  return (
+    <div className="card overflow-hidden">
+      {/* Top scrollbar */}
+      <div ref={topScrollRef} className="overflow-x-auto" style={{ height: 12 }}>
+        <div ref={topInnerRef} style={{ height: 1 }} />
+      </div>
+      {/* Table */}
+      <div ref={tableScrollRef} className="overflow-x-auto">
+        <table className="w-full text-sm font-[family-name:var(--font-roboto)]" style={{ minWidth: 800 }}>
+          <thead>
+            <tr className="table-header">
+              <th className="px-3 py-3 w-10">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  className="checkbox-custom"
+                  title="Tout sélectionner"
+                />
+              </th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Photo</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Réf.</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Nom</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Catégorie</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Couleurs</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Statut</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-text-secondary uppercase tracking-wider w-24"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border-light">
+            {products.map((product) => (
+              <ProductRow
+                key={product.id}
+                product={product}
+                selected={selectedIds.has(product.id)}
+                onToggle={() => toggleSelect(product.id)}
+                expanded={expandedIds.has(product.id)}
+                onExpandToggle={() => toggleExpand(product.id)}
+                selectedVariantIds={selectedVariantIds}
+                onToggleVariant={toggleVariant}
+                onToggleAllVariants={toggleAllVariants}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Table ────────────────────────────────────────────────────────────────
 
 export default function AdminProductsTable({ products, totalCount: _totalCount }: Props) {
@@ -1299,46 +1421,8 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
         </div>
       )}
 
-      {/* Tableau */}
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm font-[family-name:var(--font-roboto)]">
-          <thead>
-            <tr className="table-header">
-              <th className="px-3 py-3 w-10">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleSelectAll}
-                  className="checkbox-custom"
-                  title="Tout sélectionner"
-                />
-              </th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Photo</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Réf.</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Nom</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider hidden md:table-cell">Catégorie</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider hidden lg:table-cell">Couleurs</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider hidden sm:table-cell">Statut</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold text-text-secondary uppercase tracking-wider w-24"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border-light">
-            {products.map((product) => (
-              <ProductRow
-                key={product.id}
-                product={product}
-                selected={selectedIds.has(product.id)}
-                onToggle={() => toggleSelect(product.id)}
-                expanded={expandedIds.has(product.id)}
-                onExpandToggle={() => toggleExpand(product.id)}
-                selectedVariantIds={selectedVariantIds}
-                onToggleVariant={toggleVariant}
-                onToggleAllVariants={toggleAllVariants}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Tableau avec double scrollbar (haut + bas) */}
+      <TableWithTopScroll products={products} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

@@ -10,6 +10,7 @@ import AdminMobileNav from "@/components/admin/AdminMobileNav";
 import AdminClientModeButton from "@/components/admin/AdminClientModeButton";
 
 import LiveCountBadge from "@/components/admin/LiveCountBadge";
+import AdminEmailWrapper from "@/components/admin/email/AdminEmailWrapper";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -48,6 +49,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   };
 
   return (
+    <AdminEmailWrapper>
     <div id="admin-theme-wrapper" className={`min-h-screen bg-bg-secondary flex${isDarkMode ? " admin-dark" : ""}`}>
 
       {/* ===== SIDEBAR - fixed left (desktop) ===== */}
@@ -159,6 +161,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </div>
 
     </div>
+    </AdminEmailWrapper>
   );
 }
 

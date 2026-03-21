@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { updateUserStatus } from "@/app/actions/admin/updateUserStatus";
 import DeleteUserButton from "@/components/admin/users/DeleteUserButton";
 import ClientDiscountForm from "@/components/admin/users/ClientDiscountForm";
+import SendEmailButton from "@/components/admin/email/SendEmailButton";
 import type { UserStatus } from "@prisma/client";
 
 /** Correspondance statut → styles */
@@ -125,10 +126,19 @@ export default async function ClientDetailPage({
           </p>
         </div>
 
-        {/* Badge statut */}
-        <span className={`${statusCfg.className} w-fit`}>
-          {statusCfg.label}
-        </span>
+        {/* Actions */}
+        <div className="flex items-center gap-3">
+          <SendEmailButton
+            recipient={{
+              email: user.email,
+              name: `${user.firstName} ${user.lastName}`,
+              userId: user.id,
+            }}
+          />
+          <span className={`${statusCfg.className} w-fit`}>
+            {statusCfg.label}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
