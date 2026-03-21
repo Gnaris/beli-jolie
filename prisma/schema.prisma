@@ -59,6 +59,7 @@ model User {
   favorites     Favorite[]
   importDrafts  ImportDraft[]
   importJobs    ImportJob[]
+  pfsSyncJobs   PfsSyncJob[]
   accessCodes   AccessCode[]
   activity      UserActivity?
   restockAlerts RestockAlert[]
@@ -237,6 +238,7 @@ model ProductTag {
 model Product {
   id            String               @id @default(cuid())
   reference     String               @unique
+  pfsProductId  String?              @unique // ID produit sur Paris Fashion Shop (ex: "pro_171bb9...")
   name          String
   description   String               @db.Text
   categoryId    String
@@ -846,4 +848,50 @@ model TranslationQuota {
   updatedAt DateTime @updatedAt
 
   @@unique([provider, monthYear])
+}
+
+// ─────────────────────────────────────────────
+// PFS Sync (Paris Fashion Shop)
+// ─────────────────────────────────────────────
+
+enum PfsSyncStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model PfsSyncJob {
+  id              String        @id @default(cuid())
+  status          PfsSyncStatus @default(PENDING)
+  totalProducts   Int           @default(0)
+  processedProducts Int         @default(0)
+  createdProducts Int           @default(0)
+  updatedProducts Int           @default(0)
+  skippedProducts Int           @default(0)
+  errorProducts   Int           @default(0)
+  lastPage        Int           @default(0)   // for resume — last fully processed page
+  errorMessage    String?       @db.Text
+  errorDetails    Json?                       // per-product errors
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  adminId         String
+  admin           User          @relation(fields: [adminId], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+// PFS name → BJ entity mapping (remembered across syncs)
+model PfsMapping {
+  id          String   @id @default(cuid())
+  type        String   // "category" | "color" | "composition"
+  pfsName     String   // original PFS name (normalized lowercase)
+  bjEntityId  String   // BJ entity id (Category.id, Color.id, Composition.id)
+  bjName      String   // BJ entity name (for display)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([type, pfsName])
+  @@index([type])
 }

@@ -187,45 +187,208 @@
 - Le champ `colors` est un string séparé par `;` (ex: `"GOLDEN;SILVER"`)
 - `unit_price` = prix de base, mais le vrai prix est dans `variants[].price_sale.unit.value`
 - `price_before_discount` présent quand il y a eu une remise
+- **Attention** : certains champs variants sont incorrects dans `listProducts` — voir endpoint `/variants` pour les valeurs fiables (weight, pieces PACK, total PACK)
+- Le champ `state` dans la réponse donne les compteurs globaux : `total`, `active`, `draft`, `for_sale`, `out_of_stock`, `archived`, `deleted`, `star`
+- La pagination inclut `meta.current_page`, `meta.last_page`, `meta.from` et `links` (first/last/prev/next)
 
 ---
 
-### 2. Détails d'un produit (NON TESTÉ)
+### 2. Vérifier une référence produit (TESTÉ - FONCTIONNEL)
 
-#### `GET /catalog/products/{id}`
+#### `GET /catalog/products/checkReference/{reference}`
 
-> Potentiellement utile pour `material_composition` et `description` qui ne sont pas dans `listProducts`.
+> Lookup par référence produit. Retourne les données enrichies (composition, collection, description multilingue, pays de fabrication) qui ne sont **pas** dans `listProducts`.
 
 **Path Parameters :**
 | Paramètre | Type | Requis | Description |
 |-----------|------|--------|-------------|
-| `id` | string | oui | ID du produit |
+| `reference` | string | oui | Référence du produit (ex: `T198VS1`) |
 
 **Headers :** `Authorization: Bearer {token}`
 
-**Réponse 200 (d'après reverse engineering) :**
+**Réponse 200 (données réelles observées) :**
 ```json
 {
-  "data": {
+  "exists": true,
+  "product": {
+    "id": "pro_171bb9106d9fe1b4e5af0ae10db6",
+    "brand": { "id": "a01AZ00000314QgYAI", "name": "Beli & Jolie" },
+    "gender": { "reference": "WOMAN" },
+    "family": { "id": "a035J00000185J7QAI", "reference": "WOMAN/FASHIONJEWELRY" },
+    "category": { "id": "a045J000003KWwDQAW", "reference": "WOMAN/FASHIONJEWELRY/EARRINGS" },
+    "reference": "T198VS1",
+    "label": {
+      "fr": "Boucles d'oreilles créoles en acier inoxydable",
+      "en": "Stainless steel hoop earrings",
+      "de": "Ohrringe aus Edelstahl",
+      "es": "Pendientes de aro de acero inoxidable",
+      "it": "Orecchini a cerchio in acciaio inossidabile"
+    },
+    "collection": {
+      "id": "a0cZ50k09p2mpLdIHG",
+      "reference": "PE2026",
+      "labels": {
+        "fr": "Printemps/Été 2026",
+        "en": "Spring/Summer 2026",
+        "de": "Frühjahr/Sommer 2026",
+        "es": "Primavera/Verano 2026",
+        "it": "Primavera/Estate 2026"
+      }
+    },
     "material_composition": [
-      { "id": "string", "percentage": 0 }
+      {
+        "id": "a0zW5000000YvezIAC",
+        "reference": "ACIERINOXYDABLE",
+        "percentage": 100,
+        "labels": {
+          "fr": "Acier inoxydable",
+          "en": "Stainless steel",
+          "de": "Rostfreier Stahl",
+          "es": "Acero inoxidable",
+          "it": "Acciaio inossidabile"
+        }
+      }
     ],
-    "collection": { "reference": "string" },
-    "country_of_manufacture": "string",
-    "size_details_tu": "string",
-    "label": { "fr": "string", "en": "string", "es": "string", "it": "string", "de": "string" },
-    "description": { "fr": "string", "en": "string", "es": "string", "it": "string", "de": "string" }
+    "lining_composition": [],
+    "country_of_manufacture": "CN",
+    "description": {
+      "fr": "Boucles d'oreilles créoles en acier inoxydable",
+      "en": "Stainless steel hoop earrings",
+      "de": "Ohrringe aus Edelstahl",
+      "es": "Pendientes de aro de acero inoxidable",
+      "it": "Orecchini a cerchio in acciaio inossidabile"
+    },
+    "status": "READY_FOR_SALE",
+    "default_color": "GOLDEN",
+    "images": {
+      "DEFAULT": "https://static.parisfashionshops.com/.../image.jpg?image_process=resize,w_450",
+      "GOLDEN": ["url..."],
+      "SILVER": ["url..."]
+    },
+    "flash_sales_discount": null
   }
 }
 ```
 
+**Données exclusives à cet endpoint (absentes de `listProducts`) :**
+- `material_composition[]` — matériaux avec pourcentage et labels multilingues
+- `collection` — référence et labels multilingues (ex: PE2026 = Printemps/Été 2026)
+- `country_of_manufacture` — pays de fabrication (ex: "CN")
+- `description` — description multilingue du produit
+- `lining_composition` — composition doublure (vide pour bijoux)
+- `default_color` — couleur par défaut du produit
+- `family.reference` — catégorie parente (ex: WOMAN/FASHIONJEWELRY)
+- `category.reference` — sous-catégorie (ex: WOMAN/FASHIONJEWELRY/EARRINGS)
+
+**Si la référence n'existe pas :** `{ "exists": false }` (à vérifier)
+
+**Cas d'usage :**
+- Vérifier si un produit existe sur PFS avant import
+- Enrichir les données de `listProducts` avec composition, collection, description
+- Récupérer les traductions pour les compositions et collections
+
 ---
 
-### 3. Variants d'un produit (PROBABLEMENT INUTILE)
+### 3. Variants d'un produit (TESTÉ - FONCTIONNEL - IMPORTANT)
 
 #### `GET /catalog/products/{id}/variants`
 
-> Les variants sont déjà inclus dans `listProducts` avec plus de détails. Cet endpoint est probablement redondant.
+> **Pas redondant !** Cet endpoint retourne des données corrigées par rapport aux variants inline de `listProducts` : le poids réel, le nombre de pièces PACK réel, et le prix total PACK correct.
+
+**Path Parameters :**
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `id` | string | oui | ID du produit (ex: `pro_171bb9106d9fe1b4e5af0ae10db6`) |
+
+**Headers :** `Authorization: Bearer {token}`
+
+**Réponse 200 (données réelles observées) :**
+```json
+{
+  "data": [
+    {
+      "id": "pro_94eceac60bc3ee628eedf43e23e3",
+      "product_id": "pro_171bb9106d9fe1b4e5af0ae10db6",
+      "reference": "T198VS1",
+      "sku_suffix": "GOLDEN_TU",
+      "type": "ITEM",
+      "custom_suffix": "",
+      "pieces": 1,
+      "price_sale": {
+        "unit": { "value": 4.2, "currency": "EUR" },
+        "total": { "value": 4.2, "currency": "EUR" }
+      },
+      "price_before_discount": {
+        "unit": { "value": 4.2, "currency": "EUR" },
+        "total": { "value": 4.2, "currency": "EUR" }
+      },
+      "discount": null,
+      "item": {
+        "color": {
+          "id": 61,
+          "reference": "GOLDEN",
+          "value": "#C4A647",
+          "image": null,
+          "labels": { "fr": "Doré", "de": "Golden", "en": "Golden", "es": "Dorado", "it": "Dorato" }
+        },
+        "size": "TU"
+      },
+      "colors": [
+        { "id": 61, "reference": "GOLDEN", "value": "#C4A647", "image": null, "labels": { "fr": "Doré", ... } }
+      ],
+      "is_active": true,
+      "is_star": false,
+      "in_stock": true,
+      "stock_qty": 1000,
+      "weight": 0.09,
+      "images": {
+        "DEFAULT": "url...",
+        "GOLDEN": ["url..."],
+        "SILVER": ["url..."]
+      }
+    },
+    {
+      "id": "pro_d6a34a3cc58a423a120fb87ee4a4",
+      "type": "PACK",
+      "sku_suffix": "SILVER_TU",
+      "pieces": 12,
+      "price_sale": {
+        "unit": { "value": 4, "currency": "EUR" },
+        "total": { "value": 48, "currency": "EUR" }
+      },
+      "packs": [
+        {
+          "color": { "id": 52, "reference": "SILVER", "value": "#A2A2A1", "labels": { "fr": "Argent", ... } },
+          "sizes": [{ "id": "pac_c1d82f5715a352bc5e9242cd5ac4", "size": "TU", "qty": 12 }]
+        }
+      ],
+      "colors": [
+        { "id": 52, "reference": "SILVER", "value": "#A2A2A1", "labels": { "fr": "Argent", ... } }
+      ],
+      "is_active": true,
+      "in_stock": true,
+      "stock_qty": 1000,
+      "weight": 0.09,
+      "images": { "DEFAULT": "url...", "GOLDEN": ["url..."], "SILVER": ["url..."] }
+    }
+  ]
+}
+```
+
+**Corrections par rapport aux variants inline de `listProducts` :**
+| Champ | `listProducts` (inline) | `/variants` (dédié) | Impact |
+|-------|-------------------------|---------------------|--------|
+| `weight` | `0` (toujours) | `0.09` (valeur réelle) | **Critique pour Easy-Express** |
+| `pieces` (PACK) | `1` (bug) | `12` (valeur réelle) | **Critique pour packQuantity** |
+| `price_sale.total` (PACK) | `0` (bug) | `48` (= 4 × 12) | Cohérence prix |
+| `sku_suffix` | `null` | `"GOLDEN_TU"` | Utile pour SKU |
+| `product_id` | absent (implicite) | présent | Lien explicite |
+| `colors[]` | absent | array dédié par variant | Accès couleurs structuré |
+| `is_star` | `null` | `false` | Type cohérent |
+
+**Données par variant :** chaque variant inclut ses propres `images` (toutes les images du produit parent).
+
+**Conclusion : pour l'import, utiliser `/variants` pour `weight`, `pieces` (packQuantity) et `price_sale.total`** — les données inline de `listProducts` sont incorrectes pour ces champs.
 
 ---
 
@@ -248,19 +411,30 @@ Les endpoints suivants existent pour la synchronisation BJ → PFS (push) :
 
 ## Mapping PFS → Beli Jolie
 
-| PFS (listProducts) | Beli Jolie | Notes |
-|---|---|---|
-| `reference` | `Product.reference` | Source de vérité |
-| `id` | `Product.pfsProductId` (à créer) | Pour re-sync |
-| `labels.fr` | `Product.name` | |
-| `labels.{en,de,es,it}` | `ProductTranslation` | 4 langues gratuites ! |
-| `category.labels.fr` | `Category.name` | Match ou création |
-| `variants[].type` ITEM/PACK | `ProductColor.saleType` UNIT/PACK | |
-| `variants[].item.color.reference` | `Color` | Match par nom normalisé |
-| `variants[].item.color.value` | `Color.hex` | |
-| `variants[].item.color.labels` | `ColorTranslation` | |
-| `variants[].price_sale.unit.value` | `ProductColor.unitPrice` | |
-| `variants[].stock_qty` | `ProductColor.stock` | |
-| `variants[].weight` | `ProductColor.weight` | |
-| `variants[].packs[].sizes[].qty` | `ProductColor.packQuantity` | Pour type PACK |
-| `images.{COLOR_REF}` | `ProductColorImage` | Télécharger + WebP |
+### Source de données par champ
+
+| Donnée BJ | Source PFS | Endpoint | Notes |
+|---|---|---|---|
+| `Product.reference` | `reference` | `listProducts` | Source de vérité |
+| `Product.pfsProductId` (à créer) | `id` | `listProducts` | Pour re-sync |
+| `Product.name` | `labels.fr` | `listProducts` | |
+| `ProductTranslation` | `labels.{en,de,es,it}` | `listProducts` | 4 langues gratuites ! |
+| `Product.description` | `description.fr` | **`checkReference`** | Absent de `listProducts` |
+| `Category.name` | `category.labels.fr` | `listProducts` | Match ou création |
+| `ProductComposition` | `material_composition[]` | **`checkReference`** | Matériau + % + labels multilingues |
+| `CompositionTranslation` | `material_composition[].labels` | **`checkReference`** | Traductions gratuites |
+| `ProductColor.saleType` | `variants[].type` ITEM/PACK | `listProducts` | ITEM→UNIT, PACK→PACK |
+| `Color` | `variants[].item.color.reference` | `listProducts` | Match par nom normalisé |
+| `Color.hex` | `variants[].item.color.value` | `listProducts` | |
+| `ColorTranslation` | `variants[].item.color.labels` | `listProducts` | |
+| `ProductColor.unitPrice` | `variants[].price_sale.unit.value` | `listProducts` | |
+| `ProductColor.stock` | `variants[].stock_qty` | `listProducts` | |
+| `ProductColor.weight` | `variants[].weight` | **`/variants`** | `listProducts` retourne 0 (bug) |
+| `ProductColor.packQuantity` | `variants[].pieces` ou `packs[].sizes[].qty` | **`/variants`** | `listProducts` retourne 1 (bug) |
+| `ProductColorImage` | `images.{COLOR_REF}` | `listProducts` | Télécharger + WebP |
+
+### Stratégie d'import recommandée
+
+1. **`listProducts`** (paginé) — récupère la liste complète avec prix, stock, couleurs, images, traductions produit/catégorie
+2. **`/products/{id}/variants`** — pour chaque produit, récupère le **poids réel** et le **packQuantity réel** (corrige les bugs de `listProducts`)
+3. **`checkReference/{ref}`** — optionnel, pour enrichir avec **composition**, **description**, **collection**, **pays de fabrication**

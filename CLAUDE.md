@@ -212,6 +212,26 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Cart modal**: `CartModal.tsx` — admin can peek at a client's current cart
 - **Reusable UI**: `ConfirmDialog.tsx` (replaces window.confirm), `CustomSelect.tsx` (searchable select), `Toast.tsx`, `ColorSwatch.tsx` (single/multi-color swatch with patternImage support — renders camembert pie chart for multi-color variants)
 - **Import history**: `ImportHistoryClient.tsx` — view past import jobs at `/admin/produits/importer/historique`
+- **PFS Sync**: `/admin/pfs` — synchronize products from Paris Fashion Shop marketplace
+
+### PFS Sync System (`lib/pfs-auth.ts`, `lib/pfs-api.ts`, `lib/pfs-sync.ts`)
+- **Token management** (`lib/pfs-auth.ts`): in-memory cache with auto-refresh 10 min before expiration
+- **API client** (`lib/pfs-api.ts`): wraps 3 tested endpoints with retry + exponential backoff
+  - `pfsListProducts(page)` — paginated product list (buggy weight/pieces — use /variants)
+  - `pfsCheckReference(ref)` — composition, description, collection, country
+  - `pfsGetVariants(id)` — correct weight, packQuantity, total price
+- **Sync processor** (`lib/pfs-sync.ts`): maps PFS → BJ data model, creates/updates products
+  - `findOrCreateColor/Category/Composition` check `PfsMapping` first, then DB, then auto-create
+  - Orphaned mapping cleanup: if a mapping points to a deleted entity, it's auto-removed
+  - Downloads images from CDN → WebP with fallback (base ref → versioned ref)
+  - Image download: 15s timeout, retry with 3s→6s→12s backoff, min 1KB size check
+  - Supports resume via `lastPage` in `PfsSyncJob`
+- **Pre-validation flow** (2-step sync):
+  1. `POST /api/admin/pfs-sync/analyze` — dry-run: scans PFS products, detects missing categories/colors/compositions
+  2. Admin reviews & edits names/hex/patterns in UI → `POST /api/admin/pfs-sync/create-entities` creates them + saves `PfsMapping`
+  3. `POST /api/admin/pfs-sync` — actual sync starts (entities already exist)
+- **API routes**: `POST /api/admin/pfs-sync` (start), `GET /api/admin/pfs-sync` (status), `POST /api/admin/pfs-sync/resume` (resume failed), `POST /api/admin/pfs-sync/analyze` (dry-run), `POST /api/admin/pfs-sync/create-entities` (create validated entities)
+- **DB models**: `PfsSyncJob` tracks progress; `Product.pfsProductId` links to PFS product ID; `PfsMapping` remembers PFS name → BJ entity associations across syncs
 
 ### Rate Limiting (`lib/rate-limit.ts`)
 In-memory IP-based rate limiter used on sensitive endpoints: `forgot-password` (3/h), `reset-password` (10/h), `report-error` (3/15min). Usage: `rateLimit(key, maxAttempts, windowMs)` returns `{ success, remaining }`.
