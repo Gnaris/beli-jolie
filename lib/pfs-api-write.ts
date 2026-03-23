@@ -355,6 +355,18 @@ export interface PfsAttributeComposition {
   labels: Record<string, string>;
 }
 
+export interface PfsAttributeCountry {
+  reference: string; // ISO code (FR, CN, TR...)
+  labels: Record<string, string>;
+  preview: string | null; // flag SVG URL
+}
+
+export interface PfsAttributeCollection {
+  id: string;
+  reference: string; // PE2026, AH2025...
+  labels: Record<string, string>;
+}
+
 export async function pfsGetColors(): Promise<PfsAttributeColor[]> {
   const headers = await getPfsHeaders();
   const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/attributes/colors`, {
@@ -382,6 +394,26 @@ export async function pfsGetCompositions(): Promise<PfsAttributeComposition[]> {
     headers,
   });
   const data = (await res.json()) as { data: PfsAttributeComposition[] };
+  return data.data ?? [];
+}
+
+export async function pfsGetCountries(): Promise<PfsAttributeCountry[]> {
+  const headers = await getPfsHeaders();
+  const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/attributes/countries`, {
+    method: "GET",
+    headers,
+  });
+  const data = (await res.json()) as { data: PfsAttributeCountry[] };
+  return data.data ?? [];
+}
+
+export async function pfsGetCollections(): Promise<PfsAttributeCollection[]> {
+  const headers = await getPfsHeaders();
+  const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/attributes/collections`, {
+    method: "GET",
+    headers,
+  });
+  const data = (await res.json()) as { data: PfsAttributeCollection[] };
   return data.data ?? [];
 }
 

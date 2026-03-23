@@ -53,6 +53,8 @@ interface ProductImportRow {
   tags?: string;
   composition?: string;
   similarRefs?: string;     // comma-separated references of similar products
+  manufacturingCountry?: string;  // country name
+  season?: string;                // season name
   dimensionLength?: number;
   dimensionWidth?: number;
   dimensionHeight?: number;
@@ -128,6 +130,8 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     dimensionHeight: num(raw["dimension_height"] ?? raw["hauteur"]),
     dimensionDiameter: num(raw["dimension_diameter"] ?? raw["diametre"] ?? raw["diamètre"]),
     dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"]),
+    manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays"]) || undefined,
+    season: str(raw["season"] ?? raw["saison"] ?? raw["collection"]) || undefined,
   };
 }
 
@@ -170,6 +174,8 @@ function parseJSON(text: string): ProductImportRow[] {
         dimensionHeight: item.dimensionHeight ?? item.dimension_height ?? undefined,
         dimensionDiameter: item.dimensionDiameter ?? item.dimension_diameter ?? undefined,
         dimensionCircumference: item.dimensionCircumference ?? item.dimension_circumference ?? undefined,
+        manufacturingCountry: item.manufacturingCountry ?? item.manufacturing_country ?? item.pays_fabrication ?? undefined,
+        season: item.season ?? item.saison ?? item.collection ?? undefined,
       });
       idx++;
     }
@@ -266,7 +272,7 @@ export async function processProductImport(jobId: string): Promise<void> {
     // Inherit product-level fields from the group: find the first row that has each
     // field and propagate to all rows. This handles cases where product-level fields
     // (name, category, composition, etc.) are on any row, not just the first.
-    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "similarRefs", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference"] as const;
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "similarRefs", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference"] as const;
     for (const [, groupRows] of preGrouped) {
       for (const field of productFields) {
         // Find the first row that has this field
@@ -340,12 +346,17 @@ export async function processProductImport(jobId: string): Promise<void> {
       ),
     ];
 
-    const [dbColors, dbCategories, dbTags, dbCompositions, dbSubCategories, existingProducts] = await Promise.all([
+    const countryNames = [...new Set(allValidRows.filter((r) => r.manufacturingCountry).map((r) => r.manufacturingCountry!))];
+    const seasonNames = [...new Set(allValidRows.filter((r) => r.season).map((r) => r.season!))];
+
+    const [dbColors, dbCategories, dbTags, dbCompositions, dbSubCategories, dbCountries, dbSeasons, existingProducts] = await Promise.all([
       prisma.color.findMany({ where: { name: { in: colorNames } } }),
       prisma.category.findMany({ where: { name: { in: categoryNames } } }),
       prisma.tag.findMany({ where: { name: { in: tagNames } } }),
       prisma.composition.findMany({ where: { name: { in: compositionMaterials } } }),
       prisma.subCategory.findMany(),
+      prisma.manufacturingCountry.findMany({ where: { name: { in: countryNames } } }),
+      prisma.season.findMany({ where: { name: { in: seasonNames } } }),
       prisma.product.findMany({ where: { reference: { in: [...grouped.keys()] } }, select: { reference: true } }),
     ]);
 
@@ -354,6 +365,8 @@ export async function processProductImport(jobId: string): Promise<void> {
     const tagMap = new Map(dbTags.map((t) => [t.name.toLowerCase(), t]));
     const compositionMap = new Map(dbCompositions.map((c) => [c.name.toLowerCase(), c]));
     const subCatMap = new Map(dbSubCategories.map((s) => [s.name.toLowerCase(), s]));
+    const countryMap = new Map(dbCountries.map((c) => [c.name.toLowerCase(), c]));
+    const seasonMap = new Map(dbSeasons.map((s) => [s.name.toLowerCase(), s]));
     const existingRefs = new Set(existingProducts.map((p) => p.reference.toUpperCase()));
 
     let successCount = 0;
@@ -510,6 +523,40 @@ export async function processProductImport(jobId: string): Promise<void> {
           ? firstRow.similarRefs.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
           : [];
 
+        // Manufacturing country — warn if not found
+        let manufacturingCountryId: string | null = null;
+        if (firstRow.manufacturingCountry) {
+          const country = countryMap.get(firstRow.manufacturingCountry.toLowerCase());
+          if (country) {
+            manufacturingCountryId = country.id;
+          } else {
+            for (const row of colorRows) {
+              if (!errorRows.some((e) => e._rowIndex === row._rowIndex)) {
+                errorRows.push({ ...row, errors: [`Pays de fabrication "${firstRow.manufacturingCountry}" introuvable.`] });
+              }
+            }
+            processedCount++;
+            continue;
+          }
+        }
+
+        // Season — warn if not found
+        let seasonId: string | null = null;
+        if (firstRow.season) {
+          const season = seasonMap.get(firstRow.season.toLowerCase());
+          if (season) {
+            seasonId = season.id;
+          } else {
+            for (const row of colorRows) {
+              if (!errorRows.some((e) => e._rowIndex === row._rowIndex)) {
+                errorRows.push({ ...row, errors: [`Saison "${firstRow.season}" introuvable.`] });
+              }
+            }
+            processedCount++;
+            continue;
+          }
+        }
+
         try {
           console.log(`[import] Creating product ${ref}: subCatIds=[${subCatIds.join(",")}], compPairs=${compPairs.length}, tagIds=${tagIds.length}`);
           const product = await prisma.product.create({
@@ -518,6 +565,8 @@ export async function processProductImport(jobId: string): Promise<void> {
               name: firstRow.name,
               description: firstRow.description ?? "",
               categoryId: categoryId ?? (await prisma.category.findFirst().then((c) => c?.id ?? "")),
+              manufacturingCountryId,
+              seasonId,
               status: "OFFLINE",
               isBestSeller: false,
               dimensionLength: firstRow.dimensionLength ?? null,

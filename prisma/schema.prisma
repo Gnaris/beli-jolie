@@ -111,10 +111,13 @@ model Category {
   name          String                @unique
   slug          String                @unique
   pfsCategoryId String?               // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
-  subCategories SubCategory[]
-  products      Product[]
-  translations  CategoryTranslation[]
-  createdAt     DateTime              @default(now())
+  pfsGender     String?               // Genre PFS : WOMAN | MAN | KID | SUPPLIES
+  pfsFamilyId   String?               // ID famille PFS (ex: "a035J00000185J7QAI")
+  subCategories  SubCategory[]
+  products       Product[]
+  translations   CategoryTranslation[]
+  suggestedSizes CategorySize[]
+  createdAt      DateTime              @default(now())
 }
 
 model CategoryTranslation {
@@ -165,6 +168,7 @@ model Color {
   colorImages   ProductColorImage[]
   translations  ColorTranslation[]
   subColorUsages ProductColorSubColor[] // Utilisations en tant que sous-couleur
+  packEntries   PackEntry[]             // Utilisations dans les compositions de packs
 }
 
 model ColorTranslation {
@@ -176,6 +180,49 @@ model ColorTranslation {
   createdAt DateTime @default(now())
 
   @@unique([colorId, locale])
+}
+
+// Pays de fabrication
+model ManufacturingCountry {
+  id               String                            @id @default(cuid())
+  name             String                            @unique
+  isoCode          String?                           @unique  // ISO code: "CN", "TR", "FR"
+  pfsCountryRef    String?                           @unique  // PFS country reference (ISO code)
+  createdAt        DateTime                          @default(now())
+  products         Product[]
+  translations     ManufacturingCountryTranslation[]
+}
+
+model ManufacturingCountryTranslation {
+  id                      String               @id @default(cuid())
+  manufacturingCountryId  String
+  manufacturingCountry    ManufacturingCountry  @relation(fields: [manufacturingCountryId], references: [id], onDelete: Cascade)
+  locale                  String
+  name                    String
+  createdAt               DateTime             @default(now())
+
+  @@unique([manufacturingCountryId, locale])
+}
+
+// Saisons (ex: "Printemps/Été 2026", "Automne/Hiver 2025")
+model Season {
+  id               String              @id @default(cuid())
+  name             String              @unique
+  pfsSeasonRef     String?             @unique  // PFS collection reference: "PE2026", "AH2025"
+  createdAt        DateTime            @default(now())
+  products         Product[]
+  translations     SeasonTranslation[]
+}
+
+model SeasonTranslation {
+  id        String   @id @default(cuid())
+  seasonId  String
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  locale    String
+  name      String
+  createdAt DateTime @default(now())
+
+  @@unique([seasonId, locale])
 }
 
 // Bibliothèque de compositions (matériaux)
@@ -274,6 +321,10 @@ model Product {
   dimensionHeight        Float?
   dimensionDiameter      Float?
   dimensionCircumference Float?
+  manufacturingCountryId String?
+  manufacturingCountry   ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
+  seasonId               String?
+  season                 Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
@@ -285,6 +336,8 @@ model Product {
   @@index([status, name])               // search by name
   @@index([createdAt])                  // general date sorting
   @@index([reference])                  // exact reference search
+  @@index([manufacturingCountryId])      // country filter
+  @@index([seasonId])                    // season filter
 }
 
 // Traductions automatiques des produits
@@ -346,6 +399,7 @@ model ProductColor {
   images      ProductColorImage[]   // Images spécifiques à ce variant
   cartItems   CartItem[]
   collectionOverrides CollectionProduct[] // Apparitions dans des collections avec cette couleur
+  packEntries PackEntry[]   // Composition du pack (couleur × taille × qty) — vide si UNIT
   restockAlerts RestockAlert[]
   pfsVariantId  String?      // ID variant sur PFS (ex: "pro_c33dcc49...") — pour reverse sync
   createdAt   DateTime     @default(now())
@@ -371,6 +425,35 @@ model ProductColorSubColor {
 
   @@unique([productColorId, colorId])
   @@index([productColorId])
+}
+
+// Entrée de composition d'un PACK (couleur × taille × quantité)
+// Un PACK variant peut contenir N couleurs × M tailles × qty par combinaison
+// Ex: Doré:17×2, Doré:18×2, Argenté:17×2, Argenté:18×2 = 8 pièces
+model PackEntry {
+  id              String       @id @default(cuid())
+  productColorId  String
+  productColor    ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  colorId         String
+  color           Color        @relation(fields: [colorId], references: [id])
+  size            String       // ex: "17", "L", "TU"
+  quantity        Int          // nombre de pièces de cette couleur×taille
+  position        Int          @default(0)
+
+  @@index([productColorId])
+}
+
+// Tailles suggérées par catégorie (configurable par l'admin)
+// Permet de filtrer les 673 tailles PFS par catégorie côté BJ
+model CategorySize {
+  id         String   @id @default(cuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  size       String   // ex: "17", "S", "TU"
+  position   Int      @default(0)
+
+  @@unique([categoryId, size])
+  @@index([categoryId])
 }
 
 // Images liées à un variant spécifique (ProductColor)
@@ -514,6 +597,7 @@ model OrderItem {
   saleType    String  // "UNIT" | "PACK"
   packQty     Int?
   size        String?
+  packDetails String?  @db.Text // JSON snapshot composition pack : [{colorName,size,qty}]
   imagePath   String? // première image (relatif /public)
 
   unitPrice   Float   // prix unitaire calculé (remise incluse)
@@ -972,6 +1056,10 @@ model PfsStagedProduct {
   translations   Json             // { locale, name, description }[]
   imagesByColor  Json             // { colorRef, colorName, colorId, paths[] }[]
   tags           Json?            // string[] — tag names
+  manufacturingCountryId   String?
+  manufacturingCountryName String?
+  seasonId                 String?
+  seasonName               String?
   errorMessage      String?          @db.Text
   existsInDb        Boolean          @default(false)
   existingProductId String?

@@ -8,7 +8,6 @@ import { prisma } from "@/lib/prisma";
 import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
-import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -21,6 +20,14 @@ async function requireAdmin() {
 // Types
 // ─────────────────────────────────────────────
 
+export interface PackEntryInput {
+  dbId?: string;         // PackEntry.id when editing existing (undefined for new)
+  colorId: string;
+  size: string;
+  quantity: number;
+  position: number;
+}
+
 export interface ColorInput {
   dbId?: string;         // ProductColor.id when editing existing (undefined for new)
   colorId: string;
@@ -32,6 +39,7 @@ export interface ColorInput {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   size: string | null;
+  packEntries?: PackEntryInput[]; // Composition du pack (couleur × taille × qty) — vide/absent pour UNIT
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
 }
@@ -65,6 +73,8 @@ export interface ProductInput {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
+  manufacturingCountryId?: string | null;
+  seasonId?: string | null;
   translations?: TranslationInput[];
 }
 
@@ -76,6 +86,15 @@ export interface ProductInput {
 function colorInputGroupKey(c: ColorInput): string {
   if (!c.subColorIds || c.subColorIds.length === 0) return c.colorId;
   return `${c.colorId}::${c.subColorIds.join(",")}`;
+}
+
+/** Hash sorted pack entries for deduplication. */
+function packEntriesHash(entries?: PackEntryInput[]): string {
+  if (!entries || entries.length === 0) return "";
+  return entries
+    .map((e) => `${e.colorId}|${e.size}|${e.quantity}`)
+    .sort()
+    .join(";;");
 }
 
 function validateVariants(colors: ColorInput[]): void {
@@ -91,16 +110,27 @@ function validateVariants(colors: ColorInput[]): void {
     }
   }
 
-  // No two PACK variants with same color group + packQuantity + size
+  // No two PACK variants with same composition
   const packKeys = new Set<string>();
   for (const c of colors) {
     if (c.saleType === "PACK") {
       const gk = colorInputGroupKey(c);
-      const key = `${gk}__${c.packQuantity ?? ""}__${(c.size ?? "").trim().toLowerCase()}`;
+      const entriesHash = packEntriesHash(c.packEntries);
+      // If pack has entries, use entries hash; otherwise fall back to old key
+      const key = entriesHash
+        ? `${gk}__entries__${entriesHash}`
+        : `${gk}__${c.packQuantity ?? ""}__${(c.size ?? "").trim().toLowerCase()}`;
       if (packKeys.has(key)) {
-        throw new Error("Une couleur ne peut pas avoir deux paquets de même quantité et de même taille.");
+        throw new Error("Une couleur ne peut pas avoir deux paquets de même composition.");
       }
       packKeys.add(key);
+    }
+  }
+
+  // Sync packQuantity from entries if entries exist
+  for (const c of colors) {
+    if (c.saleType === "PACK" && c.packEntries && c.packEntries.length > 0) {
+      c.packQuantity = c.packEntries.reduce((sum, e) => sum + e.quantity, 0);
     }
   }
 }
@@ -147,6 +177,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       dimensionHeight:       input.dimensionHeight,
       dimensionDiameter:     input.dimensionDiameter,
       dimensionCircumference: input.dimensionCircumference,
+      manufacturingCountryId: input.manufacturingCountryId || null,
+      seasonId: input.seasonId || null,
       compositions: {
         create: input.compositions.map((c) => ({
           compositionId: c.compositionId,
@@ -182,6 +214,19 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       select: { id: true, colorId: true },
     });
     createdVariants.push(variant);
+
+    // Create pack entries for PACK variants with composition
+    if (color.saleType === "PACK" && color.packEntries && color.packEntries.length > 0) {
+      await prisma.packEntry.createMany({
+        data: color.packEntries.map((e) => ({
+          productColorId: variant.id,
+          colorId: e.colorId,
+          size: e.size,
+          quantity: e.quantity,
+          position: e.position,
+        })),
+      });
+    }
   }
 
   // Images: create ProductColorImage entries linked to specific ProductColor variant
@@ -251,9 +296,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
 
-  // PFS Reverse Sync — non-blocking push to Paris Fashion Shop
-  triggerPfsSync(product.id);
-
   return { id: product.id };
 }
 
@@ -318,6 +360,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         dimensionHeight:       input.dimensionHeight,
         dimensionDiameter:     input.dimensionDiameter,
         dimensionCircumference: input.dimensionCircumference,
+        manufacturingCountryId: input.manufacturingCountryId || null,
+        seasonId: input.seasonId || null,
       },
     });
 
@@ -429,6 +473,30 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
     if (subColorData.length > 0) {
       await tx.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
+    }
+
+    // ── Pack entries: full replace for all PACK variants ──────────
+    if (allVariantIds.length > 0) {
+      await tx.packEntry.deleteMany({
+        where: { productColorId: { in: allVariantIds } },
+      });
+    }
+    const packEntryData: { productColorId: string; colorId: string; size: string; quantity: number; position: number }[] = [];
+    for (const { colorInput, variantId } of variantIdMap) {
+      if (colorInput.saleType === "PACK" && colorInput.packEntries && colorInput.packEntries.length > 0) {
+        for (const entry of colorInput.packEntries) {
+          packEntryData.push({
+            productColorId: variantId,
+            colorId: entry.colorId,
+            size: entry.size,
+            quantity: entry.quantity,
+            position: entry.position,
+          });
+        }
+      }
+    }
+    if (packEntryData.length > 0) {
+      await tx.packEntry.createMany({ data: packEntryData });
     }
 
     // ── Images: full replace linked to specific ProductColor variant ──────────
@@ -552,8 +620,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
   }
 
-  // PFS Reverse Sync — non-blocking push to Paris Fashion Shop
-  triggerPfsSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -591,7 +657,6 @@ export async function archiveProduct(id: string) {
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
-  triggerPfsSync(id);
 }
 
 export async function unarchiveProduct(id: string) {
@@ -601,7 +666,6 @@ export async function unarchiveProduct(id: string) {
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
-  triggerPfsSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -669,7 +733,6 @@ export async function bulkUpdateProductStatus(
     } else {
       emitProductEvent({ type: "PRODUCT_OFFLINE", productId: pid });
     }
-    triggerPfsSync(pid);
   }
 
   return { success, errors };
@@ -763,8 +826,6 @@ export async function updateVariantQuick(
   revalidatePath(`/produits/${variant.productId}`);
   emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
 
-  // PFS Reverse Sync — push variant changes
-  triggerPfsSync(variant.productId);
 }
 
 // ─────────────────────────────────────────────
@@ -808,8 +869,6 @@ export async function bulkUpdateVariants(
   for (const pid of productIds) {
     revalidatePath(`/produits/${pid}`);
     emitProductEvent({ type: "STOCK_CHANGED", productId: pid });
-    // PFS Reverse Sync — push variant changes
-    triggerPfsSync(pid);
   }
 
   return { updated: variants.length };

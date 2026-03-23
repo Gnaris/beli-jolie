@@ -51,6 +51,28 @@ export const getCachedTags = unstable_cache(
   { revalidate: 3600, tags: ["tags"] }
 );
 
+// ─── Pays de fabrication ─────────────────────────────────────────────────────
+export const getCachedManufacturingCountries = unstable_cache(
+  async () =>
+    prisma.manufacturingCountry.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, isoCode: true },
+    }),
+  ["filter-manufacturing-countries"],
+  { revalidate: 3600, tags: ["manufacturing-countries"] }
+);
+
+// ─── Saisons ────────────────────────────────────────────────────────────────
+export const getCachedSeasons = unstable_cache(
+  async () =>
+    prisma.season.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ["filter-seasons"],
+  { revalidate: 3600, tags: ["seasons"] }
+);
+
 // ─── SiteConfig (clé unique — used heavily, short TTL) ─────────────────────────
 // Each key gets its own cache entry to avoid collisions
 export function getCachedSiteConfig(key: string) {

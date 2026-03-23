@@ -22,6 +22,8 @@ import {
   findOrCreateColor,
   findOrCreateCategory,
   findOrCreateComposition,
+  findOrCreateCountry,
+  findOrCreateSeason,
   fetchProductDetails,
   downloadImage,
   closePlaywright,
@@ -29,7 +31,7 @@ import {
   IMAGE_CONCURRENCY,
   MAX_LOGS,
 } from "@/lib/pfs-sync";
-import { rename, unlink, mkdir } from "fs/promises";
+import { rename, unlink, mkdir, access } from "fs/promises";
 
 // Lower concurrency for prepare to avoid PFS API rate-limiting
 // Each product makes 2 API calls (getVariants + checkReference) so 5 products = 10 concurrent API calls
@@ -186,6 +188,26 @@ async function prepareSingleProduct(
         const compositionId = await findOrCreateComposition(frName, mat.labels);
         compositions.push({ compositionId, name: frName, percentage: mat.percentage });
       }
+    }
+
+    // ── Resolve country ──
+    let manufacturingCountryId: string | null = null;
+    let manufacturingCountryName: string | null = null;
+    if (refDetails?.product?.country_of_manufacture) {
+      const isoCode = refDetails.product.country_of_manufacture;
+      manufacturingCountryId = await findOrCreateCountry(isoCode) || null;
+      manufacturingCountryName = isoCode;
+      addLog(`  🌍 Pays: ${isoCode}`);
+    }
+
+    // ── Resolve season ──
+    let seasonId: string | null = null;
+    let seasonName: string | null = null;
+    if (refDetails?.product?.collection) {
+      const col = refDetails.product.collection;
+      seasonId = await findOrCreateSeason(col.reference, col.labels || {}) || null;
+      seasonName = col.labels?.fr || col.reference;
+      addLog(`  📅 Saison: ${seasonName}`);
     }
 
     // ── Build variant data ──
@@ -404,6 +426,10 @@ async function prepareSingleProduct(
         description: descriptionFr,
         categoryId,
         categoryName,
+        manufacturingCountryId,
+        manufacturingCountryName,
+        seasonId,
+        seasonName,
         isBestSeller: pfsProduct.is_star === 1,
         variants: variants as unknown as import("@prisma/client").Prisma.InputJsonValue,
         compositions: compositions as unknown as import("@prisma/client").Prisma.InputJsonValue,
@@ -424,6 +450,10 @@ async function prepareSingleProduct(
         description: descriptionFr,
         categoryId,
         categoryName,
+        manufacturingCountryId,
+        manufacturingCountryName,
+        seasonId,
+        seasonName,
         isBestSeller: pfsProduct.is_star === 1,
         variants: variants as unknown as import("@prisma/client").Prisma.InputJsonValue,
         compositions: compositions as unknown as import("@prisma/client").Prisma.InputJsonValue,
@@ -448,10 +478,13 @@ async function prepareSingleProduct(
           const limitedUrls = urls.slice(0, 5).map(fullSizeImageUrl);
           const paths = await downloadAndProcessStagingImages(limitedUrls, bjRef, colorRef);
 
-          // Find color name from variants
-          const matchingVariant = variants.find((v) => v.colorRef === colorRef);
+          // Find color name from variants (case-insensitive — PFS API may use
+          // different casing for image keys vs variant color references)
+          const matchingVariant = variants.find((v) => v.colorRef === colorRef)
+            ?? variants.find((v) => v.colorRef.toLowerCase() === colorRef.toLowerCase());
           const colorName = matchingVariant?.colorName || colorRef;
-          const colorId = matchingVariant?.colorId || "";
+          // Use colorRef as fallback (not "") so orphan groups remain uniquely identifiable
+          const colorId = matchingVariant?.colorId || colorRef;
 
           if (paths.length > 0) {
             imageGroups.push({ colorRef, colorName, colorId, paths });
@@ -799,6 +832,28 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
     staged.categoryId = resolvedCategoryId;
   }
 
+  // Re-resolve manufacturing country if deleted
+  if (staged.manufacturingCountryId) {
+    const countryExists = await prisma.manufacturingCountry.findUnique({
+      where: { id: staged.manufacturingCountryId },
+      select: { id: true },
+    });
+    if (!countryExists) {
+      staged.manufacturingCountryId = null;
+    }
+  }
+
+  // Re-resolve season if deleted
+  if (staged.seasonId) {
+    const seasonExists = await prisma.season.findUnique({
+      where: { id: staged.seasonId },
+      select: { id: true },
+    });
+    if (!seasonExists) {
+      staged.seasonId = null;
+    }
+  }
+
   // Check if product already exists
   const existing = await prisma.product.findFirst({
     where: {
@@ -840,6 +895,8 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
           subCategories: subCategoryConnect,
           pfsProductId: staged.pfsProductId,
           isBestSeller: staged.isBestSeller,
+          manufacturingCountryId: staged.manufacturingCountryId || null,
+          seasonId: staged.seasonId || null,
           status: "ONLINE",
         },
       });
@@ -871,6 +928,8 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
       categoryId: staged.categoryId,
       subCategories: subCategoryIds.length > 0 ? { connect: subCategoryIds.map((id) => ({ id })) } : undefined,
       isBestSeller: staged.isBestSeller,
+      manufacturingCountryId: staged.manufacturingCountryId || null,
+      seasonId: staged.seasonId || null,
       status: "ONLINE",
     },
   });
@@ -961,9 +1020,15 @@ async function createProductChildren(
 
   // Move images from staging to final + create DB records
   for (const group of imageGroups) {
-    const matchingVariant = createdVariants.find((v) => v.colorRef === group.colorRef);
+    // Match by colorId (database ID), then colorRef exact, then case-insensitive.
+    // PFS API can use different casing for image keys vs variant references (e.g. "SILVER" vs "Silver")
+    // and BJ uses name.toUpperCase (e.g. "DORÉ") while PFS uses API ref (e.g. "DORE").
+    const matchingVariant = (group.colorId && createdVariants.find((v) => v.colorId === group.colorId))
+      ?? createdVariants.find((v) => v.colorRef === group.colorRef)
+      ?? createdVariants.find((v) => v.colorRef.toLowerCase() === group.colorRef.toLowerCase())
+      ?? createdVariants.find((v) => v.colorId === group.colorRef);
     if (!matchingVariant) {
-      console.log(`[CREATE_CHILDREN] WARNING: No matching variant for image group colorRef=${group.colorRef} colorId=${group.colorId}. Available colorRefs: ${createdVariants.map(v => v.colorRef).join(", ")}`);
+      console.log(`[CREATE_CHILDREN] WARNING: No matching variant for image group colorRef=${group.colorRef} colorId=${group.colorId}. Available: ${createdVariants.map(v => `${v.colorRef}(${v.colorId})`).join(", ")}`);
       continue;
     }
 
@@ -993,7 +1058,14 @@ async function createProductChildren(
           const finalPath = await moveImageFromStaging(imgPath);
           finalPaths.push({ path: finalPath, order: imgOrder });
         } catch {
-          // Image file missing — skip silently
+          // Source file missing — check if already moved (same staging image used by another color group)
+          const finalDbPath = imgPath.replace("/uploads/products/staging/", "/uploads/products/");
+          try {
+            await access(path.join(process.cwd(), "public", finalDbPath));
+            finalPaths.push({ path: finalDbPath, order: imgOrder });
+          } catch {
+            console.warn(`[CREATE_CHILDREN] Staging image not found and not already moved: ${imgPath}`);
+          }
         }
       } else {
         // Already a final path (BJ existing image kept via compare modal) — use as-is
@@ -1310,13 +1382,35 @@ async function applyCompareSelections(
   const processedColorIds = new Set<string>();
 
   for (const [key, slots] of Object.entries(selections.imageSlots)) {
-    // Extract colorId from key (format: "colorId::subNames")
-    const [colorId] = key.split("::");
-    processedColorIds.add(colorId);
+    // Extract colorId from key (format: "colorId::subNames" or "colorRef::subNames" when colorId was empty)
+    const [rawColorId] = key.split("::");
+
     // Find matching color info from BJ or staged data
     const bjGroup = bjImageGroups.get(key);
-    const stagedGroup = stagedImages.find((g) => g.colorId === colorId);
+    // Try exact colorId match, then case-insensitive colorRef match (handles PFS
+    // prepare bug where colorId="" and key falls back to colorRef like "SILVER")
+    const stagedGroup = stagedImages.find((g) => g.colorId === rawColorId)
+      ?? stagedImages.find((g) => g.colorRef.toLowerCase() === rawColorId.toLowerCase());
     const sourceGroup = bjGroup ?? stagedGroup;
+
+    // Resolve the actual database colorId — rawColorId might be a PFS colorRef
+    // string (e.g. "SILVER") instead of a UUID when PFS prepare had a case mismatch
+    let resolvedColorId = rawColorId;
+    if (sourceGroup?.colorId) {
+      resolvedColorId = sourceGroup.colorId;
+    }
+    // If still not a valid DB ID, try to find from merged variants
+    if (!resolvedColorId || resolvedColorId === sourceGroup?.colorRef) {
+      const matchVar = mergedVariants.find((v) =>
+        v.colorRef.toLowerCase() === rawColorId.toLowerCase()
+        || v.colorName.toLowerCase() === rawColorId.toLowerCase()
+      );
+      if (matchVar) resolvedColorId = matchVar.colorId;
+    }
+
+    processedColorIds.add(resolvedColorId);
+    // Also track the raw key to avoid double-processing
+    processedColorIds.add(rawColorId);
 
     // Preserve slot positions — keep original order from the 5-slot array
     const paths: string[] = [];
@@ -1330,9 +1424,9 @@ async function applyCompareSelections(
     if (paths.length === 0) continue;
 
     mergedImages.push({
-      colorRef: sourceGroup?.colorRef ?? colorId,
-      colorName: sourceGroup?.colorName ?? colorId,
-      colorId,
+      colorRef: sourceGroup?.colorRef ?? rawColorId,
+      colorName: sourceGroup?.colorName ?? rawColorId,
+      colorId: resolvedColorId,
       paths,
       orders,
     });
@@ -1344,13 +1438,16 @@ async function applyCompareSelections(
     if (choice !== "pfs" && choice !== "add") continue;
     const pfsVars = pfsByKey.get(vKey);
     if (!pfsVars || pfsVars.length === 0) continue;
-    const colorId = pfsVars[0].colorId;
-    if (processedColorIds.has(colorId)) continue;
-    processedColorIds.add(colorId);
-    // Find PFS images for this color
-    const pfsImgGroup = stagedImages.find((g) => g.colorId === colorId);
+    const varColorId = pfsVars[0].colorId;
+    const varColorRef = pfsVars[0].colorRef;
+    // Check if already processed (by colorId, colorRef, or colorName)
+    if (processedColorIds.has(varColorId) || processedColorIds.has(varColorRef)) continue;
+    processedColorIds.add(varColorId);
+    // Find PFS images for this color (by colorId or case-insensitive colorRef)
+    const pfsImgGroup = stagedImages.find((g) => g.colorId === varColorId)
+      ?? stagedImages.find((g) => g.colorRef.toLowerCase() === varColorRef.toLowerCase());
     if (pfsImgGroup && pfsImgGroup.paths.length > 0) {
-      mergedImages.push(pfsImgGroup);
+      mergedImages.push({ ...pfsImgGroup, colorId: varColorId });
     }
   }
 

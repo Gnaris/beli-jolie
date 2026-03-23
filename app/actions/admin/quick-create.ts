@@ -191,3 +191,68 @@ export async function createTagQuick(
   revalidatePath("/admin/produits");
   return tag;
 }
+
+export async function createManufacturingCountryQuick(
+  names: Record<string, string>,
+  isoCode?: string | null,
+  pfsCountryRef?: string | null
+): Promise<{ id: string; name: string }> {
+  await requireAdmin();
+  const frName = names["fr"]?.trim();
+  if (!frName) throw new Error("Le nom en français est requis.");
+
+  const existing = await prisma.manufacturingCountry.findFirst({
+    where: { name: frName },
+    select: { id: true },
+  });
+  if (existing) throw new Error(`Le pays "${frName}" existe déjà.`);
+
+  const country = await prisma.manufacturingCountry.create({
+    data: { name: frName, isoCode: isoCode || null, pfsCountryRef: pfsCountryRef || null },
+    select: { id: true, name: true },
+  });
+
+  const translationData = buildTranslations(names, "manufacturingCountryId", country.id);
+  if (translationData.length > 0) {
+    await prisma.manufacturingCountryTranslation.createMany({
+      data: translationData as { manufacturingCountryId: string; locale: string; name: string }[],
+      skipDuplicates: true,
+    });
+  }
+
+  revalidatePath("/admin/pays");
+  revalidatePath("/admin/produits");
+  return country;
+}
+
+export async function createSeasonQuick(
+  names: Record<string, string>,
+  pfsSeasonRef?: string | null
+): Promise<{ id: string; name: string }> {
+  await requireAdmin();
+  const frName = names["fr"]?.trim();
+  if (!frName) throw new Error("Le nom en français est requis.");
+
+  const existing = await prisma.season.findFirst({
+    where: { name: frName },
+    select: { id: true },
+  });
+  if (existing) throw new Error(`La saison "${frName}" existe déjà.`);
+
+  const season = await prisma.season.create({
+    data: { name: frName, pfsSeasonRef: pfsSeasonRef || null },
+    select: { id: true, name: true },
+  });
+
+  const translationData = buildTranslations(names, "seasonId", season.id);
+  if (translationData.length > 0) {
+    await prisma.seasonTranslation.createMany({
+      data: translationData as { seasonId: string; locale: string; name: string }[],
+      skipDuplicates: true,
+    });
+  }
+
+  revalidatePath("/admin/saisons");
+  revalidatePath("/admin/produits");
+  return season;
+}

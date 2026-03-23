@@ -104,6 +104,7 @@ export async function placeOrder(
                 product: { select: { id: true, name: true, reference: true, status: true, category: { select: { name: true } } } },
                 color:   { select: { id: true, name: true, hex: true } },
                 subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
+                packEntries: { orderBy: { position: "asc" }, include: { color: { select: { name: true } } } },
               },
             },
           },
@@ -226,6 +227,13 @@ export async function placeOrder(
       saleType:    item.variant.saleType,
       packQty:     item.variant.packQuantity,
       size:        item.variant.size,
+      packDetails: item.variant.packEntries && item.variant.packEntries.length > 0
+        ? JSON.stringify(item.variant.packEntries.map((e: { color: { name: string }; size: string; quantity: number }) => ({
+            colorName: e.color.name,
+            size: e.size,
+            qty: e.quantity,
+          })))
+        : null,
       imagePath:   imagesByKey.get(imgKey) ?? null,
       unitPrice,
       quantity:    item.quantity,
@@ -282,6 +290,7 @@ export async function placeOrder(
           saleType:    item.saleType,
           packQty:     item.packQty ?? null,
           size:        item.size ?? null,
+          packDetails: item.packDetails ?? null,
           imagePath:   item.imagePath ?? null,
           unitPrice:   item.unitPrice,
           quantity:    item.quantity,

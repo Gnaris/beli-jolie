@@ -45,20 +45,18 @@ export function slugify(str: string): string {
 }
 
 /**
- * Strip version suffix from PFS reference.
- * "A200VS3" → "A200", "T198VS1" → "T198", "B100" → "B100"
+ * Reference passthrough — no version stripping.
+ * Kept as a function for backward compatibility with all call sites.
  */
 export function stripVersionSuffix(ref: string): string {
-  return ref.replace(/VS\d+$/i, "");
+  return ref;
 }
 
 /**
- * Get the version suffix if present.
- * "A200VS3" → "VS3", "B100" → null
+ * Always returns null — version suffixes are no longer used.
  */
-function getVersionSuffix(ref: string): string | null {
-  const match = ref.match(/(VS\d+)$/i);
-  return match ? match[1] : null;
+function getVersionSuffix(_ref: string): string | null {
+  return null;
 }
 
 
@@ -267,6 +265,7 @@ export function parsePfsCategoryRef(ref: string): string {
   const last = parts[parts.length - 1];
 
   const categoryMap: Record<string, string> = {
+    // Bijoux
     EARRINGS: "Boucles d'oreilles",
     RINGS: "Bagues",
     NECKLACES: "Colliers",
@@ -279,6 +278,36 @@ export function parsePfsCategoryRef(ref: string): string {
     ANKLETS: "Bracelets de cheville",
     BROOCHES: "Broches",
     HAIRACCESSORIES: "Accessoires cheveux",
+    // Vêtements & Accessoires
+    CLOTHING: "Vêtements",
+    TSHIRTS: "T-shirts",
+    SHIRTS: "Chemises",
+    DRESSES: "Robes",
+    SKIRTS: "Jupes",
+    PANTS: "Pantalons",
+    JACKETS: "Vestes",
+    COATS: "Manteaux",
+    SWEATERS: "Pulls",
+    TOPS: "Tops",
+    SHORTS: "Shorts",
+    JEANS: "Jeans",
+    SUITS: "Costumes",
+    BLAZERS: "Blazers",
+    GLOVES: "Gants",
+    SCARVES: "Écharpes",
+    HATS: "Chapeaux",
+    BAGS: "Sacs",
+    WALLETS: "Portefeuilles",
+    BELTS: "Ceintures",
+    SUNGLASSES: "Lunettes de soleil",
+    WATCHES: "Montres",
+    ACCESSORIES: "Accessoires",
+    SHOES: "Chaussures",
+    BOOTS: "Bottes",
+    SANDALS: "Sandales",
+    SNEAKERS: "Baskets",
+    LINGERIE: "Lingerie",
+    SWIMWEAR: "Maillots de bain",
   };
 
   return categoryMap[last] ?? last;
@@ -525,6 +554,146 @@ export async function findOrCreateComposition(
 }
 
 // ─────────────────────────────────────────────
+// Country resolution — find or create ManufacturingCountry in BJ
+// ─────────────────────────────────────────────
+
+export const countryCache = new Map<string, string>(); // ISO code → ManufacturingCountry.id
+
+export async function findOrCreateCountry(
+  isoCode: string,
+): Promise<string> {
+  const normalized = isoCode.trim().toUpperCase();
+  if (!normalized) return "";
+  if (countryCache.has(normalized)) return countryCache.get(normalized)!;
+
+  // Check PfsMapping first
+  const mapping = await prisma.pfsMapping.findUnique({
+    where: { type_pfsName: { type: "country", pfsName: normalized.toLowerCase() } },
+  });
+  if (mapping) {
+    const mapped = await prisma.manufacturingCountry.findUnique({ where: { id: mapping.bjEntityId }, select: { id: true } });
+    if (mapped) {
+      countryCache.set(normalized, mapping.bjEntityId);
+      return mapping.bjEntityId;
+    }
+    await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
+  }
+
+  // Check by ISO code
+  const existingByIso = await prisma.manufacturingCountry.findFirst({
+    where: { isoCode: normalized },
+    select: { id: true },
+  });
+  if (existingByIso) {
+    countryCache.set(normalized, existingByIso.id);
+    return existingByIso.id;
+  }
+
+  // Create with ISO code as name (can be renamed by admin later)
+  let country: { id: string };
+  try {
+    country = await prisma.manufacturingCountry.upsert({
+      where: { isoCode: normalized },
+      update: {},
+      create: { name: normalized, isoCode: normalized, pfsCountryRef: normalized },
+    });
+  } catch {
+    const raceCreated = await prisma.manufacturingCountry.findFirst({
+      where: { isoCode: normalized },
+      select: { id: true },
+    });
+    if (!raceCreated) throw new Error(`Failed to find or create country: ${normalized}`);
+    country = raceCreated;
+  }
+
+  countryCache.set(normalized, country.id);
+  return country.id;
+}
+
+// ─────────────────────────────────────────────
+// Season resolution — find or create Season in BJ
+// ─────────────────────────────────────────────
+
+export const seasonCache = new Map<string, string>(); // PFS reference → Season.id
+
+export async function findOrCreateSeason(
+  reference: string,
+  labels: Record<string, string>,
+): Promise<string> {
+  const normalized = reference.trim().toUpperCase();
+  if (!normalized) return "";
+  if (seasonCache.has(normalized)) return seasonCache.get(normalized)!;
+
+  // Check PfsMapping first
+  const mapping = await prisma.pfsMapping.findUnique({
+    where: { type_pfsName: { type: "season", pfsName: reference.toLowerCase() } },
+  });
+  if (mapping) {
+    const mapped = await prisma.season.findUnique({ where: { id: mapping.bjEntityId }, select: { id: true } });
+    if (mapped) {
+      seasonCache.set(normalized, mapping.bjEntityId);
+      return mapping.bjEntityId;
+    }
+    await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
+  }
+
+  // Check by PFS ref
+  const existingByRef = await prisma.season.findFirst({
+    where: { pfsSeasonRef: normalized },
+    select: { id: true },
+  });
+  if (existingByRef) {
+    seasonCache.set(normalized, existingByRef.id);
+    return existingByRef.id;
+  }
+
+  // Check by name (FR label)
+  const frName = labels?.fr || normalized;
+  const existingByName = await prisma.season.findFirst({
+    where: { name: frName },
+    select: { id: true },
+  });
+  if (existingByName) {
+    seasonCache.set(normalized, existingByName.id);
+    return existingByName.id;
+  }
+
+  // Create
+  let season: { id: string };
+  try {
+    season = await prisma.season.upsert({
+      where: { name: frName },
+      update: {},
+      create: { name: frName, pfsSeasonRef: normalized },
+    });
+  } catch {
+    const raceCreated = await prisma.season.findFirst({
+      where: { OR: [{ name: frName }, { pfsSeasonRef: normalized }] },
+      select: { id: true },
+    });
+    if (!raceCreated) throw new Error(`Failed to find or create season: ${frName}`);
+    season = raceCreated;
+  }
+
+  // Translations
+  for (const [locale, name] of Object.entries(labels)) {
+    if (locale === "fr" || !name) continue;
+    try {
+      await prisma.seasonTranslation.upsert({
+        where: { seasonId_locale: { seasonId: season.id, locale } },
+        update: { name },
+        create: { seasonId: season.id, locale, name },
+      });
+    } catch {
+      // Race condition — safe to ignore
+    }
+  }
+
+  seasonCache.set(normalized, season.id);
+  return season.id;
+}
+
+// ─────────────────────────────────────────────
 // Image processing
 // ─────────────────────────────────────────────
 
@@ -584,7 +753,7 @@ export async function downloadAndProcessImages(
  *   2. If the base ref doesn't exist on PFS or has no images, fall back to the
  *      versioned ref's images (from the product data we already have).
  */
-async function getBestImageSource(
+async function _getBestImageSource(
   pfsProduct: PfsProduct,
 ): Promise<{ primary: Record<string, string | string[]>; fallback: Record<string, string | string[]> | null }> {
   const pfsRef = pfsProduct.reference.trim().toUpperCase();
@@ -660,6 +829,22 @@ async function syncSingleProduct(
         compositions.push({ compositionId, percentage: mat.percentage });
       }
       addLog(`  🧪 Compositions: ${refDetails.product.material_composition.map((m) => `${m.labels?.fr || m.reference} ${m.percentage}%`).join(", ")}`);
+    }
+
+    // ── Resolve country of manufacture ──
+    let manufacturingCountryId: string | null = null;
+    if (refDetails?.product?.country_of_manufacture) {
+      const isoCode = refDetails.product.country_of_manufacture;
+      manufacturingCountryId = await findOrCreateCountry(isoCode) || null;
+      if (manufacturingCountryId) addLog(`  🌍 Pays: ${isoCode}`);
+    }
+
+    // ── Resolve season / collection ──
+    let seasonId: string | null = null;
+    if (refDetails?.product?.collection?.reference) {
+      const col = refDetails.product.collection;
+      seasonId = await findOrCreateSeason(col.reference, col.labels || {}) || null;
+      if (seasonId) addLog(`  📅 Saison: ${col.reference} (${col.labels?.fr || ""})`);
     }
 
     // ── Build variant data ──
@@ -833,7 +1018,7 @@ async function syncSingleProduct(
       await Promise.all([
         prisma.product.update({
           where: { id: productId },
-          data: { name: nameFr, description: descriptionFr, pfsProductId: pfsProduct.id, categoryId, status: "SYNCING" },
+          data: { name: nameFr, description: descriptionFr, pfsProductId: pfsProduct.id, categoryId, manufacturingCountryId, seasonId, status: "SYNCING" },
         }),
         prisma.productComposition.deleteMany({ where: { productId } }),
         prisma.productColorImage.deleteMany({ where: { productId } }),
@@ -893,6 +1078,8 @@ async function syncSingleProduct(
           name: nameFr,
           description: descriptionFr,
           categoryId,
+          manufacturingCountryId,
+          seasonId,
           status: "SYNCING",
           isBestSeller: pfsProduct.is_star === 1,
           compositions: {

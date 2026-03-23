@@ -8,11 +8,13 @@ import {
   createCompositionQuick,
   createColorQuick,
   createTagQuick,
+  createManufacturingCountryQuick,
+  createSeasonQuick,
 } from "@/app/actions/admin/quick-create";
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
 
-export type QuickCreateType = "category" | "subcategory" | "composition" | "color" | "tag";
+export type QuickCreateType = "category" | "subcategory" | "composition" | "color" | "tag" | "country" | "season";
 
 interface QuickCreateModalProps {
   type: QuickCreateType;
@@ -29,6 +31,8 @@ const TITLES: Record<QuickCreateType, string> = {
   composition: "Créer un matériau",
   color:       "Créer une couleur",
   tag:         "Créer un mot-clé",
+  country:     "Créer un pays de fabrication",
+  season:      "Créer une saison",
 };
 
 const PLACEHOLDERS: Record<QuickCreateType, string> = {
@@ -37,6 +41,8 @@ const PLACEHOLDERS: Record<QuickCreateType, string> = {
   composition: "Ex: Acier inoxydable, Or 18k…",
   color:       "Ex: Or rose, Argent…",
   tag:         "Ex: tendance, été…",
+  country:     "Ex: Chine, Turquie, France…",
+  season:      "Ex: Printemps/Été 2026…",
 };
 
 const RTL = ["ar"];
@@ -102,6 +108,10 @@ export default function QuickCreateModal({
         result = await createCompositionQuick(names);
       } else if (type === "tag") {
         result = await createTagQuick(names);
+      } else if (type === "country") {
+        result = await createManufacturingCountryQuick(names);
+      } else if (type === "season") {
+        result = await createSeasonQuick(names);
       } else {
         // Upload pattern image if needed
         let patternPath: string | null = null;

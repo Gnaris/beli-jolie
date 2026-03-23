@@ -47,6 +47,7 @@ export async function getCart() {
               },
               color: { select: { id: true, name: true, hex: true } },
               subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
+              packEntries: { orderBy: { position: "asc" }, include: { color: { select: { name: true, hex: true } } } },
             },
           },
         },

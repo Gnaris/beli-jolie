@@ -37,6 +37,7 @@ export interface OrderItemPDF {
   saleType:    string;
   packQty:     number | null;
   size:        string | null;
+  packDetails: string | null; // JSON: [{colorName,size,qty}] — composition du pack
   imagePath:   string | null;
   unitPrice:   number;
   quantity:    number;
@@ -319,12 +320,26 @@ export function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
         `Couleur : ${item.colorName}`,
         item.saleType === "UNIT"
           ? "Vendu à l'unité"
-          : `Paquet de ${item.packQty} unités`,
+          : `Paquet de ${item.packQty} pièces`,
       ];
       if (item.size) details.push(`Taille : ${item.size}`);
 
       doc.text(details.join("  ·  "), TEXT_X, ty, { width: TEXT_W - 10 });
       ty += 16;
+
+      // Pack composition details (if multi-entry pack)
+      if (item.packDetails) {
+        try {
+          const entries: { colorName: string; size: string; qty: number }[] = JSON.parse(item.packDetails);
+          if (entries.length > 0) {
+            doc.font("Helvetica").fontSize(8);
+            setFill(doc, C.muted);
+            const compLines = entries.map((e) => `${e.qty}× ${e.colorName} ${e.size}`);
+            doc.text(compLines.join("  ·  "), TEXT_X + 5, ty, { width: TEXT_W - 15 });
+            ty += Math.ceil(compLines.length / 4) * 12 + 4;
+          }
+        } catch { /* ignore parse errors on legacy orders */ }
+      }
 
       // Prix ligne
       // déjà calculé dans lineTotal

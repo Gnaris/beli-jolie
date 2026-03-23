@@ -44,7 +44,12 @@ export async function createCategory(formData: FormData) {
  * Update the PFS category ID for an existing category.
  * Used when linking a BJ category to a PFS category for reverse sync.
  */
-export async function updateCategoryPfsId(id: string, pfsCategoryId: string | null) {
+export async function updateCategoryPfsId(
+  id: string,
+  pfsCategoryId: string | null,
+  pfsGender?: string | null,
+  pfsFamilyId?: string | null,
+) {
   await requireAdmin();
   if (pfsCategoryId) {
     const conflict = await prisma.category.findFirst({
@@ -55,7 +60,14 @@ export async function updateCategoryPfsId(id: string, pfsCategoryId: string | nu
       throw new Error(`Cet ID PFS est déjà utilisé par la catégorie « ${conflict.name} ».`);
     }
   }
-  await prisma.category.update({ where: { id }, data: { pfsCategoryId } });
+  await prisma.category.update({
+    where: { id },
+    data: {
+      pfsCategoryId,
+      pfsGender: pfsCategoryId ? (pfsGender || null) : null,
+      pfsFamilyId: pfsCategoryId ? (pfsFamilyId || null) : null,
+    },
+  });
   revalidatePath("/admin/categories");
   revalidateTag("categories", "default");
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { pfsGetColors, pfsGetCategories, pfsGetCompositions } from "@/lib/pfs-api-write";
+import { pfsGetColors, pfsGetCategories, pfsGetCompositions, pfsGetCountries, pfsGetCollections } from "@/lib/pfs-api-write";
 
 /**
  * GET /api/admin/pfs-sync/attributes
@@ -14,13 +14,15 @@ export async function GET() {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   try {
-    const [colors, categories, compositions] = await Promise.all([
+    const [colors, categories, compositions, countries, collections] = await Promise.all([
       pfsGetColors(),
       pfsGetCategories(),
       pfsGetCompositions(),
+      pfsGetCountries(),
+      pfsGetCollections(),
     ]);
 
-    return NextResponse.json({ colors, categories, compositions });
+    return NextResponse.json({ colors, categories, compositions, countries, collections });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });

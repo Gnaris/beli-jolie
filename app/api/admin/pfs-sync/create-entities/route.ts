@@ -20,6 +20,8 @@ function slugify(str: string): string {
 interface CategoryInput {
   pfsName: string;
   pfsCategoryId?: string;
+  pfsGender?: string;
+  pfsFamilyId?: string;
   name: string;
   labels?: Record<string, string>;
 }
@@ -40,10 +42,27 @@ interface CompositionInput {
   labels?: Record<string, string>;
 }
 
+interface CountryInput {
+  pfsName: string;
+  pfsReference?: string; // ISO code
+  name: string;
+  isoCode?: string;
+  labels?: Record<string, string>;
+}
+
+interface SeasonInput {
+  pfsName: string;
+  pfsReference?: string; // e.g. PE2026
+  name: string;
+  labels?: Record<string, string>;
+}
+
 interface RequestBody {
   categories?: CategoryInput[];
   colors?: ColorInput[];
   compositions?: CompositionInput[];
+  countries?: CountryInput[];
+  seasons?: SeasonInput[];
 }
 
 export async function POST(req: NextRequest) {
@@ -57,6 +76,8 @@ export async function POST(req: NextRequest) {
     const categories = body.categories ?? [];
     const colors = body.colors ?? [];
     const compositions = body.compositions ?? [];
+    const countries = body.countries ?? [];
+    const seasons = body.seasons ?? [];
 
     // ── Pre-check PFS ref uniqueness ──────────────
     for (const col of colors) {
@@ -99,9 +120,38 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    for (const country of countries) {
+      if (!country.pfsReference) continue;
+      const conflict = await prisma.manufacturingCountry.findFirst({
+        where: { pfsCountryRef: country.pfsReference },
+        select: { id: true, name: true },
+      });
+      if (conflict) {
+        return NextResponse.json(
+          { error: `La référence PFS pays « ${country.pfsReference} » est déjà utilisée par « ${conflict.name} ».` },
+          { status: 409 },
+        );
+      }
+    }
+    for (const season of seasons) {
+      if (!season.pfsReference) continue;
+      const conflict = await prisma.season.findFirst({
+        where: { pfsSeasonRef: season.pfsReference },
+        select: { id: true, name: true },
+      });
+      if (conflict) {
+        return NextResponse.json(
+          { error: `La référence PFS saison « ${season.pfsReference} » est déjà utilisée par « ${season.name} ».` },
+          { status: 409 },
+        );
+      }
+    }
+
     let createdCategories = 0;
     let createdColors = 0;
     let createdCompositions = 0;
+    let createdCountries = 0;
+    let createdSeasons = 0;
     let mappingsCount = 0;
 
     // ── Categories ──────────────────────────────
@@ -119,6 +169,8 @@ export async function POST(req: NextRequest) {
                 name: cat.name,
                 slug: slugify(cat.name),
                 pfsCategoryId: cat.pfsCategoryId || null,
+                pfsGender: cat.pfsGender || null,
+                pfsFamilyId: cat.pfsFamilyId || null,
               },
             });
             createdCategories++;
@@ -126,7 +178,11 @@ export async function POST(req: NextRequest) {
             // Entity existed but had no PFS mapping — fill it in
             existing = await tx.category.update({
               where: { id: existing.id },
-              data: { pfsCategoryId: cat.pfsCategoryId },
+              data: {
+                pfsCategoryId: cat.pfsCategoryId,
+                pfsGender: cat.pfsGender || null,
+                pfsFamilyId: cat.pfsFamilyId || null,
+              },
             });
           }
 
@@ -399,16 +455,144 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Countries ─────────────────────────────────
+    for (const country of countries) {
+      try {
+        const entity = await prisma.$transaction(async (tx) => {
+          let existing = await tx.manufacturingCountry.findFirst({
+            where: { name: country.name },
+          });
+
+          if (!existing) {
+            existing = await tx.manufacturingCountry.create({
+              data: {
+                name: country.name,
+                isoCode: country.isoCode || country.pfsReference || null,
+                pfsCountryRef: country.pfsReference || null,
+              },
+            });
+            createdCountries++;
+          } else if (country.pfsReference && !existing.pfsCountryRef) {
+            existing = await tx.manufacturingCountry.update({
+              where: { id: existing.id },
+              data: { pfsCountryRef: country.pfsReference },
+            });
+          }
+
+          if (country.labels) {
+            for (const [locale, name] of Object.entries(country.labels)) {
+              if (!name || locale === "fr") continue;
+              await tx.manufacturingCountryTranslation.upsert({
+                where: {
+                  manufacturingCountryId_locale: {
+                    manufacturingCountryId: existing.id,
+                    locale,
+                  },
+                },
+                create: { manufacturingCountryId: existing.id, locale, name },
+                update: { name },
+              });
+            }
+          }
+
+          return existing;
+        });
+
+        await prisma.pfsMapping.upsert({
+          where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
+          create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: country.name },
+          update: { bjEntityId: entity.id, bjName: country.name },
+        });
+        mappingsCount++;
+      } catch (err) {
+        const existing = await prisma.manufacturingCountry.findFirst({ where: { name: country.name } });
+        if (existing) {
+          await prisma.pfsMapping.upsert({
+            where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
+            create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: country.name },
+            update: { bjEntityId: existing.id, bjName: country.name },
+          });
+          mappingsCount++;
+        } else {
+          console.error(`[PFS] Failed to create country "${country.name}":`, err);
+        }
+      }
+    }
+
+    // ── Seasons ──────────────────────────────────
+    for (const season of seasons) {
+      try {
+        const entity = await prisma.$transaction(async (tx) => {
+          let existing = await tx.season.findFirst({
+            where: { name: season.name },
+          });
+
+          if (!existing) {
+            existing = await tx.season.create({
+              data: {
+                name: season.name,
+                pfsSeasonRef: season.pfsReference || null,
+              },
+            });
+            createdSeasons++;
+          } else if (season.pfsReference && !existing.pfsSeasonRef) {
+            existing = await tx.season.update({
+              where: { id: existing.id },
+              data: { pfsSeasonRef: season.pfsReference },
+            });
+          }
+
+          if (season.labels) {
+            for (const [locale, name] of Object.entries(season.labels)) {
+              if (!name || locale === "fr") continue;
+              await tx.seasonTranslation.upsert({
+                where: {
+                  seasonId_locale: { seasonId: existing.id, locale },
+                },
+                create: { seasonId: existing.id, locale, name },
+                update: { name },
+              });
+            }
+          }
+
+          return existing;
+        });
+
+        await prisma.pfsMapping.upsert({
+          where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
+          create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: season.name },
+          update: { bjEntityId: entity.id, bjName: season.name },
+        });
+        mappingsCount++;
+      } catch (err) {
+        const existing = await prisma.season.findFirst({ where: { name: season.name } });
+        if (existing) {
+          await prisma.pfsMapping.upsert({
+            where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
+            create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: season.name },
+            update: { bjEntityId: existing.id, bjName: season.name },
+          });
+          mappingsCount++;
+        } else {
+          console.error(`[PFS] Failed to create season "${season.name}":`, err);
+        }
+      }
+    }
+
     // ── Revalidate caches ───────────────────────
     if (createdCategories > 0) revalidateTag("categories", "default");
     if (createdColors > 0) revalidateTag("colors", "default");
     if (createdCompositions > 0) revalidateTag("compositions", "default");
+    if (createdCountries > 0) revalidateTag("manufacturing-countries", "default");
+    if (createdSeasons > 0) revalidateTag("seasons", "default");
 
     return NextResponse.json({
       created: {
         categories: createdCategories,
         colors: createdColors,
         compositions: createdCompositions,
+        countries: createdCountries,
+        seasons: createdSeasons,
       },
       mappings: mappingsCount,
     });

@@ -16,6 +16,15 @@ export interface SubColorState {
   colorHex: string;
 }
 
+export interface PackEntryState {
+  tempId: string;
+  colorId: string;
+  colorName: string;
+  colorHex: string;
+  size: string;
+  quantity: string; // string for form input
+}
+
 export interface VariantState {
   tempId: string;
   dbId?: string;           // ProductColor.id when editing
@@ -28,8 +37,9 @@ export interface VariantState {
   stock: string;
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
-  packQuantity: string;    // "" if UNIT
-  size: string;
+  packQuantity: string;    // "" if UNIT, auto-computed from packEntries if they exist
+  size: string;            // For UNIT or simple PACK (single size)
+  packEntries: PackEntryState[]; // Composition du pack (couleur × taille × qty) — vide pour UNIT
   discountType: "" | "PERCENT" | "AMOUNT";
   discountValue: string;
 }

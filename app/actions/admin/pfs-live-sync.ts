@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { revalidateTag } from "next/cache";
 import { emitProductEvent } from "@/lib/product-events";
+import { syncProductToPfs } from "@/lib/pfs-reverse-sync";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -49,25 +50,39 @@ interface PfsData {
   name: string;
   description: string;
   categoryId: string;
+  categoryName?: string;
+  variants: PfsVariantData[];
+  compositions: PfsCompositionData[];
+}
+
+interface BjData {
+  name: string;
+  description: string;
+  categoryId: string;
   variants: PfsVariantData[];
   compositions: PfsCompositionData[];
 }
 
 // ─────────────────────────────────────────────
-// Apply live PFS sync selections to a product
+// Apply bidirectional PFS sync selections
+// "pfs" selections → update BJ product with PFS values
+// "bj" selections → push BJ values to PFS (reverse sync)
 // ─────────────────────────────────────────────
 
 export async function applyPfsLiveSync(
   productId: string,
   selections: LiveSyncSelections,
   pfsData: PfsData,
+  bjData: BjData,
 ): Promise<{ success: boolean; error?: string; changesApplied: number }> {
   await requireAdmin();
 
   let changesApplied = 0;
+  let needsReverseSyncToPfs = false;
 
   try {
-    // 1. Update basic fields (name, description, category)
+    // ── Step 1: Apply PFS → BJ changes (fields where user chose "pfs") ──
+
     const updateData: Record<string, unknown> = {};
 
     if (selections.name === "pfs" && pfsData.name) {
@@ -78,9 +93,17 @@ export async function applyPfsLiveSync(
       updateData.description = pfsData.description;
       changesApplied++;
     }
-    if (selections.category === "pfs" && pfsData.categoryId) {
-      updateData.categoryId = pfsData.categoryId;
-      changesApplied++;
+    if (selections.category === "pfs") {
+      let catId = pfsData.categoryId;
+      // If categoryId is empty but we have a name, create the category
+      if (!catId && pfsData.categoryName) {
+        const { findOrCreateCategory } = await import("@/lib/pfs-sync");
+        catId = await findOrCreateCategory(pfsData.categoryName);
+      }
+      if (catId) {
+        updateData.categoryId = catId;
+        changesApplied++;
+      }
     }
 
     if (Object.keys(updateData).length > 0) {
@@ -90,13 +113,11 @@ export async function applyPfsLiveSync(
       });
     }
 
-    // 2. Update compositions if PFS selected
+    // Update compositions if PFS selected
     if (selections.compositions === "pfs" && pfsData.compositions.length > 0) {
-      // Delete existing compositions
       await prisma.productComposition.deleteMany({
         where: { productId },
       });
-      // Create new compositions
       await prisma.productComposition.createMany({
         data: pfsData.compositions.map((c) => ({
           productId,
@@ -107,9 +128,14 @@ export async function applyPfsLiveSync(
       changesApplied++;
     }
 
-    // 3. Update variants based on selections
+    // Update variants based on selections
     for (const [key, action] of Object.entries(selections.variants)) {
-      if (action === "bj") continue; // Keep BJ variant, no changes
+      if (action === "bj") {
+        // User chose BJ version → need to push to PFS
+        needsReverseSyncToPfs = true;
+        changesApplied++;
+        continue;
+      }
 
       // Parse the variant key: colorId::subNames::saleType
       const parts = key.split("::");
@@ -123,7 +149,6 @@ export async function applyPfsLiveSync(
       if (!pfsVariant) continue;
 
       if (action === "pfs") {
-        // Update existing BJ variant with PFS values
         const existingVariant = await prisma.productColor.findFirst({
           where: { productId, colorId, saleType },
         });
@@ -143,7 +168,6 @@ export async function applyPfsLiveSync(
           changesApplied++;
         }
       } else if (action === "add") {
-        // Add new variant from PFS
         await prisma.productColor.create({
           data: {
             productId,
@@ -163,14 +187,50 @@ export async function applyPfsLiveSync(
       }
     }
 
-    // 4. Revalidate caches
+    // ── Step 2: Check if any "bj" selection on different fields requires reverse sync ──
+
+    // Check basic fields: if user chose "bj" and the values differ, we need reverse sync
+    if (selections.name === "bj" && bjData.name !== pfsData.name) {
+      needsReverseSyncToPfs = true;
+    }
+    if (selections.description === "bj" && bjData.description !== pfsData.description) {
+      needsReverseSyncToPfs = true;
+    }
+    if (selections.category === "bj" && bjData.categoryId !== pfsData.categoryId) {
+      needsReverseSyncToPfs = true;
+    }
+    if (selections.compositions === "bj" && JSON.stringify(bjData.compositions) !== JSON.stringify(pfsData.compositions)) {
+      needsReverseSyncToPfs = true;
+    }
+
+    // Count BJ-selected fields that differ as changes too
+    if (needsReverseSyncToPfs && changesApplied === 0) {
+      changesApplied = 1; // At least 1 change (pushing to PFS)
+    }
+
+    // ── Step 3: Revalidate caches ──
     revalidateTag("products", "default");
 
-    // 5. Emit product update event for live updates
+    // ── Step 4: Emit product update event ──
     emitProductEvent({
       type: "PRODUCT_UPDATED",
       productId,
     });
+
+    // ── Step 5: If any BJ selections on differing fields, push to PFS ──
+    // After applying PFS→BJ changes, the product now has:
+    // - PFS values for "pfs" selections (just updated above)
+    // - BJ values for "bj" selections (unchanged)
+    // syncProductToPfs will push the CURRENT state → PFS gets BJ values for "bj" fields
+    if (needsReverseSyncToPfs) {
+      try {
+        await syncProductToPfs(productId);
+      } catch (err) {
+        console.error("[PFS_LIVE_SYNC] Reverse sync error (non-blocking):", err);
+        // Non-blocking: BJ changes are already applied, PFS push failed
+        // pfsSyncStatus will be set to "failed" by syncProductToPfs
+      }
+    }
 
     return { success: true, changesApplied };
   } catch (err) {

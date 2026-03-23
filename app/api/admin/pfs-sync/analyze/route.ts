@@ -45,6 +45,8 @@ function slugify(str: string): string {
 interface MissingCategory {
   pfsName: string;
   pfsCategoryId: string;
+  pfsGender: string;
+  pfsFamilyId: string;
   suggestedName: string;
   usedBy: number;
   pfsLabels: Record<string, string>;
@@ -325,6 +327,8 @@ function analyzeCategory(
     missing.set(key, {
       pfsName: categoryFr,
       pfsCategoryId: product.category.id,
+      pfsGender: product.gender || "WOMAN",
+      pfsFamilyId: product.family || "",
       suggestedName,
       usedBy: 1,
       pfsLabels: product.category.labels || {},

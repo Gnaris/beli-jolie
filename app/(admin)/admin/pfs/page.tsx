@@ -37,6 +37,8 @@ interface PfsPrepareJob {
 interface MissingCategory {
   pfsName: string;
   pfsCategoryId: string;
+  pfsGender?: string;
+  pfsFamilyId?: string;
   suggestedName: string;
   usedBy: number;
   pfsLabels: Record<string, string>;
@@ -71,6 +73,8 @@ interface AnalyzeResult {
 interface EditableCategory {
   pfsName: string;
   pfsCategoryId: string;
+  pfsGender: string;
+  pfsFamilyId: string;
   name: string;
   labels: Record<string, string>;
   usedBy: number;
@@ -266,6 +270,8 @@ export default function PfsSyncPage() {
         finalData.missingEntities.categories.map((c) => ({
           pfsName: c.pfsName,
           pfsCategoryId: c.pfsCategoryId,
+          pfsGender: c.pfsGender || "WOMAN",
+          pfsFamilyId: c.pfsFamilyId || "",
           name: c.suggestedName,
           labels: c.pfsLabels,
           usedBy: c.usedBy,
@@ -328,6 +334,8 @@ export default function PfsSyncPage() {
           categories: editCategories.map((c) => ({
             pfsName: c.pfsName,
             pfsCategoryId: c.pfsCategoryId,
+            pfsGender: c.pfsGender,
+            pfsFamilyId: c.pfsFamilyId,
             name: c.name,
             labels: c.labels,
           })),

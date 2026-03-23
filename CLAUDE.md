@@ -148,6 +148,9 @@ Product
 - `Color` model has optional `patternImage` (leopard, camouflage, etc.) — takes priority over hex. Also has `pfsColorRef` (PFS color reference like "GOLDEN")
 - `Category` model has `pfsCategoryId` (PFS category ID for reverse sync)
 - `Composition` model has `pfsCompositionRef` (PFS composition reference like "ACIERINOXYDABLE")
+- `ManufacturingCountry` model has `pfsCountryRef` (PFS country ISO code like "CN", "TR")
+- `Season` model has `pfsSeasonRef` (PFS collection reference like "PE2026", "AH2025")
+- `Product` has `manufacturingCountryId` (FK → ManufacturingCountry), `seasonId` (FK → Season)
 - `Product` has `pfsSyncStatus` (null|"pending"|"synced"|"failed"), `pfsSyncError` (error message), `pfsSyncedAt` (last successful sync)
 - `ProductStatus` enum: `OFFLINE` | `ONLINE` | `ARCHIVED` | `SYNCING` (archived = invisible but preserved for order history; SYNCING = PFS sync in progress, becomes ONLINE after images downloaded)
 - Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied
@@ -197,7 +200,9 @@ All image uploads (manual and bulk import) pass through `processProductImage()`:
 - **`Catalog`** / **`CatalogProduct`** — shareable product catalogs via unique token (published/draft); admin creates catalogs to share with clients via public links; product entries can override color/image
 - **`SentEmail`** — admin-sent emails history (toEmail, subject, htmlBody, attachments JSON, userId?, adminId); indexed by userId/toEmail/sentAt
 - **`TranslationQuota`** — tracks monthly character usage per translation provider (`provider` + `monthYear`); `@@unique([provider, monthYear])`
-- **`CategoryTranslation`** / **`SubCategoryTranslation`** / **`ColorTranslation`** / **`CompositionTranslation`** — auto-translated names per locale (same pattern as `ProductTranslation`)
+- **`CategoryTranslation`** / **`SubCategoryTranslation`** / **`ColorTranslation`** / **`CompositionTranslation`** / **`ManufacturingCountryTranslation`** / **`SeasonTranslation`** — auto-translated names per locale (same pattern as `ProductTranslation`)
+- **`ManufacturingCountry`** — pays de fabrication (`name` unique, `isoCode` unique optional, `pfsCountryRef` optional); admin CRUD at `/admin/pays`
+- **`Season`** — saisons/collections (`name` unique, `pfsSeasonRef` unique optional); admin CRUD at `/admin/saisons`
 
 ### Internationalisation (i18n)
 - **next-intl** with cookie-based locale (`bj_locale`, 1-year TTL); default `fr`
@@ -292,9 +297,9 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Entity mapping uniqueness**: each PFS ref can only be linked to ONE BJ entity (enforced in server actions + create-entities endpoint). Mapping UI disables already-used PFS refs.
 - **Auto-fill mapping on entity creation**: when `POST /api/admin/pfs-sync/create-entities` creates colors/categories/compositions during pre-validation, PFS refs (`pfsColorRef`, `pfsCategoryId`, `pfsCompositionRef`) are stored automatically — no need for manual mapping afterwards.
 - **Variant tracking**: `ProductColor.pfsVariantId` stores the PFS variant ID for updates/deletes. New variants are created on PFS and ID stored back. Variants with stock=0 are set `is_active: false` on PFS.
-- **PFS attributes API**: `GET /api/admin/pfs-sync/attributes` — fetches available PFS colors/categories/compositions for mapping in admin UI
-- **Mapping admin UI**: `/admin/pfs/mapping` — 3-tab page (Couleurs, Catégories, Compositions) to link BJ entities to PFS equivalents. Already-used refs are disabled in dropdowns.
-- **Server actions for mapping**: `updateColorPfsRef()`, `updateCategoryPfsId()`, `updateCompositionPfsRef()` — set PFS references on existing entities (with uniqueness check)
+- **PFS attributes API**: `GET /api/admin/pfs-sync/attributes` — fetches available PFS colors/categories/compositions/countries/collections for mapping in admin UI
+- **Mapping admin UI**: `/admin/pfs/mapping` — 5-tab page (Couleurs, Catégories, Compositions, Pays, Saisons) to link BJ entities to PFS equivalents. Already-used refs are disabled in dropdowns.
+- **Server actions for mapping**: `updateColorPfsRef()`, `updateCategoryPfsId()`, `updateCompositionPfsRef()`, `updateManufacturingCountryPfsRef()`, `updateSeasonPfsRef()` — set PFS references on existing entities (with uniqueness check)
 - **Quick-create with PFS mapping**: `createColorQuick()`, `createCategoryQuick()`, `createCompositionQuick()` accept optional PFS reference params
 
 ### Real-Time Product Updates (SSE)
@@ -324,7 +329,7 @@ In-memory IP-based rate limiter used on sensitive endpoints: `forgot-password` (
 ### Caching Layer
 `lib/cached-data.ts` centralises all `unstable_cache` calls. Available cached functions:
 - `getCachedSiteConfig(key)` — per-key cache (5min TTL, tag: `site-config`)
-- `getCachedCategories/Collections/Colors/Tags` — reference data (5min)
+- `getCachedCategories/Collections/Colors/Tags/ManufacturingCountries/Seasons` — reference data (5min)
 - `getCachedProductCount` — total product count (5min)
 - `getCachedBestsellerRefs(limit)` — top selling references (10min)
 - `getCachedAdminWarnings()` — admin sidebar warning counts (5min, tags: products/categories/colors/tags/compositions)

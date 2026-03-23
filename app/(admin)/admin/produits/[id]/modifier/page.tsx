@@ -5,9 +5,8 @@ import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
 import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
-import { getCachedCategories, getCachedColors, getCachedTags } from "@/lib/cached-data";
-import PfsLiveSyncBadge from "@/components/pfs/PfsLiveSyncBadge";
-import PfsSyncStatusBadge from "@/components/pfs/PfsSyncStatusBadge";
+import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons } from "@/lib/cached-data";
+import PfsSyncButton from "@/components/pfs/PfsSyncButton";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 
@@ -22,7 +21,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb] = await Promise.all([
+  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -72,6 +71,8 @@ export default async function ModifierProduitPage({
       where:   { productId: id },
       orderBy: { order: "asc" },
     }),
+    getCachedManufacturingCountries(),
+    getCachedSeasons(),
   ]);
 
   if (!product) notFound();
@@ -160,19 +161,17 @@ export default async function ModifierProduitPage({
             <h1 className="page-title">
               Modifier le produit
             </h1>
-            <div className="flex items-center gap-3 mt-1">
+            <div className="flex items-center gap-3 mt-1 flex-wrap">
               <p className="text-base text-text-muted font-[family-name:var(--font-roboto)]">
                 Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
               </p>
-              <PfsSyncStatusBadge
+              <PfsSyncButton
                 productId={product.id}
+                pfsProductId={product.pfsProductId}
                 pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
                 pfsSyncError={product.pfsSyncError}
                 pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
               />
-              {product.pfsProductId && (
-                <PfsLiveSyncBadge productId={product.id} />
-              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -197,6 +196,8 @@ export default async function ModifierProduitPage({
         categories={categories}
         availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
+        availableCountries={manufacturingCountries}
+        availableSeasons={seasons}
         availableTags={tags}
         mode="edit"
         productId={product.id}
@@ -229,6 +230,8 @@ export default async function ModifierProduitPage({
           dimHeight:        product.dimensionHeight != null ? String(product.dimensionHeight) : "",
           dimDiameter:      product.dimensionDiameter != null ? String(product.dimensionDiameter) : "",
           dimCircumference: product.dimensionCircumference != null ? String(product.dimensionCircumference) : "",
+          manufacturingCountryId: product.manufacturingCountryId ?? "",
+          seasonId: product.seasonId ?? "",
         }}
       />
     </div>

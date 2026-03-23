@@ -43,6 +43,8 @@ interface ProductFormProps {
   categories: Category[];
   availableColors: AvailableColor[];
   availableCompositions: AvailableComposition[];
+  availableCountries?: { id: string; name: string; isoCode: string | null }[];
+  availableSeasons?: { id: string; name: string }[];
   availableTags?: { id: string; name: string }[];
   mode?: "create" | "edit";
   productId?: string;
@@ -64,6 +66,8 @@ interface ProductFormProps {
     dimHeight: string;
     dimDiameter: string;
     dimCircumference: string;
+    manufacturingCountryId?: string;
+    seasonId?: string;
     translations?: { locale: string; name: string; description: string }[];
     status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
   };
@@ -275,6 +279,8 @@ export default function ProductForm({
   categories,
   availableColors,
   availableCompositions,
+  availableCountries = [],
+  availableSeasons = [],
   availableTags = [],
   mode = "create",
   productId,
@@ -287,6 +293,8 @@ export default function ProductForm({
   const [localCompositions, setLocalCompositions] = useState(availableCompositions);
   const [localColors,       setLocalColors]       = useState(availableColors);
   const [localTags,         setLocalTags]         = useState(availableTags);
+  const [localCountries,    setLocalCountries]    = useState(availableCountries);
+  const [localSeasons,      setLocalSeasons]      = useState(availableSeasons);
 
   // ── Form fields ──────────────────────────────────────────────────────
   const [reference,       setReference]       = useState(initialData?.reference       ?? "");
@@ -305,6 +313,8 @@ export default function ProductForm({
   const [similarProductIds, setSimilarProductIds] = useState<string[]>(initialData?.similarProductIds ?? []);
   const [tagNames,          setTagNames]          = useState<string[]>(initialData?.tagNames ?? []);
   const [isBestSeller,      setIsBestSeller]      = useState(initialData?.isBestSeller ?? false);
+  const [manufacturingCountryId, setManufacturingCountryId] = useState(initialData?.manufacturingCountryId ?? "");
+  const [seasonId, setSeasonId] = useState(initialData?.seasonId ?? "");
 
   // ── Dimensions ───────────────────────────────────────────────────────
   const [dimLength,        setDimLength]        = useState(initialData?.dimLength        ?? "");
@@ -331,7 +341,8 @@ export default function ProductForm({
     variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, size: v.size, discountType: v.discountType, discountValue: v.discountValue })),
     compositions, similarProductIds, tagNames, isBestSeller,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, compositions, similarProductIds, tagNames, isBestSeller, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus]);
+    manufacturingCountryId, seasonId,
+  }), [reference, name, description, categoryId, subCategoryIds, variants, compositions, similarProductIds, tagNames, isBestSeller, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId]);
 
   // Capture snapshot after first effects have settled (colorImages sync etc.)
   useEffect(() => {
@@ -663,6 +674,12 @@ export default function ProductForm({
     } else if (modalType === "tag") {
       setLocalTags((prev) => [...prev, { id: item.id, name: item.name }]);
       setTagNames((prev) => (prev.includes(item.name) ? prev : [...prev, item.name]));
+    } else if (modalType === "country") {
+      setLocalCountries((prev) => [...prev, { id: item.id, name: item.name, isoCode: null }]);
+      setManufacturingCountryId(item.id);
+    } else if (modalType === "season") {
+      setLocalSeasons((prev) => [...prev, { id: item.id, name: item.name }]);
+      setSeasonId(item.id);
     }
     setModalType(null);
   }
@@ -908,6 +925,8 @@ export default function ProductForm({
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
       dimensionDiameter:      dimDiameter      ? parseFloat(dimDiameter)      : null,
       dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
+      manufacturingCountryId: manufacturingCountryId || null,
+      seasonId: seasonId || null,
       translations: Object.entries(translations)
         .filter(([, t]) => t.name.trim() || t.description.trim())
         .map(([locale, t]) => ({ locale, name: t.name, description: t.description })),
@@ -1116,6 +1135,49 @@ export default function ProductForm({
                       })}
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Pays de fabrication + Saison */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {/* Pays de fabrication */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">Pays de fabrication</label>
+                    <button type="button"
+                      onClick={() => setModalType("country")}
+                      className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+                    >+ Créer</button>
+                  </div>
+                  <CustomSelect
+                    value={manufacturingCountryId}
+                    onChange={(v) => setManufacturingCountryId(v)}
+                    options={[
+                      { value: "", label: "— Aucun —" },
+                      ...localCountries.map((c) => ({ value: c.id, label: c.isoCode ? `${c.name} (${c.isoCode})` : c.name })),
+                    ]}
+                    placeholder="— Aucun —"
+                  />
+                </div>
+
+                {/* Saison */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">Saison</label>
+                    <button type="button"
+                      onClick={() => setModalType("season")}
+                      className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+                    >+ Créer</button>
+                  </div>
+                  <CustomSelect
+                    value={seasonId}
+                    onChange={(v) => setSeasonId(v)}
+                    options={[
+                      { value: "", label: "— Aucune —" },
+                      ...localSeasons.map((s) => ({ value: s.id, label: s.name })),
+                    ]}
+                    placeholder="— Aucune —"
+                  />
                 </div>
               </div>
 

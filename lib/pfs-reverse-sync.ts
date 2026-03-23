@@ -137,7 +137,7 @@ interface FullProduct {
   name: string;
   description: string;
   status: string;
-  category: { id: string; name: string; pfsCategoryId: string | null };
+  category: { id: string; name: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null };
   colors: {
     id: string;
     colorId: string;
@@ -160,6 +160,8 @@ interface FullProduct {
     percentage: number;
     composition: { id: string; name: string; pfsCompositionRef: string | null };
   }[];
+  manufacturingCountry: { id: string; name: string; isoCode: string | null; pfsCountryRef: string | null } | null;
+  season: { id: string; name: string; pfsSeasonRef: string | null } | null;
 }
 
 async function loadProductFull(productId: string): Promise<FullProduct | null> {
@@ -172,7 +174,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       status: true,
-      category: { select: { id: true, name: true, pfsCategoryId: true } },
+      category: { select: { id: true, name: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true } },
       colors: {
         select: {
           id: true,
@@ -203,6 +205,8 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           composition: { select: { id: true, name: true, pfsCompositionRef: true } },
         },
       },
+      manufacturingCountry: { select: { id: true, name: true, isoCode: true, pfsCountryRef: true } },
+      season: { select: { id: true, name: true, pfsSeasonRef: true } },
     },
   }) as unknown as FullProduct | null;
 }
@@ -220,19 +224,27 @@ async function createProductOnPfs(product: FullProduct): Promise<string> {
   // Get first composition reference for POST (string format required)
   const mainComposition = product.compositions[0]?.composition.pfsCompositionRef ?? "ACIERINOXYDABLE";
 
+  // Use category's PFS gender/family if available, otherwise fallback to defaults
+  const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
+  const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;
+
+  // Map gender code to label
+  const genderLabels: Record<string, string> = { WOMAN: "Femme", MAN: "Homme", KID: "Enfant", SUPPLIES: "Fournitures" };
+  const genderLabel = genderLabels[gender] ?? PFS_DEFAULTS.gender_label;
+
   const data: PfsProductCreateData = {
     reference: product.reference,
     reference_code: product.reference,
-    gender: PFS_DEFAULTS.gender,
-    gender_label: PFS_DEFAULTS.gender_label,
+    gender,
+    gender_label: genderLabel,
     brand_name: PFS_DEFAULTS.brand_name,
-    family: PFS_DEFAULTS.family,
+    family,
     category: product.category.pfsCategoryId!,
-    season_name: PFS_DEFAULTS.season_name,
+    season_name: product.season?.pfsSeasonRef ?? PFS_DEFAULTS.season_name,
     label,
     description,
     material_composition: mainComposition,
-    country_of_manufacture: PFS_DEFAULTS.country_of_manufacture,
+    country_of_manufacture: product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode ?? PFS_DEFAULTS.country_of_manufacture,
   };
 
   const { pfsProductId } = await pfsCreateProduct(data);
@@ -271,6 +283,17 @@ async function updateProductOnPfs(pfsProductId: string, product: FullProduct): P
     description,
     category: product.category.pfsCategoryId!,
   };
+
+  // Country of manufacture
+  const countryRef = product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode;
+  if (countryRef) {
+    updates.country_of_manufacture = countryRef;
+  }
+
+  // Season
+  if (product.season?.pfsSeasonRef) {
+    updates.season_name = product.season.pfsSeasonRef;
+  }
 
   // Compositions as array (works on PATCH)
   const compositionArray = product.compositions

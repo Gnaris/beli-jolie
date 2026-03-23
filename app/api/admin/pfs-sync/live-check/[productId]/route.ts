@@ -17,6 +17,8 @@ import {
   findOrCreateColor,
   findOrCreateCategory,
   findOrCreateComposition,
+  findOrCreateCountry,
+  findOrCreateSeason,
 } from "@/lib/pfs-sync";
 
 // ─────────────────────────────────────────────
@@ -60,6 +62,8 @@ export async function GET(
           composition: { select: { id: true, name: true } },
         },
       },
+      manufacturingCountry: { select: { id: true, name: true } },
+      season: { select: { id: true, name: true } },
     },
   });
 
@@ -67,20 +71,37 @@ export async function GET(
     return NextResponse.json({ error: "Produit introuvable" }, { status: 404 });
   }
 
+  // 2. If no pfsProductId, check if product exists on PFS via reference
   if (!product.pfsProductId) {
-    return NextResponse.json(
-      { error: "Ce produit n'est pas lié à PFS" },
-      { status: 400 }
-    );
+    try {
+      const refCheck = await pfsCheckReference(product.reference);
+      if (!refCheck?.product?.id) {
+        return NextResponse.json(
+          { error: "Produit absent de PFS", notOnPfs: true },
+          { status: 400 }
+        );
+      }
+      // Product exists on PFS — link it and continue
+      await prisma.product.update({
+        where: { id: productId },
+        data: { pfsProductId: refCheck.product.id },
+      });
+      product.pfsProductId = refCheck.product.id;
+    } catch {
+      return NextResponse.json(
+        { error: "Produit absent de PFS", notOnPfs: true },
+        { status: 400 }
+      );
+    }
   }
 
-  // 2. Fetch PFS data (variants + reference details)
+  // 3. Fetch PFS data (variants + reference details)
   let variantDetails: PfsVariantDetail[] = [];
   let refDetails: PfsCheckReferenceResponse | null = null;
 
   try {
     const [variantsResult, refResult] = await Promise.allSettled([
-      pfsGetVariants(product.pfsProductId),
+      pfsGetVariants(product.pfsProductId!),
       pfsCheckReference(product.reference),
     ]);
 
@@ -118,14 +139,21 @@ export async function GET(
   }
   const bjRef = stripVersionSuffix(pfsRef);
 
-  // Category
+  // Category — always create if missing so it appears in comparison
   let pfsCategoryName = "";
   let pfsCategoryId = "";
   if (refDetails?.product?.category?.reference) {
-    pfsCategoryName = parsePfsCategoryRef(refDetails.product.category.reference);
+    const rawCatRef = refDetails.product.category.reference;
+    pfsCategoryName = parsePfsCategoryRef(rawCatRef);
     try {
-      pfsCategoryId = await findOrCreateCategory(pfsCategoryName);
-    } catch {
+      pfsCategoryId = await findOrCreateCategory(
+        pfsCategoryName,
+        refDetails.product.category.labels,
+        rawCatRef,
+      );
+    } catch (err) {
+      // Still show the category name in comparison even if creation failed
+      console.error("[LIVE_CHECK] Category creation failed:", err);
       pfsCategoryId = "";
     }
   }
@@ -142,6 +170,28 @@ export async function GET(
         pfsCompositions.push({ compositionId: "", name: frName, percentage: mat.percentage });
       }
     }
+  }
+
+  // Country
+  let pfsCountryId = "";
+  let pfsCountryName = "";
+  if (refDetails?.product?.country_of_manufacture) {
+    const isoCode = refDetails.product.country_of_manufacture;
+    pfsCountryName = isoCode;
+    try {
+      pfsCountryId = await findOrCreateCountry(isoCode) || "";
+    } catch { /* ignore */ }
+  }
+
+  // Season
+  let pfsSeasonId = "";
+  let pfsSeasonName = "";
+  if (refDetails?.product?.collection) {
+    const col = refDetails.product.collection;
+    pfsSeasonName = col.labels?.fr || col.reference;
+    try {
+      pfsSeasonId = await findOrCreateSeason(col.reference, col.labels || {}) || "";
+    } catch { /* ignore */ }
   }
 
   // Variants
@@ -356,6 +406,10 @@ export async function GET(
       name: pc.composition.name,
       percentage: pc.percentage,
     })),
+    manufacturingCountryId: product.manufacturingCountry?.id || null,
+    manufacturingCountryName: product.manufacturingCountry?.name || null,
+    seasonId: product.season?.id || null,
+    seasonName: product.season?.name || null,
   };
 
   const pfsFormatted = {
@@ -371,6 +425,10 @@ export async function GET(
     variants: pfsVariants,
     imagesByColor: pfsImageGroups,
     compositions: pfsCompositions,
+    manufacturingCountryId: pfsCountryId || null,
+    manufacturingCountryName: pfsCountryName || null,
+    seasonId: pfsSeasonId || null,
+    seasonName: pfsSeasonName || null,
   };
 
   // 5. Compute differences
@@ -382,7 +440,7 @@ export async function GET(
   if (bjFormatted.description !== pfsFormatted.description && pfsFormatted.description) {
     differences.push({ field: "description", pfsValue: pfsFormatted.description, bjValue: bjFormatted.description });
   }
-  if (pfsCategoryId && bjFormatted.categoryId !== pfsCategoryId) {
+  if (pfsCategoryName && (pfsCategoryId ? bjFormatted.categoryId !== pfsCategoryId : bjFormatted.categoryName !== pfsCategoryName)) {
     differences.push({ field: "category", pfsValue: pfsFormatted.categoryName, bjValue: bjFormatted.categoryName });
   }
   if (JSON.stringify(bjFormatted.compositions) !== JSON.stringify(pfsFormatted.compositions) && pfsFormatted.compositions.length > 0) {

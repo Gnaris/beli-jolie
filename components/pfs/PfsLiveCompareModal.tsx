@@ -185,7 +185,7 @@ function SelectButton({
       aria-pressed={selected}
     >
       {selected && <CheckIcon className="h-3.5 w-3.5" />}
-      {label ?? (side === "bj" ? "Garder" : "Remplacer par PFS")}
+      {label ?? (side === "bj" ? "Garder BJ → PFS" : "Prendre PFS → BJ")}
     </button>
   );
 }
@@ -451,6 +451,10 @@ export default function PfsLiveCompareModal({
 
   useEffect(() => {
     if (open && productId) {
+      // Reset stale state from previous session
+      setSuccess(null);
+      setError(null);
+      setApplying(false);
       // Use cached data from banner if available, otherwise fetch
       if (initialData?.existing && initialData?.pfs) {
         initSelectionsFromData(initialData);
@@ -497,8 +501,15 @@ export default function PfsLiveCompareModal({
         name: pfs.name,
         description: pfs.description,
         categoryId: pfs.categoryId,
+        categoryName: pfs.categoryName,
         variants: pfs.variants,
         compositions: pfs.compositions,
+      }, {
+        name: existing.name,
+        description: existing.description,
+        categoryId: existing.categoryId,
+        variants: existing.variants,
+        compositions: existing.compositions,
       });
 
       if (result.success) {
@@ -522,12 +533,20 @@ export default function PfsLiveCompareModal({
   const countChanges = useCallback(() => {
     if (!existing || !pfs) return 0;
     let count = 0;
-    if (selections.name === "pfs" && existing.name !== pfs.name) count++;
-    if (selections.description === "pfs" && existing.description !== pfs.description) count++;
-    if (selections.category === "pfs" && existing.categoryId !== pfs.categoryId) count++;
-    if (selections.compositions === "pfs") count++;
+    // Count all selections on differing fields (both directions)
+    if (existing.name !== pfs.name) count++;
+    if (existing.description !== pfs.description) count++;
+    if (existing.categoryId !== pfs.categoryId) count++;
+    if (JSON.stringify(existing.compositions) !== JSON.stringify(pfs.compositions)) count++;
     for (const [, val] of Object.entries(selections.variants)) {
       if (val === "pfs" || val === "add") count++;
+    }
+    // Count BJ variant selections on differing fields
+    const varMatches = matchVariants(existing.variants, pfs.variants);
+    for (const m of varMatches) {
+      if (m.isDifferent && m.onlyIn === "both" && (selections.variants[m.key] === "bj" || !selections.variants[m.key])) {
+        count++;
+      }
     }
     return count;
   }, [existing, pfs, selections]);
@@ -824,7 +843,7 @@ export default function PfsLiveCompareModal({
                 <div className="text-sm text-text-secondary">
                   {changesCount > 0 ? (
                     <span>
-                      <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} sélectionnée{changesCount > 1 ? "s" : ""}
+                      <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} — les choix BJ seront poussés vers PFS
                     </span>
                   ) : (
                     <span>Aucune modification sélectionnée</span>
@@ -845,7 +864,7 @@ export default function PfsLiveCompareModal({
                       ) : (
                         <CheckIcon className="h-4 w-4" />
                       )}
-                      {applying ? "Application..." : `Appliquer ${changesCount} modification${changesCount > 1 ? "s" : ""}`}
+                      {applying ? "Synchronisation..." : `Synchroniser ${changesCount} modification${changesCount > 1 ? "s" : ""}`}
                     </button>
                   )}
                 </div>
