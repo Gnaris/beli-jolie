@@ -68,7 +68,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/access-code") ||
     pathname.startsWith("/api/internal") ||
     pathname.startsWith("/api/heartbeat") ||
-    pathname.startsWith("/api/cart");
+    pathname.startsWith("/api/cart") ||
+    pathname.startsWith("/mentions-legales") ||
+    pathname.startsWith("/cgv") ||
+    pathname.startsWith("/cgu") ||
+    pathname.startsWith("/confidentialite") ||
+    pathname.startsWith("/cookies") ||
+    pathname.startsWith("/api/legal");
 
   if (!bypassMaintenance) {
     const inMaintenance = await getMaintenanceStatus(request.url);
@@ -122,6 +128,17 @@ export async function middleware(request: NextRequest) {
     }
     // Un admin redirigé vers son panel, sauf en mode preview
     if (isAdmin && !previewMode) return NextResponse.redirect(new URL("/admin", request.url));
+    return NextResponse.next();
+  }
+
+  // ── Pages légales — accessibles à tous sans authentification ──────
+  if (
+    pathname.startsWith("/mentions-legales") ||
+    pathname.startsWith("/cgv") ||
+    pathname.startsWith("/cgu") ||
+    pathname.startsWith("/confidentialite") ||
+    pathname.startsWith("/cookies")
+  ) {
     return NextResponse.next();
   }
 

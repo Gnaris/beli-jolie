@@ -18,7 +18,7 @@ export default async function ClientLayout({ children }: { children: React.React
   return (
     <div className="min-h-screen bg-bg-secondary flex flex-col">
       <PublicSidebar />
-      <main className={`flex-1${session.user.role === "ADMIN" && isPreview ? " pb-20" : ""}`}>
+      <main className={`flex-1${session.user.role === "ADMIN" ? " pb-20" : ""}`}>
         {children}
       </main>
       <Footer />

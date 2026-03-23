@@ -541,7 +541,7 @@ export default function PublicSidebar() {
       <div className="h-16" />
 
       {/* ── Bandeau mode aperçu admin ── */}
-      {session?.user?.role === "ADMIN" && isAdminPreview && (
+      {session?.user?.role === "ADMIN" && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-bg-dark text-text-inverse px-4 py-3 flex items-center justify-between gap-4 shadow-[0_-2px_12px_rgba(0,0,0,0.3)]">
           <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)]">
             <svg className="w-4 h-4 text-warning shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -562,6 +562,8 @@ export default function PublicSidebar() {
           </form>
         </div>
       )}
+      {/* Spacer for fixed admin preview banner */}
+      {session?.user?.role === "ADMIN" && <div className="h-14" />}
     </>
   );
 }

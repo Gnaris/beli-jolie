@@ -13,35 +13,12 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export const STATUS_CONFIG: Record<
-  string,
-  { bgClass: string; textClass: string; dot: string }
-> = {
-  PENDING: {
-    bgClass: "bg-[#FEF3C7]",
-    textClass: "text-[#92400E]",
-    dot: "bg-[#F59E0B]",
-  },
-  PROCESSING: {
-    bgClass: "bg-blue-50",
-    textClass: "text-blue-700",
-    dot: "bg-blue-500",
-  },
-  SHIPPED: {
-    bgClass: "bg-purple-50",
-    textClass: "text-purple-700",
-    dot: "bg-purple-500",
-  },
-  DELIVERED: {
-    bgClass: "bg-[#DCFCE7]",
-    textClass: "text-[#166534]",
-    dot: "bg-[#22C55E]",
-  },
-  CANCELLED: {
-    bgClass: "bg-[#F7F7F8]",
-    textClass: "text-text-muted",
-    dot: "bg-[#9CA3AF]",
-  },
+export const STATUS_CONFIG: Record<string, { badgeClass: string }> = {
+  PENDING:    { badgeClass: "badge badge-warning" },
+  PROCESSING: { badgeClass: "badge badge-info" },
+  SHIPPED:    { badgeClass: "badge badge-purple" },
+  DELIVERED:  { badgeClass: "badge badge-success" },
+  CANCELLED:  { badgeClass: "badge badge-neutral" },
 };
 
 export function getTrackingUrl(carrierName: string, trackingId: string): string | null {
@@ -138,8 +115,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
                     <span className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
                       {order.orderNumber}
                     </span>
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-[family-name:var(--font-roboto)] font-medium ${cfg.bgClass} ${cfg.textClass}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                    <span className={`${cfg.badgeClass} text-xs`}>
                       {t(`statuses.${order.status}`)}
                     </span>
                   </div>

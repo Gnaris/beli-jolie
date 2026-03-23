@@ -35,15 +35,22 @@ function buildTranslations(names: Record<string, string>, idKey: string, idValue
 export async function createColorQuick(
   names: Record<string, string>,
   hex: string | null,
-  patternImage?: string | null
-): Promise<{ id: string; name: string; hex: string | null; patternImage: string | null }> {
+  patternImage?: string | null,
+  pfsColorRef?: string | null
+): Promise<{ id: string; name: string; hex: string | null; patternImage: string | null; pfsColorRef: string | null }> {
   await requireAdmin();
   const frName = names["fr"]?.trim();
   if (!frName) throw new Error("Le nom en français est requis.");
 
+  const existing = await prisma.color.findFirst({
+    where: { name: frName },
+    select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
+  });
+  if (existing) throw new Error(`La couleur "${frName}" existe déjà.`);
+
   const color = await prisma.color.create({
-    data: { name: frName, hex: hex || null, patternImage: patternImage || null },
-    select: { id: true, name: true, hex: true, patternImage: true },
+    data: { name: frName, hex: hex || null, patternImage: patternImage || null, pfsColorRef: pfsColorRef || null },
+    select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
   });
 
   const translationData = buildTranslations(names, "colorId", color.id);
@@ -60,14 +67,21 @@ export async function createColorQuick(
 }
 
 export async function createCategoryQuick(
-  names: Record<string, string>
+  names: Record<string, string>,
+  pfsCategoryId?: string | null
 ): Promise<{ id: string; name: string; subCategories: { id: string; name: string }[] }> {
   await requireAdmin();
   const frName = names["fr"]?.trim();
   if (!frName) throw new Error("Le nom en français est requis.");
 
+  const existing = await prisma.category.findFirst({
+    where: { name: frName },
+    select: { id: true },
+  });
+  if (existing) throw new Error(`La catégorie "${frName}" existe déjà.`);
+
   const category = await prisma.category.create({
-    data: { name: frName, slug: toSlug(frName) },
+    data: { name: frName, slug: toSlug(frName), pfsCategoryId: pfsCategoryId || null },
     select: { id: true, name: true, subCategories: { select: { id: true, name: true } } },
   });
 
@@ -85,14 +99,21 @@ export async function createCategoryQuick(
 }
 
 export async function createCompositionQuick(
-  names: Record<string, string>
+  names: Record<string, string>,
+  pfsCompositionRef?: string | null
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const frName = names["fr"]?.trim();
   if (!frName) throw new Error("Le nom en français est requis.");
 
+  const existing = await prisma.composition.findUnique({
+    where: { name: frName },
+    select: { id: true },
+  });
+  if (existing) throw new Error(`La composition "${frName}" existe déjà.`);
+
   const composition = await prisma.composition.create({
-    data: { name: frName },
+    data: { name: frName, pfsCompositionRef: pfsCompositionRef || null },
     select: { id: true, name: true },
   });
 
@@ -116,6 +137,12 @@ export async function createSubCategoryQuick(
   const frName = names["fr"]?.trim();
   if (!frName) throw new Error("Le nom en français est requis.");
   if (!categoryId) throw new Error("Catégorie parente requise.");
+
+  const existing = await prisma.subCategory.findFirst({
+    where: { name: frName, categoryId },
+    select: { id: true },
+  });
+  if (existing) throw new Error(`La sous-catégorie "${frName}" existe déjà dans cette catégorie.`);
 
   const subCategory = await prisma.subCategory.create({
     data: { name: frName, slug: toSlug(frName), categoryId },
@@ -141,6 +168,12 @@ export async function createTagQuick(
   await requireAdmin();
   const frName = names["fr"]?.trim();
   if (!frName) throw new Error("Le nom en français est requis.");
+
+  const existing = await prisma.tag.findFirst({
+    where: { name: frName },
+    select: { id: true },
+  });
+  if (existing) throw new Error(`Le mot-clé "${frName}" existe déjà.`);
 
   const tag = await prisma.tag.create({
     data: { name: frName },

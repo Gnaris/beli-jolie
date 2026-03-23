@@ -306,7 +306,7 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
 
                       {item.user && (
                         <div className="mt-2 flex items-center gap-2 text-xs">
-                          <span className="badge-success">Inscrit</span>
+                          <span className="badge badge-success">Inscrit</span>
                           <span className="text-text-secondary font-medium">
                             {item.user.firstName} {item.user.lastName}
                           </span>

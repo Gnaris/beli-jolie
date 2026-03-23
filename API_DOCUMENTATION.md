@@ -541,7 +541,7 @@
 
 ---
 
-### 6. Modifier un produit (TESTÉ - FONCTIONNEL)
+### 6. Modifier un produit (TESTÉ - FONCTIONNEL — vérifié 2026-03-22)
 
 #### `PATCH /catalog/products/{id}`
 
@@ -549,35 +549,71 @@
 
 **Headers :** `Authorization: Bearer {token}`, `Content-Type: application/json`
 
-**Body :**
+**Body complet (tous les champs modifiables) :**
 ```json
 {
   "data": {
+    "brand_name": "Beli & Jolie",
+    "gender_label": "Femme",
+    "family": "a035J00000185J7QAI",
+    "category": "a045J000003KWwDQAW",
+    "reference_code": "T999VS1",
     "label": {
       "fr": "Nouveau nom",
-      "en": "New name"
+      "en": "New name",
+      "de": "Neuer Name",
+      "es": "Nuevo nombre",
+      "it": "Nuovo nome"
     },
     "description": {
-      "fr": "Nouvelle description"
-    }
+      "fr": "Nouvelle description",
+      "en": "New description"
+    },
+    "season_name": "PE2026",
+    "country_of_manufacture": "CN",
+    "material_composition": [
+      { "id": "ACIERINOXYDABLE", "value": 85 },
+      { "id": "LAITON", "value": 15 }
+    ],
+    "lining_composition": [
+      { "id": "COTON", "value": 100 }
+    ]
   }
 }
 ```
 
 **⚠️ Important :** le wrapper est `{ data: { ... } }` (objet), pas `{ data: [ ... ] }` (array) comme pour POST.
 
-**Champs modifiables testés :**
-| Champ | Fonctionne | Notes |
-|-------|-----------|-------|
-| `label` | ✅ | Peut modifier une seule langue ou toutes |
-| `description` | ✅ | Idem |
-| `category` | ✅ | Passer l'ID PFS (ex: `"a045J000003KWwIQAW"`) |
-| `country_of_manufacture` | ✅ | Code ISO (ex: `"TR"`, `"CN"`) |
-| `season_name` | ✅ | Référence collection (ex: `"PE2026"`) |
-| `material_composition` | ✅ | String référence (ex: `"ACIERINOXYDABLE"`) |
-| `default_color` | ✅ | Référence couleur (ex: `"GOLDEN"`, `"SILVER"`) — change aussi l'image DEFAULT automatiquement |
+**Champs modifiables testés (2026-03-22) :**
+| Champ | Fonctionne | Type | Notes |
+|-------|-----------|------|-------|
+| `label` | ✅ | `{lang: string}` | Peut modifier une seule langue ou toutes (fr/en/de/es/it) |
+| `description` | ✅ | `{lang: string}` | Idem |
+| `category` | ✅ | `string` | ID PFS de la catégorie (ex: `"a045J000003KWwIQAW"`) |
+| `country_of_manufacture` | ✅ | `string` | Code ISO pays (ex: `"TR"`, `"CN"`) |
+| `season_name` | ✅ | `string` | Référence collection (ex: `"PE2026"`) — ⚠️ doit exister sur PFS sinon 422 |
+| `material_composition` | ✅ | `string` ou `array` | **String** : référence unique (ex: `"ACIERINOXYDABLE"`). **Array** : `[{id: "REF", value: pourcentage}]` — fonctionne sur PATCH (contrairement à POST qui crash en 500). PFS auto-résout les références (ex: `"LAITON"` → `"BRASS"`) |
+| `lining_composition` | ✅ | `array` | Format `[{id: "REF", value: pourcentage}]` — composition de doublure. Même format que material_composition array |
+| `default_color` | ✅ | `string` | Référence couleur (ex: `"GOLDEN"`, `"SILVER"`) — change aussi l'image DEFAULT automatiquement |
+| `brand_name` | ✅ | `string` | Doit correspondre au nom exact de la marque PFS (`"Beli & Jolie"`) |
+| `gender_label` | ✅ | `string` | Label FR du genre (`"Femme"`) |
+| `family` | ✅ | `string` | ID PFS de la famille (ex: `"a035J00000185J7QAI"`) |
+| `reference_code` | ✅ | `string` | Référence produit — ⚠️ ne modifie pas la `reference` affichée, seulement le `reference_code` interne |
 
-**Réponse 200 :** retourne le produit complet mis à jour (même format que `checkReference`).
+**Réponse 200 :** retourne le produit complet mis à jour dans `{ data: {...} }` (même format que `checkReference`).
+
+**Réponse 422 (validation) :**
+```json
+{
+  "message": "Validation errors",
+  "errors": [{ "message": "Collection non valide.", "columns": ["season_name"] }]
+}
+```
+
+**Notes :**
+- On peut envoyer un seul champ ou plusieurs à la fois — les champs non envoyés restent inchangés
+- `material_composition` en array sur PATCH résout automatiquement les références (ex: `LAITON` → `BRASS`, `ACIERINOXYDABLE` → ID interne) — **ceci fonctionne sur PATCH mais crash en 500 sur POST**
+- `season_name` doit être une collection existante sur PFS — utiliser la référence exacte (ex: `"PE2026"`, pas `"AH2026"` si elle n'existe pas)
 
 ---
 
@@ -742,13 +778,15 @@ color: GOLDEN
 
 ---
 
-### 9. Modifier des variants (TESTÉ - FONCTIONNEL)
+### 9. Modifier des variants en batch (TESTÉ - FONCTIONNEL — vérifié 2026-03-22)
 
 #### `PATCH /catalog/products/variants`
 
 > **Clé : utiliser `variant_id` (PAS `id`).** Avec le champ `id`, l'API retourne 200 mais `updated: 0`. Avec `variant_id`, la modification fonctionne correctement.
+>
+> **Rate limit : 30 appels/minute.**
 
-**Body :**
+**Body complet (tous les champs modifiables) :**
 ```json
 {
   "data": [
@@ -757,6 +795,9 @@ color: GOLDEN
       "price_eur_ex_vat": 7.5,
       "stock_qty": 500,
       "weight": 0.12,
+      "custom_suffix": "special-edition",
+      "star": true,
+      "is_active": false,
       "discount_type": "PERCENT",
       "discount_value": 10
     }
@@ -764,14 +805,19 @@ color: GOLDEN
 }
 ```
 
-**Champs modifiables testés :**
-| Champ | Type | Notes |
-|-------|------|-------|
-| `price_eur_ex_vat` | number | Prix unitaire HT |
-| `stock_qty` | number | Quantité en stock |
-| `weight` | number | Poids en kg |
-| `discount_type` | string\|null | `"PERCENT"` ou `"AMOUNT"`, `null` pour supprimer |
-| `discount_value` | number\|null | Valeur de la remise, `null` pour supprimer |
+**Champs modifiables testés (2026-03-22) :**
+| Champ | Type | Fonctionne | Notes |
+|-------|------|-----------|-------|
+| `variant_id` | string | **obligatoire** | Identifiant unique du variant (ex: `"pro_c33dcc49..."`) |
+| `price_eur_ex_vat` | number | ✅ | Prix unitaire HT en euros |
+| `stock_qty` | number | ✅ | Quantité en stock |
+| `weight` | number | ✅ | Poids en kg (ex: `0.15`) |
+| `custom_suffix` | string | ✅ | Suffixe personnalisé du variant. `""` pour supprimer |
+| `star` | boolean | ✅ | Marquer comme variant favori/vedette |
+| `is_active` | boolean | ✅ | Activer/désactiver le variant (alternative à `setAvailability`) |
+| `discount_type` | string\|null | ✅ | `"PERCENT"` ou `"AMOUNT"`, `null` pour supprimer |
+| `discount_value` | number\|null | ✅ | Valeur de la remise, `null` pour supprimer |
+| `discounted_price_eur_ex_vat` | number | ⚠️ | **Ignoré** quand utilisé seul (`updated: 0`). `null` crash en 500. `0` retourne 200 mais sans effet. **Utiliser `discount_type`/`discount_value` à la place** |
 
 **Réponse 200 :**
 ```json
@@ -784,10 +830,19 @@ color: GOLDEN
 }
 ```
 
-**Testé et vérifié le 2026-03-21 :** fonctionne sur ITEM et PACK. Supprimer le discount avec `discount_type: null, discount_value: null` fonctionne.
+**Effet des discounts (vérifié) :**
+- `discount_type: "PERCENT", discount_value: 20` sur un prix de 11€ → `price_sale: 8.80€`, `price_before_discount: 11€`
+- `discount_type: "AMOUNT", discount_value: 2` sur un prix de 11€ → `price_sale: 9€`, `price_before_discount: 11€`
+- `discount_type: null, discount_value: null` → supprime le discount, `price_sale = price_before_discount`
+
+**Batch multi-variants :** on peut envoyer plusieurs variants dans le même appel (testé avec 2 variants simultanés).
+
+**Bugs connus :**
+- `discounted_price_eur_ex_vat` seul → `updated: 0` (ignoré par l'API). Ce champ du Swagger ne fonctionne pas en pratique.
+- `discounted_price_eur_ex_vat: null` → crash 500 (Server Error)
 
 **Solution alternative : DELETE + POST** (si PATCH ne suffit pas, e.g. changer la couleur/type)
-```typescript
+```
 DELETE /catalog/products/variants/{variant_id}
 POST /catalog/products/{product_id}/variants
 { "data": [{ ... }] }
@@ -936,7 +991,7 @@ Deux endpoints disponibles :
 | `ProductComposition.material.reference` | `material_composition` (string) | POST create | Référence matériau PFS (ex: `"ACIERINOXYDABLE"`) |
 | `ProductColor.saleType` | `type` (ITEM/PACK) | POST variants | UNIT→ITEM, PACK→PACK (⚠️ PACK crash) |
 | `Color.pfsReference` / détection | `color` (string) | POST variants | Référence couleur PFS (ex: `"GOLDEN"`) |
-| `ProductColor.unitPrice` | `price_eur_ex_vat` | POST variants | Prix HT — appliquer markup ×1.11 si nécessaire |
+| `ProductColor.unitPrice` | `price_eur_ex_vat` | POST variants | Prix HT — identique BJ et PFS |
 | `ProductColor.stock` | `stock_qty` | POST variants | |
 | `ProductColor.weight` | `weight` | POST variants | En kg |
 | `ProductColorImage` → JPEG | `image` (file) + `slot` + `color` | POST image | Convertir WebP → JPEG avant upload |
@@ -947,20 +1002,21 @@ Deux endpoints disponibles :
 1. **`checkReference/{ref}`** — vérifier si le produit existe déjà sur PFS
 2. Si **n'existe pas** → `POST /catalog/products` pour créer + `POST .../variants` pour chaque variant ITEM + `POST .../image` pour chaque image (WebP→JPEG)
 3. Si **existe** → comparer les données :
-   - `PATCH /catalog/products/{id}` pour label/description/default_color
-   - `PATCH /catalog/products/variants` avec `variant_id` pour modifier prix/stock/weight/discount
+   - `PATCH /catalog/products/{id}` pour label/description/default_color/category/country/material_composition(array)/lining_composition
+   - `PATCH /catalog/products/variants` avec `variant_id` pour modifier prix/stock/weight/discount/custom_suffix/star/is_active
    - `POST .../variants` pour les nouveaux variants / `DELETE .../variants/{id}` pour les supprimés
    - `POST .../image` pour les images (à chaque sync — pas de comparaison fiable)
    - `PATCH .../batch/updateStatus` si le statut a changé
 4. **Ordre important :** produit → variants → images → statut (READY_FOR_SALE nécessite variants + images)
 
-### Limitations connues (bugs PFS)
-- **`material_composition` en array** : crash 500 — utiliser une string (référence unique)
+### Limitations connues (bugs PFS — mise à jour 2026-03-22)
+- **`material_composition` en array sur POST** : crash 500 — utiliser une string (référence unique) pour la création. **Sur PATCH, l'array `[{id, value}]` fonctionne** et supporte la composition multiple (testé 2026-03-22)
 - **PATCH variants avec `id`** : retourne 200 mais `updated: 0` — **utiliser `variant_id`** à la place (testé et fonctionnel)
+- **`discounted_price_eur_ex_vat`** : champ du Swagger ignoré par l'API (`updated: 0`). `null` crash en 500. Utiliser `discount_type`/`discount_value` à la place
 - **DELETE image** : crash 500 — pas possible via API
 - **Suppression produit** : ne libère pas la référence — renommer d'abord si on veut la réutiliser
-- **Composition multiple** : impossible via la string simple (1 seul matériau supporté)
 - **PACK format `sizes` imbriqué** : crash — utiliser le format plat `{ color, size, qty }` dans `packs`
+- **Rate limit variants** : 30 appels/minute sur `PATCH /catalog/products/variants`
 
 ### Produit de test créé
 - **Référence :** `T999VS1`

@@ -8,11 +8,12 @@ import MaintenanceModeToggle from "@/components/admin/settings/MaintenanceModeTo
 import ProductDisplayConfig from "@/components/admin/settings/ProductDisplayConfig";
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import DarkModeToggle from "@/components/admin/settings/DarkModeToggle";
+import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
 
 export const metadata: Metadata = { title: "Paramètres — Beli & Jolie Admin" };
 
 export default async function ParametresPage() {
-  const [minConfig, maintenanceConfig, displayConfigRow, stockVariantsConfig, stockProductsConfig, categories, dbCollections, dbTags] = await Promise.all([
+  const [minConfig, maintenanceConfig, displayConfigRow, stockVariantsConfig, stockProductsConfig, categories, dbCollections, dbTags, companyInfo] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
     prisma.siteConfig.findUnique({ where: { key: "maintenance_mode" } }),
     prisma.siteConfig.findUnique({ where: { key: "product_display_config" } }),
@@ -21,6 +22,7 @@ export default async function ParametresPage() {
     prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.companyInfo.findFirst(),
   ]);
 
   const cookieStore = await cookies();
@@ -209,6 +211,46 @@ export default async function ParametresPage() {
           </div>
         </div>
         <DarkModeToggle currentTheme={adminTheme} />
+      </div>
+
+      {/* Bloc 7 — Informations société */}
+      <div className="lg:col-span-2 bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="flex items-start gap-3 mb-5">
+          <div className="w-8 h-8 rounded-lg bg-[#DBEAFE] flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#2563EB]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">
+              Informations société
+            </h2>
+            <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)]">
+              Ces informations sont utilisées dans les documents légaux (CGV, mentions légales, etc.)
+              via des variables automatiques. Toute modification met à jour automatiquement tous les documents.
+            </p>
+          </div>
+        </div>
+        <CompanyInfoForm initialData={companyInfo ? {
+          name: companyInfo.name,
+          legalForm: companyInfo.legalForm ?? undefined,
+          capital: companyInfo.capital ?? undefined,
+          siret: companyInfo.siret ?? undefined,
+          rcs: companyInfo.rcs ?? undefined,
+          tvaNumber: companyInfo.tvaNumber ?? undefined,
+          address: companyInfo.address ?? undefined,
+          city: companyInfo.city ?? undefined,
+          postalCode: companyInfo.postalCode ?? undefined,
+          country: companyInfo.country ?? undefined,
+          phone: companyInfo.phone ?? undefined,
+          email: companyInfo.email ?? undefined,
+          website: companyInfo.website ?? undefined,
+          director: companyInfo.director ?? undefined,
+          hostName: companyInfo.hostName ?? undefined,
+          hostAddress: companyInfo.hostAddress ?? undefined,
+          hostPhone: companyInfo.hostPhone ?? undefined,
+          hostEmail: companyInfo.hostEmail ?? undefined,
+        } : null} />
       </div>
 
       </div>{/* end grid */}

@@ -24,6 +24,8 @@ export default function Footer() {
     { label: t("legal"),   href: "/mentions-legales" },
     { label: t("cgv"),     href: "/cgv" },
     { label: t("privacy"), href: "/confidentialite" },
+    { label: t("cookies"), href: "/cookies" },
+    { label: t("cgu"),     href: "/cgu" },
   ];
 
   return (

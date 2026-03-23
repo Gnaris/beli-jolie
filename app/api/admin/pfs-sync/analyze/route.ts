@@ -44,6 +44,7 @@ function slugify(str: string): string {
 
 interface MissingCategory {
   pfsName: string;
+  pfsCategoryId: string;
   suggestedName: string;
   usedBy: number;
   pfsLabels: Record<string, string>;
@@ -108,9 +109,31 @@ export async function POST(req: NextRequest) {
         const categorySlugs = new Set<string>(dbCategories.map((c) => slugify(c.name)));
         const categoryNames = new Set<string>(dbCategories.map((c) => c.name.toLowerCase()));
         const colorNormalized = new Set<string>(dbColors.map((c) => normalizeColorName(c.name)));
-        const mappingSet = new Set<string>(
-          pfsMappings.map((m) => `${m.type}::${m.pfsName.toLowerCase()}`),
-        );
+
+        // Only trust mappings whose target entity still exists in the DB
+        // This prevents orphaned mappings (entity deleted after a previous sync)
+        // from masking missing entities
+        const mappingSet = new Set<string>();
+        for (const m of pfsMappings) {
+          const key = `${m.type}::${m.pfsName.toLowerCase()}`;
+          if (m.type === "category") {
+            // Check if the mapped category still exists
+            const bjSlug = slugify(m.bjName);
+            const bjNameLower = m.bjName.toLowerCase();
+            if (categorySlugs.has(bjSlug) || categoryNames.has(bjNameLower)) {
+              mappingSet.add(key);
+            }
+          } else if (m.type === "color") {
+            // Check if the mapped color still exists
+            const bjNormalized = normalizeColorName(m.bjName);
+            if (colorNormalized.has(bjNormalized)) {
+              mappingSet.add(key);
+            }
+          } else {
+            // composition and other types: trust the mapping
+            mappingSet.add(key);
+          }
+        }
 
         send({
           type: "progress",
@@ -133,7 +156,12 @@ export async function POST(req: NextRequest) {
             lastPage = firstResponse.meta.last_page;
           }
           if (firstResponse.data && firstResponse.data.length > 0) {
-            for (const product of firstResponse.data) {
+            let firstPageProducts = firstResponse.data;
+            // Apply limit on first page too
+            if (limit > 0) {
+              firstPageProducts = firstPageProducts.slice(0, limit);
+            }
+            for (const product of firstPageProducts) {
               analyzeColors(product, missingColors, colorNormalized, mappingSet);
               analyzeCategory(product, missingCategories, categorySlugs, categoryNames, mappingSet);
               totalScanned++;
@@ -296,6 +324,7 @@ function analyzeCategory(
   } else {
     missing.set(key, {
       pfsName: categoryFr,
+      pfsCategoryId: product.category.id,
       suggestedName,
       usedBy: 1,
       pfsLabels: product.category.labels || {},

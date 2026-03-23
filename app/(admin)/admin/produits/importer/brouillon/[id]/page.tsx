@@ -41,7 +41,7 @@ export default async function BrouillonPage({ params }: PageProps) {
           </p>
         </div>
         <span
-          className={`badge-${draft.status === "RESOLVED" ? "success" : "warning"} self-start`}
+          className={`badge ${draft.status === "RESOLVED" ? "badge-success" : "badge-warning"} self-start`}
         >
           {draft.status === "RESOLVED" ? "Résolu" : "En attente"}
         </span>

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition, useRef, useEffect } from "react";
-import Link from "next/link";
+import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, uid as genUid, variantGroupKeyFromState } from "./ColorVariantManager";
 import { createProduct, updateProduct, saveProductTranslations } from "@/app/actions/admin/products";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
@@ -89,6 +89,188 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
   };
 }
 
+// ─────────────────────────────────────────────
+// Tags multi-select dropdown
+// ─────────────────────────────────────────────
+function TagsDropdown({
+  localTags,
+  tagNames,
+  setTagNames,
+  onCreateClick,
+  isBestSeller,
+  setIsBestSeller,
+}: {
+  localTags: { id: string; name: string }[];
+  tagNames: string[];
+  setTagNames: React.Dispatch<React.SetStateAction<string[]>>;
+  onCreateClick: () => void;
+  isBestSeller: boolean;
+  setIsBestSeller: (v: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Accent-insensitive normalize
+  function normalize(s: string) {
+    return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  }
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return localTags;
+    const q = normalize(search);
+    return localTags.filter((t) => normalize(t.name).includes(q));
+  }, [localTags, search]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch("");
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        setSearch("");
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  function toggleTag(name: string) {
+    setTagNames((prev) =>
+      prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
+    );
+  }
+
+  function removeTag(name: string) {
+    setTagNames((prev) => prev.filter((x) => x !== name));
+  }
+
+  return (
+    <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">Mots clés & Tags</p>
+        <button type="button" onClick={onCreateClick}
+          className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+        >+ Créer</button>
+      </div>
+
+      {/* Selected tags as removable chips */}
+      {tagNames.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {tagNames.map((name) => (
+            <span key={name}
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-[#1A1A1A] text-white font-[family-name:var(--font-roboto)]"
+            >
+              {name}
+              <button type="button" onClick={() => removeTag(name)}
+                className="ml-0.5 p-0.5 min-w-[20px] min-h-[20px] flex items-center justify-center hover:text-red-300 transition-colors" aria-label={`Retirer ${name}`}
+              >×</button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Dropdown trigger & menu */}
+      <div ref={containerRef} className="relative">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => { setOpen((v) => !v); setTimeout(() => inputRef.current?.focus(), 50); }}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-label="Sélectionner des mots-clés"
+          className={`w-full flex items-center justify-between px-3 py-2.5 border rounded-lg text-sm font-[family-name:var(--font-roboto)] transition-colors ${
+            open ? "border-[#1A1A1A] ring-1 ring-[#1A1A1A]" : "border-[#E5E5E5] hover:border-[#CBCBCB]"
+          }`}
+        >
+          <span className={tagNames.length > 0 ? "text-[#1A1A1A]" : "text-[#9CA3AF]"}>
+            {tagNames.length > 0
+              ? `${tagNames.length} mot${tagNames.length > 1 ? "s" : ""}-clé${tagNames.length > 1 ? "s" : ""} sélectionné${tagNames.length > 1 ? "s" : ""}`
+              : "Sélectionner des mots-clés…"}
+          </span>
+          <svg className={`w-4 h-4 text-[#6B6B6B] transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {open && (
+          <div className="absolute z-30 mt-1 w-full bg-white border border-[#E5E5E5] rounded-xl shadow-lg overflow-hidden">
+            {/* Search input */}
+            <div className="p-2 border-b border-[#F0F0F0]">
+              <input
+                ref={inputRef}
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Rechercher un mot-clé…"
+                className="w-full px-2.5 py-2 text-sm border border-[#E5E5E5] rounded-md font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]"
+              />
+            </div>
+
+            {/* Options list */}
+            <div className="max-h-48 overflow-y-auto" role="listbox" aria-label="Mots-clés disponibles">
+              {filtered.length > 0 ? filtered.map((t) => {
+                const selected = tagNames.includes(t.name);
+                return (
+                  <button key={t.id} type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => toggleTag(t.name)}
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left font-[family-name:var(--font-roboto)] transition-colors hover:bg-[#F7F7F8] ${
+                      selected ? "text-[#1A1A1A] font-medium" : "text-[#6B6B6B]"
+                    }`}
+                  >
+                    <span className={`flex items-center justify-center w-4 h-4 rounded border text-[10px] ${
+                      selected
+                        ? "bg-[#1A1A1A] border-[#1A1A1A] text-white"
+                        : "border-[#D1D5DB] bg-white"
+                    }`}>
+                      {selected && "✓"}
+                    </span>
+                    {t.name}
+                  </button>
+                );
+              }) : (
+                <p className="px-3 py-3 text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+                  Aucun mot-clé trouvé.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Best Seller */}
+      <div className="pt-3 border-t border-[#F0F0F0]">
+        <label className="flex items-center gap-3 cursor-pointer group">
+          <input type="checkbox" checked={isBestSeller} onChange={(e) => setIsBestSeller(e.target.checked)}
+            className="w-4 h-4 border-[#E5E5E5] accent-[#1A1A1A]" />
+          <div>
+            <span className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">Best Seller</span>
+            <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">Mettre en avant dans les filtres</p>
+          </div>
+        </label>
+      </div>
+    </div>
+  );
+}
+
 export default function ProductForm({
   categories,
   availableColors,
@@ -137,13 +319,83 @@ export default function ProductForm({
     initialData?.status === "SYNCING" ? "OFFLINE" : (initialData?.status ?? "OFFLINE")
   );
 
+  // ── Unsaved changes guard ─────────────────────────────────────────────
+  const router = useRouter();
+  const { confirm: confirmUnsaved } = useConfirm();
+  const initialSnapshot = useRef<string | null>(null);
+  const isDirty = useRef(false);
+  const snapshotReady = useRef(false);
+
+  const buildSnapshot = useCallback(() => JSON.stringify({
+    reference, name, description, categoryId, subCategoryIds,
+    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, size: v.size, discountType: v.discountType, discountValue: v.discountValue })),
+    compositions, similarProductIds, tagNames, isBestSeller,
+    dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
+  }), [reference, name, description, categoryId, subCategoryIds, variants, compositions, similarProductIds, tagNames, isBestSeller, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus]);
+
+  // Capture snapshot after first effects have settled (colorImages sync etc.)
+  useEffect(() => {
+    if (!snapshotReady.current) {
+      const timer = setTimeout(() => {
+        initialSnapshot.current = buildSnapshot();
+        snapshotReady.current = true;
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+    isDirty.current = buildSnapshot() !== initialSnapshot.current;
+  }, [buildSnapshot]);
+
+  // Browser close / refresh / hard navigation
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (isDirty.current) {
+        e.preventDefault();
+        e.returnValue = "unsaved";
+      }
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
+  const navigateWithGuard = useCallback(async (href: string) => {
+    if (!isDirty.current) { router.push(href); return; }
+    const ok = await confirmUnsaved({
+      title: "Modifications non enregistrées",
+      message: "Vous avez des modifications non enregistrées. Voulez-vous vraiment quitter cette page ? Vos changements seront perdus.",
+      confirmLabel: "Quitter",
+      danger: true,
+    });
+    if (ok) {
+      isDirty.current = false;
+      router.push(href);
+    }
+  }, [router, confirmUnsaved]);
+
+  // Intercept ALL client-side link clicks inside the page
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (!isDirty.current) return;
+      const anchor = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#") || href.startsWith("javascript")) return;
+      // Only intercept internal navigation
+      if (href.startsWith("http") && !href.startsWith(window.location.origin)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      navigateWithGuard(href);
+    }
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [navigateWithGuard]);
+
   // ── Sync colorImages when variant colors change ───────────────────────
   // One ColorImageState per color group (colorId + sub-colors), shared across UNIT/PACK variants
   const variantColorKey = variants
     .filter((v) => v.colorId)
     .map((v) => variantGroupKeyFromState(v))
     .sort()
-    .join(",");
+    .join("|");
   useEffect(() => {
     // Build unique groups: groupKey → display info
     const groupMap = new Map<string, { colorId: string; name: string; hex: string }>();
@@ -380,11 +632,6 @@ export default function ProductForm({
     setCompositions(remaining.map((c) => ({ ...c, percentage: evenPct })));
   }
 
-  // ── Tag helpers ──────────────────────────────────────────────────────
-  function removeTag(tag: string) {
-    setTagNames((prev) => prev.filter((x) => x !== tag));
-  }
-
   // ── Color quick-create handler ────────────────────────────────────────
   async function handleQuickCreateColor(colorName: string, hex: string | null, patternImage: string | null): Promise<AvailableColor> {
     const { createColorQuick } = await import("@/app/actions/admin/quick-create");
@@ -562,6 +809,25 @@ export default function ProductForm({
     if (!categoryId)          return setError("Veuillez choisir une catégorie.");
     if (variants.length === 0) return setError("Ajoutez au moins une variante.");
 
+    // ── Integrity check (edit mode): detect corrupted state before sending ──
+    if (mode === "edit" && initialData) {
+      const issues: string[] = [];
+      if (initialData.variants.length > 0 && variants.length === 0) {
+        issues.push("Toutes les variantes ont disparu");
+      }
+      if (initialData.categoryId && !categoryId) {
+        issues.push("La catégorie a disparu");
+      }
+      if (initialData.variants.length > 0 && variants.every((v) => !v.dbId)) {
+        issues.push("Les IDs de variantes existantes ont été perdus");
+      }
+      if (issues.length > 0) {
+        return setError(
+          `Erreur d'intégrité détectée (${issues.join(", ")}). Rechargez la page et réessayez.`
+        );
+      }
+    }
+
     for (const v of variants) {
       if (!v.colorId) return setError("Chaque variante doit avoir une couleur sélectionnée.");
       const price = parseFloat(v.unitPrice);
@@ -655,6 +921,9 @@ export default function ProductForm({
           await createProduct(payload);
         }
         setProductStatus(targetStatus);
+        // Reset dirty flag after successful save
+        initialSnapshot.current = buildSnapshot();
+        isDirty.current = false;
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
       }
@@ -869,59 +1138,14 @@ export default function ProductForm({
             </div>
 
             {/* ── BLOC MOTS CLÉS ── */}
-            <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">Mots clés & Tags</p>
-                <button type="button"
-                  onClick={() => setModalType("tag")}
-                  className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
-                >+ Créer</button>
-              </div>
-
-              {/* Tags existants — picker */}
-              {localTags.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 p-3 bg-[#EFEFEF] border border-[#E5E5E5] rounded-lg max-h-44 overflow-y-auto">
-                  {localTags.map((t) => {
-                    const selected = tagNames.includes(t.name);
-                    return (
-                      <button key={t.id} type="button"
-                        onClick={() => selected ? removeTag(t.name) : setTagNames((prev) => [...prev, t.name])}
-                        className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border font-[family-name:var(--font-roboto)] transition-all ${
-                          selected
-                            ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                            : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
-                        }`}
-                      >
-                        {selected && <span className="text-[10px]">&#10003;</span>}
-                        {t.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-                  Aucun tag — cliquez sur &ldquo;+ Créer&rdquo; pour en ajouter.
-                </p>
-              )}
-
-              {tagNames.length > 0 && (
-                <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-                  {tagNames.length} sélectionné{tagNames.length > 1 ? "s" : ""} : {tagNames.join(", ")}
-                </p>
-              )}
-
-              {/* Best Seller */}
-              <div className="pt-3 border-t border-[#F0F0F0]">
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <input type="checkbox" checked={isBestSeller} onChange={(e) => setIsBestSeller(e.target.checked)}
-                    className="w-4 h-4 border-[#E5E5E5] accent-[#1A1A1A]" />
-                  <div>
-                    <span className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">Best Seller</span>
-                    <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">Mettre en avant dans les filtres</p>
-                  </div>
-                </label>
-              </div>
-            </div>
+            <TagsDropdown
+              localTags={localTags}
+              tagNames={tagNames}
+              setTagNames={setTagNames}
+              onCreateClick={() => setModalType("tag")}
+              isBestSeller={isBestSeller}
+              setIsBestSeller={setIsBestSeller}
+            />
           </div>
 
           {/* Row 2 : Bloc dimensions (left) + Bloc composition (right) */}
@@ -1153,12 +1377,12 @@ export default function ProductForm({
             </button>
           )}
 
-          <Link href="/admin/produits" className="btn-secondary px-7 py-3.5 text-sm">
+          <button type="button" onClick={() => navigateWithGuard("/admin/produits")} className="btn-secondary px-7 py-3.5 text-sm">
             Annuler
-          </Link>
-          <Link href="/admin/produits" className="text-sm text-[#6B6B6B] underline hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
+          </button>
+          <button type="button" onClick={() => navigateWithGuard("/admin/produits")} className="text-sm text-[#6B6B6B] underline hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
             Retourner à la page des produits
-          </Link>
+          </button>
         </div>
       </form>
 

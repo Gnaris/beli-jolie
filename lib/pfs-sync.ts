@@ -35,7 +35,7 @@ import { normalizeColorName } from "@/lib/import-processor";
 // Helpers
 // ─────────────────────────────────────────────
 
-function slugify(str: string): string {
+export function slugify(str: string): string {
   return str
     .toLowerCase()
     .normalize("NFD")
@@ -48,7 +48,7 @@ function slugify(str: string): string {
  * Strip version suffix from PFS reference.
  * "A200VS3" → "A200", "T198VS1" → "T198", "B100" → "B100"
  */
-function stripVersionSuffix(ref: string): string {
+export function stripVersionSuffix(ref: string): string {
   return ref.replace(/VS\d+$/i, "");
 }
 
@@ -61,22 +61,14 @@ function getVersionSuffix(ref: string): string | null {
   return match ? match[1] : null;
 }
 
-/**
- * PFS prices include an 11% markup over the real wholesale price.
- * Strip it to get the true price: realPrice = pfsPrice / 1.11
- * Result rounded to 2 decimals.
- */
-function stripPfsMarkup(price: number): number {
-  return Math.floor((price / 1.11) * 10) / 10;
-}
 
 /** Remove ?image_process=... from PFS CDN URLs to get full-size image. */
-function fullSizeImageUrl(url: string): string {
+export function fullSizeImageUrl(url: string): string {
   return url.replace(/\?image_process=.*$/, "");
 }
 
 /** Extract color images from PFS images object (skip DEFAULT key). */
-function extractColorImages(
+export function extractColorImages(
   images: Record<string, string | string[]>,
 ): Map<string, string[]> {
   const map = new Map<string, string[]>();
@@ -95,7 +87,7 @@ function extractColorImages(
  *   2. Compare DEFAULT image URLs with color-specific image URLs to find the match
  *   3. Fall back to null (first variant becomes primary)
  */
-function detectDefaultColorRef(
+export function detectDefaultColorRef(
   images: Record<string, string | string[]>,
   defaultColorFromApi?: string | null,
 ): string | null {
@@ -213,7 +205,7 @@ const FETCH_USER_AGENTS = [
 let fetchUaIdx = 0;
 
 /** Download an image from URL with fetch, fallback to Playwright. */
-async function downloadImage(url: string, maxRetries = 3): Promise<Buffer> {
+export async function downloadImage(url: string, maxRetries = 3): Promise<Buffer> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -270,7 +262,7 @@ async function downloadImage(url: string, maxRetries = 3): Promise<Buffer> {
 }
 
 /** Map PFS category reference to BJ category name. */
-function parsePfsCategoryRef(ref: string): string {
+export function parsePfsCategoryRef(ref: string): string {
   const parts = ref.split("/");
   const last = parts[parts.length - 1];
 
@@ -296,9 +288,9 @@ function parsePfsCategoryRef(ref: string): string {
 // Color resolution — find or create Color in BJ
 // ─────────────────────────────────────────────
 
-const colorCache = new Map<string, string>(); // normalized name → Color.id
+export const colorCache = new Map<string, string>(); // normalized name → Color.id
 
-async function findOrCreateColor(
+export async function findOrCreateColor(
   reference: string,
   hex: string,
   labels: Record<string, string>,
@@ -350,11 +342,15 @@ async function upsertColorTranslations(
 ): Promise<void> {
   for (const [locale, name] of Object.entries(labels)) {
     if (locale === "fr" || !name) continue;
-    await prisma.colorTranslation.upsert({
-      where: { colorId_locale: { colorId, locale } },
-      update: { name },
-      create: { colorId, locale, name },
-    });
+    try {
+      await prisma.colorTranslation.upsert({
+        where: { colorId_locale: { colorId, locale } },
+        update: { name },
+        create: { colorId, locale, name },
+      });
+    } catch {
+      // Race condition: concurrent sync already created this — safe to ignore
+    }
   }
 }
 
@@ -362,9 +358,9 @@ async function upsertColorTranslations(
 // Category resolution
 // ─────────────────────────────────────────────
 
-const categoryCache = new Map<string, string>(); // name → Category.id
+export const categoryCache = new Map<string, string>(); // name → Category.id
 
-async function findOrCreateCategory(
+export async function findOrCreateCategory(
   name: string,
   labels?: Record<string, string>,
   pfsOriginalName?: string,
@@ -433,11 +429,15 @@ async function upsertCategoryTranslations(
 ): Promise<void> {
   for (const [locale, name] of Object.entries(labels)) {
     if (locale === "fr" || !name) continue;
-    await prisma.categoryTranslation.upsert({
-      where: { categoryId_locale: { categoryId, locale } },
-      update: { name },
-      create: { categoryId, locale, name },
-    });
+    try {
+      await prisma.categoryTranslation.upsert({
+        where: { categoryId_locale: { categoryId, locale } },
+        update: { name },
+        create: { categoryId, locale, name },
+      });
+    } catch {
+      // Race condition: concurrent sync already created this — safe to ignore
+    }
   }
 }
 
@@ -445,9 +445,9 @@ async function upsertCategoryTranslations(
 // Composition resolution
 // ─────────────────────────────────────────────
 
-const compositionCache = new Map<string, string>(); // normalized name → Composition.id
+export const compositionCache = new Map<string, string>(); // normalized name → Composition.id
 
-async function findOrCreateComposition(
+export async function findOrCreateComposition(
   frName: string,
   labels: Record<string, string>,
 ): Promise<string> {
@@ -476,26 +476,48 @@ async function findOrCreateComposition(
     compositionCache.set(normalized, existing.id);
     for (const [locale, name] of Object.entries(labels)) {
       if (locale === "fr" || !name) continue;
-      await prisma.compositionTranslation.upsert({
-        where: { compositionId_locale: { compositionId: existing.id, locale } },
-        update: { name },
-        create: { compositionId: existing.id, locale, name },
-      });
+      try {
+        await prisma.compositionTranslation.upsert({
+          where: { compositionId_locale: { compositionId: existing.id, locale } },
+          update: { name },
+          create: { compositionId: existing.id, locale, name },
+        });
+      } catch {
+        // Race condition: concurrent sync already created this — safe to ignore
+      }
     }
     return existing.id;
   }
 
-  const composition = await prisma.composition.create({
-    data: { name: frName },
-  });
+  // Use upsert to handle race conditions (parallel sync creating same composition)
+  let composition: { id: string };
+  try {
+    composition = await prisma.composition.upsert({
+      where: { name: frName },
+      update: {},
+      create: { name: frName },
+    });
+  } catch {
+    // Race condition: another parallel sync created it between our findFirst and upsert
+    const raceCreated = await prisma.composition.findFirst({
+      where: { name: frName },
+      select: { id: true },
+    });
+    if (!raceCreated) throw new Error(`Failed to find or create composition: ${frName}`);
+    composition = raceCreated;
+  }
 
   for (const [locale, name] of Object.entries(labels)) {
     if (locale === "fr" || !name) continue;
-    await prisma.compositionTranslation.upsert({
-      where: { compositionId_locale: { compositionId: composition.id, locale } },
-      update: { name },
-      create: { compositionId: composition.id, locale, name },
-    });
+    try {
+      await prisma.compositionTranslation.upsert({
+        where: { compositionId_locale: { compositionId: composition.id, locale } },
+        update: { name },
+        create: { compositionId: composition.id, locale, name },
+      });
+    } catch {
+      // Race condition: concurrent sync already created this — safe to ignore
+    }
   }
 
   compositionCache.set(normalized, composition.id);
@@ -506,7 +528,7 @@ async function findOrCreateComposition(
 // Image processing
 // ─────────────────────────────────────────────
 
-async function downloadAndProcessImages(
+export async function downloadAndProcessImages(
   imageUrls: string[],
   reference: string,
   colorRef: string,
@@ -591,7 +613,7 @@ async function getBestImageSource(
 // Single product sync
 // ─────────────────────────────────────────────
 
-interface SyncResult {
+export interface SyncResult {
   action: "created" | "updated" | "skipped" | "error";
   reference: string;
   error?: string;
@@ -689,7 +711,7 @@ async function syncSingleProduct(
         );
 
         const pfsPrice = v.price_sale.unit.value;
-        const bjPrice = stripPfsMarkup(pfsPrice);
+        const bjPrice = pfsPrice;
 
         let discountType: "PERCENT" | "AMOUNT" | null = null;
         let discountValue: number | null = null;
@@ -723,7 +745,7 @@ async function syncSingleProduct(
 
         const packQty = detail?.pieces ?? pack.sizes?.[0]?.qty ?? v.pieces ?? 1;
         const pfsPrice = v.price_sale.unit.value;
-        const bjPrice = stripPfsMarkup(pfsPrice);
+        const bjPrice = pfsPrice;
 
         let discountType: "PERCENT" | "AMOUNT" | null = null;
         let discountValue: number | null = null;
@@ -1062,19 +1084,19 @@ export interface PfsSyncOptions {
 }
 
 /** Number of products to process in parallel per batch (data creation). */
-const PARALLEL_CONCURRENCY = 10;
+export const PARALLEL_CONCURRENCY = 10;
 
 /** Number of PFS pages fetched in parallel (10 pages × 100 = 1000 products). */
-const PAGE_CONCURRENCY = 10;
+export const PAGE_CONCURRENCY = 10;
 
 /** Number of image tasks running in parallel in the background pool. */
-const IMAGE_CONCURRENCY = 15;
+export const IMAGE_CONCURRENCY = 15;
 
 /**
  * Fetch variant details + reference details for a single product.
  * Returns the data needed by syncSingleProduct.
  */
-async function fetchProductDetails(
+export async function fetchProductDetails(
   pfsProduct: PfsProduct,
 ): Promise<{ variantDetails: PfsVariantDetail[]; refDetails: PfsCheckReferenceResponse | null }> {
   // Fetch variants and reference details in parallel
@@ -1125,7 +1147,7 @@ async function processBatch(
  * Max logs kept in memory/DB to avoid unbounded growth.
  * Only the last N entries are persisted — older ones are trimmed.
  */
-const MAX_LOGS = 500;
+export const MAX_LOGS = 500;
 
 export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promise<void> {
   const maxProducts = options?.limit ?? 0;
@@ -1274,6 +1296,21 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
       }
 
       addProductLog(`📄 ${allPageProducts.length} produits récupérés depuis ${pageNumbers.length} pages`);
+
+      // ── Deduplicate by base reference (VS1/VS2/VS3 → same product) ──
+      {
+        const seenRefs = new Set<string>();
+        const before = allPageProducts.length;
+        allPageProducts = allPageProducts.filter((p) => {
+          const bjRef = stripVersionSuffix(p.reference.trim().toUpperCase());
+          if (seenRefs.has(bjRef)) return false;
+          seenRefs.add(bjRef);
+          return true;
+        });
+        if (allPageProducts.length < before) {
+          addProductLog(`🔀 ${before - allPageProducts.length} doublons de ref versionnée retirés → ${allPageProducts.length} produits uniques`);
+        }
+      }
 
       // Apply limit
       if (maxProducts > 0) {

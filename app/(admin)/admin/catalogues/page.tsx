@@ -67,15 +67,15 @@ export default async function AdminCataloguesPage() {
                     </p>
                   </td>
                   <td className="px-6 py-4 hidden sm:table-cell">
-                    <span className="badge-neutral text-xs px-2 py-1 rounded-full bg-[#F3F4F6] text-[#6B7280]">
+                    <span className="badge badge-neutral text-xs">
                       {cat._count.products} produit{cat._count.products !== 1 ? "s" : ""}
                     </span>
                   </td>
                   <td className="px-6 py-4 hidden md:table-cell">
                     {cat.status === "PUBLISHED" ? (
-                      <span className="badge-success text-xs px-2 py-1 rounded-full bg-[#DCFCE7] text-[#16A34A]">Publié</span>
+                      <span className="badge badge-success text-xs">Publié</span>
                     ) : (
-                      <span className="badge-neutral text-xs px-2 py-1 rounded-full bg-[#F3F4F6] text-[#6B7280]">Brouillon</span>
+                      <span className="badge badge-neutral text-xs">Brouillon</span>
                     )}
                   </td>
                   <td className="px-6 py-4 hidden lg:table-cell">

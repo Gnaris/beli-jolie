@@ -199,25 +199,25 @@ export default function ImportHistoryClient({
 
   function StatusBadge({ job }: { job: ImportJobWithDraft }) {
     if (job.status === "COMPLETED" && job.errorItems > 0) {
-      return <span className="badge-warning">Terminé avec erreurs</span>;
+      return <span className="badge badge-warning">Terminé avec erreurs</span>;
     }
     if (job.status === "COMPLETED") {
-      return <span className="badge-success">Terminé</span>;
+      return <span className="badge badge-success">Terminé</span>;
     }
     if (job.status === "FAILED") {
-      return <span className="badge-error">Échoué</span>;
+      return <span className="badge badge-error">Échoué</span>;
     }
     if (job.status === "PROCESSING") {
       return (
-        <span className="badge-neutral animate-pulse">En cours</span>
+        <span className="badge badge-info animate-pulse">En cours</span>
       );
     }
     if (job.status === "UPLOADING") {
       return (
-        <span className="badge-neutral animate-pulse">Upload en cours</span>
+        <span className="badge badge-info animate-pulse">Upload en cours</span>
       );
     }
-    return <span className="badge-neutral">En attente</span>;
+    return <span className="badge badge-neutral">En attente</span>;
   }
 
   // ─────────────────────────────────────────────

@@ -60,6 +60,7 @@ model User {
   importDrafts  ImportDraft[]
   importJobs    ImportJob[]
   pfsSyncJobs   PfsSyncJob[]
+  pfsPrepareJobs PfsPrepareJob[]
   accessCodes   AccessCode[]
   activity      UserActivity?
   restockAlerts RestockAlert[]
@@ -109,6 +110,7 @@ model Category {
   id            String                @id @default(cuid())
   name          String                @unique
   slug          String                @unique
+  pfsCategoryId String?               // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
   subCategories SubCategory[]
   products      Product[]
   translations  CategoryTranslation[]
@@ -157,6 +159,7 @@ model Color {
   name          String                  @unique
   hex           String?
   patternImage  String?                 // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
+  pfsColorRef   String?                 // Référence couleur PFS (ex: "GOLDEN", "SILVER") — pour reverse sync
   createdAt     DateTime                @default(now())
   productColors ProductColor[]
   colorImages   ProductColorImage[]
@@ -177,11 +180,12 @@ model ColorTranslation {
 
 // Bibliothèque de compositions (matériaux)
 model Composition {
-  id           String                  @id @default(cuid())
-  name         String                  @unique
-  createdAt    DateTime                @default(now())
-  products     ProductComposition[]
-  translations CompositionTranslation[]
+  id               String                  @id @default(cuid())
+  name             String                  @unique
+  pfsCompositionRef String?                // Référence composition PFS (ex: "ACIERINOXYDABLE") — pour reverse sync
+  createdAt        DateTime                @default(now())
+  products         ProductComposition[]
+  translations     CompositionTranslation[]
 }
 
 model CompositionTranslation {
@@ -241,6 +245,9 @@ model Product {
   id            String               @id @default(cuid())
   reference     String               @unique
   pfsProductId  String?              @unique // ID produit sur Paris Fashion Shop (ex: "pro_171bb9...")
+  pfsSyncStatus String?              // null=jamais sync, "synced"=OK, "pending"=en cours, "failed"=échec
+  pfsSyncError  String?              @db.Text // Dernier message d'erreur de sync PFS
+  pfsSyncedAt   DateTime?            // Dernière sync réussie vers PFS
   name          String
   description   String               @db.Text
   categoryId    String
@@ -340,6 +347,7 @@ model ProductColor {
   cartItems   CartItem[]
   collectionOverrides CollectionProduct[] // Apparitions dans des collections avec cette couleur
   restockAlerts RestockAlert[]
+  pfsVariantId  String?      // ID variant sur PFS (ex: "pro_c33dcc49...") — pour reverse sync
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
@@ -479,6 +487,9 @@ model Order {
 
   // Facture uploadée par l'admin
   invoicePath String?  // Chemin relatif depuis /private/uploads/invoices/
+
+  // CGV acceptance
+  cgvAcceptedAt DateTime?  // Timestamp when client accepted CGV before payment
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -905,6 +916,136 @@ model SentEmail {
   @@index([toEmail])
   @@index([sentAt])
   @@index([adminId])
+}
+
+// ─────────────────────────────────────────────
+// PFS Prepare — staging before approval
+// ─────────────────────────────────────────────
+
+enum PfsStagedStatus {
+  PREPARING   // Data/images en cours de téléchargement
+  READY       // Prêt pour review admin
+  APPROVED    // Approuvé — produit créé en DB
+  REJECTED    // Refusé — images supprimées
+  ERROR       // Erreur lors de la préparation
+}
+
+model PfsPrepareJob {
+  id                String         @id @default(cuid())
+  status            PfsSyncStatus  @default(PENDING)
+  totalProducts     Int            @default(0)
+  processedProducts Int            @default(0)
+  readyProducts     Int            @default(0)
+  errorProducts     Int            @default(0)
+  approvedProducts  Int            @default(0)
+  rejectedProducts  Int            @default(0)
+  lastPage          Int            @default(0)
+  errorMessage      String?        @db.Text
+  logs              Json?
+  adminId           String
+  admin             User           @relation(fields: [adminId], references: [id])
+  stagedProducts    PfsStagedProduct[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PfsStagedProduct {
+  id             String           @id @default(cuid())
+  prepareJobId   String
+  prepareJob     PfsPrepareJob    @relation(fields: [prepareJobId], references: [id], onDelete: Cascade)
+  pfsProductId   String
+  reference      String           // Réf BJ (sans VS suffix)
+  pfsReference   String           // Réf PFS originale
+  status         PfsStagedStatus  @default(PREPARING)
+  name           String
+  description    String           @db.Text
+  categoryId        String
+  categoryName      String
+  subCategoryIds    Json?            // string[] — IDs des sous-catégories
+  subCategoryNames  Json?            // string[] — Noms des sous-catégories
+  isBestSeller   Boolean          @default(false)
+  variants       Json             // VariantData[]
+  compositions   Json             // { compositionId, name, percentage }[]
+  translations   Json             // { locale, name, description }[]
+  imagesByColor  Json             // { colorRef, colorName, colorId, paths[] }[]
+  tags           Json?            // string[] — tag names
+  errorMessage      String?          @db.Text
+  existsInDb        Boolean          @default(false)
+  existingProductId String?
+  differences       Json?            // Array of { field, stagedValue, existingValue }
+  createdProductId  String?          // Filled when product is approved and created in DB
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@unique([pfsProductId, prepareJobId])
+  @@index([prepareJobId, status])
+  @@index([reference])
+}
+
+// ─────────────────────────────────────────────
+// Informations société (configurable par l'admin)
+// ─────────────────────────────────────────────
+
+model CompanyInfo {
+  id            String   @id @default(cuid())
+  name          String   // Raison sociale
+  legalForm     String?  // Forme juridique (SAS, SARL, EURL, etc.)
+  capital       String?  // Capital social
+  siret         String?
+  rcs           String?  // RCS (ex: Paris B 123 456 789)
+  tvaNumber     String?  // TVA intracommunautaire
+  address       String?
+  city          String?
+  postalCode    String?
+  country       String   @default("France")
+  phone         String?
+  email         String?
+  website       String?
+  director      String?  // Directeur de publication
+  hostName      String?  // Hébergeur
+  hostAddress   String?
+  hostPhone     String?
+  hostEmail     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Documents légaux (CGV, CGU, Mentions légales, etc.)
+// ─────────────────────────────────────────────
+
+enum LegalDocumentType {
+  MENTIONS_LEGALES
+  CGV
+  CGU
+  POLITIQUE_CONFIDENTIALITE
+  COOKIES
+}
+
+model LegalDocument {
+  id        String            @id @default(cuid())
+  type      LegalDocumentType @unique
+  title     String
+  content   String            @db.LongText // HTML with {{variable}} placeholders
+  isActive  Boolean           @default(true)
+  versions  LegalDocumentVersion[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+}
+
+model LegalDocumentVersion {
+  id                  String        @id @default(cuid())
+  documentId          String
+  document            LegalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content             String        @db.LongText
+  companyInfoSnapshot String        @db.LongText // JSON snapshot of CompanyInfo at time of save
+  changeNote          String?       // e.g. "Modification manuelle" or "Mise à jour infos société"
+  createdAt           DateTime      @default(now())
+
+  @@index([documentId, createdAt])
 }
 
 // PFS name → BJ entity mapping (remembered across syncs)

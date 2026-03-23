@@ -44,6 +44,7 @@ export interface PlaceOrderInput {
   carrierPrice:  number;
   tvaRate:       number;
   stripePaymentIntentId: string; // pi_xxx retourné par Stripe
+  cgvAcceptedAt?: string; // ISO date when client accepted CGV
 }
 
 export interface PlaceOrderResult {
@@ -265,6 +266,8 @@ export async function placeOrder(
       clientDiscountValue: clientDiscountValue,
       clientDiscountAmt,
       clientFreeShipping,
+      // CGV
+      cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
       // TVA
       tvaRate:    input.tvaRate,
       subtotalHT: subtotalAfterDiscount,

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import ImageDropzone from "./ImageDropzone";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -124,16 +124,13 @@ interface BulkEditState {
   unitPrice:    string;
   weight:       string;
   stock:        string;
-  applyType:    boolean;
-  saleType:     "UNIT" | "PACK";
-  packQuantity: string;
   size:         string;
   discountType: "" | "PERCENT" | "AMOUNT";
   discountValue: string;
 }
 
 function defaultBulkEdit(): BulkEditState {
-  return { unitPrice: "", weight: "", stock: "", applyType: false, saleType: "UNIT", packQuantity: "", size: "", discountType: "", discountValue: "" };
+  return { unitPrice: "", weight: "", stock: "", size: "", discountType: "", discountValue: "" };
 }
 
 // ─────────────────────────────────────────────
@@ -1169,6 +1166,7 @@ export default function ColorVariantManager({
   onChangeImages,
   onQuickCreateColor,
 }: Props) {
+  const { confirm: confirmDialog } = useConfirm();
   const [showImageModal, setShowImageModal] = useState(false);
   const [galleryState, setGalleryState] = useState<{ images: string[]; colorName: string; colorHex: string } | null>(null);
   const [quickCreateErr, setQuickCreateErr] = useState("");
@@ -1196,6 +1194,62 @@ export default function ColorVariantManager({
   const totalPhotos    = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
   const invalidTempIds = findInvalidVariantTempIds(variants);
   const showBulkRow    = selectedIds.size > 0;
+
+  // ── Quick-add variants for existing colors ────────────────────────────────
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddGroupKeys, setQuickAddGroupKeys] = useState<Set<string>>(new Set());
+  const [quickAddType, setQuickAddType] = useState<"UNIT" | "PACK">("PACK");
+  const [quickAddPrice, setQuickAddPrice] = useState("");
+  const [quickAddStock, setQuickAddStock] = useState("");
+  const [quickAddWeight, setQuickAddWeight] = useState("");
+  const [quickAddPackQty, setQuickAddPackQty] = useState("");
+
+  function toggleQuickAddGroup(key: string) {
+    setQuickAddGroupKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function applyQuickAdd() {
+    if (quickAddGroupKeys.size === 0) return;
+    const price = parseFloat(quickAddPrice);
+    if (isNaN(price) || price <= 0) return;
+    const stock = parseInt(quickAddStock);
+    if (isNaN(stock) || stock < 0) return;
+    if (quickAddType === "PACK") {
+      const pq = parseInt(quickAddPackQty);
+      if (isNaN(pq) || pq < 1) return;
+    }
+    const newVariants: VariantState[] = [];
+    for (const groupKey of quickAddGroupKeys) {
+      // Find a representative variant from this group to copy color info
+      const group = groupedVariants.find((g) => g.key === groupKey);
+      if (!group) continue;
+      const ref = group.variants[0].variant;
+      newVariants.push({
+        ...defaultVariant(availableColors),
+        colorId: ref.colorId,
+        colorName: ref.colorName,
+        colorHex: ref.colorHex,
+        subColors: [...ref.subColors],
+        saleType: quickAddType,
+        unitPrice: quickAddPrice,
+        stock: quickAddStock,
+        weight: quickAddWeight,
+        packQuantity: quickAddType === "PACK" ? quickAddPackQty : "",
+        isPrimary: false,
+      });
+    }
+    onChange([...variants, ...newVariants]);
+    setQuickAddGroupKeys(new Set());
+    setQuickAddOpen(false);
+    setQuickAddPrice("");
+    setQuickAddStock("");
+    setQuickAddWeight("");
+    setQuickAddPackQty("");
+  }
 
   // ── Quick create color ─────────────────────────────────────────────────────
   async function handlePatternUpload(file: File) {
@@ -1249,14 +1303,16 @@ export default function ColorVariantManager({
     onChange([...variants, { ...def, isPrimary }]);
   }
 
-  function removeVariant(tempId: string) {
+  async function removeVariant(tempId: string) {
     if (variants.length <= 1) return;
-    const removed = variants.find((v) => v.tempId === tempId);
+    const target = variants.find((v) => v.tempId === tempId);
+    const label = target ? `${target.colorName || "Sans couleur"} (${target.saleType === "PACK" ? "Pack" : "Unité"})` : "cette variante";
+    const ok = await confirmDialog({ title: "Supprimer la variante ?", message: `Voulez-vous supprimer la variante « ${label} » ?`, confirmLabel: "Supprimer", danger: true });
+    if (!ok) return;
     let newVariants = variants.filter((v) => v.tempId !== tempId);
-    if (removed?.isPrimary && newVariants.length > 0) {
+    if (target?.isPrimary && newVariants.length > 0) {
       newVariants = newVariants.map((v, i) => ({ ...v, isPrimary: i === 0 }));
     }
-    // Remove from selection if present
     if (selectedIds.has(tempId)) {
       const next = new Set(selectedIds);
       next.delete(tempId);
@@ -1265,18 +1321,19 @@ export default function ColorVariantManager({
     onChange(newVariants);
   }
 
-  function handleMultiColorChange(tempId: string, colors: { colorId: string; colorName: string; colorHex: string }[]) {
+  function handleMultiColorChange(tempIds: Set<string>, colors: { colorId: string; colorName: string; colorHex: string }[]) {
     if (colors.length === 0) {
-      updateVariant(tempId, { colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [] });
+      onChange(variants.map((v) => tempIds.has(v.tempId) ? { ...v, colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [] } : v));
       return;
     }
     const [main, ...rest] = colors;
-    updateVariant(tempId, {
+    const patch = {
       colorId: main.colorId,
       colorName: main.colorName,
       colorHex: main.colorHex,
       subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
-    });
+    };
+    onChange(variants.map((v) => tempIds.has(v.tempId) ? { ...v, ...patch } : v));
   }
 
   // ── Bulk apply ─────────────────────────────────────────────────────────────
@@ -1289,470 +1346,560 @@ export default function ColorVariantManager({
       if (bulkEdit.weight     !== "") patch.weight     = bulkEdit.weight;
       if (bulkEdit.stock      !== "") patch.stock      = bulkEdit.stock;
       if (bulkEdit.size       !== "") patch.size       = bulkEdit.size;
-      if (bulkEdit.applyType) {
-        patch.saleType     = bulkEdit.saleType;
-        patch.packQuantity = bulkEdit.saleType === "UNIT" ? "" : bulkEdit.packQuantity;
-      }
       if (bulkEdit.discountType !== "") {
         patch.discountType  = bulkEdit.discountType;
         patch.discountValue = bulkEdit.discountValue;
-      } else if (bulkEdit.discountType === "" && bulkEdit.discountValue === "" && bulkEdit.unitPrice === "" && bulkEdit.weight === "" && bulkEdit.stock === "" && bulkEdit.size === "" && !bulkEdit.applyType) {
-        // nothing to apply
       }
       return { ...v, ...patch };
     }));
     setBulkEdit(defaultBulkEdit());
   }
 
-  // ── Scroll sync (top mirror) ───────────────────────────────────────────────
-  const mainScrollRef = useRef<HTMLDivElement>(null);
-  const topScrollRef  = useRef<HTMLDivElement>(null);
-  const innerRef      = useRef<HTMLDivElement>(null);
-  const [innerScrollWidth, setInnerScrollWidth] = useState(0);
-
-  useEffect(() => {
-    if (innerRef.current) setInnerScrollWidth(innerRef.current.scrollWidth);
+  // ── Group variants by color composition ──────────────────────────────────
+  const groupedVariants = useMemo(() => {
+    const groups: { key: string; colorName: string; colorHex: string; variants: { variant: VariantState; idx: number }[] }[] = [];
+    const keyIndex = new Map<string, number>();
+    for (let i = 0; i < variants.length; i++) {
+      const v = variants[i];
+      const key = variantGroupKeyFromState(v);
+      const existingIdx = keyIndex.get(key);
+      if (existingIdx !== undefined) {
+        groups[existingIdx].variants.push({ variant: v, idx: i });
+      } else {
+        keyIndex.set(key, groups.length);
+        const fullName = [v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ");
+        groups.push({ key, colorName: fullName || "Sans couleur", colorHex: v.colorHex, variants: [{ variant: v, idx: i }] });
+      }
+    }
+    return groups;
   }, [variants]);
 
-  const onMainScroll = useCallback(() => {
-    if (topScrollRef.current && mainScrollRef.current)
-      topScrollRef.current.scrollLeft = mainScrollRef.current.scrollLeft;
-  }, []);
-
-  const onTopScroll = useCallback(() => {
-    if (mainScrollRef.current && topScrollRef.current)
-      mainScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
-  }, []);
+  async function removeGroup(groupKey: string) {
+    const group = groupedVariants.find((g) => g.key === groupKey);
+    if (!group) return;
+    const tempIds = group.variants.map((gv) => gv.variant.tempId);
+    const ok = await confirmDialog({ title: "Supprimer le groupe ?", message: `Supprimer toutes les variantes de « ${group.colorName} » (${tempIds.length} variante${tempIds.length > 1 ? "s" : ""}) ?`, confirmLabel: "Supprimer", danger: true });
+    if (!ok) return;
+    const idSet = new Set(tempIds);
+    let newVariants = variants.filter((v) => !idSet.has(v.tempId));
+    if (newVariants.length > 0 && !newVariants.some((v) => v.isPrimary)) {
+      newVariants = newVariants.map((v, i) => ({ ...v, isPrimary: i === 0 }));
+    }
+    const next = new Set(selectedIds);
+    for (const id of tempIds) next.delete(id);
+    setSelectedIds(next);
+    onChange(newVariants);
+  }
 
   return (
     <div className="space-y-4">
 
-      {/* ── Table area ── */}
+      {/* ── Variants area ── */}
       {variants.length === 0 ? (
         <div className="text-center py-10 border-2 border-dashed border-[#E5E5E5] text-[#9CA3AF] text-sm font-[family-name:var(--font-roboto)] rounded-lg">
           Cliquez sur &ldquo;Ajouter une variante&rdquo; pour commencer.
         </div>
       ) : (
-        <>
-          {/* Top scroll mirror */}
-          <div ref={topScrollRef} className="overflow-x-auto" onScroll={onTopScroll} style={{ height: 12 }}>
-            <div style={{ width: innerScrollWidth, height: 1 }} />
-          </div>
-
-          {/* Main scrollable table */}
-          <div ref={mainScrollRef} className="overflow-x-auto pb-1" onScroll={onMainScroll}>
-            <div ref={innerRef} style={{ minWidth: "max-content", width: "100%" }}>
-              <table className="border-collapse text-xs font-[family-name:var(--font-roboto)] w-full" style={{ minWidth: 1140 }}>
-                <thead>
-                  {/* ── Column headers ── */}
-                  <tr className="bg-[#1A1A1A] text-white">
-                    {/* Checkbox select-all */}
-                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap" style={{ width: 36 }}>
-                      <input
-                        ref={selectAllRef}
-                        type="checkbox"
-                        checked={selectedIds.size === variants.length && variants.length > 0}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedIds(new Set(variants.map((v) => v.tempId)));
-                          } else {
-                            setSelectedIds(new Set());
-                          }
-                        }}
-                        className="cursor-pointer w-3.5 h-3.5 accent-white"
-                        title="Tout sélectionner / désélectionner"
-                      />
-                    </th>
-                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap" style={{ width: 56 }}>Photo</th>
-                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap" style={{ width: 220 }}>Couleurs</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap" style={{ width: 90 }}>Prix (EUR)</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap" style={{ width: 90 }}>Poids (kg)</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap" style={{ width: 70 }}>Stock</th>
-                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap" style={{ width: 110 }}>Type</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap" style={{ width: 80 }}>Qté paquet</th>
-                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap" style={{ width: 80 }}>Taille</th>
-                    <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap" style={{ width: 180 }}>Remise</th>
-                    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap" style={{ width: 100 }}>Prix final</th>
-                    <th className="px-3 py-2.5 text-center font-semibold whitespace-nowrap" style={{ width: 50 }}></th>
-                  </tr>
-
-                  {/* ── Bulk edit row (visible when at least one variant selected) ── */}
-                  {showBulkRow && (
-                    <tr className="bg-[#F0FDF4] border-b-2 border-b-[#22C55E]">
-                      {/* Spacer (checkbox col) */}
-                      <td className="px-3 py-2" />
-                      {/* Spacer (photo col) */}
-                      <td className="px-3 py-2" />
-                      {/* Selected count */}
-                      <td className="px-3 py-2">
-                        <span className="text-[11px] text-[#16A34A] font-semibold font-[family-name:var(--font-roboto)] whitespace-nowrap">
-                          ✦ {selectedIds.size} variante{selectedIds.size > 1 ? "s" : ""} sélectionnée{selectedIds.size > 1 ? "s" : ""}
-                        </span>
-                      </td>
-                      {/* Prix */}
-                      <td className="px-3 py-2">
-                        <input
-                          type="number" min="0" step="0.01" placeholder="—"
-                          value={bulkEdit.unitPrice}
-                          onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
-                          className="w-full border border-[#22C55E] bg-white px-2 py-1.5 text-xs text-right focus:outline-none focus:border-[#16A34A] font-[family-name:var(--font-roboto)]"
-                        />
-                      </td>
-                      {/* Poids */}
-                      <td className="px-3 py-2">
-                        <input
-                          type="number" min="0" step="0.001" placeholder="—"
-                          value={bulkEdit.weight}
-                          onChange={(e) => setBulkEdit((b) => ({ ...b, weight: e.target.value }))}
-                          className="w-full border border-[#22C55E] bg-white px-2 py-1.5 text-xs text-right focus:outline-none focus:border-[#16A34A] font-[family-name:var(--font-roboto)]"
-                        />
-                      </td>
-                      {/* Stock */}
-                      <td className="px-3 py-2">
-                        <input
-                          type="number" min="0" step="1" placeholder="—"
-                          value={bulkEdit.stock}
-                          onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
-                          className="w-full border border-[#22C55E] bg-white px-2 py-1.5 text-xs text-right focus:outline-none focus:border-[#16A34A] font-[family-name:var(--font-roboto)]"
-                        />
-                      </td>
-                      {/* Type (optionnel) */}
-                      <td className="px-3 py-2">
-                        <div className="flex flex-col gap-1 items-center">
-                          <label className="flex items-center gap-1 text-[10px] text-[#374151] font-[family-name:var(--font-roboto)] cursor-pointer select-none whitespace-nowrap">
-                            <input
-                              type="checkbox"
-                              checked={bulkEdit.applyType}
-                              onChange={(e) => setBulkEdit((b) => ({ ...b, applyType: e.target.checked }))}
-                              className="accent-[#22C55E] w-3 h-3 cursor-pointer"
-                            />
-                            Modifier type
-                          </label>
-                          {bulkEdit.applyType && (
-                            <div className="flex gap-0.5">
-                              {(["UNIT", "PACK"] as const).map((type) => (
-                                <button
-                                  key={type} type="button"
-                                  onClick={() => setBulkEdit((b) => ({ ...b, saleType: type }))}
-                                  className={`px-2 py-1 text-[11px] font-semibold border transition-colors font-[family-name:var(--font-roboto)] ${
-                                    bulkEdit.saleType === type
-                                      ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                                      : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#1A1A1A]"
-                                  }`}
-                                >
-                                  {type === "UNIT" ? "Unité" : "Pack"}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      {/* Qté paquet */}
-                      <td className="px-3 py-2">
-                        <input
-                          type="number" min="2" placeholder="—"
-                          value={bulkEdit.packQuantity}
-                          disabled={!bulkEdit.applyType || bulkEdit.saleType === "UNIT"}
-                          onChange={(e) => setBulkEdit((b) => ({ ...b, packQuantity: e.target.value }))}
-                          className="w-full border border-[#22C55E] bg-white px-2 py-1.5 text-xs text-right focus:outline-none focus:border-[#16A34A] font-[family-name:var(--font-roboto)] disabled:opacity-40 disabled:bg-[#F7F7F8] disabled:cursor-not-allowed"
-                        />
-                      </td>
-                      {/* Taille */}
-                      <td className="px-3 py-2">
-                        <input
-                          type="text" placeholder="—"
-                          value={bulkEdit.size}
-                          onChange={(e) => setBulkEdit((b) => ({ ...b, size: e.target.value }))}
-                          className="w-full border border-[#22C55E] bg-white px-2 py-1.5 text-xs focus:outline-none focus:border-[#16A34A] font-[family-name:var(--font-roboto)]"
-                        />
-                      </td>
-                      {/* Remise */}
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-1">
-                          <CustomSelect
-                            value={bulkEdit.discountType}
-                            onChange={(v) => setBulkEdit((b) => ({
-                              ...b,
-                              discountType: v as "" | "PERCENT" | "AMOUNT",
-                              discountValue: "",
-                            }))}
-                            options={[
-                              { value: "", label: "Aucune" },
-                              { value: "PERCENT", label: "%" },
-                              { value: "AMOUNT", label: "EUR" },
-                            ]}
-                            size="sm"
-                            className="w-[80px]"
-                          />
-                          {bulkEdit.discountType && (
-                            <input
-                              type="number" min="0" step="0.01" placeholder="0"
-                              value={bulkEdit.discountValue}
-                              onChange={(e) => setBulkEdit((b) => ({ ...b, discountValue: e.target.value }))}
-                              className="w-16 border border-[#22C55E] bg-white px-2 py-1.5 text-xs text-right focus:outline-none font-[family-name:var(--font-roboto)]"
-                            />
-                          )}
-                        </div>
-                      </td>
-                      {/* Bouton Appliquer */}
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          type="button"
-                          onClick={applyBulk}
-                          className="px-3 py-1.5 bg-[#22C55E] text-white text-[11px] font-semibold rounded hover:bg-[#16A34A] transition-colors font-[family-name:var(--font-roboto)] whitespace-nowrap"
-                        >
-                          Appliquer
-                        </button>
-                      </td>
-                      {/* Spacer (supprimer col) */}
-                      <td />
-                    </tr>
+        <div className="space-y-4">
+          {/* ── Bulk edit bar (always visible, disabled when nothing selected) ── */}
+          <div className={`rounded-xl p-4 space-y-3 border-2 transition-colors ${
+            showBulkRow ? "bg-[#F0FDF4] border-[#22C55E]" : "bg-[#F7F7F8] border-[#E5E5E5]"
+          }`}>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox"
+                  checked={selectedIds.size === variants.length && variants.length > 0}
+                  ref={selectAllRef}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedIds(new Set(variants.map((v) => v.tempId)));
+                    } else {
+                      setSelectedIds(new Set());
+                    }
+                  }}
+                  className="accent-[#22C55E] cursor-pointer w-4 h-4"
+                />
+                <span className={`text-xs font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>
+                  {showBulkRow
+                    ? `✦ ${selectedIds.size} variante${selectedIds.size > 1 ? "s" : ""} sélectionnée${selectedIds.size > 1 ? "s" : ""}`
+                    : "Tout sélectionner pour modifier en masse"}
+                </span>
+              </label>
+              <button type="button" onClick={applyBulk} disabled={!showBulkRow}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors font-[family-name:var(--font-roboto)] ${
+                  showBulkRow
+                    ? "bg-[#22C55E] text-white hover:bg-[#16A34A]"
+                    : "bg-[#E5E5E5] text-[#9CA3AF] cursor-not-allowed"
+                }`}
+              >Appliquer</button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div>
+                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Prix</label>
+                <input type="number" min="0" step="0.01" placeholder="—" value={bulkEdit.unitPrice} disabled={!showBulkRow}
+                  onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
+                  className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
+                    showBulkRow ? "border-[#22C55E] bg-white focus:border-[#16A34A]" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
+                  }`} />
+              </div>
+              <div>
+                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Stock</label>
+                <input type="number" min="0" step="1" placeholder="—" value={bulkEdit.stock} disabled={!showBulkRow}
+                  onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
+                  className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
+                    showBulkRow ? "border-[#22C55E] bg-white focus:border-[#16A34A]" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
+                  }`} />
+              </div>
+              <div>
+                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Poids</label>
+                <input type="number" min="0" step="0.001" placeholder="—" value={bulkEdit.weight} disabled={!showBulkRow}
+                  onChange={(e) => setBulkEdit((b) => ({ ...b, weight: e.target.value }))}
+                  className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
+                    showBulkRow ? "border-[#22C55E] bg-white focus:border-[#16A34A]" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
+                  }`} />
+              </div>
+              <div>
+                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Taille</label>
+                <input type="text" placeholder="—" value={bulkEdit.size} disabled={!showBulkRow}
+                  onChange={(e) => setBulkEdit((b) => ({ ...b, size: e.target.value }))}
+                  className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
+                    showBulkRow ? "border-[#22C55E] bg-white focus:border-[#16A34A]" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
+                  }`} />
+              </div>
+              <div>
+                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Remise</label>
+                <div className="flex gap-1 mt-1">
+                  <CustomSelect value={bulkEdit.discountType} disabled={!showBulkRow}
+                    onChange={(v) => setBulkEdit((b) => ({ ...b, discountType: v as "" | "PERCENT" | "AMOUNT", discountValue: "" }))}
+                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "EUR" }]}
+                    size="sm" className="w-[70px]" />
+                  {bulkEdit.discountType && (
+                    <input type="number" min="0" step="0.01" placeholder="0" value={bulkEdit.discountValue} disabled={!showBulkRow}
+                      onChange={(e) => setBulkEdit((b) => ({ ...b, discountValue: e.target.value }))}
+                      className={`w-16 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
+                        showBulkRow ? "border-[#22C55E] bg-white" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
+                      }`} />
                   )}
-                </thead>
-
-                <tbody>
-                  {variants.map((v, idx) => {
-                    const isInvalid  = invalidTempIds.has(v.tempId);
-                    const isSelected = selectedIds.has(v.tempId);
-                    const totalPrice = computeTotalPrice(v);
-                    const finalPrice = computeFinalPrice(v);
-                    const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
-                    const rowClass = isSelected
-                      ? "bg-[#F0FDF4] border-l-2 border-l-[#22C55E]"
-                      : isInvalid
-                        ? "bg-[#FEF2F2] border-l-2 border-l-[#EF4444]"
-                        : idx % 2 === 0 ? "bg-white" : "bg-[#F7F7F8]";
-
-                    return (
-                      <tr key={v.tempId} className={`${rowClass} hover:bg-[#F0F0F0] transition-colors group`}>
-
-                        {/* Checkbox sélection */}
-                        <td className="px-3 py-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={(e) => {
-                              const next = new Set(selectedIds);
-                              if (e.target.checked) next.add(v.tempId);
-                              else next.delete(v.tempId);
-                              setSelectedIds(next);
-                            }}
-                            className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5"
-                          />
-                        </td>
-
-                        {/* Photo */}
-                        <td className="px-3 py-2 text-center">
-                          {(() => {
-                            const cimg = colorImages.find((ci) => ci.groupKey === variantGroupKeyFromState(v));
-                            const firstImg = cimg?.imagePreviews[0];
-                            if (firstImg) {
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={() => setGalleryState({
-                                    images: cimg!.imagePreviews,
-                                    colorName: [v.colorName, ...v.subColors.map((sc) => sc.colorName)].join(" / "),
-                                    colorHex: v.colorHex,
-                                  })}
-                                  className="relative w-10 h-10 rounded-lg overflow-hidden border border-[#E5E5E5] hover:border-[#1A1A1A] transition-all mx-auto block group/thumb"
-                                  title={`Voir les ${cimg!.imagePreviews.length} photo(s)`}
-                                >
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={firstImg} alt={v.colorName} className="w-full h-full object-cover" />
-                                  {cimg!.imagePreviews.length > 1 && (
-                                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center">
-                                      <span className="text-white text-[10px] font-bold">+{cimg!.imagePreviews.length}</span>
-                                    </div>
-                                  )}
-                                </button>
-                              );
-                            }
-                            return (
-                              <div className="w-10 h-10 rounded-lg border border-dashed border-[#D1D5DB] bg-[#F7F7F8] flex items-center justify-center mx-auto" title="Aucune image">
-                                <svg className="w-4 h-4 text-[#D1D5DB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                                </svg>
-                              </div>
-                            );
-                          })()}
-                        </td>
-
-                        {/* Couleurs (principale + sous-couleurs) */}
-                        <td className="px-3 py-2">
-                          <MultiColorSelect
-                            selected={v.colorId ? [
-                              { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
-                              ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
-                            ] : []}
-                            options={availableColors}
-                            onChange={(colors) => handleMultiColorChange(v.tempId, colors)}
-                            existingVariants={variants}
-                            onCreateColor={onQuickCreateColor}
-                          />
-                        </td>
-
-                        {/* Prix */}
-                        <td className="px-3 py-2">
-                          <input
-                            type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
-                            onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
-                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
-                          />
-                        </td>
-
-                        {/* Poids */}
-                        <td className="px-3 py-2">
-                          <input
-                            type="number" min="0" step="0.001" value={v.weight} placeholder="0.008"
-                            onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
-                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
-                          />
-                        </td>
-
-                        {/* Stock */}
-                        <td className="px-3 py-2">
-                          <input
-                            type="number" min="0" step="1" value={v.stock} placeholder="0"
-                            onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
-                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
-                          />
-                        </td>
-
-                        {/* Type toggle */}
-                        <td className="px-3 py-2">
-                          <div className="flex gap-0.5 justify-center">
-                            {(["UNIT", "PACK"] as const).map((type) => (
-                              <button
-                                key={type} type="button"
-                                onClick={() => updateVariant(v.tempId, {
-                                  saleType: type,
-                                  packQuantity: type === "UNIT" ? "" : v.packQuantity,
-                                })}
-                                className={`px-2 py-1 text-[11px] font-semibold border transition-colors font-[family-name:var(--font-roboto)] ${
-                                  v.saleType === type
-                                    ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                                    : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#1A1A1A]"
-                                }`}
-                              >
-                                {type === "UNIT" ? "Unité" : "Pack"}
-                              </button>
-                            ))}
-                          </div>
-                        </td>
-
-                        {/* Qty paquet */}
-                        <td className="px-3 py-2">
-                          <input
-                            type="number" min="2" max="99999" value={v.packQuantity} placeholder="—"
-                            disabled={v.saleType === "UNIT"}
-                            onChange={(e) => updateVariant(v.tempId, { packQuantity: e.target.value })}
-                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)] disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-[#F7F7F8]"
-                          />
-                        </td>
-
-                        {/* Taille */}
-                        <td className="px-3 py-2">
-                          <input
-                            type="text" value={v.size} placeholder="—"
-                            onChange={(e) => updateVariant(v.tempId, { size: e.target.value })}
-                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
-                          />
-                        </td>
-
-                        {/* Remise */}
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-1">
-                            <CustomSelect
-                              value={v.discountType}
-                              onChange={(val) => updateVariant(v.tempId, {
-                                discountType: val as "" | "PERCENT" | "AMOUNT",
-                                discountValue: "",
-                              })}
-                              options={[
-                                { value: "", label: "Aucune" },
-                                { value: "PERCENT", label: "%" },
-                                { value: "AMOUNT", label: "EUR" },
-                              ]}
-                              size="sm"
-                              className="w-[80px]"
-                            />
-                            {v.discountType && (
-                              <input
-                                type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
-                                onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
-                                className="w-16 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
-                              />
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Prix final */}
-                        <td className="px-3 py-2 text-right">
-                          {finalPrice !== null ? (
-                            <span className={`font-semibold font-[family-name:var(--font-poppins)] ${hasDiscount ? "text-emerald-600" : "text-[#1A1A1A]"}`}>
-                              {hasDiscount && totalPrice !== null && (
-                                <span className="text-[#9CA3AF] line-through mr-1 font-normal text-[10px]">
-                                  {totalPrice.toFixed(2)}
-                                </span>
-                              )}
-                              {finalPrice.toFixed(2)} €
-                            </span>
-                          ) : (
-                            <span className="text-[#9CA3AF]">—</span>
-                          )}
-                        </td>
-
-                        {/* Supprimer */}
-                        <td className="px-3 py-2 text-center">
-                          {variants.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeVariant(v.tempId)}
-                              title="Supprimer cette variante"
-                              className="text-[#9CA3AF] hover:text-[#EF4444] transition-colors opacity-0 group-hover:opacity-100"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {/* Validation warning */}
-              {invalidTempIds.size > 0 && (
-                <div className="mt-2 px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg flex items-center gap-2">
-                  <svg className="w-4 h-4 text-[#EF4444] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">
-                    Doublon détecté : une couleur ne peut avoir qu&apos;une variante à l&apos;unité, et pas deux paquets identiques (même quantité et même taille).
-                  </p>
                 </div>
-              )}
+              </div>
             </div>
           </div>
-        </>
+
+          {/* ── Grouped cards ── */}
+          {groupedVariants.map((group) => {
+            const firstV = group.variants[0].variant;
+            const cimg = colorImages.find((ci) => ci.groupKey === group.key);
+            const allSelected = group.variants.every(({ variant: gv }) => selectedIds.has(gv.tempId));
+            const someSelected = group.variants.some(({ variant: gv }) => selectedIds.has(gv.tempId));
+
+            return (
+              <div key={group.key} className="rounded-xl border-2 border-[#D5D5D5] bg-white overflow-hidden">
+                {/* ── Color header ── */}
+                <div className="flex items-center gap-3 px-4 py-3 border-b border-[#E5E5E5] bg-[#F7F7F8]">
+                  {/* Group checkbox */}
+                  <input
+                    ref={allSelected ? selectAllRef : undefined}
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={(e) => {
+                      const next = new Set(selectedIds);
+                      for (const gv of group.variants) {
+                        if (e.target.checked) next.add(gv.variant.tempId);
+                        else next.delete(gv.variant.tempId);
+                      }
+                      setSelectedIds(next);
+                    }}
+                    className={`accent-[#22C55E] cursor-pointer w-4 h-4 ${someSelected && !allSelected ? "opacity-50" : ""}`}
+                    title="Sélectionner le groupe"
+                  />
+
+                  {/* Color swatch */}
+                  <ColorSwatch
+                    hex={firstV.colorHex}
+                    patternImage={availableColors.find((c) => c.id === firstV.colorId)?.patternImage ?? null}
+                    subColors={firstV.subColors.length > 0
+                      ? [{ hex: firstV.colorHex, patternImage: null }, ...firstV.subColors.map((sc) => ({ hex: sc.colorHex, patternImage: null }))]
+                      : undefined}
+                    size={28}
+                    rounded="full"
+                    border
+                  />
+
+                  {/* Color name */}
+                  <span className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">
+                    {group.colorName}
+                  </span>
+
+                  {/* Photo thumbnail */}
+                  {cimg?.imagePreviews[0] && (
+                    <button type="button"
+                      onClick={() => setGalleryState({ images: cimg.imagePreviews, colorName: group.colorName, colorHex: group.colorHex })}
+                      className="relative w-8 h-8 rounded-lg overflow-hidden border border-[#E5E5E5] hover:border-[#1A1A1A] transition-all ml-auto shrink-0"
+                      title={`${cimg.imagePreviews.length} photo(s)`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={cimg.imagePreviews[0]} alt={group.colorName} className="w-full h-full object-cover" />
+                      {cimg.imagePreviews.length > 1 && (
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                          <span className="text-white text-[9px] font-bold">+{cimg.imagePreviews.length}</span>
+                        </div>
+                      )}
+                    </button>
+                  )}
+
+                  {/* Variant count */}
+                  <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] ml-auto">
+                    {group.variants.length} variante{group.variants.length > 1 ? "s" : ""}
+                  </span>
+
+                  {/* Delete group */}
+                  {variants.length > group.variants.length && (
+                    <button type="button" onClick={() => removeGroup(group.key)}
+                      title="Supprimer ce groupe" aria-label="Supprimer ce groupe de variantes"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-[#EF4444]/10 hover:text-[#EF4444]">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                {/* ── Scrollable variant table ── */}
+                <div className="overflow-x-auto">
+                  {/* Column headers */}
+                  <div className="grid grid-cols-[28px_90px_1fr_1fr_1fr_1fr_1fr_1fr_1fr_36px] gap-0 px-4 py-2 border-b border-[#E5E5E5] bg-[#FAFAFA]" style={{ minWidth: 820 }}>
+                    <span />
+                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Type</span>
+                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Prix unitaire</span>
+                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Stock</span>
+                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Poids (kg)</span>
+                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Qté pack</span>
+                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Taille</span>
+                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Remise</span>
+                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)] text-right">Prix final</span>
+                    <span />
+                  </div>
+
+                  {/* Variant rows */}
+                  <div className="divide-y divide-[#F0F0F0]">
+                    {group.variants.map(({ variant: v }) => {
+                      const isInvalid = invalidTempIds.has(v.tempId);
+                      const isSelected = selectedIds.has(v.tempId);
+                      const totalPrice = computeTotalPrice(v);
+                      const finalPrice = computeFinalPrice(v);
+                      const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
+
+                      return (
+                        <div key={v.tempId}
+                          className={`grid grid-cols-[28px_90px_1fr_1fr_1fr_1fr_1fr_1fr_1fr_36px] gap-0 items-center px-4 py-2.5 transition-colors ${
+                            isSelected ? "bg-[#F0FDF4]" : isInvalid ? "bg-[#FEF2F2]" : "hover:bg-[#F7F7F8]"
+                          }`}
+                          style={{ minWidth: 820 }}
+                        >
+                          {/* Checkbox individuelle */}
+                          <div>
+                            <input type="checkbox" checked={isSelected}
+                              onChange={(e) => {
+                                const next = new Set(selectedIds);
+                                if (e.target.checked) next.add(v.tempId);
+                                else next.delete(v.tempId);
+                                setSelectedIds(next);
+                              }}
+                              className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5" />
+                          </div>
+
+                          {/* Type toggle */}
+                          <div>
+                            <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden w-fit">
+                              {(["UNIT", "PACK"] as const).map((type) => (
+                                <button key={type} type="button"
+                                  onClick={() => updateVariant(v.tempId, { saleType: type, packQuantity: type === "UNIT" ? "" : v.packQuantity })}
+                                  aria-pressed={v.saleType === type}
+                                  className={`px-2.5 py-1 text-[11px] font-semibold transition-colors font-[family-name:var(--font-roboto)] ${
+                                    v.saleType === type
+                                      ? "bg-[#1A1A1A] text-white"
+                                      : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                                  }`}
+                                >{type === "UNIT" ? "Unité" : "Pack"}</button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Prix unitaire */}
+                          <div className="pr-2">
+                            <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
+                              onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+                          </div>
+
+                          {/* Stock */}
+                          <div className="pr-2">
+                            <input type="number" min="0" step="1" value={v.stock} placeholder="0"
+                              onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
+                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+                          </div>
+
+                          {/* Poids */}
+                          <div className="pr-2">
+                            <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.008"
+                              onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
+                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+                          </div>
+
+                          {/* Qté pack */}
+                          <div className="pr-2">
+                            <input type="number" min="2" max="99999" value={v.packQuantity} placeholder="—"
+                              disabled={v.saleType === "UNIT"}
+                              onChange={(e) => updateVariant(v.tempId, { packQuantity: e.target.value })}
+                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)] disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-[#F7F7F8]" />
+                          </div>
+
+                          {/* Taille */}
+                          <div className="pr-2">
+                            <input type="text" value={v.size} placeholder="—"
+                              onChange={(e) => updateVariant(v.tempId, { size: e.target.value })}
+                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+                          </div>
+
+                          {/* Remise */}
+                          <div className="pr-2">
+                            <div className="flex items-center gap-1">
+                              <CustomSelect value={v.discountType}
+                                onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
+                                options={[{ value: "", label: "Aucune" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "EUR" }]}
+                                size="sm" className="w-[70px]" />
+                              {v.discountType && (
+                                <input type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
+                                  onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
+                                  className="w-14 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Prix final */}
+                          <div className="text-right">
+                            {finalPrice !== null ? (
+                              <span className={`text-xs font-semibold font-[family-name:var(--font-poppins)] ${hasDiscount ? "text-emerald-600" : "text-[#1A1A1A]"}`}>
+                                {hasDiscount && totalPrice !== null && (
+                                  <span className="text-[#9CA3AF] line-through mr-1 font-normal text-[10px]">{totalPrice.toFixed(2)}</span>
+                                )}
+                                {finalPrice.toFixed(2)}€
+                              </span>
+                            ) : (
+                              <span className="text-[#9CA3AF] text-xs">—</span>
+                            )}
+                          </div>
+
+                          {/* Supprimer */}
+                          <div className="flex justify-center">
+                            {variants.length > 1 && (
+                              <button type="button" onClick={() => removeVariant(v.tempId)}
+                                title="Supprimer cette variante" aria-label="Supprimer cette variante"
+                                className="flex items-center justify-center w-9 h-9 rounded-lg text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors">
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* ── Color select (bottom of card) ── */}
+                <div className="px-4 py-3 border-t border-[#E5E5E5] bg-[#FAFAFA]">
+                  <MultiColorSelect
+                    selected={firstV.colorId ? [
+                      { colorId: firstV.colorId, colorName: firstV.colorName, colorHex: firstV.colorHex },
+                      ...firstV.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
+                    ] : []}
+                    options={availableColors}
+                    onChange={(colors) => {
+                      // Apply to ALL variants in this group in a SINGLE onChange call
+                      handleMultiColorChange(new Set(group.variants.map((gv) => gv.variant.tempId)), colors);
+                    }}
+                    existingVariants={variants}
+                    onCreateColor={onQuickCreateColor}
+                  />
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Validation warning */}
+          {invalidTempIds.size > 0 && (
+            <div className="px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg flex items-center gap-2">
+              <svg className="w-4 h-4 text-[#EF4444] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">
+                Doublon détecté : une couleur ne peut avoir qu&apos;une variante à l&apos;unité, et pas deux paquets identiques (même quantité et même taille).
+              </p>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Action buttons ── */}
       <div className="flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={addVariant}
-          disabled={availableColors.length === 0}
-          className="w-full border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Ajouter une variante
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={addVariant}
+            disabled={availableColors.length === 0}
+            className="flex-1 border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Ajouter une variante
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuickAddOpen((v) => !v)}
+            disabled={groupedVariants.length === 0}
+            className={`border-2 border-dashed py-3 px-4 text-sm font-[family-name:var(--font-roboto)] transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg ${
+              quickAddOpen ? "border-[#1A1A1A] bg-[#1A1A1A] text-white" : "border-[#E5E5E5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8]"
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+            </svg>
+            Création rapide
+          </button>
+        </div>
+
+        {/* ── Quick-add by color panel ── */}
+        {quickAddOpen && (
+          <div className="border-2 border-[#1A1A1A] rounded-xl p-4 space-y-3 bg-[#F7F7F8]">
+            <p className="text-xs font-semibold text-[#1A1A1A] uppercase tracking-wider font-[family-name:var(--font-roboto)]">
+              Créer une variante pour chaque couleur sélectionnée
+            </p>
+
+            {/* Select all + color group chips */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {groupedVariants.length > 1 && (
+                <label className="flex items-center gap-1.5 text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={quickAddGroupKeys.size === groupedVariants.length && groupedVariants.length > 0}
+                    onChange={(e) => {
+                      if (e.target.checked) setQuickAddGroupKeys(new Set(groupedVariants.map((g) => g.key)));
+                      else setQuickAddGroupKeys(new Set());
+                    }}
+                    className="accent-[#22C55E] w-3.5 h-3.5 cursor-pointer"
+                  />
+                  Tout
+                </label>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto" tabIndex={0}>
+              {groupedVariants.map((g) => {
+                const picked = quickAddGroupKeys.has(g.key);
+                const firstV = g.variants[0].variant;
+                const colorId = firstV.colorId;
+                const pattern = availableColors.find((c) => c.id === colorId)?.patternImage ?? null;
+                const hasSubColors = firstV.subColors.length > 0;
+                return (
+                  <button key={g.key} type="button" onClick={() => toggleQuickAddGroup(g.key)}
+                    aria-pressed={picked}
+                    aria-label={`Sélectionner ${g.colorName}`}
+                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-full border text-xs font-[family-name:var(--font-roboto)] transition-all ${
+                      picked
+                        ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                        : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
+                    }`}
+                  >
+                    <ColorSwatch
+                      hex={g.colorHex ?? null}
+                      patternImage={pattern}
+                      subColors={hasSubColors
+                        ? [{ hex: firstV.colorHex, patternImage: pattern }, ...firstV.subColors.map((sc) => ({ hex: sc.colorHex, patternImage: availableColors.find((c) => c.id === sc.colorId)?.patternImage ?? null }))]
+                        : undefined}
+                      size={16}
+                      rounded="full"
+                      border
+                    />
+                    {g.colorName}
+                    {picked && <span className="text-[10px]" aria-hidden="true">✓</span>}
+                  </button>
+                );
+              })}
+              {groupedVariants.length === 0 && (
+                <span className="text-xs text-[#9CA3AF] italic font-[family-name:var(--font-roboto)]">Aucune couleur dans le produit</span>
+              )}
+            </div>
+
+            {/* Type toggle */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] font-medium">Type :</span>
+              <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden" role="group" aria-label="Type de vente">
+                {(["UNIT", "PACK"] as const).map((type) => (
+                  <button key={type} type="button" onClick={() => setQuickAddType(type)}
+                    aria-pressed={quickAddType === type}
+                    className={`px-3 py-2 text-xs font-semibold transition-colors font-[family-name:var(--font-roboto)] ${
+                      quickAddType === type
+                        ? "bg-[#1A1A1A] text-white"
+                        : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                    }`}
+                  >{type === "UNIT" ? "Unité" : "Pack"}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Fields row */}
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex flex-col gap-1">
+                <label htmlFor="qa-price" className="text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider">Prix unitaire (€)</label>
+                <input id="qa-price" type="number" min="0" step="0.01" value={quickAddPrice} onChange={(e) => setQuickAddPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="w-24 px-2.5 py-2 text-xs bg-white border border-[#E5E5E5] rounded-lg font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-2 focus:ring-[#1A1A1A]/20 transition-colors" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="qa-stock" className="text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider">Stock</label>
+                <input id="qa-stock" type="number" min="0" step="1" value={quickAddStock} onChange={(e) => setQuickAddStock(e.target.value)}
+                  placeholder="0"
+                  className="w-20 px-2.5 py-2 text-xs bg-white border border-[#E5E5E5] rounded-lg font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-2 focus:ring-[#1A1A1A]/20 transition-colors" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="qa-weight" className="text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider">Poids (kg)</label>
+                <input id="qa-weight" type="number" min="0" step="0.01" value={quickAddWeight} onChange={(e) => setQuickAddWeight(e.target.value)}
+                  placeholder="0.00"
+                  className="w-20 px-2.5 py-2 text-xs bg-white border border-[#E5E5E5] rounded-lg font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-2 focus:ring-[#1A1A1A]/20 transition-colors" />
+              </div>
+              {quickAddType === "PACK" && (
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="qa-packqty" className="text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider">Qté/pack</label>
+                  <input id="qa-packqty" type="number" min="1" step="1" value={quickAddPackQty} onChange={(e) => setQuickAddPackQty(e.target.value)}
+                    placeholder="1"
+                    className="w-20 px-2.5 py-2 text-xs bg-white border border-[#E5E5E5] rounded-lg font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-2 focus:ring-[#1A1A1A]/20 transition-colors" />
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] min-w-0 shrink">
+                {quickAddGroupKeys.size > 0
+                  ? `${quickAddGroupKeys.size} couleur${quickAddGroupKeys.size > 1 ? "s" : ""} sélectionnée${quickAddGroupKeys.size > 1 ? "s" : ""}`
+                  : "Aucune couleur sélectionnée"}
+              </span>
+
+              <div className="ml-auto flex gap-2">
+                <button type="button" onClick={() => { setQuickAddOpen(false); setQuickAddGroupKeys(new Set()); }}
+                  className="px-3 py-2 text-xs text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] transition-colors">
+                  Annuler
+                </button>
+                <button type="button" onClick={applyQuickAdd} disabled={quickAddGroupKeys.size === 0}
+                  className="px-4 py-2 bg-[#1A1A1A] text-white text-xs font-semibold rounded-lg hover:bg-black transition-colors font-[family-name:var(--font-roboto)] disabled:opacity-40 disabled:cursor-not-allowed">
+                  Créer {quickAddGroupKeys.size > 0 ? `${quickAddGroupKeys.size} variante${quickAddGroupKeys.size > 1 ? "s" : ""}` : ""}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {variants.length > 0 && (
           <button

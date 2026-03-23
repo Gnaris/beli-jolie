@@ -1,7 +1,7 @@
 "use server";
 
 import { getServerSession } from "next-auth";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -63,6 +63,26 @@ export async function updateCompositionDirect(
   }
 
   revalidatePath("/admin/compositions");
+}
+
+/**
+ * Update the PFS composition reference for an existing composition.
+ * Used when linking a BJ composition to a PFS composition for reverse sync.
+ */
+export async function updateCompositionPfsRef(id: string, pfsCompositionRef: string | null) {
+  await requireAdmin();
+  if (pfsCompositionRef) {
+    const conflict = await prisma.composition.findFirst({
+      where: { pfsCompositionRef, id: { not: id } },
+      select: { id: true, name: true },
+    });
+    if (conflict) {
+      throw new Error(`Cette référence PFS est déjà utilisée par la composition « ${conflict.name} ».`);
+    }
+  }
+  await prisma.composition.update({ where: { id }, data: { pfsCompositionRef } });
+  revalidatePath("/admin/compositions");
+  revalidateTag("compositions", "default");
 }
 
 export async function deleteComposition(id: string) {

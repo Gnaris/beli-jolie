@@ -6,6 +6,8 @@ import ProductForm from "@/components/admin/products/ProductForm";
 import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 import { getCachedCategories, getCachedColors, getCachedTags } from "@/lib/cached-data";
+import PfsLiveSyncBadge from "@/components/pfs/PfsLiveSyncBadge";
+import PfsSyncStatusBadge from "@/components/pfs/PfsSyncStatusBadge";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 
@@ -158,9 +160,20 @@ export default async function ModifierProduitPage({
             <h1 className="page-title">
               Modifier le produit
             </h1>
-            <p className="text-base text-text-muted font-[family-name:var(--font-roboto)] mt-1">
-              Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
-            </p>
+            <div className="flex items-center gap-3 mt-1">
+              <p className="text-base text-text-muted font-[family-name:var(--font-roboto)]">
+                Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
+              </p>
+              <PfsSyncStatusBadge
+                productId={product.id}
+                pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
+                pfsSyncError={product.pfsSyncError}
+                pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
+              />
+              {product.pfsProductId && (
+                <PfsLiveSyncBadge productId={product.id} />
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Link

@@ -39,6 +39,7 @@ interface AdminProduct {
   reference: string;
   name: string;
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
+  pfsSyncStatus: "synced" | "pending" | "failed" | null;
   categoryName: string;
   subCategoryName: string | null;
   createdAt: string;
@@ -155,19 +156,11 @@ function VariantRow({
           </div>
         </td>
         <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)]">
-          <span
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold"
-            style={variant.saleType === "UNIT"
-              ? { background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE' }
-              : { background: '#F5F3FF', color: '#6D28D9', border: '1px solid #DDD6FE' }
-            }
-          >
+          <span className={`badge text-[10px] ${variant.saleType === "UNIT" ? "badge-info" : "badge-purple"}`}>
             {variant.saleType === "UNIT" ? "Unité" : `Pack ×${variant.packQuantity}`}
           </span>
           {variant.size && (
-            <span className="ml-1.5 text-[10px]"
-              style={{ color: '#6B6B6B', background: '#F0F0F0', padding: '2px 6px', borderRadius: '4px' }}
-            >
+            <span className="badge badge-neutral text-[10px] ml-1.5">
               {variant.size}
             </span>
           )}
@@ -194,7 +187,7 @@ function VariantRow({
         <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)]">
           {variant.discountType && variant.discountValue
             ? (
-              <span style={{ color: '#15803D', fontWeight: 500, background: '#F0FDF4', padding: '2px 8px', borderRadius: '4px', border: '1px solid #BBF7D0' }}>
+              <span className="badge badge-success text-[10px]">
                 {variant.discountType === "PERCENT" ? `-${variant.discountValue}%` : `-${variant.discountValue}€`}
               </span>
             )
@@ -487,36 +480,47 @@ function ProductRow({
         {/* Statut */}
         <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
           <div className="flex items-center gap-1.5 flex-nowrap">
-            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${
+            <span className={`badge text-[11px] ${
               product.status === "ONLINE"
-                ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+                ? "badge-success"
                 : product.status === "SYNCING"
-                ? "bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]"
+                ? "badge-info"
                 : product.status === "ARCHIVED"
-                ? "bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]"
-                : "bg-[#F7F7F8] text-[#6B6B6B] border border-[#E5E5E5]"
+                ? "badge-warning"
+                : "badge-neutral"
             }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${
-                product.status === "ONLINE" ? "bg-[#22C55E]" : product.status === "SYNCING" ? "bg-[#3B82F6] animate-pulse" : product.status === "ARCHIVED" ? "bg-[#F59E0B]" : "bg-[#9CA3AF]"
-              }`} />
               {product.status === "ONLINE" ? "En ligne" : product.status === "SYNCING" ? "Sync en cours" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
             </span>
             {isFullyOutOfStock && (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] whitespace-nowrap"
+                className="badge badge-error text-[10px]"
                 title="Toutes les variantes sont en rupture de stock"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444]" />
                 Rupture
               </span>
             )}
             {hasPartialOutOfStock && (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] whitespace-nowrap"
+                className="badge badge-warning text-[10px]"
                 title="Certaines variantes sont en rupture de stock"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
                 Rupture variantes
+              </span>
+            )}
+            {product.pfsSyncStatus === "failed" && (
+              <span
+                className="badge badge-error text-[10px]"
+                title="Synchronisation PFS échouée"
+              >
+                PFS
+              </span>
+            )}
+            {product.pfsSyncStatus === "pending" && (
+              <span
+                className="badge badge-info text-[10px]"
+                title="Synchronisation PFS en cours"
+              >
+                PFS
               </span>
             )}
           </div>

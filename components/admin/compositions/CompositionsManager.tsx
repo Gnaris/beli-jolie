@@ -119,7 +119,7 @@ export default function CompositionsManager({
                 <span className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] truncate">
                   {comp.name}
                 </span>
-                <span className="badge-neutral text-[10px] shrink-0">
+                <span className="badge badge-neutral text-[10px] shrink-0">
                   {comp.productCount}
                 </span>
                 {Object.keys(comp.translations).length === 0 && (

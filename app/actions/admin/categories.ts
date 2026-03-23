@@ -40,6 +40,26 @@ export async function createCategory(formData: FormData) {
   revalidatePath("/admin/produits");
 }
 
+/**
+ * Update the PFS category ID for an existing category.
+ * Used when linking a BJ category to a PFS category for reverse sync.
+ */
+export async function updateCategoryPfsId(id: string, pfsCategoryId: string | null) {
+  await requireAdmin();
+  if (pfsCategoryId) {
+    const conflict = await prisma.category.findFirst({
+      where: { pfsCategoryId, id: { not: id } },
+      select: { id: true, name: true },
+    });
+    if (conflict) {
+      throw new Error(`Cet ID PFS est déjà utilisé par la catégorie « ${conflict.name} ».`);
+    }
+  }
+  await prisma.category.update({ where: { id }, data: { pfsCategoryId } });
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+}
+
 export async function deleteCategory(id: string) {
   await requireAdmin();
   await prisma.category.delete({ where: { id } });

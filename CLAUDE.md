@@ -19,14 +19,44 @@ Après chaque tâche terminée, vérifier si CLAUDE.md doit être mis à jour (n
 ### Parallélisation via sous-agents
 Quand une tâche peut être découpée en sous-tâches indépendantes, **toujours** lancer plusieurs sous-agents en parallèle pour accélérer le travail. Ne jamais faire séquentiellement ce qui peut être fait en parallèle. Les agents spécialisés (Designer, Front-End, Back-End, SEO, Hackeur Éthique) doivent être sollicités dès que leur domaine est concerné — ne pas hésiter à les invoquer pour obtenir des résultats plus optimaux.
 
-### Validation par 3 testeurs IA (obligatoire après chaque tâche)
-Après chaque tâche terminée, lancer **3 sous-agents testeurs** en parallèle. Chacun a un angle de test différent :
+### Validation par 9 testeurs IA (TRÈS IMPORTANT — obligatoire après chaque tâche)
+**TRÈS IMPORTANT** : Après chaque tâche terminée, lancer **9 sous-agents testeurs** en parallèle (3 équipes × 3 testeurs). Chaque testeur reçoit un **brief du Rédacteur** qui reformule précisément la demande originale de l'utilisateur, les critères d'acceptation, et ce que chaque testeur doit vérifier de son côté. Le Rédacteur doit s'assurer que chaque testeur comprend parfaitement les besoins de l'utilisateur pour que chacun puisse vérifier indépendamment si la demande est **entièrement** satisfaite.
 
-1. **Testeur Fonctionnel** — Vérifie que le code fait exactement ce qui était demandé, pas de régression, les cas limites sont gérés, les données sont correctes.
-2. **Testeur UI/UX** — Vérifie le responsive (mobile/tablette/desktop), l'accessibilité (ARIA, touch targets 44px, contraste), les animations, la cohérence visuelle avec le design system monochrome.
-3. **Testeur Technique** — Vérifie le lint (`npm run lint`), la compatibilité TypeScript, les imports corrects, les conventions Prisma/NextAuth/Zod, la performance (pas de N+1, pas de re-renders inutiles).
+**TRÈS IMPORTANT** : À chaque prompt envoyé aux testeurs, inclure la mention **« TRÈS IMPORTANT »** pour souligner la criticité de la vérification, même si la tâche semble simple ou évidente.
 
-**Règle de consensus** : si **au moins un** testeur signale un problème, il produit un rapport détaillé. Le problème doit être corrigé, puis **les 3 testeurs repassent** jusqu'à ce que tous soient d'accord (aucun désaccord). On ne passe à la tâche suivante que quand les 3 testeurs valident.
+#### Équipe 1 — Testeurs Fonctionnels (3 testeurs)
+1. **Testeur Fonctionnel A (Cas nominal)** — Vérifie que le code fait exactement ce qui était demandé, que le comportement attendu est respecté dans le scénario principal, et que les données sont correctes.
+2. **Testeur Fonctionnel B (Cas limites)** — Vérifie les edge cases : données vides, valeurs nulles, listes très longues, caractères spéciaux, permissions insuffisantes, doublons, et toute situation inhabituelle.
+3. **Testeur Fonctionnel C (Régressions)** — Vérifie qu'aucune fonctionnalité existante n'a été cassée par les changements, que les flux adjacents fonctionnent toujours, et que les données existantes restent intactes.
+
+#### Équipe 2 — Testeurs UI/UX (3 testeurs)
+4. **Testeur UI/UX A (Responsive)** — Vérifie le rendu sur mobile (320px–480px), tablette (768px–1024px) et desktop (1280px+). Grilles, overflow, textes tronqués, images déformées.
+5. **Testeur UI/UX B (Accessibilité)** — Vérifie les attributs ARIA, les touch targets (min 44px), le contraste des couleurs, la navigation clavier, le focus visible, et le support RTL (arabe).
+6. **Testeur UI/UX C (Cohérence visuelle)** — Vérifie la conformité avec le design system monochrome (palette, fonts Poppins/Roboto, badges `badge badge-*`, CSS utilities existantes), les animations, les transitions, et le dark mode admin.
+
+#### Équipe 3 — Testeurs Techniques (3 testeurs)
+7. **Testeur Technique A (Lint & TypeScript)** — Exécute `npm run lint`, vérifie la compatibilité TypeScript stricte, les imports corrects, et l'absence d'erreurs de compilation.
+8. **Testeur Technique B (Conventions & Architecture)** — Vérifie les conventions Prisma/NextAuth/Zod, l'utilisation de `requireAdmin()`/`requireAuth()`, les `revalidateTag` à 2 args, les `getCached*`, et le respect de l'architecture documentée.
+9. **Testeur Technique C (Performance & Sécurité)** — Vérifie l'absence de requêtes N+1, de re-renders inutiles, de failles OWASP (XSS, injection, IDOR), et que `lib/security.ts` est utilisé dans les flux d'auth.
+
+#### Rôle du Rédacteur (TRÈS IMPORTANT)
+**TRÈS IMPORTANT** : Avant de lancer les 9 testeurs, le **Rédacteur** doit :
+1. **Reformuler** la demande originale de l'utilisateur de manière claire et précise
+2. **Lister les critères d'acceptation** : qu'est-ce qui doit fonctionner pour que la demande soit considérée comme 100% satisfaite ?
+3. **Rédiger un brief personnalisé** pour chaque testeur, adapté à son angle de test, en incluant systématiquement : la demande utilisateur, les fichiers modifiés, les points spécifiques à vérifier
+4. **Inclure « TRÈS IMPORTANT »** dans chaque brief envoyé aux testeurs
+
+#### Règle de consensus (TRÈS IMPORTANT)
+**TRÈS IMPORTANT** : Si **au moins un** testeur sur les 9 signale un problème, il produit un rapport détaillé. Le problème doit être corrigé, puis **les 9 testeurs repassent** jusqu'à ce que **tous** soient d'accord (zéro désaccord). On ne passe à la tâche suivante que quand les 9 testeurs valident unanimement que la demande de l'utilisateur est **entièrement** satisfaite.
+
+### Résumé et guide de test (obligatoire après chaque tâche)
+À la fin de chaque tâche terminée, fournir :
+1. **Résumé des changements** — Liste concise de tout ce qui a été fait (fichiers créés/modifiés, fonctionnalités ajoutées, corrections apportées).
+2. **Guide de test détaillé** — Étapes numérotées et précises que l'utilisateur peut suivre pour tester manuellement chaque aspect de la tâche :
+   - Pré-requis (serveur lancé, données à préparer, etc.)
+   - Scénarios à tester (cas nominal, cas limites, erreurs)
+   - Ce qu'il faut vérifier visuellement (responsive, animations, etc.)
+   - Comportement attendu à chaque étape
 
 ---
 
@@ -105,7 +135,7 @@ Products have a nested structure — read this before touching product code:
 Product
   ├── ProductColor[]          (one row per variant — flat, includes saleType/price/stock)
   │     ├── saleType: UNIT | PACK
-  │     ├── unitPrice, weight, stock, discountType, discountValue, size, packQuantity
+  │     ├── unitPrice, weight, stock, discountType, discountValue, size, packQuantity, pfsVariantId?
   │     ├── ProductColorSubColor[]  (optional sub-colors, e.g. Doré → Rouge, Noir)
   │     └── ProductColorImage[]     (max 5 per variant, linked via productColorId)
   ├── ProductTranslation[]    (locale: "en"|"ar"|"zh"|"de"|"es"|"it" — auto-translated name+description)
@@ -115,7 +145,10 @@ Product
   ├── ProductTag[]            (tags for search)
   └── RestockAlert[]          (client alerts when out-of-stock variant is restocked)
 ```
-- `Color` model has optional `patternImage` (leopard, camouflage, etc.) — takes priority over hex
+- `Color` model has optional `patternImage` (leopard, camouflage, etc.) — takes priority over hex. Also has `pfsColorRef` (PFS color reference like "GOLDEN")
+- `Category` model has `pfsCategoryId` (PFS category ID for reverse sync)
+- `Composition` model has `pfsCompositionRef` (PFS composition reference like "ACIERINOXYDABLE")
+- `Product` has `pfsSyncStatus` (null|"pending"|"synced"|"failed"), `pfsSyncError` (error message), `pfsSyncedAt` (last successful sync)
 - `ProductStatus` enum: `OFFLINE` | `ONLINE` | `ARCHIVED` | `SYNCING` (archived = invisible but preserved for order history; SYNCING = PFS sync in progress, becomes ONLINE after images downloaded)
 - Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied
 - **Multi-color variants**: two variants can share the same main `colorId` (e.g. "Doré/Argenté/Or Rose" and "Doré/Argenté/Or Rose/Vert/Jaune"). They are distinguished by their sub-colors via a `groupKey` = `colorId::orderedSubColorNames` (**order matters**: "Doré/Rouge" ≠ "Rouge/Doré"). First selected color = main, rest = sub-colors in selection order. `ProductColorImage.productColorId` links images to the specific variant. The admin form's `ColorImageState` uses `groupKey` (not `colorId` or `variantTempId`) — variants with the same color+sub-colors selection in the same order (e.g. UNIT + PACK) share the same image group. Helper: `variantGroupKeyFromState()` exported from `ColorVariantManager.tsx`.
@@ -199,7 +232,8 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Admin dark mode**: `.admin-dark` class on root — inverts colors/shadows across the admin panel (defined in `globals.css`)
 - Status: success `#22C55E`, warning `#F59E0B`, error `#EF4444`, info `#3B82F6`
 - Fonts via CSS variables: `var(--font-poppins)` for headings, `var(--font-roboto)` for body — reference them as `font-[family-name:var(--font-poppins)]` in Tailwind classes
-- Reusable CSS utilities: `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.field-input`, `.field-label`, `.container-site`, `.card`, `.card-hover`, `.badge-success`, `.badge-warning`, `.badge-error`, `.badge-neutral`, `.badge-info`, `.stat-card`, `.table-header`, `.table-row`, `.sidebar-item`, `.sidebar-active`, `.page-title`, `.page-subtitle`
+- Reusable CSS utilities: `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.field-input`, `.field-label`, `.container-site`, `.card`, `.card-hover`, `.badge-success`, `.badge-warning`, `.badge-error`, `.badge-neutral`, `.badge-info`, `.badge-purple`, `.stat-card`, `.table-header`, `.table-row`, `.sidebar-item`, `.sidebar-active`, `.page-title`, `.page-subtitle`
+- **Badge convention (OBLIGATOIRE)**: tout badge de statut DOIT utiliser la classe de base `badge` + une variante : `<span className="badge badge-success">Texte</span>`. La classe `badge` apporte le padding, le border-radius pill, le dot clignotant coloré et la bordure. Variantes : `badge-success` (vert), `badge-warning` (ambre, pulse rapide), `badge-error` (rouge), `badge-neutral` (gris), `badge-info` (bleu), `badge-purple` (violet, pour PACK/SHIPPED). **Ne JAMAIS** utiliser de styles inline pour des badges de statut — toujours `badge badge-*`
 - Variant form utilities: `.drawer-variant-container`, `.variant-drawer`, `.variant-input`, `.variant-select`, `.bulk-variant-bar`
 - Scroll-reveal classes: `.reveal`, `.reveal-up`, `.reveal-down`, `.reveal-left`, `.reveal-right`, `.reveal-zoom`, `.reveal-blur` + `.stagger-1` through `.stagger-8`
 - Animations: `.animate-fadeIn`, `.animate-slideIn`, `.animate-float`, `.animate-shimmer`, `.animate-cart-bounce`, and many more keyframes in `globals.css`
@@ -210,7 +244,7 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Public header**: `PublicSidebar.tsx` (NOT `Navbar.tsx`) — logo, functional search bar, nav links, cart
 - **Admin mobile**: `AdminMobileNav.tsx` — hamburger + slide-in drawer with all nav links
 - **3D Hero**: `JewelryScene.tsx` loaded via `JewelrySceneLoader.tsx` (client wrapper for `ssr: false`)
-- **Product form**: `ProductForm.tsx` — 4 separate blocks (fiche produit, mots-clés, dimensions, composition)
+- **Product form**: `ProductForm.tsx` — 4 separate blocks (fiche produit, mots-clés, dimensions, composition). Includes unsaved changes guard (`beforeunload` + global link click interception → `ConfirmDialog`)
 - **Live client tracking**: `LiveClientsTracker.tsx` — real-time view of connected clients at `/admin/suivi`
 - **Cart modal**: `CartModal.tsx` — admin can peek at a client's current cart
 - **Reusable UI**: `ConfirmDialog.tsx` (replaces window.confirm), `CustomSelect.tsx` (searchable select), `Toast.tsx`, `ColorSwatch.tsx` (single/multi-color swatch with patternImage support — renders camembert pie chart for multi-color variants)
@@ -230,7 +264,7 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
   - Downloads images from CDN → WebP with fallback (base ref → versioned ref)
   - Image download: 15s timeout, retry with 3s→6s→12s backoff, min 1KB size check
   - Supports resume via `lastPage` in `PfsSyncJob`
-  - **Price stripping**: PFS prices include 11% markup → `realPrice = Math.floor((pfsPrice / 1.11) * 10) / 10`
+  - **Prices**: PFS and BJ prices are identical (no markup transformation)
   - **Reference versioning**: PFS refs end with "VS1"/"VS2" (e.g. "A200VS3") → stripped to base "A200" for BJ
   - **Primary color detection**: `detectDefaultColorRef()` matches `DEFAULT` image key to a color variant, or uses `default_color` from checkReference
   - **2-pipeline architecture**: product data creation (batches of 10) runs separately from image downloading (background pool of 15 concurrent tasks)
@@ -244,6 +278,24 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **API routes**: `POST /api/admin/pfs-sync` (start), `GET /api/admin/pfs-sync` (status), `POST /api/admin/pfs-sync/resume` (resume failed), `POST /api/admin/pfs-sync/analyze` (dry-run SSE), `POST /api/admin/pfs-sync/create-entities` (create validated entities), `POST /api/admin/pfs-sync/retry` (retry failed products by reference), `POST /api/admin/pfs-sync/cancel` (cancel running sync + reset SYNCING products to OFFLINE)
 - **Dual console UI**: `/admin/pfs` displays two live consoles — product creation logs + image download logs with stats header (completed/active/pending/failed)
 - **DB models**: `PfsSyncJob` tracks progress (dual logs: `productLogs` + `imageLogs` + `imageStats` in `logs` JSON field); `Product.pfsProductId` links to PFS product ID; `PfsMapping` remembers PFS name → BJ entity associations across syncs
+- **Prepare & Review flow** (`lib/pfs-prepare.ts`): 2-step staged import — `PfsPrepareJob` scans PFS products → creates `PfsStagedProduct` entries (status: PREPARING → READY) → admin reviews/edits variants, images, compositions in `/admin/pfs/historique/[id]` → approves → `approveStagedProduct()` creates the real `Product` in DB. Staged products store `variants`, `compositions`, `translations`, `imagesByColor` as JSON. On approve, FK integrity is verified (category + colors re-resolved if deleted between prepare and approve).
+
+### PFS Reverse Sync — BJ → PFS (`lib/pfs-api-write.ts`, `lib/pfs-reverse-sync.ts`)
+- **Full auto**: every `createProduct`, `updateProduct`, `archiveProduct`, `unarchiveProduct`, `bulkUpdateProductStatus`, `updateVariantQuick`, `bulkUpdateVariants` triggers a non-blocking push to PFS via `triggerPfsSync(productId)`
+- **Write API client** (`lib/pfs-api-write.ts`): wraps all PFS write endpoints (create/update product, create/update/delete variants, upload image, update status, AI translations) with retry + backoff
+- **Reverse sync logic** (`lib/pfs-reverse-sync.ts`): loads BJ product → translates name/description via PFS AI (`POST /ai/translations`) → creates or updates on PFS → syncs variants (create/update/delete, `is_active: false` if stock=0) → converts WebP → JPEG and uploads images → syncs status (ONLINE→READY_FOR_SALE, OFFLINE→DRAFT, ARCHIVED→ARCHIVED)
+- **Non-blocking**: `triggerPfsSync()` is fire-and-forget. Updates `Product.pfsSyncStatus` in DB: `null` (never synced), `"pending"` (in progress), `"synced"` (success), `"failed"` (error with message in `pfsSyncError`)
+- **Prices**: BJ and PFS prices are identical — no markup transformation applied
+- **Image conversion**: WebP → JPEG via sharp before upload (PFS rejects WebP)
+- **PFS AI translations**: `pfsTranslate(name, description)` calls `POST /ai/translations` — returns fr/en/de/es/it translations. Used automatically during reverse sync for product labels/descriptions sent to PFS.
+- **Entity mapping required**: `Color.pfsColorRef` (PFS color reference like "GOLDEN"), `Category.pfsCategoryId` (PFS category ID), `Composition.pfsCompositionRef` (PFS composition reference like "ACIERINOXYDABLE"). Entities without PFS mapping are skipped.
+- **Entity mapping uniqueness**: each PFS ref can only be linked to ONE BJ entity (enforced in server actions + create-entities endpoint). Mapping UI disables already-used PFS refs.
+- **Auto-fill mapping on entity creation**: when `POST /api/admin/pfs-sync/create-entities` creates colors/categories/compositions during pre-validation, PFS refs (`pfsColorRef`, `pfsCategoryId`, `pfsCompositionRef`) are stored automatically — no need for manual mapping afterwards.
+- **Variant tracking**: `ProductColor.pfsVariantId` stores the PFS variant ID for updates/deletes. New variants are created on PFS and ID stored back. Variants with stock=0 are set `is_active: false` on PFS.
+- **PFS attributes API**: `GET /api/admin/pfs-sync/attributes` — fetches available PFS colors/categories/compositions for mapping in admin UI
+- **Mapping admin UI**: `/admin/pfs/mapping` — 3-tab page (Couleurs, Catégories, Compositions) to link BJ entities to PFS equivalents. Already-used refs are disabled in dropdowns.
+- **Server actions for mapping**: `updateColorPfsRef()`, `updateCategoryPfsId()`, `updateCompositionPfsRef()` — set PFS references on existing entities (with uniqueness check)
+- **Quick-create with PFS mapping**: `createColorQuick()`, `createCategoryQuick()`, `createCompositionQuick()` accept optional PFS reference params
 
 ### Real-Time Product Updates (SSE)
 - **Event emitter** (`lib/product-events.ts`): in-memory pub/sub via `globalThis` singleton (shared across server actions + API routes)
@@ -300,7 +352,9 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - `PendingSimilar` links are auto-resolved — when creating a product, check for pending similar refs matching the new product's reference
 - `Color.patternImage` takes priority over `Color.hex` when rendering — always check patternImage first
 - `UserActivity.cartAddsCount`/`favAddsCount` are session counters sent by HeartbeatTracker — reset on disconnect
+- **Color change on variant groups**: `handleMultiColorChange` accepts a `Set<string>` of tempIds and applies the color patch in a **single** `onChange` call. Never call `updateVariant` in a loop — each call uses the same stale `variants` reference, causing only the last variant to be updated
 - **Never group/display color variants by `colorId` alone** — always use `groupKey` (colorId + ordered sub-color names, **order matters**). Keying by `colorId` merges variants with different sub-colors; keying by `variantTempId` prevents UNIT/PACK image sharing. See `variantGroupKeyFromState()` in `ColorVariantManager.tsx`
+- **Always display the FULL color composition** — whenever showing a color (variants, images, swatches), display ALL colors in the composition (e.g. "Blanc, Rouge, Jaune"), never just the main color name alone. Use `ColorSwatch` with `subColors` segments for multi-color variants. This applies everywhere: PFS review, edit modals, product detail, image grouping headers.
 
 ### Key Libraries
 - **Next.js 16.1.6** (App Router, Server Components)

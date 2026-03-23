@@ -145,6 +145,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     reference:       p.reference,
     name:            p.name,
     status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
+    pfsSyncStatus:   (p.pfsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),

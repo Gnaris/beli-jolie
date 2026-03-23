@@ -19,12 +19,14 @@ function slugify(str: string): string {
 
 interface CategoryInput {
   pfsName: string;
+  pfsCategoryId?: string;
   name: string;
   labels?: Record<string, string>;
 }
 
 interface ColorInput {
   pfsName: string;
+  pfsReference?: string;
   name: string;
   hex: string | null;
   patternImage: string | null;
@@ -33,6 +35,7 @@ interface ColorInput {
 
 interface CompositionInput {
   pfsName: string;
+  pfsReference?: string;
   name: string;
   labels?: Record<string, string>;
 }
@@ -55,6 +58,47 @@ export async function POST(req: NextRequest) {
     const colors = body.colors ?? [];
     const compositions = body.compositions ?? [];
 
+    // ── Pre-check PFS ref uniqueness ──────────────
+    for (const col of colors) {
+      if (!col.pfsReference) continue;
+      const conflict = await prisma.color.findFirst({
+        where: { pfsColorRef: col.pfsReference },
+        select: { id: true, name: true },
+      });
+      if (conflict) {
+        return NextResponse.json(
+          { error: `La référence PFS couleur « ${col.pfsReference} » est déjà utilisée par « ${conflict.name} ».` },
+          { status: 409 },
+        );
+      }
+    }
+    for (const cat of categories) {
+      if (!cat.pfsCategoryId) continue;
+      const conflict = await prisma.category.findFirst({
+        where: { pfsCategoryId: cat.pfsCategoryId },
+        select: { id: true, name: true },
+      });
+      if (conflict) {
+        return NextResponse.json(
+          { error: `L'ID PFS catégorie « ${cat.pfsCategoryId} » est déjà utilisé par « ${conflict.name} ».` },
+          { status: 409 },
+        );
+      }
+    }
+    for (const comp of compositions) {
+      if (!comp.pfsReference) continue;
+      const conflict = await prisma.composition.findFirst({
+        where: { pfsCompositionRef: comp.pfsReference },
+        select: { id: true, name: true },
+      });
+      if (conflict) {
+        return NextResponse.json(
+          { error: `La référence PFS composition « ${comp.pfsReference} » est déjà utilisée par « ${conflict.name} ».` },
+          { status: 409 },
+        );
+      }
+    }
+
     let createdCategories = 0;
     let createdColors = 0;
     let createdCompositions = 0;
@@ -74,9 +118,16 @@ export async function POST(req: NextRequest) {
               data: {
                 name: cat.name,
                 slug: slugify(cat.name),
+                pfsCategoryId: cat.pfsCategoryId || null,
               },
             });
             createdCategories++;
+          } else if (cat.pfsCategoryId && !existing.pfsCategoryId) {
+            // Entity existed but had no PFS mapping — fill it in
+            existing = await tx.category.update({
+              where: { id: existing.id },
+              data: { pfsCategoryId: cat.pfsCategoryId },
+            });
           }
 
           // Create translations
@@ -168,9 +219,15 @@ export async function POST(req: NextRequest) {
                 name: col.name,
                 hex: col.hex,
                 patternImage: col.patternImage,
+                pfsColorRef: col.pfsReference || null,
               },
             });
             createdColors++;
+          } else if (col.pfsReference && !existing.pfsColorRef) {
+            existing = await tx.color.update({
+              where: { id: existing.id },
+              data: { pfsColorRef: col.pfsReference },
+            });
           }
 
           // Create translations
@@ -258,9 +315,15 @@ export async function POST(req: NextRequest) {
             existing = await tx.composition.create({
               data: {
                 name: comp.name,
+                pfsCompositionRef: comp.pfsReference || null,
               },
             });
             createdCompositions++;
+          } else if (comp.pfsReference && !existing.pfsCompositionRef) {
+            existing = await tx.composition.update({
+              where: { id: existing.id },
+              data: { pfsCompositionRef: comp.pfsReference },
+            });
           }
 
           // Create translations

@@ -104,15 +104,15 @@ export default function AccessCodeDetail({ data }: { data: AccessCodeData }) {
             <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">Statut</p>
             <p className="mt-1">
               {isUsed ? (
-                <span className="badge-success">Inscrit</span>
+                <span className="badge badge-success">Inscrit</span>
               ) : !isActive ? (
-                <span className="badge-neutral">Désactivé</span>
+                <span className="badge badge-neutral">Désactivé</span>
               ) : isExpired ? (
-                <span className="badge-error">Expiré</span>
+                <span className="badge badge-error">Expiré</span>
               ) : data.firstAccessAt ? (
-                <span className="badge-info">En cours de navigation</span>
+                <span className="badge badge-info">En cours de navigation</span>
               ) : (
-                <span className="badge-warning">Actif — non utilisé</span>
+                <span className="badge badge-warning">Actif — non utilisé</span>
               )}
             </p>
           </div>

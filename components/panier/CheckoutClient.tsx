@@ -423,6 +423,7 @@ export default function CheckoutClient({
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [stripeLoading, setStripeLoading]     = useState(false);
   const [stripeError, setStripeError]         = useState("");
+  const [cgvAccepted, setCgvAccepted]         = useState(false);
 
   // Infos client editables (adresse de facturation)
   const [billingInfo, setBillingInfo] = useState({
@@ -636,6 +637,7 @@ export default function CheckoutClient({
         carrierPrice:          effectiveCarrierPrice,
         tvaRate,
         stripePaymentIntentId: piId,
+        cgvAcceptedAt:         new Date().toISOString(),
       });
       if (result.success) {
         router.push(`/commandes/${result.orderId}?success=1`);
@@ -658,6 +660,7 @@ export default function CheckoutClient({
           carrierPrice:          effectiveCarrierPrice,
           tvaRate,
           stripePaymentIntentId: piId,
+          cgvAcceptedAt:         new Date().toISOString(),
         });
         if (result.success) {
           // Rediriger immédiatement vers la page commande avec un paramètre
@@ -1103,12 +1106,35 @@ export default function CheckoutClient({
                 </p>
               )}
 
+              {/* CGV acceptance checkbox */}
+              {canProceed && !clientSecret && (
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={cgvAccepted}
+                    onChange={(e) => setCgvAccepted(e.target.checked)}
+                    className="checkbox-custom mt-0.5 shrink-0"
+                  />
+                  <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] leading-relaxed">
+                    J&apos;ai lu et j&apos;accepte les{" "}
+                    <Link href="/cgv" target="_blank" className="text-accent underline hover:text-accent-dark">
+                      Conditions Générales de Vente
+                    </Link>{" "}
+                    et la{" "}
+                    <Link href="/confidentialite" target="_blank" className="text-accent underline hover:text-accent-dark">
+                      Politique de confidentialité
+                    </Link>.
+                  </span>
+                </label>
+              )}
+
               {/* Bouton pour lancer le paiement — visible tant que le formulaire Stripe n'est pas affiché */}
               {canProceed && !clientSecret && !stripeLoading && (
                 <button
                   type="button"
                   onClick={handleInitiatePayment}
-                  className="btn-primary w-full justify-center"
+                  disabled={!cgvAccepted}
+                  className="btn-primary w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
+import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -115,6 +116,10 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 
   const existing = await prisma.product.findUnique({ where: { reference: input.reference }, select: { id: true } });
   if (existing) throw new Error("Cette référence existe déjà.");
+
+  // Vérifier que la catégorie existe
+  const categoryExists = await prisma.category.findUnique({ where: { id: input.categoryId }, select: { id: true } });
+  if (!categoryExists) throw new Error("La catégorie sélectionnée n'existe plus. Rechargez la page.");
 
   // Upsert tags
   const tagRecords = await Promise.all(
@@ -246,6 +251,9 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
 
+  // PFS Reverse Sync — non-blocking push to Paris Fashion Shop
+  triggerPfsSync(product.id);
+
   return { id: product.id };
 }
 
@@ -255,6 +263,15 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 
 export async function updateProduct(id: string, input: ProductInput): Promise<void> {
   await requireAdmin();
+
+  // ── Defensive validation: reject obviously corrupt payloads ────────
+  if (!input.reference?.trim()) throw new Error("La référence est requise.");
+  if (!input.name?.trim()) throw new Error("Le nom est requis.");
+  if (!input.description?.trim()) throw new Error("La description est requise.");
+  if (!input.categoryId) throw new Error("La catégorie est requise.");
+  if (!input.colors || input.colors.length === 0) {
+    throw new Error("Au moins une variante est requise.");
+  }
 
   validateVariants(input.colors);
 
@@ -268,6 +285,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     select: { id: true },
   });
   if (dup) throw new Error("Cette référence est déjà utilisée par un autre produit.");
+
+  // Vérifier que la catégorie existe
+  const categoryExists = await prisma.category.findUnique({ where: { id: input.categoryId }, select: { id: true } });
+  if (!categoryExists) throw new Error("La catégorie sélectionnée n'existe plus. Rechargez la page.");
 
   // Upsert tags
   const tagRecords = await Promise.all(
@@ -530,6 +551,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       emitProductEvent({ type: "PRODUCT_UPDATED", productId: id });
     }
   }
+
+  // PFS Reverse Sync — non-blocking push to Paris Fashion Shop
+  triggerPfsSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -567,6 +591,7 @@ export async function archiveProduct(id: string) {
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
+  triggerPfsSync(id);
 }
 
 export async function unarchiveProduct(id: string) {
@@ -576,6 +601,7 @@ export async function unarchiveProduct(id: string) {
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
+  triggerPfsSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -636,13 +662,14 @@ export async function bulkUpdateProductStatus(
   revalidatePath("/produits");
   revalidateTag("products", "default");
 
-  // Emit SSE events for each updated product
+  // Emit SSE events + PFS sync for each updated product
   for (const pid of success) {
     if (status === "ONLINE") {
       emitProductEvent({ type: "PRODUCT_ONLINE", productId: pid });
     } else {
       emitProductEvent({ type: "PRODUCT_OFFLINE", productId: pid });
     }
+    triggerPfsSync(pid);
   }
 
   return { success, errors };
@@ -735,6 +762,9 @@ export async function updateVariantQuick(
   revalidatePath("/admin/produits");
   revalidatePath(`/produits/${variant.productId}`);
   emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
+
+  // PFS Reverse Sync — push variant changes
+  triggerPfsSync(variant.productId);
 }
 
 // ─────────────────────────────────────────────
@@ -778,6 +808,8 @@ export async function bulkUpdateVariants(
   for (const pid of productIds) {
     revalidatePath(`/produits/${pid}`);
     emitProductEvent({ type: "STOCK_CHANGED", productId: pid });
+    // PFS Reverse Sync — push variant changes
+    triggerPfsSync(pid);
   }
 
   return { updated: variants.length };

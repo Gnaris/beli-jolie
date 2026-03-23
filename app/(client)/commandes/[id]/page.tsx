@@ -74,8 +74,7 @@ export default async function CommandeDetailPage({
           <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-0.5">{date}</p>
         </div>
         <div className="flex items-center gap-3">
-          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-[family-name:var(--font-roboto)] font-medium ${cfg.bgClass} ${cfg.textClass}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+          <span className={`${cfg.badgeClass} text-xs`}>
             {t(`statuses.${order.status}`)}
           </span>
           {order.status === "PENDING" && (
@@ -224,15 +223,15 @@ export default async function CommandeDetailPage({
                 <p className="font-[family-name:var(--font-roboto)] font-medium text-sm text-[#1A1A1A] truncate">{item.productName}</p>
                 <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5 font-mono">{item.productRef}</p>
                 <div className="flex flex-wrap gap-2 mt-1">
-                  <span className="text-[10px] bg-[#F7F7F8] text-[#6B6B6B] px-2 py-0.5 rounded-full font-[family-name:var(--font-roboto)]">
+                  <span className="badge badge-neutral text-[10px]">
                     {item.colorName}
                   </span>
                   {item.size && (
-                    <span className="text-[10px] bg-[#F7F7F8] text-[#6B6B6B] px-2 py-0.5 rounded-full font-[family-name:var(--font-roboto)]">
+                    <span className="badge badge-neutral text-[10px]">
                       {t("sizeOption", { size: item.size })}
                     </span>
                   )}
-                  <span className="text-[10px] bg-[#F7F7F8] text-[#6B6B6B] px-2 py-0.5 rounded-full font-[family-name:var(--font-roboto)]">
+                  <span className={`badge text-[10px] ${item.saleType === "PACK" ? "badge-purple" : "badge-info"}`}>
                     {item.saleType === "PACK" ? t("packOption", { qty: item.packQty ?? 0 }) : t("unitOption")}
                   </span>
                 </div>

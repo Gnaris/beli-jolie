@@ -87,6 +87,26 @@ export async function updateColorDirect(
   revalidateTag("colors", "default");
 }
 
+/**
+ * Update the PFS color reference for an existing color.
+ * Used when linking a BJ color to a PFS color for reverse sync.
+ */
+export async function updateColorPfsRef(id: string, pfsColorRef: string | null) {
+  await requireAdmin();
+  if (pfsColorRef) {
+    const conflict = await prisma.color.findFirst({
+      where: { pfsColorRef, id: { not: id } },
+      select: { id: true, name: true },
+    });
+    if (conflict) {
+      throw new Error(`Cette référence PFS est déjà utilisée par la couleur « ${conflict.name} ».`);
+    }
+  }
+  await prisma.color.update({ where: { id }, data: { pfsColorRef } });
+  revalidatePath("/admin/couleurs");
+  revalidateTag("colors", "default");
+}
+
 export async function deleteColor(id: string) {
   await requireAdmin();
   const count = await prisma.productColor.count({ where: { colorId: id } });
