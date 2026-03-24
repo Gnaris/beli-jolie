@@ -22,30 +22,34 @@ interface CategoryInput {
   pfsCategoryId?: string;
   pfsGender?: string;
   pfsFamilyId?: string;
-  name: string;
+  bjEntityId?: string; // link to existing BJ entity (skip creation)
+  name?: string;
   labels?: Record<string, string>;
 }
 
 interface ColorInput {
   pfsName: string;
   pfsReference?: string;
-  name: string;
-  hex: string | null;
-  patternImage: string | null;
+  bjEntityId?: string; // link to existing BJ entity (skip creation)
+  name?: string;
+  hex?: string | null;
+  patternImage?: string | null;
   labels?: Record<string, string>;
 }
 
 interface CompositionInput {
   pfsName: string;
   pfsReference?: string;
-  name: string;
+  bjEntityId?: string; // link to existing BJ entity (skip creation)
+  name?: string;
   labels?: Record<string, string>;
 }
 
 interface CountryInput {
   pfsName: string;
   pfsReference?: string; // ISO code
-  name: string;
+  bjEntityId?: string; // link to existing BJ entity (skip creation)
+  name?: string;
   isoCode?: string;
   labels?: Record<string, string>;
 }
@@ -53,8 +57,15 @@ interface CountryInput {
 interface SeasonInput {
   pfsName: string;
   pfsReference?: string; // e.g. PE2026
-  name: string;
+  bjEntityId?: string; // link to existing BJ entity (skip creation)
+  name?: string;
   labels?: Record<string, string>;
+}
+
+interface SizeInput {
+  name: string; // TU, S, M, XL…
+  bjCategoryIds?: string[]; // BJ category IDs to link via SizeCategoryLink (user-selected)
+  pfsSizeRefs?: string[]; // PFS size refs to map via SizePfsMapping
 }
 
 interface RequestBody {
@@ -63,6 +74,7 @@ interface RequestBody {
   compositions?: CompositionInput[];
   countries?: CountryInput[];
   seasons?: SeasonInput[];
+  sizes?: SizeInput[];
 }
 
 export async function POST(req: NextRequest) {
@@ -78,10 +90,11 @@ export async function POST(req: NextRequest) {
     const compositions = body.compositions ?? [];
     const countries = body.countries ?? [];
     const seasons = body.seasons ?? [];
+    const sizes = body.sizes ?? [];
 
-    // ── Pre-check PFS ref uniqueness ──────────────
+    // ── Pre-check PFS ref uniqueness (only for create mode — link mode may reuse existing refs) ──
     for (const col of colors) {
-      if (!col.pfsReference) continue;
+      if (!col.pfsReference || col.bjEntityId) continue; // skip link mode
       const conflict = await prisma.color.findFirst({
         where: { pfsColorRef: col.pfsReference },
         select: { id: true, name: true },
@@ -94,7 +107,7 @@ export async function POST(req: NextRequest) {
       }
     }
     for (const cat of categories) {
-      if (!cat.pfsCategoryId) continue;
+      if (!cat.pfsCategoryId || cat.bjEntityId) continue; // skip link mode
       const conflict = await prisma.category.findFirst({
         where: { pfsCategoryId: cat.pfsCategoryId },
         select: { id: true, name: true },
@@ -107,7 +120,7 @@ export async function POST(req: NextRequest) {
       }
     }
     for (const comp of compositions) {
-      if (!comp.pfsReference) continue;
+      if (!comp.pfsReference || comp.bjEntityId) continue; // skip link mode
       const conflict = await prisma.composition.findFirst({
         where: { pfsCompositionRef: comp.pfsReference },
         select: { id: true, name: true },
@@ -121,7 +134,7 @@ export async function POST(req: NextRequest) {
     }
 
     for (const country of countries) {
-      if (!country.pfsReference) continue;
+      if (!country.pfsReference || country.bjEntityId) continue; // skip link mode
       const conflict = await prisma.manufacturingCountry.findFirst({
         where: { pfsCountryRef: country.pfsReference },
         select: { id: true, name: true },
@@ -134,7 +147,7 @@ export async function POST(req: NextRequest) {
       }
     }
     for (const season of seasons) {
-      if (!season.pfsReference) continue;
+      if (!season.pfsReference || season.bjEntityId) continue; // skip link mode
       const conflict = await prisma.season.findFirst({
         where: { pfsSeasonRef: season.pfsReference },
         select: { id: true, name: true },
@@ -152,11 +165,42 @@ export async function POST(req: NextRequest) {
     let createdCompositions = 0;
     let createdCountries = 0;
     let createdSeasons = 0;
+    let createdSizes = 0;
     let mappingsCount = 0;
 
     // ── Categories ──────────────────────────────
     for (const cat of categories) {
       try {
+        // ── LINK MODE: link PFS name to existing BJ entity ──
+        if (cat.bjEntityId) {
+          const entity = await prisma.category.findUnique({
+            where: { id: cat.bjEntityId },
+            select: { id: true, name: true, pfsCategoryId: true },
+          });
+          if (!entity) {
+            return NextResponse.json({ error: `Catégorie BJ introuvable: ${cat.bjEntityId}` }, { status: 404 });
+          }
+          // Update PFS ref fields if not set
+          if (cat.pfsCategoryId && !entity.pfsCategoryId) {
+            await prisma.category.update({
+              where: { id: entity.id },
+              data: { pfsCategoryId: cat.pfsCategoryId, pfsGender: cat.pfsGender || null, pfsFamilyId: cat.pfsFamilyId || null },
+            });
+          }
+          await prisma.pfsMapping.upsert({
+            where: { type_pfsName: { type: "category", pfsName: cat.pfsName.toLowerCase() } },
+            create: { type: "category", pfsName: cat.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
+            update: { bjEntityId: entity.id, bjName: entity.name },
+          });
+          mappingsCount++;
+          continue;
+        }
+
+        // ── CREATE MODE: create new BJ entity ──
+        if (!cat.name) {
+          console.error(`[PFS] Category missing name and bjEntityId: ${cat.pfsName}`);
+          continue;
+        }
         const entity = await prisma.$transaction(async (tx) => {
           // Try to create, fall back to findFirst if unique constraint fails
           let existing = await tx.category.findFirst({
@@ -166,8 +210,8 @@ export async function POST(req: NextRequest) {
           if (!existing) {
             existing = await tx.category.create({
               data: {
-                name: cat.name,
-                slug: slugify(cat.name),
+                name: cat.name!,
+                slug: slugify(cat.name!),
                 pfsCategoryId: cat.pfsCategoryId || null,
                 pfsGender: cat.pfsGender || null,
                 pfsFamilyId: cat.pfsFamilyId || null,
@@ -175,7 +219,6 @@ export async function POST(req: NextRequest) {
             });
             createdCategories++;
           } else if (cat.pfsCategoryId && !existing.pfsCategoryId) {
-            // Entity existed but had no PFS mapping — fill it in
             existing = await tx.category.update({
               where: { id: existing.id },
               data: {
@@ -191,17 +234,8 @@ export async function POST(req: NextRequest) {
             for (const [locale, name] of Object.entries(cat.labels)) {
               if (!name || locale === "fr") continue;
               await tx.categoryTranslation.upsert({
-                where: {
-                  categoryId_locale: {
-                    categoryId: existing.id,
-                    locale,
-                  },
-                },
-                create: {
-                  categoryId: existing.id,
-                  locale,
-                  name,
-                },
+                where: { categoryId_locale: { categoryId: existing.id, locale } },
+                create: { categoryId: existing.id, locale, name },
                 update: { name },
               });
             }
@@ -210,53 +244,25 @@ export async function POST(req: NextRequest) {
           return existing;
         });
 
-        // Upsert PfsMapping outside transaction for resilience
         await prisma.pfsMapping.upsert({
-          where: {
-            type_pfsName: {
-              type: "category",
-              pfsName: cat.pfsName.toLowerCase(),
-            },
-          },
-          create: {
-            type: "category",
-            pfsName: cat.pfsName.toLowerCase(),
-            bjEntityId: entity.id,
-            bjName: cat.name,
-          },
-          update: {
-            bjEntityId: entity.id,
-            bjName: cat.name,
-          },
+          where: { type_pfsName: { type: "category", pfsName: cat.pfsName.toLowerCase() } },
+          create: { type: "category", pfsName: cat.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: cat.name! },
+          update: { bjEntityId: entity.id, bjName: cat.name! },
         });
         mappingsCount++;
       } catch (err) {
-        // Race condition: entity may have been created concurrently
-        const existing = await prisma.category.findFirst({
-          where: { name: cat.name },
-        });
-        if (existing) {
-          await prisma.pfsMapping.upsert({
-            where: {
-              type_pfsName: {
-                type: "category",
-                pfsName: cat.pfsName.toLowerCase(),
-              },
-            },
-            create: {
-              type: "category",
-              pfsName: cat.pfsName.toLowerCase(),
-              bjEntityId: existing.id,
-              bjName: cat.name,
-            },
-            update: {
-              bjEntityId: existing.id,
-              bjName: cat.name,
-            },
-          });
-          mappingsCount++;
-        } else {
-          console.error(`[PFS] Failed to create category "${cat.name}":`, err);
+        if (cat.name) {
+          const existing = await prisma.category.findFirst({ where: { name: cat.name } });
+          if (existing) {
+            await prisma.pfsMapping.upsert({
+              where: { type_pfsName: { type: "category", pfsName: cat.pfsName.toLowerCase() } },
+              create: { type: "category", pfsName: cat.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: cat.name },
+              update: { bjEntityId: existing.id, bjName: cat.name },
+            });
+            mappingsCount++;
+          } else {
+            console.error(`[PFS] Failed to create category "${cat.name}":`, err);
+          }
         }
       }
     }
@@ -264,44 +270,55 @@ export async function POST(req: NextRequest) {
     // ── Colors ──────────────────────────────────
     for (const col of colors) {
       try {
-        const entity = await prisma.$transaction(async (tx) => {
-          let existing = await tx.color.findFirst({
-            where: { name: col.name },
+        // ── LINK MODE ──
+        if (col.bjEntityId) {
+          const entity = await prisma.color.findUnique({
+            where: { id: col.bjEntityId },
+            select: { id: true, name: true, pfsColorRef: true },
           });
+          if (!entity) {
+            return NextResponse.json({ error: `Couleur BJ introuvable: ${col.bjEntityId}` }, { status: 404 });
+          }
+          if (col.pfsReference && !entity.pfsColorRef) {
+            await prisma.color.update({ where: { id: entity.id }, data: { pfsColorRef: col.pfsReference } });
+          }
+          await prisma.pfsMapping.upsert({
+            where: { type_pfsName: { type: "color", pfsName: col.pfsName.toLowerCase() } },
+            create: { type: "color", pfsName: col.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
+            update: { bjEntityId: entity.id, bjName: entity.name },
+          });
+          mappingsCount++;
+          continue;
+        }
+
+        // ── CREATE MODE ──
+        if (!col.name) {
+          console.error(`[PFS] Color missing name and bjEntityId: ${col.pfsName}`);
+          continue;
+        }
+        const entity = await prisma.$transaction(async (tx) => {
+          let existing = await tx.color.findFirst({ where: { name: col.name } });
 
           if (!existing) {
             existing = await tx.color.create({
               data: {
-                name: col.name,
-                hex: col.hex,
-                patternImage: col.patternImage,
+                name: col.name!,
+                hex: col.hex ?? null,
+                patternImage: col.patternImage ?? null,
                 pfsColorRef: col.pfsReference || null,
               },
             });
             createdColors++;
           } else if (col.pfsReference && !existing.pfsColorRef) {
-            existing = await tx.color.update({
-              where: { id: existing.id },
-              data: { pfsColorRef: col.pfsReference },
-            });
+            existing = await tx.color.update({ where: { id: existing.id }, data: { pfsColorRef: col.pfsReference } });
           }
 
-          // Create translations
           if (col.labels) {
             for (const [locale, name] of Object.entries(col.labels)) {
               if (!name || locale === "fr") continue;
               await tx.colorTranslation.upsert({
-                where: {
-                  colorId_locale: {
-                    colorId: existing.id,
-                    locale,
-                  },
-                },
-                create: {
-                  colorId: existing.id,
-                  locale,
-                  name,
-                },
+                where: { colorId_locale: { colorId: existing.id, locale } },
+                create: { colorId: existing.id, locale, name },
                 update: { name },
               });
             }
@@ -311,50 +328,24 @@ export async function POST(req: NextRequest) {
         });
 
         await prisma.pfsMapping.upsert({
-          where: {
-            type_pfsName: {
-              type: "color",
-              pfsName: col.pfsName.toLowerCase(),
-            },
-          },
-          create: {
-            type: "color",
-            pfsName: col.pfsName.toLowerCase(),
-            bjEntityId: entity.id,
-            bjName: col.name,
-          },
-          update: {
-            bjEntityId: entity.id,
-            bjName: col.name,
-          },
+          where: { type_pfsName: { type: "color", pfsName: col.pfsName.toLowerCase() } },
+          create: { type: "color", pfsName: col.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: col.name! },
+          update: { bjEntityId: entity.id, bjName: col.name! },
         });
         mappingsCount++;
       } catch (err) {
-        const existing = await prisma.color.findFirst({
-          where: { name: col.name },
-        });
-        if (existing) {
-          await prisma.pfsMapping.upsert({
-            where: {
-              type_pfsName: {
-                type: "color",
-                pfsName: col.pfsName.toLowerCase(),
-              },
-            },
-            create: {
-              type: "color",
-              pfsName: col.pfsName.toLowerCase(),
-              bjEntityId: existing.id,
-              bjName: col.name,
-            },
-            update: {
-              bjEntityId: existing.id,
-              bjName: col.name,
-            },
-          });
-          mappingsCount++;
-        } else {
-          console.error(`[PFS] Failed to create color "${col.name}":`, err);
+        if (col.name) {
+          const existing = await prisma.color.findFirst({ where: { name: col.name } });
+          if (existing) {
+            await prisma.pfsMapping.upsert({
+              where: { type_pfsName: { type: "color", pfsName: col.pfsName.toLowerCase() } },
+              create: { type: "color", pfsName: col.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: col.name },
+              update: { bjEntityId: existing.id, bjName: col.name },
+            });
+            mappingsCount++;
+          } else {
+            console.error(`[PFS] Failed to create color "${col.name}":`, err);
+          }
         }
       }
     }
@@ -362,42 +353,50 @@ export async function POST(req: NextRequest) {
     // ── Compositions ────────────────────────────
     for (const comp of compositions) {
       try {
-        const entity = await prisma.$transaction(async (tx) => {
-          let existing = await tx.composition.findFirst({
-            where: { name: comp.name },
+        // ── LINK MODE ──
+        if (comp.bjEntityId) {
+          const entity = await prisma.composition.findUnique({
+            where: { id: comp.bjEntityId },
+            select: { id: true, name: true, pfsCompositionRef: true },
           });
+          if (!entity) {
+            return NextResponse.json({ error: `Composition BJ introuvable: ${comp.bjEntityId}` }, { status: 404 });
+          }
+          if (comp.pfsReference && !entity.pfsCompositionRef) {
+            await prisma.composition.update({ where: { id: entity.id }, data: { pfsCompositionRef: comp.pfsReference } });
+          }
+          await prisma.pfsMapping.upsert({
+            where: { type_pfsName: { type: "composition", pfsName: comp.pfsName.toLowerCase() } },
+            create: { type: "composition", pfsName: comp.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
+            update: { bjEntityId: entity.id, bjName: entity.name },
+          });
+          mappingsCount++;
+          continue;
+        }
+
+        // ── CREATE MODE ──
+        if (!comp.name) {
+          console.error(`[PFS] Composition missing name and bjEntityId: ${comp.pfsName}`);
+          continue;
+        }
+        const entity = await prisma.$transaction(async (tx) => {
+          let existing = await tx.composition.findFirst({ where: { name: comp.name } });
 
           if (!existing) {
             existing = await tx.composition.create({
-              data: {
-                name: comp.name,
-                pfsCompositionRef: comp.pfsReference || null,
-              },
+              data: { name: comp.name!, pfsCompositionRef: comp.pfsReference || null },
             });
             createdCompositions++;
           } else if (comp.pfsReference && !existing.pfsCompositionRef) {
-            existing = await tx.composition.update({
-              where: { id: existing.id },
-              data: { pfsCompositionRef: comp.pfsReference },
-            });
+            existing = await tx.composition.update({ where: { id: existing.id }, data: { pfsCompositionRef: comp.pfsReference } });
           }
 
-          // Create translations
           if (comp.labels) {
             for (const [locale, name] of Object.entries(comp.labels)) {
               if (!name || locale === "fr") continue;
               await tx.compositionTranslation.upsert({
-                where: {
-                  compositionId_locale: {
-                    compositionId: existing.id,
-                    locale,
-                  },
-                },
-                create: {
-                  compositionId: existing.id,
-                  locale,
-                  name,
-                },
+                where: { compositionId_locale: { compositionId: existing.id, locale } },
+                create: { compositionId: existing.id, locale, name },
                 update: { name },
               });
             }
@@ -407,50 +406,24 @@ export async function POST(req: NextRequest) {
         });
 
         await prisma.pfsMapping.upsert({
-          where: {
-            type_pfsName: {
-              type: "composition",
-              pfsName: comp.pfsName.toLowerCase(),
-            },
-          },
-          create: {
-            type: "composition",
-            pfsName: comp.pfsName.toLowerCase(),
-            bjEntityId: entity.id,
-            bjName: comp.name,
-          },
-          update: {
-            bjEntityId: entity.id,
-            bjName: comp.name,
-          },
+          where: { type_pfsName: { type: "composition", pfsName: comp.pfsName.toLowerCase() } },
+          create: { type: "composition", pfsName: comp.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: comp.name! },
+          update: { bjEntityId: entity.id, bjName: comp.name! },
         });
         mappingsCount++;
       } catch (err) {
-        const existing = await prisma.composition.findFirst({
-          where: { name: comp.name },
-        });
-        if (existing) {
-          await prisma.pfsMapping.upsert({
-            where: {
-              type_pfsName: {
-                type: "composition",
-                pfsName: comp.pfsName.toLowerCase(),
-              },
-            },
-            create: {
-              type: "composition",
-              pfsName: comp.pfsName.toLowerCase(),
-              bjEntityId: existing.id,
-              bjName: comp.name,
-            },
-            update: {
-              bjEntityId: existing.id,
-              bjName: comp.name,
-            },
-          });
-          mappingsCount++;
-        } else {
-          console.error(`[PFS] Failed to create composition "${comp.name}":`, err);
+        if (comp.name) {
+          const existing = await prisma.composition.findFirst({ where: { name: comp.name } });
+          if (existing) {
+            await prisma.pfsMapping.upsert({
+              where: { type_pfsName: { type: "composition", pfsName: comp.pfsName.toLowerCase() } },
+              create: { type: "composition", pfsName: comp.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: comp.name },
+              update: { bjEntityId: existing.id, bjName: comp.name },
+            });
+            mappingsCount++;
+          } else {
+            console.error(`[PFS] Failed to create composition "${comp.name}":`, err);
+          }
         }
       }
     }
@@ -458,37 +431,49 @@ export async function POST(req: NextRequest) {
     // ── Countries ─────────────────────────────────
     for (const country of countries) {
       try {
-        const entity = await prisma.$transaction(async (tx) => {
-          let existing = await tx.manufacturingCountry.findFirst({
-            where: { name: country.name },
+        // ── LINK MODE ──
+        if (country.bjEntityId) {
+          const entity = await prisma.manufacturingCountry.findUnique({
+            where: { id: country.bjEntityId },
+            select: { id: true, name: true, pfsCountryRef: true },
           });
+          if (!entity) {
+            return NextResponse.json({ error: `Pays BJ introuvable: ${country.bjEntityId}` }, { status: 404 });
+          }
+          if (country.pfsReference && !entity.pfsCountryRef) {
+            await prisma.manufacturingCountry.update({ where: { id: entity.id }, data: { pfsCountryRef: country.pfsReference } });
+          }
+          await prisma.pfsMapping.upsert({
+            where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
+            create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
+            update: { bjEntityId: entity.id, bjName: entity.name },
+          });
+          mappingsCount++;
+          continue;
+        }
+
+        // ── CREATE MODE ──
+        if (!country.name) {
+          console.error(`[PFS] Country missing name and bjEntityId: ${country.pfsName}`);
+          continue;
+        }
+        const entity = await prisma.$transaction(async (tx) => {
+          let existing = await tx.manufacturingCountry.findFirst({ where: { name: country.name } });
 
           if (!existing) {
             existing = await tx.manufacturingCountry.create({
-              data: {
-                name: country.name,
-                isoCode: country.isoCode || country.pfsReference || null,
-                pfsCountryRef: country.pfsReference || null,
-              },
+              data: { name: country.name!, isoCode: country.isoCode || country.pfsReference || null, pfsCountryRef: country.pfsReference || null },
             });
             createdCountries++;
           } else if (country.pfsReference && !existing.pfsCountryRef) {
-            existing = await tx.manufacturingCountry.update({
-              where: { id: existing.id },
-              data: { pfsCountryRef: country.pfsReference },
-            });
+            existing = await tx.manufacturingCountry.update({ where: { id: existing.id }, data: { pfsCountryRef: country.pfsReference } });
           }
 
           if (country.labels) {
             for (const [locale, name] of Object.entries(country.labels)) {
               if (!name || locale === "fr") continue;
               await tx.manufacturingCountryTranslation.upsert({
-                where: {
-                  manufacturingCountryId_locale: {
-                    manufacturingCountryId: existing.id,
-                    locale,
-                  },
-                },
+                where: { manufacturingCountryId_locale: { manufacturingCountryId: existing.id, locale } },
                 create: { manufacturingCountryId: existing.id, locale, name },
                 update: { name },
               });
@@ -500,21 +485,23 @@ export async function POST(req: NextRequest) {
 
         await prisma.pfsMapping.upsert({
           where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
-          create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: country.name },
-          update: { bjEntityId: entity.id, bjName: country.name },
+          create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: country.name! },
+          update: { bjEntityId: entity.id, bjName: country.name! },
         });
         mappingsCount++;
       } catch (err) {
-        const existing = await prisma.manufacturingCountry.findFirst({ where: { name: country.name } });
-        if (existing) {
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
-            create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: country.name },
-            update: { bjEntityId: existing.id, bjName: country.name },
-          });
-          mappingsCount++;
-        } else {
-          console.error(`[PFS] Failed to create country "${country.name}":`, err);
+        if (country.name) {
+          const existing = await prisma.manufacturingCountry.findFirst({ where: { name: country.name } });
+          if (existing) {
+            await prisma.pfsMapping.upsert({
+              where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
+              create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: country.name },
+              update: { bjEntityId: existing.id, bjName: country.name },
+            });
+            mappingsCount++;
+          } else {
+            console.error(`[PFS] Failed to create country "${country.name}":`, err);
+          }
         }
       }
     }
@@ -522,33 +509,49 @@ export async function POST(req: NextRequest) {
     // ── Seasons ──────────────────────────────────
     for (const season of seasons) {
       try {
-        const entity = await prisma.$transaction(async (tx) => {
-          let existing = await tx.season.findFirst({
-            where: { name: season.name },
+        // ── LINK MODE ──
+        if (season.bjEntityId) {
+          const entity = await prisma.season.findUnique({
+            where: { id: season.bjEntityId },
+            select: { id: true, name: true, pfsSeasonRef: true },
           });
+          if (!entity) {
+            return NextResponse.json({ error: `Saison BJ introuvable: ${season.bjEntityId}` }, { status: 404 });
+          }
+          if (season.pfsReference && !entity.pfsSeasonRef) {
+            await prisma.season.update({ where: { id: entity.id }, data: { pfsSeasonRef: season.pfsReference } });
+          }
+          await prisma.pfsMapping.upsert({
+            where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
+            create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
+            update: { bjEntityId: entity.id, bjName: entity.name },
+          });
+          mappingsCount++;
+          continue;
+        }
+
+        // ── CREATE MODE ──
+        if (!season.name) {
+          console.error(`[PFS] Season missing name and bjEntityId: ${season.pfsName}`);
+          continue;
+        }
+        const entity = await prisma.$transaction(async (tx) => {
+          let existing = await tx.season.findFirst({ where: { name: season.name } });
 
           if (!existing) {
             existing = await tx.season.create({
-              data: {
-                name: season.name,
-                pfsSeasonRef: season.pfsReference || null,
-              },
+              data: { name: season.name!, pfsSeasonRef: season.pfsReference || null },
             });
             createdSeasons++;
           } else if (season.pfsReference && !existing.pfsSeasonRef) {
-            existing = await tx.season.update({
-              where: { id: existing.id },
-              data: { pfsSeasonRef: season.pfsReference },
-            });
+            existing = await tx.season.update({ where: { id: existing.id }, data: { pfsSeasonRef: season.pfsReference } });
           }
 
           if (season.labels) {
             for (const [locale, name] of Object.entries(season.labels)) {
               if (!name || locale === "fr") continue;
               await tx.seasonTranslation.upsert({
-                where: {
-                  seasonId_locale: { seasonId: existing.id, locale },
-                },
+                where: { seasonId_locale: { seasonId: existing.id, locale } },
                 create: { seasonId: existing.id, locale, name },
                 update: { name },
               });
@@ -560,22 +563,66 @@ export async function POST(req: NextRequest) {
 
         await prisma.pfsMapping.upsert({
           where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
-          create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: season.name },
-          update: { bjEntityId: entity.id, bjName: season.name },
+          create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: season.name! },
+          update: { bjEntityId: entity.id, bjName: season.name! },
         });
         mappingsCount++;
       } catch (err) {
-        const existing = await prisma.season.findFirst({ where: { name: season.name } });
-        if (existing) {
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
-            create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: season.name },
-            update: { bjEntityId: existing.id, bjName: season.name },
-          });
-          mappingsCount++;
-        } else {
-          console.error(`[PFS] Failed to create season "${season.name}":`, err);
+        if (season.name) {
+          const existing = await prisma.season.findFirst({ where: { name: season.name } });
+          if (existing) {
+            await prisma.pfsMapping.upsert({
+              where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
+              create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: season.name },
+              update: { bjEntityId: existing.id, bjName: season.name },
+            });
+            mappingsCount++;
+          } else {
+            console.error(`[PFS] Failed to create season "${season.name}":`, err);
+          }
         }
+      }
+    }
+
+    // ── Sizes ─────────────────────────────────────
+    // Get current max position to append new sizes after
+    const maxPositionRow = await prisma.size.findFirst({
+      orderBy: { position: "desc" },
+      select: { position: true },
+    });
+    let nextPosition = (maxPositionRow?.position ?? -1) + 1;
+
+    for (const sz of sizes) {
+      if (!sz.name?.trim()) continue;
+      try {
+        let sizeRecord = await prisma.size.findFirst({ where: { name: sz.name } });
+        if (!sizeRecord) {
+          sizeRecord = await prisma.size.create({ data: { name: sz.name, position: nextPosition++ } });
+          createdSizes++;
+        }
+        // Link to categories via SizeCategoryLink (idempotent upsert)
+        if (sizeRecord && sz.bjCategoryIds?.length) {
+          for (const bjCatId of sz.bjCategoryIds) {
+            await prisma.sizeCategoryLink.upsert({
+              where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId: bjCatId } },
+              create: { sizeId: sizeRecord.id, categoryId: bjCatId },
+              update: {},
+            });
+          }
+        }
+        // Link to PFS size refs via SizePfsMapping (idempotent upsert)
+        if (sizeRecord && sz.pfsSizeRefs?.length) {
+          for (const pfsRef of sz.pfsSizeRefs) {
+            if (!pfsRef.trim()) continue;
+            await prisma.sizePfsMapping.upsert({
+              where: { sizeId_pfsSizeRef: { sizeId: sizeRecord.id, pfsSizeRef: pfsRef.trim() } },
+              create: { sizeId: sizeRecord.id, pfsSizeRef: pfsRef.trim() },
+              update: {},
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`[PFS] Failed to create size "${sz.name}":`, err);
       }
     }
 
@@ -585,6 +632,7 @@ export async function POST(req: NextRequest) {
     if (createdCompositions > 0) revalidateTag("compositions", "default");
     if (createdCountries > 0) revalidateTag("manufacturing-countries", "default");
     if (createdSeasons > 0) revalidateTag("seasons", "default");
+    if (createdSizes > 0) revalidateTag("sizes", "default");
 
     return NextResponse.json({
       created: {
@@ -593,6 +641,7 @@ export async function POST(req: NextRequest) {
         compositions: createdCompositions,
         countries: createdCountries,
         seasons: createdSeasons,
+        sizes: createdSizes,
       },
       mappings: mappingsCount,
     });

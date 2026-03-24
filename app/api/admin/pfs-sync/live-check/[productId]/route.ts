@@ -151,10 +151,10 @@ export async function GET(
         pfsCategoryName,
         undefined,
         rawCatRef,
-      );
+      ) ?? "";
     } catch (err) {
       // Still show the category name in comparison even if creation failed
-      console.error("[LIVE_CHECK] Category creation failed:", err);
+      console.error("[LIVE_CHECK] Category lookup failed:", err);
       pfsCategoryId = "";
     }
   }
@@ -165,7 +165,7 @@ export async function GET(
     for (const mat of refDetails.product.material_composition) {
       const frName = mat.labels?.fr || mat.reference;
       try {
-        const compositionId = await findOrCreateComposition(frName, mat.labels);
+        const compositionId = await findOrCreateComposition(frName, mat.labels) ?? "";
         pfsCompositions.push({ compositionId, name: frName, percentage: mat.percentage });
       } catch {
         pfsCompositions.push({ compositionId: "", name: frName, percentage: mat.percentage });
@@ -237,7 +237,7 @@ export async function GET(
           v.item.color.reference,
           v.item.color.value,
           v.item.color.labels,
-        );
+        ) ?? "";
       } catch { /* ignore */ }
 
       pfsVariants.push({
@@ -264,7 +264,7 @@ export async function GET(
           pack.color.reference,
           pack.color.value,
           pack.color.labels,
-        );
+        ) ?? "";
       } catch { /* ignore */ }
 
       const packQty = v.pieces ?? pack.sizes?.[0]?.qty ?? 1;

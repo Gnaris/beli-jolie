@@ -358,12 +358,16 @@ function ProductRow({
   const [refreshing, startRefresh] = useTransition();
   const { confirm } = useConfirm();
 
-  // Group by colorId + ordered sub-colors (not colorId alone — variants with same main color but different sub-colors are distinct)
-  const uniqueColors = [...new Map(product.colors.map((c) => {
-    const subNames = c.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
-    const gk = subNames.length === 0 ? c.colorId : `${c.colorId}::${subNames.join(",")}`;
-    return [gk, c] as const;
-  })).values()];
+  // Group UNIT variants by colorId + ordered sub-colors (PACK variants excluded — no single color)
+  const uniqueColors = [...new Map(product.colors
+    .filter((c) => c.saleType !== "PACK" && c.colorId && c.color)
+    .map((c) => {
+      const subNames = c.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
+      const gk = subNames.length === 0 ? c.colorId! : `${c.colorId!}::${subNames.join(",")}`;
+      return [gk, c] as const;
+    })
+  ).values()];
+  const packCount = product.colors.filter((c) => c.saleType === "PACK").length;
   const minPrice = product.colors.length > 0
     ? Math.min(...product.colors.map((c) => c.unitPrice))
     : NaN;
@@ -480,6 +484,11 @@ function ProductRow({
             })}
             {uniqueColors.length > 6 && (
               <span className="text-[10px] text-text-muted font-semibold whitespace-nowrap">+{uniqueColors.length - 6}</span>
+            )}
+            {packCount > 0 && (
+              <span className="badge badge-purple text-[10px] shrink-0">
+                {packCount} pack{packCount > 1 ? "s" : ""}
+              </span>
             )}
           </div>
         </td>

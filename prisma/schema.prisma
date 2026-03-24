@@ -437,13 +437,26 @@ model ProductColorSubColor {
 
 // Bibliothèque de tailles réutilisables (ex: "XS", "S", "17", "Taille unique")
 model Size {
-  id         String             @id @default(cuid())
-  name       String             @unique
-  position   Int                @default(0)
-  categories SizeCategoryLink[]
+  id           String             @id @default(cuid())
+  name         String             @unique
+  position     Int                @default(0)
+  pfsMappings  SizePfsMapping[]
+  categories   SizeCategoryLink[]
   variantSizes VariantSize[]
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+}
+
+// M2M: taille BJ ↔ taille PFS (une taille BJ peut être liée à plusieurs tailles PFS et inversement)
+model SizePfsMapping {
+  id         String @id @default(cuid())
+  sizeId     String
+  size       Size   @relation(fields: [sizeId], references: [id], onDelete: Cascade)
+  pfsSizeRef String // Référence PFS (ex: "TU", "XS", "52", "T36")
+
+  @@unique([sizeId, pfsSizeRef])
+  @@index([sizeId])
+  @@index([pfsSizeRef])
 }
 
 // M2M: taille ↔ catégorie (une taille peut appartenir à plusieurs catégories)
@@ -466,6 +479,7 @@ model VariantSize {
   sizeId         String
   size           Size         @relation(fields: [sizeId], references: [id])
   quantity       Int          @default(1) // nombre de pièces de cette taille
+  pricePerUnit   Float?       // prix par unité (PACK only) — null pour UNIT
 
   @@unique([productColorId, sizeId])
   @@index([productColorId])

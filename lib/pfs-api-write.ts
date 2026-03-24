@@ -12,8 +12,6 @@
 
 import { getPfsHeaders, PFS_BASE_URL, invalidatePfsToken } from "@/lib/pfs-auth";
 
-const PFS_BRAND_ID = "a01AZ00000314QgYAI";
-
 // ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
@@ -448,6 +446,20 @@ export async function pfsGetGenders(): Promise<PfsAttributeGender[]> {
   return data.data ?? [];
 }
 
+export interface PfsAttributeSize {
+  reference: string; // TU, XS, S, M, L, XL, XXL, XXXL, 52, 53, T36, T38, 85A...
+}
+
+export async function pfsGetSizes(): Promise<PfsAttributeSize[]> {
+  const headers = await getPfsHeaders();
+  const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/attributes/sizes`, {
+    method: "GET",
+    headers,
+  });
+  const data = (await res.json()) as { data: PfsAttributeSize[] };
+  return data.data ?? [];
+}
+
 // ─────────────────────────────────────────────
 // AI Translations
 // ─────────────────────────────────────────────
@@ -487,4 +499,3 @@ export async function pfsTranslate(
   };
 }
 
-export { PFS_BRAND_ID };

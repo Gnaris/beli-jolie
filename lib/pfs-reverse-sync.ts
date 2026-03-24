@@ -148,11 +148,15 @@ interface FullProduct {
     isPrimary: boolean;
     saleType: "UNIT" | "PACK";
     packQuantity: number | null;
-    variantSizes: { size: { name: string } }[];
+    variantSizes: { size: { name: string; pfsMappings: { pfsSizeRef: string }[] }; quantity: number }[];
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | null;
     color: { id: string; name: string; pfsColorRef: string | null };
     subColors: { color: { id: string; name: string; pfsColorRef: string | null }; position: number }[];
+    packColorLines: {
+      position: number;
+      colors: { color: { id: string; name: string; pfsColorRef: string | null }; position: number }[];
+    }[];
     images: { id: string; path: string; order: number }[];
   }[];
   compositions: {
@@ -186,12 +190,22 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           isPrimary: true,
           saleType: true,
           packQuantity: true,
-          variantSizes: { select: { size: { select: { name: true } } } },
+          variantSizes: { select: { size: { select: { name: true, pfsMappings: { select: { pfsSizeRef: true } } } }, quantity: true } },
           discountType: true,
           discountValue: true,
           color: { select: { id: true, name: true, pfsColorRef: true } },
           subColors: {
             select: { color: { select: { id: true, name: true, pfsColorRef: true } }, position: true },
+            orderBy: { position: "asc" as const },
+          },
+          packColorLines: {
+            select: {
+              position: true,
+              colors: {
+                select: { color: { select: { id: true, name: true, pfsColorRef: true } }, position: true },
+                orderBy: { position: "asc" as const },
+              },
+            },
             orderBy: { position: "asc" as const },
           },
           images: { select: { id: true, path: true, order: true }, orderBy: { order: "asc" as const } },
@@ -341,42 +355,112 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
     }
   }
 
+  // Helper: resolve BJ size → PFS size reference (use first M2M mapping, fallback to name)
+  const getSizeRef = (vs: { size: { name: string; pfsMappings: { pfsSizeRef: string }[] } }) =>
+    vs.size.pfsMappings[0]?.pfsSizeRef || vs.size.name || "TU";
+
   // Create new variants
   if (bjVariantsToCreate.length > 0) {
     for (const variant of bjVariantsToCreate) {
-      const colorRef = variant.color.pfsColorRef;
-      if (!colorRef) {
-        console.warn(`[PFS Reverse Sync] Skipping variant ${variant.id}: color "${variant.color.name}" has no pfsColorRef`);
-        continue;
-      }
-
-      const variantSizeName = variant.variantSizes[0]?.size.name || "TU";
-
-      const pfsVariant: PfsVariantCreateData = {
-        type: variant.saleType === "PACK" ? "PACK" : "ITEM",
-        color: colorRef,
-        size: variantSizeName,
-        price_eur_ex_vat: variant.unitPrice,
-        weight: variant.weight,
-        stock_qty: variant.stock ?? 0,
-        is_active: (variant.stock ?? 0) > 0,
-      };
-
-      // PACK format
-      if (variant.saleType === "PACK" && variant.packQuantity) {
-        pfsVariant.packs = [{ color: colorRef, size: variantSizeName, qty: variant.packQuantity }];
-      }
-
-      try {
-        const { variantIds } = await pfsCreateVariants(pfsProductId, [pfsVariant]);
-        if (variantIds[0]) {
-          await prisma.productColor.update({
-            where: { id: variant.id },
-            data: { pfsVariantId: variantIds[0] },
-          });
+      // ── UNIT variant ──
+      if (variant.saleType === "UNIT") {
+        const colorRef = variant.color?.pfsColorRef;
+        if (!colorRef) {
+          console.warn(`[PFS Reverse Sync] Skipping UNIT variant ${variant.id}: color "${variant.color?.name}" has no pfsColorRef`);
+          continue;
         }
-      } catch (err) {
-        console.warn(`[PFS Reverse Sync] Failed to create variant for ${variant.color.name}:`, err);
+
+        const sizeRef = variant.variantSizes[0] ? getSizeRef(variant.variantSizes[0]) : "TU";
+
+        const pfsVariant: PfsVariantCreateData = {
+          type: "ITEM",
+          color: colorRef,
+          size: sizeRef,
+          price_eur_ex_vat: variant.unitPrice,
+          weight: variant.weight,
+          stock_qty: variant.stock ?? 0,
+          is_active: (variant.stock ?? 0) > 0,
+        };
+
+        try {
+          const { variantIds } = await pfsCreateVariants(pfsProductId, [pfsVariant]);
+          if (variantIds[0]) {
+            await prisma.productColor.update({
+              where: { id: variant.id },
+              data: { pfsVariantId: variantIds[0] },
+            });
+          }
+        } catch (err) {
+          console.warn(`[PFS Reverse Sync] Failed to create UNIT variant for ${variant.color?.name}:`, err);
+        }
+      }
+
+      // ── PACK variant ──
+      if (variant.saleType === "PACK") {
+        // Build packs[] by crossing PackColorLine colors × VariantSizes
+        const packEntries: { color: string; size: string; qty: number }[] = [];
+
+        // Collect all colors from PackColorLines (each line = 1 color for PFS packs)
+        const packColors: { ref: string; name: string }[] = [];
+        for (const line of variant.packColorLines) {
+          for (const c of line.colors) {
+            if (c.color.pfsColorRef) {
+              packColors.push({ ref: c.color.pfsColorRef, name: c.color.name });
+            }
+          }
+        }
+
+        // Fallback: if no PackColorLines, use main color
+        if (packColors.length === 0 && variant.color?.pfsColorRef) {
+          packColors.push({ ref: variant.color.pfsColorRef, name: variant.color.name });
+        }
+
+        if (packColors.length === 0) {
+          console.warn(`[PFS Reverse Sync] Skipping PACK variant ${variant.id}: no colors with pfsColorRef`);
+          continue;
+        }
+
+        // Cross-product: each color × each size
+        const variantSizes = variant.variantSizes.length > 0
+          ? variant.variantSizes
+          : [{ size: { name: "TU", pfsMappings: [{ pfsSizeRef: "TU" }] }, quantity: variant.packQuantity ?? 1 }];
+
+        for (const pc of packColors) {
+          for (const vs of variantSizes) {
+            packEntries.push({
+              color: pc.ref,
+              size: getSizeRef(vs),
+              qty: vs.quantity,
+            });
+          }
+        }
+
+        // Main color/size for the variant header
+        const mainColorRef = packColors[0].ref;
+        const mainSizeRef = variantSizes[0] ? getSizeRef(variantSizes[0]) : "TU";
+
+        const pfsVariant: PfsVariantCreateData = {
+          type: "PACK",
+          color: mainColorRef,
+          size: mainSizeRef,
+          price_eur_ex_vat: variant.unitPrice,
+          weight: variant.weight,
+          stock_qty: variant.stock ?? 0,
+          is_active: (variant.stock ?? 0) > 0,
+          packs: packEntries,
+        };
+
+        try {
+          const { variantIds } = await pfsCreateVariants(pfsProductId, [pfsVariant]);
+          if (variantIds[0]) {
+            await prisma.productColor.update({
+              where: { id: variant.id },
+              data: { pfsVariantId: variantIds[0] },
+            });
+          }
+        } catch (err) {
+          console.warn(`[PFS Reverse Sync] Failed to create PACK variant ${variant.id}:`, err);
+        }
       }
     }
   }

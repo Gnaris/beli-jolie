@@ -15,6 +15,16 @@ interface SubColorInfo {
   patternImage?: string | null;
 }
 
+interface PackColorLineColorInfo {
+  name: string;
+  hex: string;
+  patternImage?: string | null;
+}
+
+interface PackColorLineInfo {
+  colors: PackColorLineColorInfo[];
+}
+
 interface VariantData {
   id: string;
   groupKey: string;              // Unique key: colorId + ordered sub-color names (order matters)
@@ -29,7 +39,8 @@ interface VariantData {
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  sizes: { name: string; quantity: number }[];
+  sizes: { name: string; quantity: number; pricePerUnit?: number }[];
+  packColorLines?: PackColorLineInfo[];
   discountType:  "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
 }
@@ -84,7 +95,8 @@ interface ProductDetailProps {
 }
 
 function computePrice(v: VariantData): number {
-  const total = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
+  // unitPrice is always the total price (for both UNIT and PACK)
+  const total = v.unitPrice;
   if (!v.discountType || !v.discountValue) return total;
   if (v.discountType === "PERCENT") return Math.max(0, total * (1 - v.discountValue / 100));
   return Math.max(0, total - v.discountValue);
@@ -144,16 +156,18 @@ export default function ProductDetail({
   const { tp, tc } = useProductTranslation();
   const [isPending, startTransition] = useTransition();
 
-  // Unique color groups derived from variants (keyed by groupKey = colorId + sub-colors)
+  // Unique color groups derived from UNIT variants only (PACK have no single color to display)
   const uniqueColors = [...new Map(
-    variants.map(v => [v.groupKey, {
-      groupKey: v.groupKey,
-      id: v.colorId,
-      name: v.colorName,
-      hex: v.colorHex,
-      patternImage: v.patternImage,
-      subColors: v.subColors,
-    }])
+    variants
+      .filter(v => v.saleType === "UNIT" && v.colorId)
+      .map(v => [v.groupKey, {
+        groupKey: v.groupKey,
+        id: v.colorId,
+        name: v.colorName,
+        hex: v.colorHex,
+        patternImage: v.patternImage,
+        subColors: v.subColors,
+      }])
   ).values()];
 
   const primaryGroupKey = variants.find(v => v.isPrimary)?.groupKey ?? uniqueColors[0]?.groupKey ?? "";
@@ -185,9 +199,12 @@ export default function ProductDetail({
     }
   }, [productId]);
 
-  // Image display (no animation on switch)
-
-  const selectedVariants = variants.filter(v => v.groupKey === selectedGroupKey);
+  // UNIT variants matching selected color + all PACK variants (no color to select for packs)
+  const selectedVariants = variants.filter(v =>
+    v.saleType === "PACK" || v.groupKey === selectedGroupKey
+  );
+  const selectedUnitVariants = selectedVariants.filter(v => v.saleType === "UNIT");
+  const selectedPackVariants = selectedVariants.filter(v => v.saleType === "PACK");
   const selectedImgs     = colorImages.find(ci => ci.groupKey === selectedGroupKey)?.images ?? [];
   const displayedImgs    = hoveredGroupKey
     ? colorImages.find(ci => ci.groupKey === hoveredGroupKey)?.images ?? []
@@ -207,11 +224,10 @@ export default function ProductDetail({
     return c.name;
   };
 
-  // Build swatch for color — now delegated to ColorSwatch component
   const displayedColorName = getFullColorName(hoveredGroupKey ?? selectedGroupKey);
 
   const minPrice = variants.length > 0 ? Math.min(...variants.map(v => computePrice(v))) : 0;
-  const minBasePrice = variants.length > 0 ? Math.min(...variants.map(v => v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1))) : 0;
+  const minBasePrice = variants.length > 0 ? Math.min(...variants.map(v => v.unitPrice)) : 0;
   const hasAnyProductDiscount = minPrice < minBasePrice;
   const minPriceAfterClient = applyClientDiscount(minPrice, clientDiscount);
   const hasClientDiscount = !!clientDiscount && minPriceAfterClient < minPrice;
@@ -249,6 +265,64 @@ export default function ProductDetail({
     { label: t("diameter"),      value: dimensions.diameter! },
     { label: t("circumference"), value: dimensions.circumference! },
   ].filter((d) => d.value != null && d.value > 0);
+
+  // Shared cart section renderer
+  function renderCartActions(v: VariantData, effectiveStock: number, qty: number) {
+    if (effectiveStock === 0 && isAuthenticated) {
+      return (
+        <button
+          type="button"
+          onClick={() => toggleRestockAlert(v.id, v.id)}
+          disabled={alertLoading[v.id]}
+          className={`w-full h-10 text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors flex items-center justify-center gap-1.5 rounded-lg border ${
+            restockAlerts[v.id]
+              ? "bg-bg-secondary text-text-primary border-border"
+              : "bg-bg-dark text-text-inverse border-transparent hover:bg-[#333333]"
+          }`}
+        >
+          {alertLoading[v.id] ? (
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : restockAlerts[v.id] ? (
+            <><svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>{t("alertActive")}</>
+          ) : (
+            <><svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>{t("notifyMe")}</>
+          )}
+        </button>
+      );
+    }
+    return (
+      <div className="flex items-center gap-3">
+        <div className="flex items-center border border-border rounded-lg overflow-hidden">
+          <button type="button" aria-label="Diminuer la quantité"
+            onClick={() => setQuantities((q) => ({ ...q, [v.id]: Math.max(1, (q[v.id] ?? 1) - 1) }))}
+            className="w-9 h-10 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
+          >−</button>
+          <input type="number" min={1} max={effectiveStock || undefined} value={qty} aria-label="Quantité"
+            onChange={(e) => { const val = parseInt(e.target.value); if (!isNaN(val) && val >= 1) setQuantities((q) => ({ ...q, [v.id]: val })); }}
+            className="w-12 h-10 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-x border-border focus:outline-none bg-bg-primary"
+          />
+          <button type="button" aria-label="Augmenter la quantité"
+            onClick={() => setQuantities((q) => ({ ...q, [v.id]: (q[v.id] ?? 1) + 1 }))}
+            className="w-9 h-10 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
+          >+</button>
+        </div>
+        <button type="button" disabled={effectiveStock === 0 || isPending} onClick={() => handleAddToCart(v.id, qty)}
+          className={`flex-1 h-10 text-text-inverse text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg ${
+            addedOptId === v.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
+          }`}
+        >
+          {addedOptId === v.id ? (
+            <><svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>{t("added")}</>
+          ) : (
+            <><svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>{t("addToCart")}</>
+          )}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -462,169 +536,194 @@ export default function ProductDetail({
               </div>
             )}
           </div>
-
-          {/* Options de commande */}
-          {selectedVariants.length > 0 && (
-            <div className="border-t border-border pt-5 space-y-3">
-              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
-                {t("orderOptions")} — {tp(displayedColorName)}
-              </p>
-              {selectedVariants.map((v) => {
-                const price     = computePrice(v);
-                const basePrice = v.saleType === "UNIT"
-                  ? v.unitPrice
-                  : v.unitPrice * (v.packQuantity ?? 1);
-                const hasDiscount    = price < basePrice;
-                const clientPrice    = applyClientDiscount(price, clientDiscount);
-                const hasClientDsc   = !!clientDiscount && clientPrice < price;
-                const anyDsc         = hasDiscount || hasClientDsc;
-                const effectiveStock = v.saleType === "PACK" && v.packQuantity
-                  ? Math.floor(v.stock / v.packQuantity)
-                  : v.stock;
-                const qty = quantities[v.id] ?? 1;
-                const displayPrice = hasClientDsc ? clientPrice : price;
-
-                return (
-                  <div
-                    key={v.id}
-                    className="bg-bg-primary border border-border rounded-xl px-3 py-3 sm:px-4 sm:py-4 space-y-3 hover:border-border-dark transition-colors"
-                  >
-                    {/* Libelle + prix */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] flex items-center flex-wrap gap-1.5">
-                          {v.saleType === "UNIT" ? t("unitOption") : t("packOption", { qty: v.packQuantity ?? 1 })}
-                        </p>
-                        {v.sizes?.length > 0 && (
-                          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
-                            {t("sizes")}: {v.sizes.map((s) => `${s.name}\u00d7${s.quantity}`).join(", ")}
-                          </p>
-                        )}
-                        <p className="text-xs text-text-muted mt-0.5 font-[family-name:var(--font-roboto)]">
-                          {effectiveStock > 0
-                            ? <span className="text-text-secondary">&#10003; {effectiveStock} {effectiveStock !== 1 ? t("available_plural") : t("available")}</span>
-                            : <span className="text-text-primary">{t("outOfStock")}</span>
-                          }
-                          {" · "}{v.weight} {t("kgPerUnit")}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        {hasDiscount && (
-                          <p className="text-xs text-text-muted line-through">{basePrice.toFixed(2)} €</p>
-                        )}
-                        {hasClientDsc && (
-                          <div className="flex items-center gap-1 justify-end">
-                            <p className="text-xs text-text-muted line-through">{price.toFixed(2)} €</p>
-                            {clientDiscount?.discountType === "PERCENT" && (
-                              <span className="text-[10px] text-[#EF4444] font-medium">-{clientDiscount.discountValue}%</span>
-                            )}
-                          </div>
-                        )}
-                        <p className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
-                          {displayPrice.toFixed(2)} €
-                        </p>
-                        {qty > 1 && (
-                          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-                            = {(displayPrice * qty).toFixed(2)} € total
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Quantite + panier / Alerte réassort */}
-                    {effectiveStock === 0 && isAuthenticated ? (
-                      <button
-                        type="button"
-                        onClick={() => toggleRestockAlert(v.id, v.id)}
-                        disabled={alertLoading[v.id]}
-                        className={`w-full h-10 text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors flex items-center justify-center gap-1.5 rounded-lg border ${
-                          restockAlerts[v.id]
-                            ? "bg-bg-secondary text-text-primary border-border"
-                            : "bg-bg-dark text-text-inverse border-transparent hover:bg-[#333333]"
-                        }`}
-                      >
-                        {alertLoading[v.id] ? (
-                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                        ) : restockAlerts[v.id] ? (
-                          <>
-                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            {t("alertActive")}
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                            </svg>
-                            {t("notifyMe")}
-                          </>
-                        )}
-                      </button>
-                    ) : (
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center border border-border rounded-lg overflow-hidden">
-                        <button
-                          type="button"
-                          aria-label="Diminuer la quantité"
-                          onClick={() => setQuantities((q) => ({ ...q, [v.id]: Math.max(1, (q[v.id] ?? 1) - 1) }))}
-                          className="w-9 h-10 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
-                        >−</button>
-                        <input
-                          type="number"
-                          min={1}
-                          max={effectiveStock || undefined}
-                          value={qty}
-                          aria-label="Quantité"
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            if (!isNaN(val) && val >= 1) setQuantities((q) => ({ ...q, [v.id]: val }));
-                          }}
-                          className="w-12 h-10 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-x border-border focus:outline-none bg-bg-primary"
-                        />
-                        <button
-                          type="button"
-                          aria-label="Augmenter la quantité"
-                          onClick={() => setQuantities((q) => ({ ...q, [v.id]: (q[v.id] ?? 1) + 1 }))}
-                          className="w-9 h-10 flex items-center justify-center text-text-secondary hover:bg-bg-secondary transition-colors text-base"
-                        >+</button>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={effectiveStock === 0 || isPending}
-                        onClick={() => handleAddToCart(v.id, qty)}
-                        className={`flex-1 h-10 text-text-inverse text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg ${
-                          addedOptId === v.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
-                        }`}
-                      >
-                        {addedOptId === v.id ? (
-                          <>
-                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            {t("added")}
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-                            </svg>
-                            {t("addToCart")}
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
       </div>
+
+      {/* -- Options de commande (2 colonnes : Unités gauche | Paquets droite) -- */}
+      {(selectedUnitVariants.length > 0 || selectedPackVariants.length > 0) && (
+        <section className="mt-10 border-t border-border pt-8">
+          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary mb-6 section-title">
+            {t("orderOptions")}
+          </h2>
+          <div className={
+            selectedUnitVariants.length > 0 && selectedPackVariants.length > 0
+              ? "grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8"
+              : ""
+          }>
+
+            {/* ── Colonne gauche : Unités ────────────────────────────── */}
+            {selectedUnitVariants.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary pb-3 border-b border-border">
+                  Unités
+                </h3>
+                {selectedUnitVariants.map((v) => {
+                  const price        = computePrice(v);
+                  const basePrice    = v.unitPrice;
+                  const hasDiscount  = price < basePrice;
+                  const clientPrice  = applyClientDiscount(price, clientDiscount);
+                  const hasClientDsc = !!clientDiscount && clientPrice < price;
+                  const anyDsc       = hasDiscount || hasClientDsc;
+                  const effectiveStock = v.stock;
+                  const qty          = quantities[v.id] ?? 1;
+                  const displayPrice = hasClientDsc ? clientPrice : price;
+                  const fullColorName = v.subColors && v.subColors.length > 0
+                    ? [v.colorName, ...v.subColors.map(sc => sc.name)].filter(Boolean).join(" / ")
+                    : v.colorName ?? "";
+                  return (
+                    <div key={v.id} className="bg-bg-primary border border-border rounded-xl px-4 py-4 space-y-3 hover:border-border-dark transition-colors">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <ColorSwatch
+                            hex={v.colorHex ?? "#9CA3AF"}
+                            patternImage={v.patternImage}
+                            subColors={v.subColors?.map(sc => ({ hex: sc.hex, patternImage: sc.patternImage }))}
+                            size={28}
+                            rounded="full"
+                            border={true}
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] truncate">
+                              {fullColorName || t("unitOption")}
+                            </p>
+                            {v.sizes?.length > 0 && (
+                              <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+                                {v.sizes[0]?.name}
+                              </p>
+                            )}
+                            <p className="text-xs text-text-muted mt-0.5 font-[family-name:var(--font-roboto)]">
+                              {effectiveStock > 0
+                                ? <span className="text-text-secondary">&#10003; {effectiveStock} {effectiveStock !== 1 ? t("available_plural") : t("available")}</span>
+                                : <span className="text-text-primary">{t("outOfStock")}</span>
+                              }
+                              {" · "}{v.weight} {t("kgPerUnit")}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {hasDiscount && (
+                            <p className="text-xs text-text-muted line-through">{basePrice.toFixed(2)} €</p>
+                          )}
+                          {hasClientDsc && (
+                            <div className="flex items-center gap-1 justify-end">
+                              <p className="text-xs text-text-muted line-through">{price.toFixed(2)} €</p>
+                              {clientDiscount?.discountType === "PERCENT" && (
+                                <span className="text-[10px] text-[#EF4444] font-medium">-{clientDiscount.discountValue}%</span>
+                              )}
+                            </div>
+                          )}
+                          <p className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
+                            {displayPrice.toFixed(2)} €
+                          </p>
+                          {qty > 1 && (
+                            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                              = {(displayPrice * qty).toFixed(2)} € total
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {renderCartActions(v, effectiveStock, qty)}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── Colonne droite : Paquets ───────────────────────────── */}
+            {selectedPackVariants.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary pb-3 border-b border-border">
+                  Paquets
+                </h3>
+                {selectedPackVariants.map((v) => {
+                  const price        = computePrice(v);
+                  const basePrice    = v.unitPrice;
+                  const hasDiscount  = price < basePrice;
+                  const clientPrice  = applyClientDiscount(price, clientDiscount);
+                  const hasClientDsc = !!clientDiscount && clientPrice < price;
+                  const anyDsc       = hasDiscount || hasClientDsc;
+                  const effectiveStock = v.packQuantity ? Math.floor(v.stock / v.packQuantity) : v.stock;
+                  const qty          = quantities[v.id] ?? 1;
+                  const displayPrice = hasClientDsc ? clientPrice : price;
+                  return (
+                    <div key={v.id} className="bg-bg-primary border border-border rounded-xl px-4 py-4 space-y-3 hover:border-border-dark transition-colors">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)]">
+                            {t("packOption", { qty: v.packQuantity ?? 1 })}
+                          </p>
+                          {v.packColorLines && v.packColorLines.length > 0 && (
+                            <div className="mt-1.5 space-y-1">
+                              {v.packColorLines.map((line, li) => (
+                                <div key={li} className="flex items-center gap-2">
+                                  <ColorSwatch
+                                    hex={line.colors[0]?.hex ?? "#9CA3AF"}
+                                    patternImage={line.colors[0]?.patternImage}
+                                    subColors={line.colors.slice(1).map(c => ({ hex: c.hex, patternImage: c.patternImage }))}
+                                    size={22}
+                                    rounded="full"
+                                    border={true}
+                                  />
+                                  <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] truncate">
+                                    {line.colors.map(c => c.name).join(" / ")}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {v.sizes?.length > 0 && (
+                            <div className="mt-1 space-y-0.5">
+                              {v.sizes.map((s) => (
+                                <p key={s.name} className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                                  {s.name} × {s.quantity}
+                                  {s.pricePerUnit != null && (
+                                    <span className="text-text-secondary ml-1">— {s.pricePerUnit.toFixed(2)} €/u</span>
+                                  )}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          <p className="text-xs text-text-muted mt-0.5 font-[family-name:var(--font-roboto)]">
+                            {effectiveStock > 0
+                              ? <span className="text-text-secondary">&#10003; {effectiveStock} {effectiveStock !== 1 ? t("available_plural") : t("available")}</span>
+                              : <span className="text-text-primary">{t("outOfStock")}</span>
+                            }
+                            {" · "}{v.weight} {t("kgPerUnit")}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {hasDiscount && (
+                            <p className="text-xs text-text-muted line-through">{basePrice.toFixed(2)} €</p>
+                          )}
+                          {hasClientDsc && (
+                            <div className="flex items-center gap-1 justify-end">
+                              <p className="text-xs text-text-muted line-through">{price.toFixed(2)} €</p>
+                              {clientDiscount?.discountType === "PERCENT" && (
+                                <span className="text-[10px] text-[#EF4444] font-medium">-{clientDiscount.discountValue}%</span>
+                              )}
+                            </div>
+                          )}
+                          <p className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
+                            {displayPrice.toFixed(2)} €
+                          </p>
+                          {qty > 1 && (
+                            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                              = {(displayPrice * qty).toFixed(2)} € total
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {renderCartActions(v, effectiveStock, qty)}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+
+          </div>
+        </section>
+      )}
 
       {/* -- Produits similaires --------------------------------------- */}
       {similarProducts.length > 0 && (

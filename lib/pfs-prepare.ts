@@ -180,6 +180,10 @@ async function prepareSingleProduct(
 
     const pfsCatId = refDetails?.product?.category?.id || pfsProduct.category?.id || undefined;
     const categoryId = await findOrCreateCategory(categoryName, pfsProduct.category.labels, categoryFr, pfsCatId);
+    if (!categoryId) {
+      addLog(`  ❌ ${bjRef} — Catégorie non liée: "${categoryName}". Liez-la dans /admin/pfs/mapping avant de synchroniser.`);
+      return { status: "error", reference: bjRef, error: `Catégorie non liée: ${categoryName}` };
+    }
     addLog(`  📂 Catégorie: ${categoryName}`);
 
     // ── Resolve compositions ──
@@ -188,6 +192,10 @@ async function prepareSingleProduct(
       for (const mat of refDetails.product.material_composition) {
         const frName = mat.labels?.fr || mat.reference;
         const compositionId = await findOrCreateComposition(frName, mat.labels, mat.reference);
+        if (!compositionId) {
+          addLog(`  ⚠️ Composition non liée: "${frName}" — ignorée`);
+          continue;
+        }
         compositions.push({ compositionId, name: frName, percentage: mat.percentage });
       }
     }
@@ -245,6 +253,10 @@ async function prepareSingleProduct(
           v.item.color.value,
           v.item.color.labels,
         );
+        if (!colorId) {
+          addLog(`  ⚠️ Couleur non liée: "${v.item.color.labels?.fr || v.item.color.reference}" — variante ignorée`);
+          continue;
+        }
         const pfsPrice = v.price_sale.unit.value;
         const bjPrice = pfsPrice;
 
@@ -276,6 +288,10 @@ async function prepareSingleProduct(
           pack.color.value,
           pack.color.labels,
         );
+        if (!colorId) {
+          addLog(`  ⚠️ Couleur non liée: "${pack.color.labels?.fr || pack.color.reference}" — variante PACK ignorée`);
+          continue;
+        }
         const packQty = detail?.pieces ?? pack.sizes?.[0]?.qty ?? v.pieces ?? 1;
         const pfsPrice = v.price_sale.unit.value;
         const bjPrice = pfsPrice;
@@ -827,6 +843,9 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
   if (!categoryExists) {
     // Re-resolve from the stored category name
     const resolvedCategoryId = await findOrCreateCategory(staged.categoryName);
+    if (!resolvedCategoryId) {
+      throw new Error(`Catégorie non liée: ${staged.categoryName}`);
+    }
     await prisma.pfsStagedProduct.update({
       where: { id: stagedId },
       data: { categoryId: resolvedCategoryId },
@@ -908,7 +927,7 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
 
     await prisma.pfsStagedProduct.update({
       where: { id: stagedId },
-      data: { status: "APPROVED", createdProductId: productId },
+      data: { status: "APPROVED", createdProductId: productId, errorMessage: null },
     });
 
     // Update job counters
@@ -963,7 +982,7 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
 
   await prisma.pfsStagedProduct.update({
     where: { id: stagedId },
-    data: { status: "APPROVED", createdProductId: product.id },
+    data: { status: "APPROVED", createdProductId: product.id, errorMessage: null },
   });
 
   await prisma.pfsPrepareJob.update({
@@ -1507,6 +1526,11 @@ export async function bulkApproveStagedProducts(
       } else {
         const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
         results.push({ id: batch[idx], error: msg });
+        // Persiste le message d'erreur en DB (statut reste READY pour permettre une nouvelle tentative)
+        await prisma.pfsStagedProduct.update({
+          where: { id: batch[idx] },
+          data: { errorMessage: msg },
+        }).catch(() => {});
       }
     }
   }

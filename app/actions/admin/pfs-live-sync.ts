@@ -98,7 +98,7 @@ export async function applyPfsLiveSync(
       // If categoryId is empty but we have a name, create the category
       if (!catId && pfsData.categoryName) {
         const { findOrCreateCategory } = await import("@/lib/pfs-sync");
-        catId = await findOrCreateCategory(pfsData.categoryName);
+        catId = await findOrCreateCategory(pfsData.categoryName) ?? "";
       }
       if (catId) {
         updateData.categoryId = catId;

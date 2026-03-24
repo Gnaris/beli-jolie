@@ -23,6 +23,7 @@ async function requireAdmin() {
 export interface SizeEntryInput {
   sizeId: string;
   quantity: number;
+  pricePerUnit?: number; // PACK only — prix par unité pour cette taille
 }
 
 export interface PackColorLineInput {
@@ -199,6 +200,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
           productColorId: variant.id,
           sizeId: se.sizeId,
           quantity: se.quantity,
+          ...(se.pricePerUnit != null ? { pricePerUnit: se.pricePerUnit } : {}),
         })),
       });
     }
@@ -475,7 +477,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         where: { productColorId: { in: allVariantIds } },
       });
     }
-    const variantSizeData: { productColorId: string; sizeId: string; quantity: number }[] = [];
+    const variantSizeData: { productColorId: string; sizeId: string; quantity: number; pricePerUnit?: number }[] = [];
     for (const { colorInput, variantId } of variantIdMap) {
       if (colorInput.sizeEntries && colorInput.sizeEntries.length > 0) {
         for (const se of colorInput.sizeEntries) {
@@ -483,6 +485,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             productColorId: variantId,
             sizeId: se.sizeId,
             quantity: se.quantity,
+            ...(se.pricePerUnit != null ? { pricePerUnit: se.pricePerUnit } : {}),
           });
         }
       }

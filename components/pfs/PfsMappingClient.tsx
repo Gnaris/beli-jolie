@@ -6,6 +6,9 @@ import { updateCategoryPfsId } from "@/app/actions/admin/categories";
 import { updateCompositionPfsRef } from "@/app/actions/admin/compositions";
 import { updateManufacturingCountryPfsRef } from "@/app/actions/admin/manufacturing-countries";
 import { updateSeasonPfsRef } from "@/app/actions/admin/seasons";
+import { toggleSizePfsMapping } from "@/app/actions/admin/sizes";
+import CustomSelect from "@/components/ui/CustomSelect";
+import PfsSizeMultiSelect from "@/components/pfs/PfsSizeMultiSelect";
 
 interface BjColor {
   id: string;
@@ -40,6 +43,17 @@ interface BjSeason {
   id: string;
   name: string;
   pfsSeasonRef: string | null;
+}
+
+interface BjSize {
+  id: string;
+  name: string;
+  pfsMappings: { pfsSizeRef: string }[];
+  categories: { category: { name: string } }[];
+}
+
+interface PfsSize {
+  reference: string; // TU, XS, S, M, L, XL, 52, T36, 85A...
 }
 
 interface PfsColor {
@@ -91,17 +105,19 @@ interface Props {
   compositions: BjComposition[];
   countries: BjCountry[];
   seasons: BjSeason[];
+  sizes: BjSize[];
 }
 
-type Tab = "colors" | "categories" | "compositions" | "countries" | "seasons";
+type Tab = "colors" | "categories" | "compositions" | "countries" | "seasons" | "sizes";
 
-export default function PfsMappingClient({ colors: initialColors, categories: initialCategories, compositions: initialCompositions, countries: initialCountries, seasons: initialSeasons }: Props) {
+export default function PfsMappingClient({ colors: initialColors, categories: initialCategories, compositions: initialCompositions, countries: initialCountries, seasons: initialSeasons, sizes: initialSizes }: Props) {
   const [tab, setTab] = useState<Tab>("colors");
   const [colors, setColors] = useState(initialColors);
   const [categories, setCategories] = useState(initialCategories);
   const [compositions, setCompositions] = useState(initialCompositions);
   const [countries, setCountries] = useState(initialCountries);
   const [seasons, setSeasons] = useState(initialSeasons);
+  const [sizes, setSizes] = useState(initialSizes);
 
   const [pfsColors, setPfsColors] = useState<PfsColor[]>([]);
   const [pfsCategories, setPfsCategories] = useState<PfsCategory[]>([]);
@@ -110,6 +126,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
   const [pfsCollections, setPfsCollections] = useState<PfsCollection[]>([]);
   const [pfsFamilies, setPfsFamilies] = useState<PfsFamily[]>([]);
   const [pfsGenders, setPfsGenders] = useState<PfsGender[]>([]);
+  const [pfsSizes, setPfsSizes] = useState<PfsSize[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -132,6 +149,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
         setPfsCollections(data.collections ?? []);
         setPfsFamilies(data.families ?? []);
         setPfsGenders(data.genders ?? []);
+        setPfsSizes(data.sizes ?? []);
         setError(null);
       })
       .catch((err) => { if (!cancelled) setError(err.message); })
@@ -244,15 +262,45 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
     setSaving(null);
   }, []);
 
+  const handleToggleSizeMapping = useCallback(async (sizeId: string, pfsSizeRef: string) => {
+    setSaving(sizeId);
+    try {
+      const updatedRefs = await toggleSizePfsMapping(sizeId, pfsSizeRef);
+      setSizes((prev) => prev.map((s) =>
+        s.id === sizeId
+          ? { ...s, pfsMappings: updatedRefs.map((ref) => ({ pfsSizeRef: ref })) }
+          : s
+      ));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erreur");
+    }
+    setSaving(null);
+  }, []);
+
+  // Auto-map sizes: if Boutique size name matches a PFS size reference exactly and has no mappings yet
+  const [sizeAutoMapDone, setSizeAutoMapDone] = useState(false);
+  useEffect(() => {
+    if (pfsSizes.length === 0 || sizeAutoMapDone) return;
+    const pfsRefSet = new Set(pfsSizes.map((s) => s.reference));
+    const toAutoMap = sizes.filter((s) => s.pfsMappings.length === 0 && pfsRefSet.has(s.name));
+    if (toAutoMap.length > 0) {
+      for (const s of toAutoMap) {
+        handleToggleSizeMapping(s.id, s.name);
+      }
+    }
+    setSizeAutoMapDone(true);
+  }, [pfsSizes, sizes, sizeAutoMapDone, handleToggleSizeMapping]);
+
   const tabs: { key: Tab; label: string; count: number; mapped: number }[] = [
     { key: "colors", label: "Couleurs", count: colors.length, mapped: colors.filter((c) => c.pfsColorRef).length },
     { key: "categories", label: "Catégories", count: categories.length, mapped: categories.filter((c) => c.pfsCategoryId).length },
     { key: "compositions", label: "Compositions", count: compositions.length, mapped: compositions.filter((c) => c.pfsCompositionRef).length },
     { key: "countries", label: "Pays", count: countries.length, mapped: countries.filter((c) => c.pfsCountryRef).length },
     { key: "seasons", label: "Saisons", count: seasons.length, mapped: seasons.filter((s) => s.pfsSeasonRef).length },
+    { key: "sizes", label: "Tailles", count: sizes.length, mapped: sizes.filter((s) => s.pfsMappings.length > 0).length },
   ];
 
-  // Compute used PFS refs to prevent duplicates (a PFS ref can only be linked to ONE BJ entity)
+  // Compute used PFS refs to prevent duplicates (a PFS ref can only be linked to ONE Boutique entity)
   const usedColorRefs = new Set(colors.filter((c) => c.pfsColorRef).map((c) => c.pfsColorRef!));
   const usedCategoryIds = new Set(categories.filter((c) => c.pfsCategoryId).map((c) => c.pfsCategoryId!));
   const usedCompositionRefs = new Set(compositions.filter((c) => c.pfsCompositionRef).map((c) => c.pfsCompositionRef!));
@@ -264,6 +312,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
   const filteredCompositions = compositions.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
   const filteredCountries = countries.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
   const filteredSeasons = seasons.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredSizes = sizes.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
 
   if (loading) {
     return (
@@ -322,7 +371,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
           <table className="w-full">
             <thead>
               <tr className="table-header">
-                <th className="text-left p-3">Couleur BJ</th>
+                <th className="text-left p-3">Couleur Boutique</th>
                 <th className="text-left p-3">Aperçu</th>
                 <th className="text-left p-3">Couleur PFS</th>
                 <th className="text-left p-3 w-20">Statut</th>
@@ -342,22 +391,26 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                     )}
                   </td>
                   <td className="p-3">
-                    <select
+                    <CustomSelect
                       value={color.pfsColorRef ?? ""}
-                      onChange={(e) => handleSaveColor(color.id, e.target.value || null)}
+                      onChange={(val) => handleSaveColor(color.id, val || null)}
                       disabled={saving === color.id}
-                      className="field-input py-1.5 text-sm max-w-[280px]"
-                    >
-                      <option value="">— Non lié —</option>
-                      {pfsColors.map((pc) => {
-                        const taken = usedColorRefs.has(pc.reference) && color.pfsColorRef !== pc.reference;
-                        return (
-                          <option key={pc.reference} value={pc.reference} disabled={taken}>
-                            {pc.labels?.fr ?? pc.reference} ({pc.reference}){taken ? " ✗ déjà lié" : ""}
-                          </option>
-                        );
-                      })}
-                    </select>
+                      size="sm"
+                      searchable
+                      className="max-w-[280px]"
+                      aria-label={`Couleur PFS pour ${color.name}`}
+                      options={[
+                        { value: "", label: "— Non lié —" },
+                        ...pfsColors.map((pc) => {
+                          const taken = usedColorRefs.has(pc.reference) && color.pfsColorRef !== pc.reference;
+                          return {
+                            value: pc.reference,
+                            label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})${taken ? " ✗ déjà lié" : ""}`,
+                            disabled: taken,
+                          };
+                        }),
+                      ]}
+                    />
                   </td>
                   <td className="p-3">
                     {saving === color.id ? (
@@ -381,7 +434,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
           <table className="w-full">
             <thead>
               <tr className="table-header">
-                <th className="text-left p-3">Catégorie BJ</th>
+                <th className="text-left p-3">Catégorie Boutique</th>
                 <th className="text-left p-3">Genre PFS</th>
                 <th className="text-left p-3">Famille PFS</th>
                 <th className="text-left p-3">Catégorie PFS</th>
@@ -412,66 +465,64 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                     <td className="p-3 font-medium">{cat.name}</td>
                     {/* Genre dropdown — filter only, doesn't change mapping */}
                     <td className="p-3">
-                      <select
+                      <CustomSelect
                         value={filter.gender}
-                        onChange={(e) => {
-                          const gender = e.target.value;
-                          setCatFilters((prev) => ({
-                            ...prev,
-                            [cat.id]: { gender, familyId: "" },
-                          }));
-                        }}
+                        onChange={(gender) => setCatFilters((prev) => ({
+                          ...prev,
+                          [cat.id]: { gender, familyId: "" },
+                        }))}
                         disabled={saving === cat.id}
-                        className="field-input py-1.5 text-sm w-full min-w-[130px]"
-                      >
-                        <option value="">— Genre —</option>
-                        {availableGenders.map((g) => (
-                          <option key={g} value={g}>
-                            {getGenderLabel(g)}
-                          </option>
-                        ))}
-                      </select>
+                        size="sm"
+                        searchable
+                        className="w-full min-w-[130px]"
+                        aria-label="Filtrer par genre"
+                        options={[
+                          { value: "", label: "— Genre —" },
+                          ...availableGenders.map((g) => ({ value: g, label: getGenderLabel(g) })),
+                        ]}
+                      />
                     </td>
                     {/* Famille dropdown — filter only, doesn't change mapping */}
                     <td className="p-3">
-                      <select
+                      <CustomSelect
                         value={filter.familyId}
-                        onChange={(e) => {
-                          const familyId = e.target.value;
-                          setCatFilters((prev) => ({
-                            ...prev,
-                            [cat.id]: { ...prev[cat.id], familyId },
-                          }));
-                        }}
+                        onChange={(familyId) => setCatFilters((prev) => ({
+                          ...prev,
+                          [cat.id]: { ...prev[cat.id], familyId },
+                        }))}
                         disabled={saving === cat.id || !filter.gender}
-                        className="field-input py-1.5 text-sm w-full min-w-[180px]"
-                      >
-                        <option value="">— Toutes —</option>
-                        {availableFamilies.map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.labels?.fr ?? f.id}
-                          </option>
-                        ))}
-                      </select>
+                        size="sm"
+                        searchable
+                        className="w-full min-w-[180px]"
+                        aria-label="Filtrer par famille"
+                        options={[
+                          { value: "", label: "— Toutes —" },
+                          ...availableFamilies.map((f) => ({ value: f.id, label: f.labels?.fr ?? f.id })),
+                        ]}
+                      />
                     </td>
                     {/* Catégorie PFS dropdown — filtered */}
                     <td className="p-3">
-                      <select
+                      <CustomSelect
                         value={cat.pfsCategoryId ?? ""}
-                        onChange={(e) => handleSaveCategory(cat.id, e.target.value || null)}
+                        onChange={(val) => handleSaveCategory(cat.id, val || null)}
                         disabled={saving === cat.id || !filter.gender}
-                        className="field-input py-1.5 text-sm w-full min-w-[220px]"
-                      >
-                        <option value="">— Catégorie —</option>
-                        {availableCategoriesForRow.map((pc) => {
-                          const taken = usedCategoryIds.has(pc.id) && cat.pfsCategoryId !== pc.id;
-                          return (
-                            <option key={pc.id} value={pc.id} disabled={taken}>
-                              {pc.labels?.fr ?? pc.id}{taken ? " ✗ déjà liée" : ""}
-                            </option>
-                          );
-                        })}
-                      </select>
+                        size="sm"
+                        searchable
+                        className="w-full min-w-[220px]"
+                        aria-label={`Catégorie PFS pour ${cat.name}`}
+                        options={[
+                          { value: "", label: "— Catégorie —" },
+                          ...availableCategoriesForRow.map((pc) => {
+                            const taken = usedCategoryIds.has(pc.id) && cat.pfsCategoryId !== pc.id;
+                            return {
+                              value: pc.id,
+                              label: `${pc.labels?.fr ?? pc.id}${taken ? " ✗ déjà liée" : ""}`,
+                              disabled: taken,
+                            };
+                          }),
+                        ]}
+                      />
                     </td>
                     <td className="p-3">
                       {saving === cat.id ? (
@@ -496,7 +547,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
           <table className="w-full">
             <thead>
               <tr className="table-header">
-                <th className="text-left p-3">Composition BJ</th>
+                <th className="text-left p-3">Composition Boutique</th>
                 <th className="text-left p-3">Composition PFS</th>
                 <th className="text-left p-3 w-20">Statut</th>
               </tr>
@@ -506,22 +557,26 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                 <tr key={comp.id} className="table-row">
                   <td className="p-3 font-medium">{comp.name}</td>
                   <td className="p-3">
-                    <select
+                    <CustomSelect
                       value={comp.pfsCompositionRef ?? ""}
-                      onChange={(e) => handleSaveComposition(comp.id, e.target.value || null)}
+                      onChange={(val) => handleSaveComposition(comp.id, val || null)}
                       disabled={saving === comp.id}
-                      className="field-input py-1.5 text-sm max-w-[350px]"
-                    >
-                      <option value="">— Non liée —</option>
-                      {pfsCompositions.map((pc) => {
-                        const taken = usedCompositionRefs.has(pc.reference) && comp.pfsCompositionRef !== pc.reference;
-                        return (
-                          <option key={pc.reference} value={pc.reference} disabled={taken}>
-                            {pc.labels?.fr ?? pc.reference} ({pc.reference}){taken ? " ✗ déjà liée" : ""}
-                          </option>
-                        );
-                      })}
-                    </select>
+                      size="sm"
+                      searchable
+                      className="max-w-[350px]"
+                      aria-label={`Composition PFS pour ${comp.name}`}
+                      options={[
+                        { value: "", label: "— Non liée —" },
+                        ...pfsCompositions.map((pc) => {
+                          const taken = usedCompositionRefs.has(pc.reference) && comp.pfsCompositionRef !== pc.reference;
+                          return {
+                            value: pc.reference,
+                            label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})${taken ? " ✗ déjà liée" : ""}`,
+                            disabled: taken,
+                          };
+                        }),
+                      ]}
+                    />
                   </td>
                   <td className="p-3">
                     {saving === comp.id ? (
@@ -545,7 +600,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
           <table className="w-full">
             <thead>
               <tr className="table-header">
-                <th className="text-left p-3">Pays BJ</th>
+                <th className="text-left p-3">Pays Boutique</th>
                 <th className="text-left p-3">Code ISO</th>
                 <th className="text-left p-3">Pays PFS</th>
                 <th className="text-left p-3 w-20">Statut</th>
@@ -563,22 +618,26 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                     )}
                   </td>
                   <td className="p-3">
-                    <select
+                    <CustomSelect
                       value={country.pfsCountryRef ?? ""}
-                      onChange={(e) => handleSaveCountry(country.id, e.target.value || null)}
+                      onChange={(val) => handleSaveCountry(country.id, val || null)}
                       disabled={saving === country.id}
-                      className="field-input py-1.5 text-sm max-w-[350px]"
-                    >
-                      <option value="">— Non lié —</option>
-                      {pfsCountries.map((pc) => {
-                        const taken = usedCountryRefs.has(pc.reference) && country.pfsCountryRef !== pc.reference;
-                        return (
-                          <option key={pc.reference} value={pc.reference} disabled={taken}>
-                            {pc.labels?.fr ?? pc.reference} ({pc.reference}){taken ? " ✗ déjà lié" : ""}
-                          </option>
-                        );
-                      })}
-                    </select>
+                      size="sm"
+                      searchable
+                      className="max-w-[350px]"
+                      aria-label={`Pays PFS pour ${country.name}`}
+                      options={[
+                        { value: "", label: "— Non lié —" },
+                        ...pfsCountries.map((pc) => {
+                          const taken = usedCountryRefs.has(pc.reference) && country.pfsCountryRef !== pc.reference;
+                          return {
+                            value: pc.reference,
+                            label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})${taken ? " ✗ déjà lié" : ""}`,
+                            disabled: taken,
+                          };
+                        }),
+                      ]}
+                    />
                   </td>
                   <td className="p-3">
                     {saving === country.id ? (
@@ -602,7 +661,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
           <table className="w-full">
             <thead>
               <tr className="table-header">
-                <th className="text-left p-3">Saison BJ</th>
+                <th className="text-left p-3">Saison Boutique</th>
                 <th className="text-left p-3">Collection PFS</th>
                 <th className="text-left p-3 w-20">Statut</th>
               </tr>
@@ -612,22 +671,26 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                 <tr key={season.id} className="table-row">
                   <td className="p-3 font-medium">{season.name}</td>
                   <td className="p-3">
-                    <select
+                    <CustomSelect
                       value={season.pfsSeasonRef ?? ""}
-                      onChange={(e) => handleSaveSeason(season.id, e.target.value || null)}
+                      onChange={(val) => handleSaveSeason(season.id, val || null)}
                       disabled={saving === season.id}
-                      className="field-input py-1.5 text-sm max-w-[350px]"
-                    >
-                      <option value="">— Non liée —</option>
-                      {pfsCollections.map((pc) => {
-                        const taken = usedSeasonRefs.has(pc.reference) && season.pfsSeasonRef !== pc.reference;
-                        return (
-                          <option key={pc.reference} value={pc.reference} disabled={taken}>
-                            {pc.labels?.fr ?? pc.reference} ({pc.reference}){taken ? " ✗ déjà liée" : ""}
-                          </option>
-                        );
-                      })}
-                    </select>
+                      size="sm"
+                      searchable
+                      className="max-w-[350px]"
+                      aria-label={`Collection PFS pour ${season.name}`}
+                      options={[
+                        { value: "", label: "— Non liée —" },
+                        ...pfsCollections.map((pc) => {
+                          const taken = usedSeasonRefs.has(pc.reference) && season.pfsSeasonRef !== pc.reference;
+                          return {
+                            value: pc.reference,
+                            label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})${taken ? " ✗ déjà liée" : ""}`,
+                            disabled: taken,
+                          };
+                        }),
+                      ]}
+                    />
                   </td>
                   <td className="p-3">
                     {saving === season.id ? (
@@ -645,6 +708,65 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
         </div>
       )}
 
+      {/* Size mapping — dropdown multi-select with grouped PFS sizes */}
+      {tab === "sizes" && (
+        <div className="card overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="table-header">
+                <th className="text-left p-3">Taille Boutique</th>
+                <th className="text-left p-3">Catégories Boutique</th>
+                <th className="text-left p-3">Tailles PFS liées</th>
+                <th className="text-left p-3 w-24">Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredSizes.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="p-8 text-center text-sm text-text-secondary">
+                    Aucune taille trouvée
+                  </td>
+                </tr>
+              )}
+              {filteredSizes.map((bjSize) => {
+                const isSaving = saving === bjSize.id;
+                const cats = bjSize.categories.map((c) => c.category.name).join(", ");
+                const mappedRefs = new Set(bjSize.pfsMappings.map((m) => m.pfsSizeRef));
+
+                return (
+                  <tr key={bjSize.id} className="table-row">
+                    <td className="p-3 font-semibold text-sm font-[family-name:var(--font-poppins)]">
+                      {bjSize.name}
+                    </td>
+                    <td className="p-3 text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
+                      {cats || <span className="opacity-40">—</span>}
+                    </td>
+                    <td className="p-3">
+                      <PfsSizeMultiSelect
+                        pfsSizes={pfsSizes}
+                        selected={mappedRefs}
+                        onToggle={(ref) => handleToggleSizeMapping(bjSize.id, ref)}
+                        disabled={isSaving}
+                        className="min-w-[220px] max-w-[320px]"
+                      />
+                    </td>
+                    <td className="p-3">
+                      {isSaving ? (
+                        <span className="text-text-secondary text-xs">...</span>
+                      ) : mappedRefs.size > 0 ? (
+                        <span className="badge badge-success">{mappedRefs.size} PFS</span>
+                      ) : (
+                        <span className="badge badge-neutral">Non liée</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Summary */}
       <div className="flex flex-wrap gap-4 text-sm text-text-secondary">
         <span>Couleurs liées : {colors.filter((c) => c.pfsColorRef).length}/{colors.length}</span>
@@ -652,6 +774,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
         <span>Compositions liées : {compositions.filter((c) => c.pfsCompositionRef).length}/{compositions.length}</span>
         <span>Pays liés : {countries.filter((c) => c.pfsCountryRef).length}/{countries.length}</span>
         <span>Saisons liées : {seasons.filter((s) => s.pfsSeasonRef).length}/{seasons.length}</span>
+        <span>Tailles liées : {sizes.filter((s) => s.pfsMappings.length > 0).length}/{sizes.length}</span>
       </div>
     </div>
   );

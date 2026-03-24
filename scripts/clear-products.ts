@@ -1,5 +1,5 @@
 /**
- * Clear all products + attributes (colors, categories, subcategories, compositions, tags, seasons, manufacturing countries)
+ * Clear all products + attributes (colors, categories, subcategories, compositions, tags, seasons, manufacturing countries, sizes)
  *
  * Usage: npx tsx scripts/clear-products.ts
  * or:    npm run clear:products
@@ -36,6 +36,15 @@ async function main() {
 
   const productColorSubColors = await prisma.productColorSubColor.deleteMany();
   console.log(`  ProductColorSubColor: ${productColorSubColors.count}`);
+
+  const variantSizes = await prisma.variantSize.deleteMany();
+  console.log(`  VariantSize         : ${variantSizes.count}`);
+
+  const packColorLineColors = await prisma.packColorLineColor.deleteMany();
+  console.log(`  PackColorLineColor  : ${packColorLineColors.count}`);
+
+  const packColorLines = await prisma.packColorLine.deleteMany();
+  console.log(`  PackColorLine       : ${packColorLines.count}`);
 
   const productColors = await prisma.productColor.deleteMany();
   console.log(`  ProductColor        : ${productColors.count}`);
@@ -108,6 +117,16 @@ async function main() {
 
   const countries = await prisma.manufacturingCountry.deleteMany();
   console.log(`  ManufacturingCountry: ${countries.count}`);
+
+  // 5. Sizes
+  const sizePfsMappings = await prisma.sizePfsMapping.deleteMany();
+  console.log(`  SizePfsMapping      : ${sizePfsMappings.count}`);
+
+  const sizeCategoryLinks = await prisma.sizeCategoryLink.deleteMany();
+  console.log(`  SizeCategoryLink    : ${sizeCategoryLinks.count}`);
+
+  const sizes = await prisma.size.deleteMany();
+  console.log(`  Size                : ${sizes.count}`);
 
   console.log("\n✅ Tout a été supprimé.");
 }

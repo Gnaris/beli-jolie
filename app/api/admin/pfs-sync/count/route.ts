@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { pfsTotalProducts } from "@/lib/pfs-api";
+import { prisma } from "@/lib/prisma";
 
 // ─────────────────────────────────────────────
-// GET — Get total PFS product count
+// GET — Get PFS product count + BJ synced count
 // ─────────────────────────────────────────────
 
 export async function GET(_req: NextRequest) {
@@ -14,15 +15,14 @@ export async function GET(_req: NextRequest) {
   }
 
   try {
-    const count = await pfsTotalProducts();
+    const [pfsCount, bjCount] = await Promise.all([
+      pfsTotalProducts(),
+      prisma.product.count({ where: { pfsProductId: { not: null } } }),
+    ]);
 
     return NextResponse.json(
-      { count },
-      {
-        headers: {
-          "Cache-Control": "private, max-age=300",
-        },
-      },
+      { pfsCount, bjCount },
+      { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     console.error("[PFS Count] Error fetching product count:", error);

@@ -11,8 +11,6 @@
 
 import { getPfsHeaders, invalidatePfsToken, PFS_BASE_URL } from "@/lib/pfs-auth";
 
-const PFS_BRAND_ID = "a01AZ00000314QgYAI";
-
 // ─────────────────────────────────────────────
 // Types — PFS API responses
 // ─────────────────────────────────────────────
@@ -102,6 +100,8 @@ export interface PfsListProductsResponse {
     current_page: number;
     last_page: number;
     from: number;
+    per_page: number;
+    total: number;
   };
 }
 
@@ -216,7 +216,7 @@ export async function pfsListProducts(
   perPage = 100,
 ): Promise<PfsListProductsResponse> {
   const headers = await getPfsHeaders();
-  const url = `${PFS_BASE_URL}/catalog/listProducts?page=${page}&per_page=${perPage}&brand=${PFS_BRAND_ID}&status=ACTIVE`;
+  const url = `${PFS_BASE_URL}/catalog/listProducts?page=${page}&per_page=${perPage}&status=ACTIVE`;
 
   const res = await fetchWithRetry(url, { method: "GET", headers });
   return res.json();
@@ -254,8 +254,7 @@ export async function pfsGetVariants(
  * Count total active products (from first page state).
  */
 export async function pfsTotalProducts(): Promise<number> {
-  const response = await pfsListProducts(1, 1);
-  return response.state?.active ?? response.state?.total ?? 0;
+  const response = await pfsListProducts(1, 100);
+  return response.meta?.total ?? response.state?.active ?? 0;
 }
 
-export { PFS_BRAND_ID };

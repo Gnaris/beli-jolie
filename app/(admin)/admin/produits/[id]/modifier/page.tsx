@@ -112,10 +112,11 @@ export default async function ModifierProduitPage({
       })),
     })),
     sizeEntries:   pc.variantSizes.map((vs) => ({
-      tempId:   uid(),
-      sizeId:   vs.sizeId,
-      sizeName: vs.size.name,
-      quantity: String(vs.quantity),
+      tempId:       uid(),
+      sizeId:       vs.sizeId,
+      sizeName:     vs.size.name,
+      quantity:     String(vs.quantity),
+      pricePerUnit: vs.pricePerUnit != null ? String(vs.pricePerUnit) : undefined,
     })),
     unitPrice:     String(pc.unitPrice),
     weight:        String(pc.weight),
@@ -223,7 +224,7 @@ export default async function ModifierProduitPage({
       <ProductForm
         categories={categories}
         availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage }))}
-        availableSizes={sizes.map((s) => ({ id: s.id, name: s.name }))}
+        availableSizes={sizes.map((s) => ({ id: s.id, name: s.name, categoryIds: s.categories.map((c) => c.categoryId) }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
         availableCountries={manufacturingCountries}
         availableSeasons={seasons}

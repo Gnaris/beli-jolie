@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import PfsMappingTab from "@/components/pfs/PfsMappingTab";
+import CustomSelect from "@/components/ui/CustomSelect";
+import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 
 // ─────────────────────────────────────────────
 // Types
@@ -55,9 +58,28 @@ interface MissingColor {
 
 interface MissingComposition {
   pfsName: string;
+  pfsReference: string;
   suggestedName: string;
   usedBy: number;
   pfsLabels: Record<string, string>;
+}
+
+interface MissingCountry {
+  pfsReference: string;
+  suggestedName: string;
+  pfsLabels: Record<string, string>;
+}
+
+interface MissingSeason {
+  pfsReference: string;
+  suggestedName: string;
+  pfsLabels: Record<string, string>;
+}
+
+interface MissingSize {
+  name: string;
+  usedBy: number;
+  pfsCategoryIds?: string[];
 }
 
 interface AnalyzeResult {
@@ -66,8 +88,43 @@ interface AnalyzeResult {
     categories: MissingCategory[];
     colors: MissingColor[];
     compositions: MissingComposition[];
+    countries: MissingCountry[];
+    seasons: MissingSeason[];
+    sizes: MissingSize[];
   };
   existingMappings: number;
+  existingEntities?: {
+    categories: { id: string; name: string; pfsCategoryId?: string | null }[];
+    colors: { id: string; name: string; hex: string | null; patternImage: string | null }[];
+    compositions: { id: string; name: string }[];
+    countries: { id: string; name: string; isoCode: string | null }[];
+    seasons: { id: string; name: string }[];
+  };
+}
+
+interface ExistingEntity {
+  id: string;
+  name: string;
+}
+
+interface ExistingColor extends ExistingEntity {
+  hex: string | null;
+  patternImage: string | null;
+}
+
+interface ExistingEntities {
+  categories: (ExistingEntity & { pfsCategoryId?: string | null })[];
+  colors: ExistingColor[];
+  compositions: ExistingEntity[];
+  countries: (ExistingEntity & { isoCode: string | null })[];
+  seasons: ExistingEntity[];
+}
+
+interface EditableSize {
+  name: string;
+  usedBy: number;
+  bjCategoryIds: string[];
+  pfsSizeRefs: string[]; // PFS size refs to map via SizePfsMapping
 }
 
 interface EditableCategory {
@@ -75,27 +132,34 @@ interface EditableCategory {
   pfsCategoryId: string;
   pfsGender: string;
   pfsFamilyId: string;
-  name: string;
-  labels: Record<string, string>;
+  bjEntityId: string | null;
   usedBy: number;
 }
 
 interface EditableColor {
   pfsName: string;
   pfsReference: string;
-  name: string;
-  hex: string | null;
-  patternImage: string | null;
-  colorMode: "hex" | "pattern";
-  labels: Record<string, string>;
+  bjEntityId: string | null;
   usedBy: number;
 }
 
 interface EditableComposition {
   pfsName: string;
-  name: string;
-  labels: Record<string, string>;
+  pfsReference: string;
+  bjEntityId: string | null;
   usedBy: number;
+}
+
+interface EditableCountry {
+  pfsName: string;
+  pfsReference: string;
+  bjEntityId: string | null;
+}
+
+interface EditableSeason {
+  pfsName: string;
+  pfsReference: string;
+  bjEntityId: string | null;
 }
 
 type Step = "idle" | "analyzing" | "validation" | "creating" | "preparing";
@@ -106,18 +170,31 @@ type Step = "idle" | "analyzing" | "validation" | "creating" | "preparing";
 
 export default function PfsSyncPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = searchParams.get("tab") ?? "sync";
   const [step, setStep] = useState<Step>("idle");
   const [pendingLimit, setPendingLimit] = useState<number | undefined>(undefined);
   const [customLimit, setCustomLimit] = useState("");
   const [analyzeProgress, setAnalyzeProgress] = useState("");
   const [pfsCount, setPfsCount] = useState<number | null>(null);
+  const [bjCount, setBjCount] = useState<number | null>(null);
 
   // Analyze results (editable)
   const [editCategories, setEditCategories] = useState<EditableCategory[]>([]);
   const [editColors, setEditColors] = useState<EditableColor[]>([]);
   const [editCompositions, setEditCompositions] = useState<EditableComposition[]>([]);
+  const [editCountries, setEditCountries] = useState<EditableCountry[]>([]);
+  const [editSeasons, setEditSeasons] = useState<EditableSeason[]>([]);
+  const [editSizes, setEditSizes] = useState<EditableSize[]>([]);
   const [totalScanned, setTotalScanned] = useState(0);
   const [existingMappings, setExistingMappings] = useState(0);
+  const [existingEntities, setExistingEntities] = useState<ExistingEntities>({
+    categories: [],
+    colors: [],
+    compositions: [],
+    countries: [],
+    seasons: [],
+  });
 
   // Prepare job
   const [job, setJob] = useState<PfsPrepareJob | null>(null);
@@ -130,11 +207,14 @@ export default function PfsSyncPage() {
   const [analyzeLogs, setAnalyzeLogs] = useState<string[]>([]);
   const analyzeLogsEndRef = useRef<HTMLDivElement>(null);
 
-  // ── Fetch PFS product count ──
+  // ── Fetch PFS + BJ product counts (no cache — fresh on every visit) ──
   useEffect(() => {
     fetch("/api/admin/pfs-sync/count")
       .then((r) => r.json())
-      .then((d) => setPfsCount(d.count))
+      .then((d) => {
+        if (typeof d.pfsCount === "number") setPfsCount(d.pfsCount);
+        if (typeof d.bjCount === "number") setBjCount(d.bjCount);
+      })
       .catch(() => {});
   }, []);
 
@@ -266,14 +346,18 @@ export default function PfsSyncPage() {
       setTotalScanned(finalData.totalScanned);
       setExistingMappings(finalData.existingMappings);
 
+      // Store existing entities for dropdowns
+      if (finalData.existingEntities) {
+        setExistingEntities(finalData.existingEntities as ExistingEntities);
+      }
+
       setEditCategories(
         finalData.missingEntities.categories.map((c) => ({
           pfsName: c.pfsName,
           pfsCategoryId: c.pfsCategoryId,
           pfsGender: c.pfsGender || "WOMAN",
           pfsFamilyId: c.pfsFamilyId || "",
-          name: c.suggestedName,
-          labels: c.pfsLabels,
+          bjEntityId: null,
           usedBy: c.usedBy,
         })),
       );
@@ -281,32 +365,53 @@ export default function PfsSyncPage() {
         finalData.missingEntities.colors.map((c) => ({
           pfsName: c.pfsName,
           pfsReference: c.pfsReference,
-          name: c.suggestedName,
-          hex: c.hex,
-          patternImage: null,
-          colorMode: "hex" as const,
-          labels: c.pfsLabels,
+          bjEntityId: null,
           usedBy: c.usedBy,
         })),
       );
       setEditCompositions(
         finalData.missingEntities.compositions.map((c) => ({
           pfsName: c.pfsName,
-          name: c.suggestedName,
-          labels: c.pfsLabels,
+          pfsReference: c.pfsReference,
+          bjEntityId: null,
           usedBy: c.usedBy,
+        })),
+      );
+      setEditCountries(
+        (finalData.missingEntities.countries ?? []).map((c) => ({
+          pfsName: c.suggestedName || c.pfsReference,
+          pfsReference: c.pfsReference,
+          bjEntityId: null,
+        })),
+      );
+      setEditSeasons(
+        (finalData.missingEntities.seasons ?? []).map((s) => ({
+          pfsName: s.suggestedName || s.pfsReference,
+          pfsReference: s.pfsReference,
+          bjEntityId: null,
+        })),
+      );
+      setEditSizes(
+        (finalData.missingEntities.sizes ?? []).map((s) => ({
+          name: s.name,
+          usedBy: s.usedBy,
+          bjCategoryIds: [],
+          pfsSizeRefs: [s.name], // par défaut, lier la ref PFS au nom détecté
         })),
       );
 
       const totalMissing =
         finalData.missingEntities.categories.length +
         finalData.missingEntities.colors.length +
-        finalData.missingEntities.compositions.length;
+        finalData.missingEntities.compositions.length +
+        (finalData.missingEntities.countries?.length ?? 0) +
+        (finalData.missingEntities.seasons?.length ?? 0) +
+        (finalData.missingEntities.sizes?.length ?? 0);
 
       const time = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       setAnalyzeLogs((prev) => [
         ...prev,
-        `[${time}] Analyse terminée — ${finalData!.totalScanned} produits, ${totalMissing} entités manquantes`,
+        `[${time}] Analyse terminée — ${finalData!.totalScanned} produits, ${totalMissing} entité(s) manquante(s) (dont ${finalData!.missingEntities.sizes?.length ?? 0} taille(s) à créer)`,
       ]);
 
       if (totalMissing === 0) {
@@ -321,8 +426,21 @@ export default function PfsSyncPage() {
     }
   };
 
-  // ── Step 2: Create entities & start prepare ──
+  // ── Step 2: Link entities & start prepare ──
   const validateAndPrepare = async () => {
+    // Validation: every entity must be linked to a BJ entity
+    const unresolved = [
+      ...editCategories.filter((c) => !c.bjEntityId),
+      ...editColors.filter((c) => !c.bjEntityId),
+      ...editCompositions.filter((c) => !c.bjEntityId),
+      ...editCountries.filter((c) => !c.bjEntityId),
+      ...editSeasons.filter((s) => !s.bjEntityId),
+    ];
+    if (unresolved.length > 0) {
+      setError(`${unresolved.length} élément(s) non lié(s). Veuillez lier ou créer chaque élément.`);
+      return;
+    }
+
     setStep("creating");
     setError(null);
 
@@ -336,22 +454,29 @@ export default function PfsSyncPage() {
             pfsCategoryId: c.pfsCategoryId,
             pfsGender: c.pfsGender,
             pfsFamilyId: c.pfsFamilyId,
-            name: c.name,
-            labels: c.labels,
+            bjEntityId: c.bjEntityId,
           })),
           colors: editColors.map((c) => ({
             pfsName: c.pfsName,
             pfsReference: c.pfsReference,
-            name: c.name,
-            hex: c.colorMode === "hex" ? c.hex : null,
-            patternImage: c.colorMode === "pattern" ? c.patternImage : null,
-            labels: c.labels,
+            bjEntityId: c.bjEntityId,
           })),
           compositions: editCompositions.map((c) => ({
             pfsName: c.pfsName,
-            name: c.name,
-            labels: c.labels,
+            pfsReference: c.pfsReference,
+            bjEntityId: c.bjEntityId,
           })),
+          countries: editCountries.map((c) => ({
+            pfsName: c.pfsName,
+            pfsReference: c.pfsReference,
+            bjEntityId: c.bjEntityId,
+          })),
+          seasons: editSeasons.map((s) => ({
+            pfsName: s.pfsName,
+            pfsReference: s.pfsReference,
+            bjEntityId: s.bjEntityId,
+          })),
+          sizes: editSizes.map((s) => ({ name: s.name, bjCategoryIds: s.bjCategoryIds, pfsSizeRefs: s.pfsSizeRefs })),
         }),
       });
 
@@ -419,32 +544,124 @@ export default function PfsSyncPage() {
   const isCompleted = job?.status === "COMPLETED";
   const isBusy = step === "analyzing" || step === "creating" || step === "preparing";
 
+  const countsLoaded = pfsCount !== null && bjCount !== null;
+  const countsMatch = countsLoaded && pfsCount === bjCount;
+
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="page-title">Paris Fashion Shop</h1>
+          <p className="page-subtitle">
+            Synchronisez et mappez vos produits depuis le marketplace B2B
+          </p>
+        </div>
+      </div>
+
+      {/* PFS vs BJ count comparison card */}
+      <div className="card p-4 flex flex-wrap items-center gap-6">
+        {/* PFS count */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-lg bg-bg-secondary flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v2.25A2.25 2.25 0 006 10.5zm0 9.75h2.25A2.25 2.25 0 0010.5 18v-2.25a2.25 2.25 0 00-2.25-2.25H6a2.25 2.25 0 00-2.25 2.25V18A2.25 2.25 0 006 20.25zm9.75-9.75H18a2.25 2.25 0 002.25-2.25V6A2.25 2.25 0 0018 3.75h-2.25A2.25 2.25 0 0013.5 6v2.25a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)]">Produits PFS</p>
+            <p className="text-lg font-semibold text-text-primary font-[family-name:var(--font-poppins)]">
+              {pfsCount !== null ? pfsCount.toLocaleString("fr-FR") : (
+                <span className="inline-block w-12 h-5 bg-bg-secondary rounded animate-pulse" />
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="w-px h-10 bg-border hidden sm:block" />
+
+        {/* BJ count */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-lg bg-bg-secondary flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)]">Produits importés (BJ)</p>
+            <p className="text-lg font-semibold text-text-primary font-[family-name:var(--font-poppins)]">
+              {bjCount !== null ? bjCount.toLocaleString("fr-FR") : (
+                <span className="inline-block w-12 h-5 bg-bg-secondary rounded animate-pulse" />
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="w-px h-10 bg-border hidden sm:block" />
+
+        {/* Status badge */}
+        <div className="flex items-center gap-2">
+          {!countsLoaded ? (
+            <span className="badge badge-neutral">Chargement...</span>
+          ) : countsMatch ? (
+            <>
+              <span className="badge badge-success">Synchronisé</span>
+              <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
+                Les {pfsCount!.toLocaleString("fr-FR")} produits PFS sont tous importés
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="badge badge-error">Désynchronisé</span>
+              <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
+                {pfsCount! > bjCount!
+                  ? `${(pfsCount! - bjCount!).toLocaleString("fr-FR")} produit(s) PFS non importé(s)`
+                  : `${(bjCount! - pfsCount!).toLocaleString("fr-FR")} produit(s) BJ en excès`}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Tab navigation */}
+      <div className="flex border-b border-border">
         <Link
-          href="/admin/produits"
-          className="text-text-secondary hover:text-text-primary transition-colors text-sm"
+          href="/admin/pfs"
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors font-[family-name:var(--font-roboto)] ${
+            activeTab !== "mapping"
+              ? "border-text-primary text-text-primary"
+              : "border-transparent text-text-secondary hover:text-text-primary"
+          }`}
         >
-          &larr; Retour aux produits
+          Synchronisation
+        </Link>
+        <Link
+          href="/admin/pfs?tab=mapping"
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors font-[family-name:var(--font-roboto)] ${
+            activeTab === "mapping"
+              ? "border-text-primary text-text-primary"
+              : "border-transparent text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          Mapping
         </Link>
       </div>
 
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="page-title">Synchronisation PFS</h1>
-          <p className="page-subtitle">
-            Prépare et importe les produits depuis Paris Fashion Shop
-          </p>
-        </div>
-        <Link
-          href="/admin/pfs/resume"
-          className="btn-secondary text-sm shrink-0"
-        >
-          Résumé
-        </Link>
-      </div>
+      {activeTab === "mapping" ? (
+        <PfsMappingTab />
+      ) : (
+        <>
+          <div className="flex items-start justify-between">
+            <p className="page-subtitle">
+              Prépare et importe les produits depuis Paris Fashion Shop
+            </p>
+            <Link
+              href="/admin/pfs/resume"
+              className="btn-secondary text-sm shrink-0"
+            >
+              Résumé
+            </Link>
+          </div>
 
       {/* Error banner */}
       {error && (
@@ -591,84 +808,220 @@ export default function PfsSyncPage() {
               <span>{totalScanned} produits analysés</span>
               <span>{existingMappings} mappings existants</span>
             </div>
-            <div className="flex flex-wrap gap-3 mt-4">
-              <span className="badge badge-warning">
-                {editCategories.length} catégorie{editCategories.length > 1 ? "s" : ""} manquante{editCategories.length > 1 ? "s" : ""}
-              </span>
-              <span className="badge badge-info">
-                {editColors.length} couleur{editColors.length > 1 ? "s" : ""} manquante{editColors.length > 1 ? "s" : ""}
-              </span>
-              <span className="badge badge-neutral">
-                {editCompositions.length} composition{editCompositions.length > 1 ? "s" : ""} manquante{editCompositions.length > 1 ? "s" : ""}
-              </span>
+            <div className="flex flex-wrap gap-2 mt-4">
+              {editCategories.length > 0 && (
+                <span className="badge badge-warning">
+                  {editCategories.length} catégorie{editCategories.length > 1 ? "s" : ""}
+                </span>
+              )}
+              {editColors.length > 0 && (
+                <span className="badge badge-info">
+                  {editColors.length} couleur{editColors.length > 1 ? "s" : ""}
+                </span>
+              )}
+              {editCompositions.length > 0 && (
+                <span className="badge badge-neutral">
+                  {editCompositions.length} composition{editCompositions.length > 1 ? "s" : ""}
+                </span>
+              )}
+              {editCountries.length > 0 && (
+                <span className="badge badge-purple">
+                  {editCountries.length} pays
+                </span>
+              )}
+              {editSeasons.length > 0 && (
+                <span className="badge badge-info">
+                  {editSeasons.length} saison{editSeasons.length > 1 ? "s" : ""}
+                </span>
+              )}
+              {editSizes.length > 0 && (
+                <span className="badge badge-neutral">
+                  {editSizes.length} taille{editSizes.length > 1 ? "s" : ""}
+                </span>
+              )}
+              {editCategories.length === 0 && editColors.length === 0 && editCompositions.length === 0 && editCountries.length === 0 && editSeasons.length === 0 && editSizes.length === 0 && (
+                <span className="badge badge-success">Tout mappé</span>
+              )}
             </div>
           </div>
 
           {editCategories.length > 0 && (
-            <ValidationSection title="Catégories manquantes">
+            <GridValidationSection title="Catégories non reconnues" count={editCategories.length}>
               {editCategories.map((cat, idx) => (
-                <div key={`cat-${idx}`} className="bg-bg-primary border border-border rounded-xl p-4 space-y-3">
-                  <span className="text-xs text-text-secondary">
-                    PFS: <code className="font-medium">{cat.pfsName}</code> &middot; {cat.usedBy} produit{cat.usedBy > 1 ? "s" : ""}
-                  </span>
-                  <div>
-                    <label className="field-label">Nom</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      value={cat.name}
-                      onChange={(e) => {
-                        const updated = [...editCategories];
-                        updated[idx] = { ...updated[idx], name: e.target.value };
-                        setEditCategories(updated);
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </ValidationSection>
-          )}
-
-          {editColors.length > 0 && (
-            <ValidationSection title="Couleurs manquantes">
-              {editColors.map((col, idx) => (
-                <ColorEditor
-                  key={`col-${idx}`}
-                  color={col}
-                  onChange={(updated) => {
-                    const list = [...editColors];
-                    list[idx] = updated;
-                    setEditColors(list);
+                <CompactEntityCard
+                  key={`cat-${idx}`}
+                  pfsName={cat.pfsName}
+                  usedBy={cat.usedBy}
+                  bjEntityId={cat.bjEntityId}
+                  existingOptions={existingEntities.categories}
+                  modalType="category"
+                  onBjEntityIdChange={(id) => {
+                    const updated = [...editCategories];
+                    updated[idx] = { ...updated[idx], bjEntityId: id };
+                    setEditCategories(updated);
+                  }}
+                  onEntityCreated={(entity) => {
+                    setExistingEntities((prev) => ({
+                      ...prev,
+                      categories: [...prev.categories, { id: entity.id, name: entity.name }],
+                    }));
                   }}
                 />
               ))}
-            </ValidationSection>
+            </GridValidationSection>
           )}
 
-          {editCompositions.length > 0 && (
-            <ValidationSection title="Compositions manquantes">
-              {editCompositions.map((comp, idx) => (
-                <div key={comp.pfsName} className="bg-bg-primary border border-border rounded-xl p-4 space-y-3">
-                  <span className="text-xs text-text-secondary">
-                    PFS: <code className="font-medium">{comp.pfsName}</code> &middot; {comp.usedBy} produit{comp.usedBy > 1 ? "s" : ""}
-                  </span>
-                  <div>
-                    <label className="field-label">Nom</label>
-                    <input
-                      type="text"
-                      className="field-input"
-                      value={comp.name}
-                      onChange={(e) => {
-                        const updated = [...editCompositions];
-                        updated[idx] = { ...updated[idx], name: e.target.value };
-                        setEditCompositions(updated);
-                      }}
-                    />
-                  </div>
-                </div>
+          {editColors.length > 0 && (
+            <GridValidationSection title="Couleurs non reconnues" count={editColors.length}>
+              {editColors.map((col, idx) => (
+                <CompactColorCard
+                  key={`col-${idx}`}
+                  color={col}
+                  existingColors={existingEntities.colors}
+                  onBjEntityIdChange={(id) => {
+                    const updated = [...editColors];
+                    updated[idx] = { ...updated[idx], bjEntityId: id };
+                    setEditColors(updated);
+                  }}
+                  onEntityCreated={(entity) => {
+                    setExistingEntities((prev) => ({
+                      ...prev,
+                      colors: [...prev.colors, {
+                        id: entity.id,
+                        name: entity.name,
+                        hex: entity.hex ?? null,
+                        patternImage: null,
+                      }],
+                    }));
+                  }}
+                />
               ))}
-            </ValidationSection>
+            </GridValidationSection>
           )}
+
+          <GridValidationSection
+            title="Compositions"
+            count={editCompositions.length}
+            allClearMessage="Toutes les compositions des produits analysés sont déjà présentes dans la base."
+          >
+            {editCompositions.map((comp, idx) => (
+              <CompactEntityCard
+                key={comp.pfsReference}
+                pfsName={comp.pfsName}
+                pfsRef={comp.pfsReference}
+                usedBy={comp.usedBy}
+                bjEntityId={comp.bjEntityId}
+                existingOptions={existingEntities.compositions}
+                modalType="composition"
+                onBjEntityIdChange={(id) => {
+                  const updated = [...editCompositions];
+                  updated[idx] = { ...updated[idx], bjEntityId: id };
+                  setEditCompositions(updated);
+                }}
+                onEntityCreated={(entity) => {
+                  setExistingEntities((prev) => ({
+                    ...prev,
+                    compositions: [...prev.compositions, { id: entity.id, name: entity.name }],
+                  }));
+                }}
+              />
+            ))}
+          </GridValidationSection>
+
+          <GridValidationSection
+            title="Pays de fabrication"
+            count={editCountries.length}
+            allClearMessage="Tous les pays des produits analysés sont déjà présents dans la base."
+          >
+            {editCountries.map((ctr, idx) => (
+              <CompactEntityCard
+                key={ctr.pfsReference}
+                pfsName={ctr.pfsName}
+                pfsRef={ctr.pfsReference}
+                bjEntityId={ctr.bjEntityId}
+                existingOptions={existingEntities.countries}
+                modalType="country"
+                onBjEntityIdChange={(id) => {
+                  const updated = [...editCountries];
+                  updated[idx] = { ...updated[idx], bjEntityId: id };
+                  setEditCountries(updated);
+                }}
+                onEntityCreated={(entity) => {
+                  setExistingEntities((prev) => ({
+                    ...prev,
+                    countries: [...prev.countries, { id: entity.id, name: entity.name, isoCode: null }],
+                  }));
+                }}
+              />
+            ))}
+          </GridValidationSection>
+
+          <GridValidationSection
+            title="Saisons / Collections"
+            count={editSeasons.length}
+            allClearMessage="Toutes les saisons des produits analysés sont déjà présentes dans la base."
+          >
+            {editSeasons.map((s, idx) => (
+              <CompactEntityCard
+                key={s.pfsReference}
+                pfsName={s.pfsName}
+                pfsRef={s.pfsReference}
+                bjEntityId={s.bjEntityId}
+                existingOptions={existingEntities.seasons}
+                modalType="season"
+                onBjEntityIdChange={(id) => {
+                  const updated = [...editSeasons];
+                  updated[idx] = { ...updated[idx], bjEntityId: id };
+                  setEditSeasons(updated);
+                }}
+                onEntityCreated={(entity) => {
+                  setExistingEntities((prev) => ({
+                    ...prev,
+                    seasons: [...prev.seasons, { id: entity.id, name: entity.name }],
+                  }));
+                }}
+              />
+            ))}
+          </GridValidationSection>
+
+          <GridValidationSection
+            title="Tailles"
+            count={editSizes.length}
+            allClearMessage="Toutes les tailles des produits analysés sont déjà présentes dans la base."
+          >
+            {editSizes.map((s, idx) => (
+              <CompactSizeCard
+                key={s.name}
+                size={s}
+                availableCategories={existingEntities.categories}
+                onChange={(updated) => {
+                  const list = [...editSizes];
+                  list[idx] = updated;
+                  setEditSizes(list);
+                }}
+              />
+            ))}
+          </GridValidationSection>
+
+          {/* Progress indicator */}
+          {(() => {
+            const total = editCategories.length + editColors.length + editCompositions.length + editCountries.length + editSeasons.length;
+            const resolved = [
+              ...editCategories.filter((c) => !!c.bjEntityId),
+              ...editColors.filter((c) => !!c.bjEntityId),
+              ...editCompositions.filter((c) => !!c.bjEntityId),
+              ...editCountries.filter((c) => !!c.bjEntityId),
+              ...editSeasons.filter((s) => !!s.bjEntityId),
+            ].length;
+            return total > 0 ? (
+              <div className="flex items-center gap-3 text-sm">
+                <div className="flex-1 bg-bg-secondary rounded-full h-2">
+                  <div className="h-2 bg-[#22C55E] rounded-full transition-all" style={{ width: `${(resolved / total) * 100}%` }} />
+                </div>
+                <span className="text-text-secondary shrink-0">{resolved}/{total} résolus</span>
+              </div>
+            ) : null;
+          })()}
 
           <div className="flex gap-3 flex-wrap">
             <button onClick={() => setStep("idle")} className="btn-secondary">
@@ -873,6 +1226,8 @@ export default function PfsSyncPage() {
           </div>
         </div>
       )}
+        </>
+      )}
     </div>
   );
 }
@@ -897,107 +1252,464 @@ function logColor(line: string): string {
 // Sub-components
 // ─────────────────────────────────────────────
 
-function ValidationSection({ title, children }: { title: string; children: React.ReactNode }) {
+function GridValidationSection({ title, count, allClearMessage, children }: { title: string; count: number; allClearMessage?: string; children: React.ReactNode }) {
   return (
-    <div className="card p-6 space-y-4">
-      <h3 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary">{title}</h3>
-      <div className="space-y-3">{children}</div>
+    <div className="card p-5 space-y-3">
+      <h3 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm flex items-center gap-2">
+        {title}
+        {count > 0 ? (
+          <span className="text-xs font-normal text-text-secondary">({count})</span>
+        ) : (
+          <span className="badge badge-success text-[10px]">✓ OK</span>
+        )}
+      </h3>
+      {count === 0 ? (
+        <p className="text-xs text-text-secondary">{allClearMessage ?? "Aucun élément manquant dans les produits analysés."}</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
 
-function ColorEditor({ color, onChange }: { color: EditableColor; onChange: (updated: EditableColor) => void }) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
+// ─────────────────────────────────────────────
+// Compact card — categories, compositions, countries, seasons
+// ─────────────────────────────────────────────
+function CompactEntityCard({
+  pfsName,
+  pfsRef,
+  usedBy,
+  bjEntityId,
+  existingOptions,
+  modalType,
+  onBjEntityIdChange,
+  onEntityCreated,
+}: {
+  pfsName: string;
+  pfsRef?: string;
+  usedBy?: number;
+  bjEntityId: string | null;
+  existingOptions: { id: string; name: string }[];
+  modalType: "category" | "composition" | "country" | "season";
+  onBjEntityIdChange: (id: string | null) => void;
+  onEntityCreated: (entity: { id: string; name: string; hex?: string | null }) => void;
+}) {
+  const [showModal, setShowModal] = useState(false);
+  const isResolved = !!bjEntityId;
 
-  const handlePatternUpload = async (file: File) => {
-    if (file.size > 512 * 1024) {
-      alert("Image trop lourde (max 500 KB)");
-      return;
+  return (
+    <div className={`border rounded-xl p-3 flex flex-col gap-2.5 bg-bg-primary transition-colors ${isResolved ? "border-[#22C55E]/30 bg-[#22C55E]/[0.03]" : "border-[#F59E0B]/40"}`}>
+      {/* Header */}
+      <div className="flex items-start gap-1.5 min-w-0">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-text-primary truncate leading-tight" title={pfsName}>{pfsName}</p>
+          {pfsRef && pfsRef !== pfsName && (
+            <p className="text-[10px] text-text-secondary font-mono truncate">{pfsRef}</p>
+          )}
+          {usedBy !== undefined && usedBy > 0 && (
+            <p className="text-[10px] text-text-secondary">{usedBy} produit{usedBy > 1 ? "s" : ""}</p>
+          )}
+        </div>
+        <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${isResolved ? "bg-[#22C55E]/15 text-[#22C55E]" : "bg-[#F59E0B]/15 text-[#F59E0B]"}`}>
+          {isResolved ? "✓" : "!"}
+        </span>
+      </div>
+
+      {/* Dropdown pour lier */}
+      {existingOptions.length > 0 ? (
+        <CustomSelect
+          options={existingOptions.map((opt) => ({ value: opt.id, label: opt.name }))}
+          value={bjEntityId || ""}
+          onChange={(val) => onBjEntityIdChange(val || null)}
+          placeholder="Lier à un existant…"
+          size="sm"
+          searchable
+        />
+      ) : (
+        <p className="text-[10px] text-[#F59E0B]">Aucun existant — créez-en un ci-dessous.</p>
+      )}
+
+      {/* Bouton Créer nouveau → ouvre le vrai modal admin */}
+      <button
+        type="button"
+        onClick={() => setShowModal(true)}
+        className="w-full flex items-center justify-center gap-1.5 text-[10px] font-medium text-text-secondary border border-dashed border-border rounded-lg px-2 py-1.5 hover:border-text-secondary hover:text-text-primary transition-colors"
+      >
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        Créer nouveau
+      </button>
+
+      <QuickCreateModal
+        type={modalType}
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        onCreated={(entity) => onEntityCreated(entity)}
+      />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Compact color card for the grid
+// ─────────────────────────────────────────────
+function CompactColorCard({
+  color,
+  existingColors,
+  onBjEntityIdChange,
+  onEntityCreated,
+}: {
+  color: EditableColor;
+  existingColors: ExistingColor[];
+  onBjEntityIdChange: (id: string | null) => void;
+  onEntityCreated: (entity: { id: string; name: string; hex?: string | null }) => void;
+}) {
+  const [showModal, setShowModal] = useState(false);
+  const isResolved = !!color.bjEntityId;
+  const selected = color.bjEntityId ? existingColors.find((c) => c.id === color.bjEntityId) : null;
+
+  return (
+    <div className={`border rounded-xl p-3 flex flex-col gap-2.5 bg-bg-primary transition-colors ${isResolved ? "border-[#22C55E]/30 bg-[#22C55E]/[0.03]" : "border-[#F59E0B]/40"}`}>
+      {/* Header */}
+      <div className="flex items-start gap-1.5 min-w-0">
+        <div
+          className="w-4 h-4 rounded-full border border-border shrink-0 mt-0.5"
+          style={{ backgroundColor: "#9CA3AF" }}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-text-primary truncate leading-tight" title={color.pfsName}>{color.pfsName}</p>
+          <p className="text-[10px] text-text-secondary font-mono truncate">{color.pfsReference}</p>
+          <p className="text-[10px] text-text-secondary">{color.usedBy} produit{color.usedBy > 1 ? "s" : ""}</p>
+        </div>
+        <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${isResolved ? "bg-[#22C55E]/15 text-[#22C55E]" : "bg-[#F59E0B]/15 text-[#F59E0B]"}`}>
+          {isResolved ? "✓" : "!"}
+        </span>
+      </div>
+
+      {/* Link dropdown */}
+      {existingColors.length === 0 ? (
+        <p className="text-[10px] text-[#F59E0B]">Aucune couleur existante — créez-en une ci-dessous.</p>
+      ) : (
+        <div className="space-y-1.5">
+          <CustomSelect
+            options={existingColors.map((opt) => ({ value: opt.id, label: opt.name }))}
+            value={color.bjEntityId || ""}
+            onChange={(val) => onBjEntityIdChange(val || null)}
+            placeholder="Lier à une couleur…"
+            size="sm"
+            searchable
+          />
+          {selected && (
+            <div className="flex items-center gap-1.5">
+              <div
+                className="w-4 h-4 rounded-full border border-border shrink-0"
+                style={
+                  selected.patternImage
+                    ? { backgroundImage: `url(${selected.patternImage})`, backgroundSize: "cover" }
+                    : { backgroundColor: selected.hex || "#9CA3AF" }
+                }
+              />
+              <span className="text-[10px] text-text-secondary truncate">{selected.name}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Create button */}
+      <button
+        type="button"
+        onClick={() => setShowModal(true)}
+        className="w-full py-1.5 text-[10px] font-medium text-text-secondary border border-dashed border-border rounded-lg hover:border-text-secondary hover:text-text-primary transition-colors"
+      >
+        + Créer une nouvelle couleur
+      </button>
+
+      <QuickCreateModal
+        type="color"
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        onCreated={(entity) => {
+          onEntityCreated(entity);
+          setShowModal(false);
+        }}
+      />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Compact size card — opens a modal to configure name, PFS refs, categories
+// ─────────────────────────────────────────────
+function CompactSizeCard({
+  size,
+  availableCategories,
+  onChange,
+}: {
+  size: EditableSize;
+  availableCategories: { id: string; name: string }[];
+  onChange: (updated: EditableSize) => void;
+}) {
+  const [showModal, setShowModal] = useState(false);
+  const isConfigured = !!size.name.trim();
+
+  return (
+    <div className="border border-border rounded-xl p-3 flex flex-col gap-2 bg-bg-primary">
+      {/* Header */}
+      <div className="flex items-start gap-1.5 min-w-0">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono font-bold text-sm text-text-primary bg-bg-secondary px-2 py-0.5 rounded-md shrink-0">
+              {size.name}
+            </span>
+            {size.usedBy > 0 && (
+              <span className="text-[10px] text-text-secondary">{size.usedBy} prod.</span>
+            )}
+          </div>
+          {/* Summary */}
+          <div className="mt-1 space-y-0.5">
+            {size.pfsSizeRefs.length > 0 && (
+              <p className="text-[10px] text-text-secondary">
+                PFS : <span className="font-mono">{size.pfsSizeRefs.join(", ")}</span>
+              </p>
+            )}
+            {size.bjCategoryIds.length > 0 && (
+              <p className="text-[10px] text-text-secondary">
+                {size.bjCategoryIds.length} catégorie{size.bjCategoryIds.length > 1 ? "s" : ""}
+              </p>
+            )}
+          </div>
+        </div>
+        <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${isConfigured ? "bg-[#22C55E]/15 text-[#22C55E]" : "bg-[#F59E0B]/15 text-[#F59E0B]"}`}>
+          {isConfigured ? "✓" : "!"}
+        </span>
+      </div>
+
+      {/* Configure button */}
+      <button
+        type="button"
+        onClick={() => setShowModal(true)}
+        className="w-full text-left text-[11px] font-medium text-text-secondary border border-border rounded-lg px-2 py-1.5 bg-bg-secondary hover:bg-bg-primary hover:text-text-primary transition-colors"
+      >
+        Configurer…
+      </button>
+
+      {showModal && (
+        <CreateSizeModal
+          size={size}
+          availableCategories={availableCategories}
+          onSave={(updated) => {
+            onChange(updated);
+            setShowModal(false);
+          }}
+          onClose={() => setShowModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Modal — Create composition / country / season
+// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Modal — Create size with PFS refs + category links
+// ─────────────────────────────────────────────
+function CreateSizeModal({
+  size,
+  availableCategories,
+  onSave,
+  onClose,
+}: {
+  size: EditableSize;
+  availableCategories: { id: string; name: string }[];
+  onSave: (updated: EditableSize) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(size.name);
+  const [bjCategoryIds, setBjCategoryIds] = useState<string[]>(size.bjCategoryIds);
+  const [pfsSizeRefs, setPfsSizeRefs] = useState<string[]>(size.pfsSizeRefs);
+  const [newPfsRef, setNewPfsRef] = useState("");
+
+  const addPfsRef = () => {
+    const ref = newPfsRef.trim();
+    if (ref && !pfsSizeRefs.includes(ref)) {
+      setPfsSizeRefs((prev) => [...prev, ref]);
     }
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/admin/colors/upload-pattern", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (res.ok && data.path) {
-        onChange({ ...color, patternImage: data.path, colorMode: "pattern" });
-      }
-    } catch {
-      // ignore
-    } finally {
-      setUploading(false);
-    }
+    setNewPfsRef("");
+  };
+
+  const handleSave = () => {
+    if (!name.trim()) return;
+    onSave({ ...size, name: name.trim(), bjCategoryIds, pfsSizeRefs });
   };
 
   return (
-    <div className="bg-bg-primary border border-border rounded-xl p-4 space-y-3">
-      <span className="text-xs text-text-secondary">
-        PFS: <code className="font-medium">{color.pfsName}</code> ({color.pfsReference}) &middot; {color.usedBy} produit{color.usedBy > 1 ? "s" : ""}
-      </span>
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="bg-bg-primary border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6 space-y-5">
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary">
+                Créer une taille
+              </h2>
+              <p className="text-xs text-text-secondary mt-0.5">
+                Réf. PFS détectée : <span className="font-mono font-semibold">{size.name}</span>
+                {size.usedBy > 0 && (
+                  <span> — {size.usedBy} produit{size.usedBy > 1 ? "s" : ""}</span>
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-bg-secondary transition-colors"
+              aria-label="Fermer"
+            >
+              <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
 
-      <div>
-        <label className="field-label">Nom</label>
-        <input type="text" className="field-input" value={color.name} onChange={(e) => onChange({ ...color, name: e.target.value })} />
-      </div>
+          {/* Nom de la taille */}
+          <div className="space-y-1.5">
+            <label className="field-label">
+              Nom de la taille (BJ) <span className="text-[#EF4444]">*</span>
+            </label>
+            <input
+              type="text"
+              className="field-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex : S, M, XL, TU, 52…"
+              autoFocus
+            />
+            <p className="text-[10px] text-text-secondary">
+              Ce nom sera affiché dans les produits Beli Jolie
+            </p>
+          </div>
 
-      <div className="flex gap-2">
-        <button
-          type="button"
-          className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${color.colorMode === "hex" ? "bg-text-primary text-bg-primary" : "bg-bg-secondary text-text-secondary hover:bg-bg-secondary/80"}`}
-          onClick={() => onChange({ ...color, colorMode: "hex" })}
-        >
-          Couleur unie
-        </button>
-        <button
-          type="button"
-          className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${color.colorMode === "pattern" ? "bg-text-primary text-bg-primary" : "bg-bg-secondary text-text-secondary hover:bg-bg-secondary/80"}`}
-          onClick={() => onChange({ ...color, colorMode: "pattern" })}
-        >
-          Motif / Image
-        </button>
-      </div>
-
-      {color.colorMode === "hex" && (
-        <div className="flex items-center gap-3">
-          <label className="field-label mb-0">Code couleur</label>
-          <input type="color" className="w-10 h-10 rounded-lg border border-border cursor-pointer" value={color.hex || "#9CA3AF"} onChange={(e) => onChange({ ...color, hex: e.target.value })} />
-          <input type="text" className="field-input w-28" value={color.hex || ""} placeholder="#000000" onChange={(e) => onChange({ ...color, hex: e.target.value })} />
-          <div className="w-8 h-8 rounded-full border border-border" style={{ backgroundColor: color.hex || "#9CA3AF" }} />
-        </div>
-      )}
-
-      {color.colorMode === "pattern" && (
-        <div className="space-y-2">
-          <label className="field-label">Image du motif</label>
-          {color.patternImage ? (
-            <div className="flex items-center gap-3">
-              <div className="w-16 h-16 rounded-xl border border-border bg-cover bg-center" style={{ backgroundImage: `url(${color.patternImage})` }} />
-              <button type="button" className="text-xs text-red-600 hover:text-red-700" onClick={() => onChange({ ...color, patternImage: null })}>
-                Supprimer
+          {/* PFS size refs */}
+          <div className="space-y-2">
+            <label className="field-label">Références PFS liées</label>
+            <p className="text-[10px] text-text-secondary">
+              Cette taille BJ sera reconnue quand PFS envoie ces codes taille
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="field-input flex-1"
+                value={newPfsRef}
+                onChange={(e) => setNewPfsRef(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); addPfsRef(); }
+                }}
+                placeholder="Ex : XS, S, M…"
+              />
+              <button type="button" onClick={addPfsRef} className="btn-secondary shrink-0 text-sm px-3">
+                Ajouter
               </button>
             </div>
-          ) : (
-            <div
-              className="border-2 border-dashed border-border rounded-xl p-4 text-center cursor-pointer hover:border-text-secondary transition-colors"
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file) handlePatternUpload(file); }}
+            {pfsSizeRefs.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {pfsSizeRefs.map((ref) => (
+                  <span
+                    key={ref}
+                    className="inline-flex items-center gap-1.5 text-xs bg-bg-secondary border border-border rounded-full px-2.5 py-1"
+                  >
+                    <span className="font-mono font-semibold text-text-primary">{ref}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPfsSizeRefs((prev) => prev.filter((r) => r !== ref))}
+                      className="text-[#EF4444] opacity-60 hover:opacity-100 transition-opacity leading-none"
+                      aria-label={`Retirer ${ref}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-[#F59E0B]">
+                Aucune référence PFS — la taille ne sera pas mappée automatiquement.
+              </p>
+            )}
+          </div>
+
+          {/* BJ categories */}
+          <div className="space-y-2">
+            <label className="field-label">Catégories BJ</label>
+            <p className="text-[10px] text-text-secondary">
+              Optionnel — restreint l&apos;affichage de cette taille aux catégories sélectionnées
+            </p>
+            {availableCategories.filter((c) => !bjCategoryIds.includes(c.id)).length > 0 && (
+              <CustomSelect
+                options={availableCategories
+                  .filter((c) => !bjCategoryIds.includes(c.id))
+                  .map((c) => ({ value: c.id, label: c.name }))}
+                value=""
+                onChange={(catId) => {
+                  if (catId && !bjCategoryIds.includes(catId)) {
+                    setBjCategoryIds((prev) => [...prev, catId]);
+                  }
+                }}
+                placeholder="Ajouter une catégorie…"
+                searchable
+              />
+            )}
+            {bjCategoryIds.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {bjCategoryIds.map((catId) => {
+                  const cat = availableCategories.find((c) => c.id === catId);
+                  return (
+                    <span
+                      key={catId}
+                      className="inline-flex items-center gap-1 text-xs bg-[#22C55E]/10 text-[#22C55E] border border-[#22C55E]/20 rounded-full px-2.5 py-1"
+                    >
+                      {cat?.name ?? catId}
+                      <button
+                        type="button"
+                        onClick={() => setBjCategoryIds((prev) => prev.filter((id) => id !== catId))}
+                        className="opacity-60 hover:opacity-100 transition-opacity leading-none"
+                        aria-label={`Retirer ${cat?.name ?? catId}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-[10px] text-text-secondary">Aucune catégorie — taille globale.</p>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">
+              Annuler
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!name.trim()}
+              className="btn-primary flex-1"
             >
-              {uploading ? (
-                <span className="text-xs text-text-secondary">Upload en cours...</span>
-              ) : (
-                <span className="text-xs text-text-secondary">Cliquer ou glisser une image (PNG, JPG, WebP &middot; max 500 KB)</span>
-              )}
-            </div>
-          )}
-          <input ref={fileInputRef} type="file" className="hidden" accept="image/png,image/jpeg,image/webp" onChange={(e) => { const file = e.target.files?.[0]; if (file) handlePatternUpload(file); e.target.value = ""; }} />
+              Enregistrer
+            </button>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

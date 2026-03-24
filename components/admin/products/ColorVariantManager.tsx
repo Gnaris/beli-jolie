@@ -20,7 +20,8 @@ export interface SizeEntryState {
   tempId: string;
   sizeId: string;
   sizeName: string;
-  quantity: string; // string for form input
+  quantity: string;     // string for form input
+  pricePerUnit?: string; // PACK only — prix par unité pour cette taille
 }
 
 export interface PackColorLineState {
@@ -72,6 +73,7 @@ export interface AvailableColor {
 export interface AvailableSize {
   id: string;
   name: string;
+  categoryIds?: string[]; // sizes linked to specific categories
 }
 
 interface Props {
@@ -89,10 +91,22 @@ interface Props {
 // ─────────────────────────────────────────────
 
 export function computeTotalPrice(v: VariantState): number | null {
-  const unit = parseFloat(v.unitPrice);
-  if (isNaN(unit) || unit <= 0) return null;
-  // Le prix est toujours le prix total (unitaire ou du paquet entier)
-  return unit;
+  if (v.saleType === "UNIT") {
+    const unit = parseFloat(v.unitPrice);
+    return (isNaN(unit) || unit <= 0) ? null : unit;
+  }
+  // PACK: Σ(qty_i × pricePerUnit_i) × packQuantity
+  const packQty = parseInt(v.packQuantity);
+  if (isNaN(packQty) || packQty <= 0) return null;
+  if (v.sizeEntries.length === 0) return null;
+  let sum = 0;
+  for (const se of v.sizeEntries) {
+    const qty = parseInt(se.quantity);
+    const ppu = parseFloat(se.pricePerUnit ?? "");
+    if (isNaN(qty) || qty <= 0 || isNaN(ppu) || ppu <= 0) return null;
+    sum += qty * ppu;
+  }
+  return sum > 0 ? sum * packQty : null;
 }
 
 export function computeFinalPrice(v: VariantState): number | null {
@@ -110,6 +124,42 @@ export function computeFinalPrice(v: VariantState): number | null {
 // ─────────────────────────────────────────────
 
 export function uid() { return Math.random().toString(36).slice(2, 9); }
+
+// ─────────────────────────────────────────────
+// Duplicate detection (saleType + color composition + sizes/quantities)
+// ─────────────────────────────────────────────
+function buildVariantDuplicateKey(v: VariantState): string {
+  const sizeKey = [...v.sizeEntries]
+    .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
+    .map((s) => `${s.sizeId}:${s.quantity}`)
+    .join(",");
+
+  if (v.saleType === "UNIT") {
+    const subColorKey = v.subColors.map((sc) => sc.colorName).join(",");
+    return `UNIT::${v.colorId}::${subColorKey}::${sizeKey}`;
+  }
+  // PACK: sort each line's colors, then sort lines — also include packQuantity
+  const linesKey = v.packColorLines
+    .map((line) => line.colors.map((c) => c.colorId).sort().join("+"))
+    .sort()
+    .join("|");
+  return `PACK::${v.packQuantity}::${linesKey}::${sizeKey}`;
+}
+
+function findDuplicateVariantTempIds(variants: VariantState[]): Set<string> {
+  const seen = new Map<string, string>(); // key → first tempId
+  const duplicates = new Set<string>();
+  for (const v of variants) {
+    const key = buildVariantDuplicateKey(v);
+    if (seen.has(key)) {
+      duplicates.add(v.tempId);
+      duplicates.add(seen.get(key)!);
+    } else {
+      seen.set(key, v.tempId);
+    }
+  }
+  return duplicates;
+}
 
 /** Unique key for a color+sub-colors combination. Variants sharing this key share images.
  *  Order matters: "Doré/Rouge" ≠ "Rouge/Doré". The first color is the main color (colorId),
@@ -677,26 +727,6 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
   );
 }
 
-// ─────────────────────────────────────────────
-// Validation: find duplicate variant keys
-// ─────────────────────────────────────────────
-function findInvalidVariantTempIds(variants: VariantState[]): Set<string> {
-  const invalid = new Set<string>();
-  // Duplicate UNIT per color group (colorId + sub-colors)
-  const unitSeen = new Map<string, string>();
-  for (const v of variants) {
-    if (v.saleType === "UNIT") {
-      const gk = variantGroupKeyFromState(v);
-      if (unitSeen.has(gk)) {
-        invalid.add(v.tempId);
-        invalid.add(unitSeen.get(gk)!);
-      } else {
-        unitSeen.set(gk, v.tempId);
-      }
-    }
-  }
-  return invalid;
-}
 
 // ─────────────────────────────────────────────
 // ImageGalleryModal — galerie plein écran par couleur
@@ -1187,6 +1217,9 @@ export default function ColorVariantManager({
   // ── Bulk edit state ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEdit, setBulkEdit]       = useState<BulkEditState>(defaultBulkEdit());
+
+  // ── Quick-fill state (PACK size columns) ───────────────────────────────────
+  const [bulkFillValues, setBulkFillValues] = useState<Record<string, { qty: string; price: string }>>({});
   const selectAllRef                  = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1197,9 +1230,9 @@ export default function ColorVariantManager({
     }
   }, [selectedIds, variants.length]);
 
-  const totalPhotos    = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
-  const invalidTempIds = findInvalidVariantTempIds(variants);
-  const showBulkRow    = selectedIds.size > 0;
+  const totalPhotos   = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
+  const showBulkRow   = selectedIds.size > 0;
+  const duplicateTempIds = findDuplicateVariantTempIds(variants);
 
   // ── Quick create color ─────────────────────────────────────────────────────
   async function handlePatternUpload(file: File) {
@@ -1276,6 +1309,8 @@ export default function ColorVariantManager({
   function addSizeEntry(tempId: string) {
     const v = variants.find((x) => x.tempId === tempId);
     if (!v) return;
+    // UNIT: max 1 size
+    if (v.saleType === "UNIT" && v.sizeEntries.length >= 1) return;
     const usedIds = new Set(v.sizeEntries.map((s) => s.sizeId));
     const available = availableSizes.filter((s) => !usedIds.has(s.id));
     if (available.length === 0) return;
@@ -1299,6 +1334,18 @@ export default function ColorVariantManager({
     updateVariant(variantTempId, {
       sizeEntries: v.sizeEntries.filter((s) => s.tempId !== sizeTempId),
     });
+  }
+
+  function bulkFillQty(variantTempId: string, qty: string) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v || !qty.trim()) return;
+    updateVariant(variantTempId, { sizeEntries: v.sizeEntries.map((s) => ({ ...s, quantity: qty })) });
+  }
+
+  function bulkFillPrice(variantTempId: string, price: string) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v || !price.trim()) return;
+    updateVariant(variantTempId, { sizeEntries: v.sizeEntries.map((s) => ({ ...s, pricePerUnit: price })) });
   }
 
   // ── Pack color line management ────────────────────────────────────────────
@@ -1344,46 +1391,29 @@ export default function ColorVariantManager({
     setBulkEdit(defaultBulkEdit());
   }
 
-  // ── Group UNIT variants by color composition ──────────────────────────────
-  const { unitGroups, packVariants } = useMemo(() => {
-    const groups: { key: string; colorName: string; colorHex: string; variants: { variant: VariantState; idx: number }[] }[] = [];
-    const keyIndex = new Map<string, number>();
-    const packs: { variant: VariantState; idx: number }[] = [];
+  // ── Sort UNIT variants so same-color compositions appear adjacent ──────────
+  // Stable sort: variants with same groupKey are grouped together, preserving
+  // their relative creation order. PACK variants are kept at the end.
+  const { sortedUnitVariants, packVariants } = useMemo(() => {
+    const firstSeenByKey = new Map<string, number>();
     for (let i = 0; i < variants.length; i++) {
       const v = variants[i];
-      if (v.saleType === "PACK") {
-        packs.push({ variant: v, idx: i });
-        continue;
-      }
-      const key = variantGroupKeyFromState(v);
-      const existingIdx = keyIndex.get(key);
-      if (existingIdx !== undefined) {
-        groups[existingIdx].variants.push({ variant: v, idx: i });
-      } else {
-        keyIndex.set(key, groups.length);
-        const fullName = [v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ");
-        groups.push({ key, colorName: fullName || "Sans couleur", colorHex: v.colorHex, variants: [{ variant: v, idx: i }] });
-      }
+      if (v.saleType !== "UNIT") continue;
+      const gk = variantGroupKeyFromState(v);
+      if (!firstSeenByKey.has(gk)) firstSeenByKey.set(gk, i);
     }
-    return { unitGroups: groups, packVariants: packs };
+    const unitVars = variants
+      .map((v, i) => ({ v, i }))
+      .filter(({ v }) => v.saleType === "UNIT")
+      .sort((a, b) => {
+        const fsA = firstSeenByKey.get(variantGroupKeyFromState(a.v))!;
+        const fsB = firstSeenByKey.get(variantGroupKeyFromState(b.v))!;
+        return fsA !== fsB ? fsA - fsB : a.i - b.i;
+      })
+      .map(({ v }) => v);
+    const packs = variants.filter((v) => v.saleType === "PACK");
+    return { sortedUnitVariants: unitVars, packVariants: packs };
   }, [variants]);
-
-  async function removeGroup(groupKey: string) {
-    const group = unitGroups.find((g) => g.key === groupKey);
-    if (!group) return;
-    const tempIds = group.variants.map((gv) => gv.variant.tempId);
-    const ok = await confirmDialog({ title: "Supprimer le groupe ?", message: `Supprimer toutes les variantes de « ${group.colorName} » (${tempIds.length}) ?`, confirmLabel: "Supprimer", type: "danger" });
-    if (!ok) return;
-    const idSet = new Set(tempIds);
-    let newVariants = variants.filter((v) => !idSet.has(v.tempId));
-    if (newVariants.length > 0 && !newVariants.some((v) => v.isPrimary)) {
-      newVariants = newVariants.map((v, i) => ({ ...v, isPrimary: i === 0 }));
-    }
-    const next = new Set(selectedIds);
-    for (const id of tempIds) next.delete(id);
-    setSelectedIds(next);
-    onChange(newVariants);
-  }
 
   function toggleExpanded(tempId: string) {
     setExpandedVariants((prev) => {
@@ -1395,55 +1425,124 @@ export default function ColorVariantManager({
 
   // ── Render helper: size entries section ────────────────────────────────────
   function renderSizeEntries(v: VariantState) {
+    const isUnit = v.saleType === "UNIT";
     const usedSizeIds = new Set(v.sizeEntries.map((s) => s.sizeId));
     const remainingSizes = availableSizes.filter((s) => !usedSizeIds.has(s.id));
+    const canAddMore = isUnit ? v.sizeEntries.length === 0 && remainingSizes.length > 0 : remainingSizes.length > 0;
+
     return (
       <div className="space-y-2">
         <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">
-          Tailles & quantités
+          {isUnit ? "Taille" : "Tailles & quantités"}
         </p>
         {v.sizeEntries.length === 0 ? (
           <p className="text-xs text-[#9CA3AF] italic font-[family-name:var(--font-roboto)]">Aucune taille sélectionnée</p>
+        ) : isUnit ? (
+          // UNIT: single size, no quantity input
+          <div>
+            {v.sizeEntries.slice(0, 1).map((se) => {
+              const sizeOptions = [
+                { value: se.sizeId, label: se.sizeName },
+                ...remainingSizes.map((s) => ({ value: s.id, label: s.name })),
+              ];
+              return (
+                <div key={se.tempId} className="flex items-center gap-2">
+                  <CustomSelect
+                    options={sizeOptions}
+                    value={se.sizeId}
+                    onChange={(val) => {
+                      const sz = availableSizes.find((s) => s.id === val);
+                      if (sz) updateSizeEntry(v.tempId, se.tempId, { sizeId: sz.id, sizeName: sz.name });
+                    }}
+                    size="sm"
+                    className="flex-1"
+                  />
+                  <button type="button" onClick={() => removeSizeEntry(v.tempId, se.tempId)}
+                    className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors" title="Retirer">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         ) : (
+          // PACK: size + quantity + pricePerUnit
           <div className="space-y-1.5">
-            {v.sizeEntries.map((se) => (
-              <div key={se.tempId} className="flex items-center gap-2">
-                <select
-                  value={se.sizeId}
-                  onChange={(e) => {
-                    const sz = availableSizes.find((s) => s.id === e.target.value);
-                    if (sz) updateSizeEntry(v.tempId, se.tempId, { sizeId: sz.id, sizeName: sz.name });
-                  }}
-                  className="flex-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
-                >
-                  <option value={se.sizeId}>{se.sizeName}</option>
-                  {remainingSizes.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-                <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">×</span>
-                <input
-                  type="number" min="1" step="1" value={se.quantity} placeholder="1"
-                  onChange={(e) => updateSizeEntry(v.tempId, se.tempId, { quantity: e.target.value })}
-                  className="w-16 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
-                />
-                <button type="button" onClick={() => removeSizeEntry(v.tempId, se.tempId)}
-                  className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors" title="Retirer">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            ))}
+            {/* Column headers — Qté & Prix/u are quick-fill inputs: type a value + Enter to fill the whole column */}
+            <div className="grid grid-cols-[1fr_60px_72px_28px] gap-1.5 items-center">
+              <span className="text-[9px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide">Taille</span>
+              <input
+                type="number" min="1" step="1"
+                value={bulkFillValues[v.tempId]?.qty ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setBulkFillValues((prev) => ({ ...prev, [v.tempId]: { qty: val, price: prev[v.tempId]?.price ?? "" } }));
+                  bulkFillQty(v.tempId, val);
+                }}
+                placeholder="Qté ↓"
+                title="Rempli automatiquement toutes les lignes"
+                className="border border-dashed border-[#D1D5DB] bg-[#F7F7F8] px-1.5 py-0.5 text-[10px] text-right rounded focus:outline-none focus:border-[#9CA3AF] w-full font-[family-name:var(--font-roboto)]"
+              />
+              <input
+                type="number" min="0" step="0.01"
+                value={bulkFillValues[v.tempId]?.price ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setBulkFillValues((prev) => ({ ...prev, [v.tempId]: { qty: prev[v.tempId]?.qty ?? "", price: val } }));
+                  bulkFillPrice(v.tempId, val);
+                }}
+                placeholder="Prix ↓"
+                title="Rempli automatiquement toutes les lignes"
+                className="border border-dashed border-[#D1D5DB] bg-[#F7F7F8] px-1.5 py-0.5 text-[10px] text-right rounded focus:outline-none focus:border-[#9CA3AF] w-full font-[family-name:var(--font-roboto)]"
+              />
+              <span />
+            </div>
+            {v.sizeEntries.map((se) => {
+              const sizeOptions = [
+                { value: se.sizeId, label: se.sizeName },
+                ...remainingSizes.map((s) => ({ value: s.id, label: s.name })),
+              ];
+              return (
+                <div key={se.tempId} className="grid grid-cols-[1fr_60px_72px_28px] gap-1.5 items-center">
+                  <CustomSelect
+                    options={sizeOptions}
+                    value={se.sizeId}
+                    onChange={(val) => {
+                      const sz = availableSizes.find((s) => s.id === val);
+                      if (sz) updateSizeEntry(v.tempId, se.tempId, { sizeId: sz.id, sizeName: sz.name });
+                    }}
+                    size="sm"
+                  />
+                  <input
+                    type="number" min="1" step="1" value={se.quantity} placeholder="1"
+                    onChange={(e) => updateSizeEntry(v.tempId, se.tempId, { quantity: e.target.value })}
+                    className="border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)] w-full"
+                  />
+                  <input
+                    type="number" min="0" step="0.01" value={se.pricePerUnit ?? ""} placeholder="0.00"
+                    onChange={(e) => updateSizeEntry(v.tempId, se.tempId, { pricePerUnit: e.target.value })}
+                    className="border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)] w-full"
+                  />
+                  <button type="button" onClick={() => removeSizeEntry(v.tempId, se.tempId)}
+                    className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors flex items-center justify-center" title="Retirer">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
-        {remainingSizes.length > 0 && (
+        {canAddMore && (
           <button type="button" onClick={() => addSizeEntry(v.tempId)}
             className="text-xs text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] flex items-center gap-1 transition-colors">
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
-            Ajouter une taille
+            {isUnit ? "Ajouter une taille" : "Ajouter une taille"}
           </button>
         )}
         {availableSizes.length === 0 && (
@@ -1455,24 +1554,25 @@ export default function ColorVariantManager({
     );
   }
 
-  // ── Render helper: UNIT variant card ──────────────────────────────────────
+  // ── Render helper: UNIT variant card (standalone, one card per variant) ────
   function renderUnitVariantRow(v: VariantState) {
-    const isExpanded = expandedVariants.has(v.tempId);
-    const isInvalid = invalidTempIds.has(v.tempId);
-    const isSelected = selectedIds.has(v.tempId);
+    const isExpanded  = expandedVariants.has(v.tempId);
+    const isSelected  = selectedIds.has(v.tempId);
+    const isDuplicate = duplicateTempIds.has(v.tempId);
     const totalPrice = computeTotalPrice(v);
     const finalPrice = computeFinalPrice(v);
     const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
     const sizeSummary = v.sizeEntries.length > 0
       ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")
       : "—";
+    const colorDisplayName = [v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ") || "Sans couleur";
 
     return (
-      <div key={v.tempId}>
+      <div key={v.tempId} className={`rounded-xl border-2 overflow-hidden bg-white ${isDuplicate ? "border-[#EF4444]" : isSelected ? "border-[#22C55E]" : "border-[#D5D5D5]"}`}>
         {/* Main row */}
         <div
-          className={`flex flex-wrap items-center gap-2 px-4 py-2.5 transition-colors cursor-pointer ${
-            isSelected ? "bg-[#F0FDF4]" : isInvalid ? "bg-[#FEF2F2]" : "hover:bg-[#F7F7F8]"
+          className={`flex flex-wrap items-center gap-2 px-4 py-3 cursor-pointer transition-colors ${
+            isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "hover:bg-[#F7F7F8]"
           }`}
           onClick={() => toggleExpanded(v.tempId)}
         >
@@ -1487,12 +1587,25 @@ export default function ColorVariantManager({
 
           <span className="badge badge-info text-[10px]">Unité</span>
 
+          {/* Color swatch + name */}
+          <ColorSwatch
+            hex={v.colorHex}
+            patternImage={availableColors.find((c) => c.id === v.colorId)?.patternImage ?? null}
+            subColors={v.subColors.length > 0
+              ? [{ hex: v.colorHex, patternImage: null }, ...v.subColors.map((sc) => ({ hex: sc.colorHex, patternImage: null }))]
+              : undefined}
+            size={22} rounded="full" border
+          />
+          <span className="text-xs font-medium text-[#1A1A1A] font-[family-name:var(--font-poppins)] truncate max-w-[140px]" title={colorDisplayName}>
+            {colorDisplayName}
+          </span>
+
           {/* Size summary */}
-          <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] truncate max-w-[200px]" title={sizeSummary}>
+          <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] truncate max-w-[180px]" title={sizeSummary}>
             {sizeSummary}
           </span>
 
-          {/* Price */}
+          {/* Price + stock */}
           <div className="ml-auto flex items-center gap-3">
             <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
               {v.unitPrice ? `${v.unitPrice}€` : "—"}
@@ -1504,7 +1617,6 @@ export default function ColorVariantManager({
             )}
             <span className="text-[10px] text-[#9CA3AF]">stock: {v.stock || "0"}</span>
 
-            {/* Expand/collapse */}
             <svg className={`w-4 h-4 text-[#9CA3AF] transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
@@ -1523,6 +1635,44 @@ export default function ColorVariantManager({
         {/* Expanded details */}
         {isExpanded && (
           <div className="px-4 py-3 border-t border-[#F0F0F0] bg-[#FAFAFA] space-y-4" onClick={(e) => e.stopPropagation()}>
+            {/* Type switcher */}
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)] mb-2">Type de vente</p>
+              <div className="flex gap-2">
+                <button type="button"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-md bg-[#3B82F6] text-white font-[family-name:var(--font-roboto)]">
+                  Unité
+                </button>
+                <button type="button"
+                  onClick={() => updateVariant(v.tempId, {
+                    saleType: "PACK",
+                    colorId: "",
+                    colorName: "",
+                    colorHex: "#9CA3AF",
+                    subColors: [],
+                    packColorLines: [{ tempId: uid(), colors: [] }],
+                  })}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-md border border-[#D5D5D5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
+                  Pack
+                </button>
+              </div>
+            </div>
+
+            {/* Color selector */}
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)] mb-2">Couleur</p>
+              <MultiColorSelect
+                selected={v.colorId ? [
+                  { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
+                  ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
+                ] : []}
+                options={availableColors}
+                onChange={(colors) => handleMultiColorChange(new Set([v.tempId]), colors)}
+                existingVariants={variants}
+                onCreateColor={onQuickCreateColor}
+              />
+            </div>
+
             {/* Pricing row */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
@@ -1569,8 +1719,9 @@ export default function ColorVariantManager({
 
   // ── Render helper: PACK variant card ──────────────────────────────────────
   function renderPackVariant(v: VariantState) {
-    const isExpanded = expandedVariants.has(v.tempId);
-    const isSelected = selectedIds.has(v.tempId);
+    const isExpanded  = expandedVariants.has(v.tempId);
+    const isSelected  = selectedIds.has(v.tempId);
+    const isDuplicate = duplicateTempIds.has(v.tempId);
     const totalPrice = computeTotalPrice(v);
     const finalPrice = computeFinalPrice(v);
     const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
@@ -1580,13 +1731,21 @@ export default function ColorVariantManager({
     const sizeSummary = v.sizeEntries.length > 0
       ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")
       : "—";
+    // Detect duplicate pack color lines (same colors in same order)
+    const packColorLineKeys = v.packColorLines.map((l) => l.colors.map((c) => c.colorId).join(","));
+    const duplicateLineKeys = new Set<string>();
+    const seenLineKeys = new Set<string>();
+    for (const k of packColorLineKeys) {
+      if (k && seenLineKeys.has(k)) duplicateLineKeys.add(k);
+      if (k) seenLineKeys.add(k);
+    }
 
     return (
-      <div key={v.tempId} className="rounded-xl border-2 border-[#D5D5D5] bg-white overflow-hidden">
+      <div key={v.tempId} className={`rounded-xl border-2 overflow-hidden bg-white ${isDuplicate ? "border-[#EF4444]" : isSelected ? "border-[#22C55E]" : "border-[#D5D5D5]"}`}>
         {/* Header */}
         <div
           className={`flex flex-wrap items-center gap-2 px-4 py-3 cursor-pointer transition-colors ${
-            isSelected ? "bg-[#F0FDF4]" : "bg-[#F7F7F8] hover:bg-[#EFEFEF]"
+            isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "bg-[#F7F7F8] hover:bg-[#EFEFEF]"
           }`}
           onClick={() => toggleExpanded(v.tempId)}
         >
@@ -1611,13 +1770,19 @@ export default function ColorVariantManager({
           </span>
 
           <div className="ml-auto flex items-center gap-3">
-            <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-              {v.unitPrice ? `${v.unitPrice}€` : "—"}
-            </span>
-            {finalPrice !== null && hasDiscount && (
-              <span className="text-xs font-semibold text-emerald-600 font-[family-name:var(--font-poppins)]">
-                {finalPrice.toFixed(2)}€
-              </span>
+            {totalPrice !== null ? (
+              <div className="text-right">
+                {hasDiscount && finalPrice !== null ? (
+                  <>
+                    <span className="text-xs text-[#9CA3AF] line-through font-[family-name:var(--font-roboto)]">{totalPrice.toFixed(2)}€</span>
+                    <span className="ml-1.5 text-xs font-semibold text-emerald-600 font-[family-name:var(--font-poppins)]">{finalPrice.toFixed(2)}€</span>
+                  </>
+                ) : (
+                  <span className="text-xs font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">{totalPrice.toFixed(2)}€</span>
+                )}
+              </div>
+            ) : (
+              <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">—</span>
             )}
             <span className="text-[10px] text-[#9CA3AF]">stock: {v.stock || "0"}</span>
 
@@ -1639,34 +1804,69 @@ export default function ColorVariantManager({
         {/* Expanded body */}
         {isExpanded && (
           <div className="px-4 py-4 border-t border-[#E5E5E5] space-y-4" onClick={(e) => e.stopPropagation()}>
+            {/* Type switcher */}
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)] mb-2">Type de vente</p>
+              <div className="flex gap-2">
+                <button type="button"
+                  onClick={() => updateVariant(v.tempId, {
+                    saleType: "UNIT",
+                    packColorLines: [],
+                    packQuantity: "",
+                  })}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-md border border-[#D5D5D5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
+                  Unité
+                </button>
+                <button type="button"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-md bg-[#7C3AED] text-white font-[family-name:var(--font-roboto)]">
+                  Pack
+                </button>
+              </div>
+            </div>
+
             {/* Color lines */}
             <div className="space-y-2">
               <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">
                 Lignes de couleur
               </p>
-              {v.packColorLines.map((line, lineIdx) => (
-                <div key={line.tempId} className="flex items-center gap-2 p-2 rounded-lg border border-[#E5E5E5] bg-[#FAFAFA]">
-                  <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] shrink-0 w-5">
-                    {lineIdx + 1}.
-                  </span>
-                  <div className="flex-1">
-                    <MultiColorSelect
-                      selected={line.colors}
-                      options={availableColors}
-                      onChange={(colors) => updatePackColorLine(v.tempId, line.tempId, colors)}
-                      onCreateColor={onQuickCreateColor}
-                    />
+              {v.packColorLines.map((line, lineIdx) => {
+                const lineKey = line.colors.map((c) => c.colorId).join(",");
+                const isDupLine = lineKey !== "" && duplicateLineKeys.has(lineKey);
+                return (
+                  <div key={line.tempId} className={`flex items-center gap-2 p-2 rounded-lg border ${isDupLine ? "border-[#EF4444] bg-[#FEF2F2]" : "border-[#E5E5E5] bg-[#FAFAFA]"}`}>
+                    <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] shrink-0 w-5">
+                      {lineIdx + 1}.
+                    </span>
+                    <div className="flex-1">
+                      <MultiColorSelect
+                        selected={line.colors}
+                        options={availableColors}
+                        onChange={(colors) => updatePackColorLine(v.tempId, line.tempId, colors)}
+                        onCreateColor={onQuickCreateColor}
+                      />
+                    </div>
+                    {isDupLine && (
+                      <span className="text-[10px] text-[#EF4444] font-semibold font-[family-name:var(--font-roboto)] shrink-0">Doublon</span>
+                    )}
+                    {v.packColorLines.length > 1 && (
+                      <button type="button" onClick={() => removePackColorLine(v.tempId, line.tempId)}
+                        className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors" title="Retirer">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
-                  {v.packColorLines.length > 1 && (
-                    <button type="button" onClick={() => removePackColorLine(v.tempId, line.tempId)}
-                      className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors" title="Retirer">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
+              {duplicateLineKeys.size > 0 && (
+                <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)] flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  Doublon : deux lignes ont la même composition de couleurs dans le même ordre.
+                </p>
+              )}
               <button type="button" onClick={() => addPackColorLine(v.tempId)}
                 className="text-xs text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] flex items-center gap-1 transition-colors">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1676,21 +1876,28 @@ export default function ColorVariantManager({
               </button>
             </div>
 
-            {/* Shared sizes */}
+            {/* Shared sizes with per-size pricing */}
             {renderSizeEntries(v)}
 
-            {/* Pricing */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {/* Computed total display */}
+            {totalPrice !== null && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg">
+                <svg className="w-3.5 h-3.5 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-xs font-[family-name:var(--font-roboto)] text-[#166534]">
+                  Prix total paquet calculé : <strong>{totalPrice.toFixed(2)} €</strong>
+                  {v.packQuantity && <span className="text-[11px] text-[#22C55E] ml-1">(× {v.packQuantity} paquets = {totalPrice.toFixed(2)} € / paquet)</span>}
+                </span>
+              </div>
+            )}
+
+            {/* Pricing: packQuantity, stock, weight, discount — no global price input */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Qté/paquet</label>
-                <input type="number" min="1" step="1" value={v.packQuantity} placeholder="12"
+                <input type="number" min="1" step="1" value={v.packQuantity} placeholder="1"
                   onChange={(e) => updateVariant(v.tempId, { packQuantity: e.target.value })}
-                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Prix paquet (€)</label>
-                <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
-                  onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
                   className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
               </div>
               <div>
@@ -1806,101 +2013,31 @@ export default function ColorVariantManager({
             </div>
           </div>
 
-          {/* ── UNIT grouped cards ── */}
-          {unitGroups.map((group) => {
-            const firstV = group.variants[0].variant;
-            const cimg = colorImages.find((ci) => ci.groupKey === group.key);
-
-            return (
-              <div key={group.key} className="rounded-xl border-2 border-[#D5D5D5] bg-white overflow-hidden">
-                {/* Color header */}
-                <div className="flex items-center gap-3 px-4 py-3 border-b border-[#E5E5E5] bg-[#F7F7F8]">
-                  <ColorSwatch
-                    hex={firstV.colorHex}
-                    patternImage={availableColors.find((c) => c.id === firstV.colorId)?.patternImage ?? null}
-                    subColors={firstV.subColors.length > 0
-                      ? [{ hex: firstV.colorHex, patternImage: null }, ...firstV.subColors.map((sc) => ({ hex: sc.colorHex, patternImage: null }))]
-                      : undefined}
-                    size={28} rounded="full" border
-                  />
-                  <span className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">
-                    {group.colorName}
-                  </span>
-
-                  {cimg?.imagePreviews[0] && (
-                    <button type="button"
-                      onClick={() => setGalleryState({ images: cimg.imagePreviews, colorName: group.colorName, colorHex: group.colorHex })}
-                      className="relative w-8 h-8 rounded-lg overflow-hidden border border-[#E5E5E5] hover:border-[#1A1A1A] transition-all shrink-0"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={cimg.imagePreviews[0]} alt={group.colorName} className="w-full h-full object-cover" />
-                      {cimg.imagePreviews.length > 1 && (
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                          <span className="text-white text-[9px] font-bold">+{cimg.imagePreviews.length}</span>
-                        </div>
-                      )}
-                    </button>
-                  )}
-
-                  <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] ml-auto">
-                    {group.variants.length} variante{group.variants.length > 1 ? "s" : ""}
-                  </span>
-
-                  {variants.length > group.variants.length && (
-                    <button type="button" onClick={() => removeGroup(group.key)}
-                      title="Supprimer ce groupe"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-[#EF4444]/10 hover:text-[#EF4444] transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-
-                {/* Variant rows */}
-                <div className="divide-y divide-[#F0F0F0]">
-                  {group.variants.map(({ variant: v }) => renderUnitVariantRow(v))}
-                </div>
-
-                {/* Color select */}
-                <div className="px-4 py-3 border-t border-[#E5E5E5] bg-[#FAFAFA]">
-                  <MultiColorSelect
-                    selected={firstV.colorId ? [
-                      { colorId: firstV.colorId, colorName: firstV.colorName, colorHex: firstV.colorHex },
-                      ...firstV.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
-                    ] : []}
-                    options={availableColors}
-                    onChange={(colors) => handleMultiColorChange(new Set(group.variants.map((gv) => gv.variant.tempId)), colors)}
-                    existingVariants={variants}
-                    onCreateColor={onQuickCreateColor}
-                  />
-                </div>
-              </div>
-            );
-          })}
+          {/* ── UNIT variants (1 card per variant, grouped by color adjacency) ── */}
+          {sortedUnitVariants.map((v) => renderUnitVariantRow(v))}
 
           {/* ── PACK variants ── */}
           {packVariants.length > 0 && (
             <>
-              {unitGroups.length > 0 && (
+              {sortedUnitVariants.length > 0 && (
                 <div className="flex items-center gap-3 pt-2">
                   <div className="flex-1 border-t border-[#E5E5E5]" />
                   <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Paquets</span>
                   <div className="flex-1 border-t border-[#E5E5E5]" />
                 </div>
               )}
-              {packVariants.map(({ variant: v }) => renderPackVariant(v))}
+              {packVariants.map((v) => renderPackVariant(v))}
             </>
           )}
 
-          {/* Validation warning */}
-          {invalidTempIds.size > 0 && (
+          {/* Duplicate warning */}
+          {duplicateTempIds.size > 0 && (
             <div className="px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg flex items-center gap-2">
               <svg className="w-4 h-4 text-[#EF4444] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">
-                Doublon détecté : une couleur ne peut avoir qu&apos;une variante UNITÉ.
+                Doublon détecté : même type, même composition couleur et mêmes tailles/quantités.
               </p>
             </div>
           )}

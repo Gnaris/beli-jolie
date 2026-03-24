@@ -113,7 +113,7 @@ Product
   │     ├── unitPrice, weight, stock, discountType, discountValue, packQuantity, pfsVariantId?
   │     ├── colorId: String? (UNIT = main color, PACK = null — colors in packColorLines)
   │     ├── ProductColorSubColor[]  (UNIT: optional sub-colors, e.g. Doré → Rouge, Noir)
-  │     ├── VariantSize[]           (sizes with quantities, e.g. XS×2, S×2, M×2)
+  │     ├── VariantSize[]           (sizes with qty + optional pricePerUnit, e.g. XS×2 @5€, S×2 @5€)
   │     ├── PackColorLine[]         (PACK only: color compositions per line)
   │     │     └── PackColorLineColor[]  (ordered colors in each line)
   │     └── ProductColorImage[]     (max 5 per variant, linked via productColorId)
@@ -127,7 +127,8 @@ Product
 Size (admin-managed library)
   ├── name: String @unique (e.g. "XS", "S", "17", "Taille unique")
   ├── position: Int (display order)
-  └── SizeCategoryLink[] (M2M: which categories use this size)
+  ├── SizeCategoryLink[] (M2M: which categories use this size)
+  └── SizePfsMapping[] (M2M: which PFS sizes this Boutique size maps to)
 ```
 - `Color` model has optional `patternImage` (leopard, camouflage, etc.) — takes priority over hex. Also has `pfsColorRef` (PFS color reference like "GOLDEN")
 - `Category` model has `pfsCategoryId` (PFS category ID for reverse sync)
@@ -138,10 +139,12 @@ Size (admin-managed library)
 - `Product` has `pfsSyncStatus` (null|"pending"|"synced"|"failed"), `pfsSyncError` (error message), `pfsSyncedAt` (last successful sync)
 - `ProductStatus` enum: `OFFLINE` | `ONLINE` | `ARCHIVED` | `SYNCING` (archived = invisible but preserved for order history; SYNCING = PFS sync in progress, becomes ONLINE after images downloaded)
 - Prices: `unitPrice` IS the total price for both UNIT and PACK (no multiplication). Discount applied on top.
+  - **UNIT**: `unitPrice` = the unit price entered directly by the admin.
+  - **PACK**: `unitPrice` is computed and stored as `Σ(size.quantity × size.pricePerUnit) × packQuantity`. Never set `unitPrice` manually on PACK — always recompute via `computeTotalPrice(v)` from `ColorVariantManager.tsx`.
 - **Variant types**:
-  - **UNIT**: one color composition (`colorId` + optional `subColors`), sizes with quantities (e.g. XS×2, S×2), one price/weight/stock. Images linked to color composition via `groupKey`.
-  - **PACK**: multiple color lines (`PackColorLine[]`), all sharing the same sizes/quantities. `colorId` is null. `packQuantity` = items per pack. No images for multi-color packs.
-- **Sizes**: managed via `Size` model (admin CRUD at `/admin/tailles`). Sizes are linked to categories via `SizeCategoryLink` M2M. Each variant has `VariantSize[]` entries with `sizeId` + `quantity`. No "choose a size" on the public site — sizes describe what's inside the variant.
+  - **UNIT**: one color composition (`colorId` + optional `subColors`), **max 1 size** (describes contents, not a selector), one price/weight/stock. Images linked to color composition via `groupKey`.
+  - **PACK**: multiple color lines (`PackColorLine[]`), all sharing the same sizes. `colorId` is null. `packQuantity` ≥ 1 (minimum is 1 — a single pack containing multiple sizes is valid). Each `VariantSize` has `quantity` + `pricePerUnit` (PACK only). No images for multi-color packs.
+- **Sizes**: managed via `Size` model (admin CRUD at `/admin/tailles`). Sizes are linked to categories via `SizeCategoryLink` M2M. Each variant has `VariantSize[]` entries with `sizeId` + `quantity` (+ `pricePerUnit` for PACK). No "choose a size" on the public site — sizes describe what's inside the variant.
 - **Multi-color variants**: two variants can share the same main `colorId` (e.g. "Doré/Argenté/Or Rose" and "Doré/Argenté/Or Rose/Vert/Jaune"). They are distinguished by their sub-colors via a `groupKey` = `colorId::orderedSubColorNames` (**order matters**: "Doré/Rouge" ≠ "Rouge/Doré"). First selected color = main, rest = sub-colors in selection order. `ProductColorImage.productColorId` links images to the specific variant. The admin form's `ColorImageState` uses `groupKey` (not `colorId` or `variantTempId`) — variants with the same color+sub-colors selection in the same order share the same image group. Helper: `variantGroupKeyFromState()` exported from `ColorVariantManager.tsx`.
 
 ### Order Data Model
@@ -193,7 +196,8 @@ All image uploads (manual and bulk import) pass through `processProductImage()`:
 - **`Season`** — saisons/collections (`name` unique, `pfsSeasonRef` unique optional); admin CRUD at `/admin/saisons`
 - **`Size`** — tailles réutilisables (`name` unique, `position` for ordering); admin CRUD at `/admin/tailles`
 - **`SizeCategoryLink`** — M2M linking sizes to categories; `@@unique([sizeId, categoryId])`
-- **`VariantSize`** — taille × quantité par variant (`productColorId`, `sizeId`, `quantity`); `@@unique([productColorId, sizeId])`
+- **`SizePfsMapping`** — M2M linking Boutique sizes to PFS size references; `@@unique([sizeId, pfsSizeRef])`; one Boutique size can map to multiple PFS sizes and vice-versa
+- **`VariantSize`** — taille × quantité par variant (`productColorId`, `sizeId`, `quantity`, `pricePerUnit Float?`); `pricePerUnit` is PACK-only (null for UNIT); `@@unique([productColorId, sizeId])`
 - **`PackColorLine`** — ligne de couleur dans un PACK (`productColorId`, `position`); contains `PackColorLineColor[]`
 - **`PackColorLineColor`** — couleur ordonnée dans une ligne de pack (`packColorLineId`, `colorId`, `position`)
 
@@ -248,7 +252,7 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Cart modal**: `CartModal.tsx` — admin can peek at a client's current cart
 - **Reusable UI**: `ConfirmDialog.tsx` (context-based — use `useConfirm()` hook, NOT default import), `CustomSelect.tsx` (searchable select), `Toast.tsx` (context-based — use `useToast()` hook, NOT default import), `ColorSwatch.tsx` (single/multi-color swatch with patternImage support — renders camembert pie chart for multi-color variants)
 - **Import history**: `ImportHistoryClient.tsx` — view past import jobs at `/admin/produits/importer/historique`
-- **PFS Sync**: `/admin/pfs` — synchronize products from Paris Fashion Shop marketplace
+- **PFS Sync**: `/admin/pfs` — synchronize products from Paris Fashion Shop marketplace. `components/pfs/PfsMappingTab.tsx` is a client wrapper that lazy-fetches `GET /api/admin/pfs-sync/mapping-data` and renders `PfsMappingClient` for the 5-tab mapping UI.
 - **Admin email compose**: `ComposeEmailDrawer.tsx` — Gmail-style drawer (bottom-right, minimizable) with rich text editor, file attachments, client autocomplete. Context via `EmailComposeProvider` + `useEmailCompose()`. Trigger from anywhere via `SendEmailButton` component. API: `POST /api/admin/emails/send`, `GET /api/admin/emails` (history), `GET /api/admin/users/search` (autocomplete)
 
 ### PFS Sync System (`lib/pfs-auth.ts`, `lib/pfs-api.ts`, `lib/pfs-sync.ts`)
@@ -257,14 +261,14 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
   - `pfsListProducts(page)` — paginated product list (buggy weight/pieces — use /variants)
   - `pfsCheckReference(ref)` — composition, description, collection, country
   - `pfsGetVariants(id)` — correct weight, packQuantity, total price
-- **Sync processor** (`lib/pfs-sync.ts`): maps PFS → BJ data model, creates/updates products
-  - `findOrCreateColor/Category/Composition` check `PfsMapping` first, then DB, then auto-create
+- **Sync processor** (`lib/pfs-sync.ts`): maps PFS → Boutique data model, creates/updates products
+  - `findOrCreateColor/Category/Composition/Country/Season` check `PfsMapping` first, then DB — return `null` if not found (**no auto-create**). Products with unmapped entities are skipped with an error log. All entities must be pre-mapped via `/admin/pfs/mapping` before syncing.
   - Orphaned mapping cleanup: if a mapping points to a deleted entity, it's auto-removed
   - Downloads images from CDN → WebP with fallback (base ref → versioned ref)
   - Image download: 15s timeout, retry with 3s→6s→12s backoff, min 1KB size check
   - Supports resume via `lastPage` in `PfsSyncJob`
-  - **Prices**: PFS and BJ prices are identical (no markup transformation)
-  - **Reference versioning**: PFS refs end with "VS1"/"VS2" (e.g. "A200VS3") → stripped to base "A200" for BJ
+  - **Prices**: PFS and Boutique prices are identical (no markup transformation)
+  - **Reference versioning**: PFS refs end with "VS1"/"VS2" (e.g. "A200VS3") → stripped to base "A200" for Boutique
   - **Primary color detection**: `detectDefaultColorRef()` matches `DEFAULT` image key to a color variant, or uses `default_color` from checkReference
   - **2-pipeline architecture**: product data creation (batches of 10) runs separately from image downloading (background pool of 15 concurrent tasks)
   - Products created as `SYNCING` status → automatically set to `ONLINE` after images downloaded
@@ -274,21 +278,23 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
   1. `POST /api/admin/pfs-sync/analyze` — SSE streaming dry-run: scans PFS products in parallel (10 pages at a time), detects missing categories/colors/compositions
   2. Admin reviews & edits names/hex/patterns in UI → `POST /api/admin/pfs-sync/create-entities` creates them + saves `PfsMapping`
   3. `POST /api/admin/pfs-sync` — actual sync starts (entities already exist)
-- **API routes**: `POST /api/admin/pfs-sync` (start), `GET /api/admin/pfs-sync` (status), `POST /api/admin/pfs-sync/resume` (resume failed), `POST /api/admin/pfs-sync/analyze` (dry-run SSE), `POST /api/admin/pfs-sync/create-entities` (create validated entities), `POST /api/admin/pfs-sync/retry` (retry failed products by reference), `POST /api/admin/pfs-sync/cancel` (cancel running sync + reset SYNCING products to OFFLINE)
+- **API routes**: `POST /api/admin/pfs-sync` (start), `GET /api/admin/pfs-sync` (status), `POST /api/admin/pfs-sync/resume` (resume failed), `POST /api/admin/pfs-sync/analyze` (dry-run SSE), `POST /api/admin/pfs-sync/create-entities` (create validated entities), `POST /api/admin/pfs-sync/retry` (retry failed products by reference), `POST /api/admin/pfs-sync/cancel` (cancel running sync + reset SYNCING products to OFFLINE), `GET /api/admin/pfs-sync/mapping-data` (all BJ entities with PFS refs, for mapping UI), `GET /api/admin/pfs-sync/live-check/[productId]` (live comparison BJ vs PFS for a single product)
+- **Live-check flow** (`GET /api/admin/pfs-sync/live-check/[productId]`): fetches current PFS data via `pfsGetVariants` + `pfsCheckReference`, maps PFS entities to BJ DB entries on-the-fly, computes field-level diffs, returns `{ existing, pfs, differences, hasDifferences }`. Auto-links `Product.pfsProductId` if not yet set.
+- **`applyPfsLiveSync(productId, selections, pfsData, bjData)`** (`app/actions/admin/pfs-live-sync.ts`): bidirectional per-product sync. `selections` maps each field (name/description/category/compositions/variants) to `"bj" | "pfs" | "add"`. "pfs" → updates BJ DB; "bj" → triggers `syncProductToPfs()` reverse push; variant "add" → creates new `ProductColor` + `VariantSize`. Fires `emitProductEvent` + `revalidateTag("products","default")`.
 - **Dual console UI**: `/admin/pfs` displays two live consoles — product creation logs + image download logs with stats header (completed/active/pending/failed)
-- **DB models**: `PfsSyncJob` tracks progress (dual logs: `productLogs` + `imageLogs` + `imageStats` in `logs` JSON field); `Product.pfsProductId` links to PFS product ID; `PfsMapping` remembers PFS name → BJ entity associations across syncs
-- **Prepare & Review flow** (`lib/pfs-prepare.ts`): 2-step staged import — `PfsPrepareJob` scans PFS products → creates `PfsStagedProduct` entries (status: PREPARING → READY) → admin reviews/edits variants, images, compositions in `/admin/pfs/historique/[id]` → approves → `approveStagedProduct()` creates the real `Product` in DB. Staged products store `variants`, `compositions`, `translations`, `imagesByColor` as JSON. On approve, FK integrity is verified (category + colors re-resolved if deleted between prepare and approve).
+- **DB models**: `PfsSyncJob` tracks progress (dual logs: `productLogs` + `imageLogs` + `imageStats` in `logs` JSON field); `Product.pfsProductId` links to PFS product ID; `PfsMapping` remembers PFS name → Boutique entity associations across syncs
+- **Prepare & Review flow** (`lib/pfs-prepare.ts`): 2-step staged import — `PfsPrepareJob` scans PFS products → creates `PfsStagedProduct` entries (status: PREPARING → READY) → admin reviews/edits variants, images, compositions in `/admin/pfs/historique/[id]` → approves → `approveStagedProduct()` creates the real `Product` in DB. Staged products store `variants`, `compositions`, `translations`, `imagesByColor` as JSON. On approve, FK integrity is verified (category + colors re-resolved if deleted between prepare and approve). **Error persistence**: if approval fails, `PfsStagedProduct.errorMessage` is saved in DB and shown on the card — status stays `READY` for retry.
 
-### PFS Reverse Sync — BJ → PFS (`lib/pfs-api-write.ts`, `lib/pfs-reverse-sync.ts`)
+### PFS Reverse Sync — Boutique → PFS (`lib/pfs-api-write.ts`, `lib/pfs-reverse-sync.ts`)
 - **Full auto**: every `createProduct`, `updateProduct`, `archiveProduct`, `unarchiveProduct`, `bulkUpdateProductStatus`, `updateVariantQuick`, `bulkUpdateVariants` triggers a non-blocking push to PFS via `triggerPfsSync(productId)`
 - **Write API client** (`lib/pfs-api-write.ts`): wraps all PFS write endpoints (create/update product, create/update/delete variants, upload image, update status, AI translations) with retry + backoff
-- **Reverse sync logic** (`lib/pfs-reverse-sync.ts`): loads BJ product → translates name/description via PFS AI (`POST /ai/translations`) → creates or updates on PFS → syncs variants (create/update/delete, `is_active: false` if stock=0) → converts WebP → JPEG and uploads images → syncs status (ONLINE→READY_FOR_SALE, OFFLINE→DRAFT, ARCHIVED→ARCHIVED)
+- **Reverse sync logic** (`lib/pfs-reverse-sync.ts`): loads Boutique product → translates name/description via PFS AI (`POST /ai/translations`) → creates or updates on PFS → syncs variants (create/update/delete, `is_active: false` if stock=0) → converts WebP → JPEG and uploads images → syncs status (ONLINE→READY_FOR_SALE, OFFLINE→DRAFT, ARCHIVED→ARCHIVED)
 - **Non-blocking**: `triggerPfsSync()` is fire-and-forget. Updates `Product.pfsSyncStatus` in DB: `null` (never synced), `"pending"` (in progress), `"synced"` (success), `"failed"` (error with message in `pfsSyncError`)
-- **Prices**: BJ and PFS prices are identical — no markup transformation applied
+- **Prices**: Boutique and PFS prices are identical — no markup transformation applied
 - **Image conversion**: WebP → JPEG via sharp before upload (PFS rejects WebP)
 - **PFS AI translations**: `pfsTranslate(name, description)` calls `POST /ai/translations` — returns fr/en/de/es/it translations. Used automatically during reverse sync for product labels/descriptions sent to PFS.
 - **Entity mapping required**: `Color.pfsColorRef` (PFS color reference like "GOLDEN"), `Category.pfsCategoryId` (PFS category ID), `Composition.pfsCompositionRef` (PFS composition reference like "ACIERINOXYDABLE"). Entities without PFS mapping are skipped.
-- **Entity mapping uniqueness**: each PFS ref can only be linked to ONE BJ entity (enforced in server actions + create-entities endpoint). Mapping UI disables already-used PFS refs.
+- **Entity mapping uniqueness**: each PFS ref can only be linked to ONE Boutique entity (enforced in server actions + create-entities endpoint). Mapping UI disables already-used PFS refs.
 - **Auto-fill mapping on entity creation**: when `POST /api/admin/pfs-sync/create-entities` creates colors/categories/compositions during pre-validation, PFS refs (`pfsColorRef`, `pfsCategoryId`, `pfsCompositionRef`) are stored automatically — no need for manual mapping afterwards.
 - **Variant tracking**: `ProductColor.pfsVariantId` stores the PFS variant ID for updates/deletes. New variants are created on PFS and ID stored back. Variants with stock=0 are set `is_active: false` on PFS.
 - **SKU duplicate constraint (critical)**: PFS auto-generates `sku_suffix = COLOR_SIZE` (e.g. `GOLDEN_TU`, `RED_52`). Multi-color PACK = `COLOR1_COLOR2_SIZE`. If a variant with the same sku_suffix already exists on the product, PFS silently rejects it with HTTP 200 + `resume: {products: 0, errors: 1}` — no error thrown. Always check `pfsVariantId` before attempting to create; if it already exists, PATCH instead of POST.
@@ -296,8 +302,9 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **`size_details_tu` is read-only**: accepted in variant POST body and present in POST response, but NOT stored — always returns `""` via `GET /catalog/products/{id}/variants`. Do not rely on it for syncing.
 - **Genre/family decoupling**: PFS PATCH accepts mismatched `genre` + `family` combinations (e.g. `genre=MAN` + `family` pointing to a WOMAN family) without validation error. Taxonomy is not cross-validated server-side.
 - **PFS attributes API**: `GET /api/admin/pfs-sync/attributes` — fetches available PFS colors/categories/compositions/countries/collections for mapping in admin UI
-- **Mapping admin UI**: `/admin/pfs/mapping` — 5-tab page (Couleurs, Catégories, Compositions, Pays, Saisons) to link BJ entities to PFS equivalents. Already-used refs are disabled in dropdowns.
-- **Server actions for mapping**: `updateColorPfsRef()`, `updateCategoryPfsId()`, `updateCompositionPfsRef()`, `updateManufacturingCountryPfsRef()`, `updateSeasonPfsRef()` — set PFS references on existing entities (with uniqueness check)
+- **Mapping data API**: `GET /api/admin/pfs-sync/mapping-data` — fetches all Boutique entities (colors, categories, compositions, countries, seasons, sizes with pfsMappings) for the mapping UI
+- **Mapping admin UI**: `/admin/pfs/mapping` — 6-tab page (Couleurs, Catégories, Compositions, Pays, Saisons, **Tailles**) to link Boutique entities to PFS equivalents. Already-used refs are disabled in dropdowns.
+- **Server actions for mapping**: `updateColorPfsRef()`, `updateCategoryPfsId()`, `updateCompositionPfsRef()`, `updateManufacturingCountryPfsRef()`, `updateSeasonPfsRef()`, `toggleSizePfsMapping(sizeId, pfsSizeRef)` — the size action is a toggle (M2M: one Boutique size can map to multiple PFS size refs)
 - **Quick-create with PFS mapping**: `createColorQuick()`, `createCategoryQuick()`, `createCompositionQuick()` accept optional PFS reference params
 
 ### Real-Time Product Updates (SSE)
@@ -361,8 +368,12 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - **Always display the FULL color composition** — whenever showing a color (variants, images, swatches), display ALL colors in the composition (e.g. "Blanc, Rouge, Jaune"), never just the main color name alone. Use `ColorSwatch` with `subColors` segments for multi-color variants. This applies everywhere: PFS review, edit modals, product detail, image grouping headers.
 - **PACK variants have null `colorId`** — colors are in `PackColorLine[]`, not on the variant itself. Always check `colorId` for null before using it for groupKey, image linking, or swatch rendering. The `color` relation is also nullable — always use `pc.color?.name`, `pc.color?.hex`, never `pc.color.name`.
 - **Sizes are NOT a selector** — variants contain sizes as part of their description (e.g. XS×2, S×2). The customer buys the whole variant. There is no "choose a size" flow.
+- **UNIT max 1 size, PACK unlimited sizes** — a UNIT variant accepts at most one `VariantSize` entry (no qty field shown, just the size name). A PACK variant accepts many sizes, each with `quantity` + `pricePerUnit`. Never add a second size to a UNIT in admin form logic.
+- **PACK unitPrice is derived, never direct** — always use `computeTotalPrice(v)` from `ColorVariantManager.tsx` to compute and store the PACK total. Manually setting `unitPrice` on a PACK will be overwritten on next save. The formula: `Σ(size.quantity × size.pricePerUnit) × packQuantity`.
+- **packQuantity minimum is 1** — a single pack containing multiple sizes (e.g. 1 pack with XS×2 + S×2) is valid. There is no business rule requiring packQuantity ≥ 2.
 - **OrderItem.sizesJson** stores sizes as JSON `[{name,quantity}]` for new orders. Old orders still use `OrderItem.size` (string). Display code must check both, preferring `sizesJson`.
 - **ConfirmDialog and Toast are context-based** — import `{ useConfirm }` from `ConfirmDialog.tsx` and `{ useToast }` from `Toast.tsx`. Do NOT use default imports (`import ConfirmDialog from ...` will fail — there is no default export). Use `const { confirm } = useConfirm()` and `const toast = useToast()` then call `confirm({type, title, message})` and `toast.success(title)` / `toast.error(title)`.
+- **Dropdowns : TOUJOURS utiliser `CustomSelect`** — ne JAMAIS utiliser un `<select>` HTML natif pour les listes déroulantes dans l'admin ou sur le site public. Utiliser systématiquement `components/ui/CustomSelect.tsx` qui est stylisé selon le thème monochrome admin et le thème public. `CustomSelect` supporte la recherche, les options désactivées, et est accessible. Exemple : `<CustomSelect options={[{value, label}]} value={val} onChange={setVal} placeholder="Choisir..." />`. L'utilisation de `<select>` natif est réservée aux cas extrêmes (Server Components sans client, formulaires statiques hors thème).
 
 ### Key Libraries
 - **Next.js 16.1.6** (App Router, Server Components)
@@ -393,14 +404,13 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - **API Base URL**: `https://wholesaler-api.parisfashionshops.com/api/v1`
 - **Doc complète**: voir `API_DOCUMENTATION.md` à la racine
 - **Auth**: `POST /oauth/token` avec `PFS_EMAIL`/`PFS_PASSWORD` → Bearer JWT
-- **Brand ID**: `a01AZ00000314QgYAI` (obligatoire dans toutes les requêtes)
-- **Endpoint principal testé**: `GET /catalog/listProducts?page=N&per_page=100&brand={id}&status=ACTIVE`
-- **~9 251 produits actifs** (au 2026-03-21), paginés par 100
+- **Endpoint principal**: `GET /catalog/listProducts?page=N&per_page=100&status=ACTIVE`
+- **~9 252 produits actifs** (au 2026-03-24), paginés par 100
 - **Variants inline**: `listProducts` retourne les variants avec couleur (labels + hex), prix, stock, images
 - **Images CDN**: `https://static.parisfashionshops.com/...` — retirer `?image_process=resize,w_450` pour full-size
 - **Langues**: fr, en, de, es, it (pas ar ni zh → à générer via DeepL)
 - **API instable**: prévoir retry + backoff + headers réalistes (Cloudflare)
-- **Objectif**: import PFS → Beli Jolie (les produits BJ n'ont pas de ref, PFS = source de vérité)
+- **Objectif**: import PFS → Boutique (les produits Boutique n'ont pas de ref, PFS = source de vérité)
 
 ### Easy-Express v3 Integration
 - Base URL: `https://easy-express.fr`

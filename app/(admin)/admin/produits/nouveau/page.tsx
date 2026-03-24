@@ -47,7 +47,7 @@ export default async function NouveauProduitPage() {
       <ProductForm
         categories={categories}
         availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage }))}
-        availableSizes={sizes.map((s) => ({ id: s.id, name: s.name }))}
+        availableSizes={sizes.map((s) => ({ id: s.id, name: s.name, categoryIds: s.categories.map((c) => c.categoryId) }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
         availableCountries={manufacturingCountries}
         availableSeasons={seasons}

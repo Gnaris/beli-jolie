@@ -285,17 +285,14 @@ export default function PfsStagedProductCard({
         </div>
 
         {/* Status badge */}
-        <div className="mt-auto flex items-center justify-between pt-2">
-          <span className={`${statusCfg.className} text-xs`}>{statusCfg.label}</span>
+        <div className="mt-auto flex flex-col gap-1.5 pt-2">
+          <span className={`${statusCfg.className} text-xs w-fit`}>{statusCfg.label}</span>
 
-          {/* Error message tooltip */}
-          {status === "ERROR" && product.errorMessage && (
-            <span
-              className="max-w-[140px] truncate text-xs text-[#EF4444]"
-              title={product.errorMessage}
-            >
+          {/* Error message — affiché pour ERROR et READY (tentative d'approbation échouée) */}
+          {product.errorMessage && (
+            <div className="rounded-lg bg-[#EF4444]/8 border border-[#EF4444]/20 px-2.5 py-2 text-xs text-[#EF4444] break-words leading-relaxed">
               {product.errorMessage}
-            </span>
+            </div>
           )}
         </div>
 

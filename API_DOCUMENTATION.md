@@ -11,7 +11,7 @@
 - **CDN images** : `https://static.parisfashionshops.com`
 - **Langues supportées** : fr, en, de, es, it
 - **Pagination** : paramètres `page` et `per_page` (max 100 par page)
-- **Brand ID Beli & Jolie** : `a01AZ00000314QgYAI` (obligatoire dans listProducts)
+- **Filtre brand** : non utilisé — l'authentification OAuth suffit à filtrer les produits de la marque
 - **Env vars** : `PFS_EMAIL`, `PFS_PASSWORD`
 
 ---
@@ -64,7 +64,7 @@
 |-----------|------|--------|-------------|
 | `page` | number | oui | Numéro de page (commence à 1) |
 | `per_page` | number | oui | Nombre de produits par page (max 100) |
-| `brand` | string | **oui** | ID de la marque — `a01AZ00000314QgYAI` pour Beli & Jolie |
+| `brand` | string | non | ID de la marque (non utilisé — le token OAuth filtre automatiquement) |
 | `reference` | string | non | Filtrer par référence produit |
 | `status` | string | oui | Statut du produit : `"ACTIVE"` |
 

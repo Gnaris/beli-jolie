@@ -88,6 +88,38 @@ export async function deleteSize(id: string) {
   revalidateTag("sizes", "default");
 }
 
+/** Toggle a PFS size mapping for a BJ size (M2M: one BJ size can link to multiple PFS sizes) */
+export async function toggleSizePfsMapping(sizeId: string, pfsSizeRef: string) {
+  await requireAdmin();
+
+  const trimmedRef = pfsSizeRef.trim();
+  if (!trimmedRef) throw new Error("La référence PFS est requise.");
+
+  // Check if mapping already exists
+  const existing = await prisma.sizePfsMapping.findUnique({
+    where: { sizeId_pfsSizeRef: { sizeId, pfsSizeRef: trimmedRef } },
+  });
+
+  if (existing) {
+    // Remove mapping
+    await prisma.sizePfsMapping.delete({ where: { id: existing.id } });
+  } else {
+    // Create mapping
+    await prisma.sizePfsMapping.create({
+      data: { sizeId, pfsSizeRef: trimmedRef },
+    });
+  }
+
+  revalidateTag("sizes", "default");
+
+  // Return updated mappings for this size
+  const mappings = await prisma.sizePfsMapping.findMany({
+    where: { sizeId },
+    select: { pfsSizeRef: true },
+  });
+  return mappings.map((m) => m.pfsSizeRef);
+}
+
 /** Reorder sizes by providing an ordered array of ids */
 export async function reorderSizes(orderedIds: string[]) {
   await requireAdmin();

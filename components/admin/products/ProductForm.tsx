@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState } from "./ColorVariantManager";
+import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, computeTotalPrice } from "./ColorVariantManager";
 import { createProduct, updateProduct, saveProductTranslations } from "@/app/actions/admin/products";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
@@ -597,6 +597,15 @@ export default function ProductForm({
   const selectedCategory = localCategories.find((c) => c.id === categoryId);
   const subCategories    = selectedCategory?.subCategories ?? [];
 
+  // Filter sizes to only those linked to the selected category
+  // If a size has no categoryIds (old data) or no category set, show all
+  const filteredSizes = useMemo(() => {
+    if (!categoryId) return availableSizes;
+    return availableSizes.filter((s) =>
+      !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId)
+    );
+  }, [availableSizes, categoryId]);
+
   // Locales that have at least a name filled (green dot)
   const filledLocales = new Set<string>(
     VALID_LOCALES.filter((l) =>
@@ -851,16 +860,27 @@ export default function ProductForm({
     for (const v of variants) {
       if (v.saleType === "UNIT" && !v.colorId) return setError("Chaque variante UNIT doit avoir une couleur sélectionnée.");
       if (v.saleType === "PACK" && v.packColorLines.length === 0) return setError("Chaque variante PACK doit avoir au moins une ligne de couleur.");
-      const label = v.colorName || "variante";
-      const price = parseFloat(v.unitPrice);
-      if (isNaN(price) || price <= 0) return setError(`Prix invalide pour "${label}".`);
+      const label = v.colorName || "variante pack";
       const w = parseFloat(v.weight);
       if (isNaN(w) || w <= 0) return setError(`Poids invalide pour "${label}".`);
       if (v.stock !== "" && parseInt(v.stock) < 0)
         return setError(`Stock invalide pour "${label}" (doit être ≥ 0).`);
-      if (v.saleType === "PACK") {
+      if (v.saleType === "UNIT") {
+        const price = parseFloat(v.unitPrice);
+        if (isNaN(price) || price <= 0) return setError(`Prix invalide pour "${label}".`);
+      } else {
+        // PACK: validate packQuantity and per-size pricePerUnit
         const qty = parseInt(v.packQuantity);
-        if (isNaN(qty) || qty < 2) return setError(`Quantité paquet invalide pour "${label}" (minimum 2).`);
+        if (isNaN(qty) || qty < 1) return setError(`Quantité paquet invalide pour "${label}" (minimum 1).`);
+        if (v.sizeEntries.length === 0) return setError(`Le paquet "${label}" doit avoir au moins une taille.`);
+        for (const se of v.sizeEntries) {
+          const seQty = parseInt(se.quantity);
+          const ppu = parseFloat(se.pricePerUnit ?? "");
+          if (isNaN(seQty) || seQty <= 0) return setError(`Quantité invalide pour la taille "${se.sizeName}" du paquet "${label}".`);
+          if (isNaN(ppu) || ppu <= 0) return setError(`Prix/u invalide pour la taille "${se.sizeName}" du paquet "${label}".`);
+        }
+        const computed = computeTotalPrice(v);
+        if (!computed || computed <= 0) return setError(`Prix calculé invalide pour le paquet "${label}".`);
       }
     }
     // Duplicate variant checks — use full groupKey (colorId + ordered sub-colors)
@@ -889,7 +909,7 @@ export default function ProductForm({
         dbId:          v.dbId,
         colorId:       v.colorId || null,
         subColorIds:   v.subColors.map((sc) => sc.colorId),
-        unitPrice:     parseFloat(v.unitPrice),
+        unitPrice:     v.saleType === "PACK" ? (computeTotalPrice(v) ?? 0) : parseFloat(v.unitPrice),
         weight:        parseFloat(v.weight),
         stock:         parseInt(v.stock) || 0,
         isPrimary:     v.isPrimary,
@@ -897,7 +917,11 @@ export default function ProductForm({
         packQuantity:  v.saleType === "PACK" ? (parseInt(v.packQuantity) || null) : null,
         sizeEntries:   v.sizeEntries
           .filter((se) => se.sizeId)
-          .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
+          .map((se) => ({
+            sizeId:       se.sizeId,
+            quantity:     parseInt(se.quantity) || 1,
+            ...(v.saleType === "PACK" && se.pricePerUnit ? { pricePerUnit: parseFloat(se.pricePerUnit) } : {}),
+          })),
         packColorLines: v.saleType === "PACK"
           ? v.packColorLines.map((pcl, pos) => ({
               colorIds: pcl.colors.map((c) => c.colorId),
@@ -1347,7 +1371,7 @@ export default function ProductForm({
             variants={variants}
             colorImages={colorImages}
             availableColors={localColors}
-            availableSizes={availableSizes}
+            availableSizes={filteredSizes}
             onChange={setVariants}
             onChangeImages={setColorImages}
             onQuickCreateColor={handleQuickCreateColor}

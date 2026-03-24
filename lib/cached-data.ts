@@ -15,7 +15,7 @@ export const getCachedCategories = unstable_cache(
       // Lean select — only what filters need
     }),
   ["filter-categories"],
-  { revalidate: 3600, tags: ["categories"] }
+  { revalidate: 60, tags: ["categories"] }
 );
 
 // ─── Collections (id + name only, for filters) ────────────────────────────────
@@ -26,7 +26,7 @@ export const getCachedCollections = unstable_cache(
       select: { id: true, name: true },
     }),
   ["filter-collections"],
-  { revalidate: 3600, tags: ["collections"] }
+  { revalidate: 60, tags: ["collections"] }
 );
 
 // ─── Couleurs ──────────────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ export const getCachedColors = unstable_cache(
       select: { id: true, name: true, hex: true, patternImage: true },
     }),
   ["filter-colors"],
-  { revalidate: 3600, tags: ["colors"] }
+  { revalidate: 60, tags: ["colors"] }
 );
 
 // ─── Tags ──────────────────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ export const getCachedTags = unstable_cache(
       select: { id: true, name: true },
     }),
   ["filter-tags"],
-  { revalidate: 3600, tags: ["tags"] }
+  { revalidate: 60, tags: ["tags"] }
 );
 
 // ─── Pays de fabrication ─────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export const getCachedManufacturingCountries = unstable_cache(
       select: { id: true, name: true, isoCode: true },
     }),
   ["filter-manufacturing-countries"],
-  { revalidate: 3600, tags: ["manufacturing-countries"] }
+  { revalidate: 60, tags: ["manufacturing-countries"] }
 );
 
 // ─── Tailles (par catégorie) ──────────────────────────────────────────────────
@@ -76,7 +76,7 @@ export const getCachedSizes = unstable_cache(
       },
     }),
   ["filter-sizes"],
-  { revalidate: 3600, tags: ["sizes"] }
+  { revalidate: 60, tags: ["sizes"] }
 );
 
 /** Get sizes for a specific category */
@@ -95,7 +95,7 @@ export const getCachedSeasons = unstable_cache(
       select: { id: true, name: true },
     }),
   ["filter-seasons"],
-  { revalidate: 3600, tags: ["seasons"] }
+  { revalidate: 60, tags: ["seasons"] }
 );
 
 // ─── SiteConfig (clé unique — used heavily, short TTL) ─────────────────────────
