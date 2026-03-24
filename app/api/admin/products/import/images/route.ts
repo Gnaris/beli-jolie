@@ -184,6 +184,7 @@ export async function POST(req: NextRequest) {
       const fileColorParts = color.split(",").map((c) => normalizeColorName(c.trim())).sort();
 
       let matchingVariants = product.colors.filter((pc) => {
+        if (!pc.color) return false;
         const variantColors = [
           normalizeColorName(pc.color.name),
           ...pc.subColors.map((sc) => normalizeColorName(sc.color.name)),
@@ -195,7 +196,7 @@ export async function POST(req: NextRequest) {
       // Fallback: single-color file → match by main color only
       if (matchingVariants.length === 0 && fileColorParts.length === 1) {
         matchingVariants = product.colors.filter(
-          (pc) => normalizeColorName(pc.color.name) === fileColorParts[0]
+          (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorParts[0]
         );
       }
 
@@ -208,6 +209,7 @@ export async function POST(req: NextRequest) {
         // Group variants by groupKey (colorId + sorted sub-color names) to avoid duplicates
         const groupedVariants = new Map<string, { id: string; name: string; hex: string; patternImage: string | null; subColors: { hex: string; patternImage: string | null }[] }>();
         for (const pc of product.colors) {
+          if (!pc.color || !pc.colorId) continue;
           const subNames = pc.subColors.map((sc) => sc.color.name);
           const groupKey = subNames.length > 0
             ? `${pc.colorId}::${subNames.join(",")}`
@@ -260,7 +262,7 @@ export async function POST(req: NextRequest) {
       await prisma.productColorImage.create({
         data: {
           productId: product.id,
-          colorId,
+          colorId: colorId ?? "",
           productColorId: matchedVariant.id,
           path: imagePath,
           order,
@@ -275,7 +277,7 @@ export async function POST(req: NextRequest) {
         tempPath: imagePath,
         errors: [],
         productId: product.id,
-        colorId,
+        colorId: colorId ?? undefined,
       });
     }
 

@@ -161,7 +161,7 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
 
     for (const alert of alerts) {
       const productUrl = `${baseUrl}/produits/${alert.product.id}`;
-      const colorName = alert.productColor.color.name;
+      const colorName = alert.productColor.color?.name ?? "";
 
       await transporter.sendMail({
         from: `"Beli & Jolie" <${GMAIL_USER}>`,

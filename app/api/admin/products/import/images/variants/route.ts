@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
   // Group by color composition (groupKey) to avoid UNIT/PACK duplicates
   const grouped = new Map<string, { id: string; name: string; hex: string; patternImage: string | null; colorNames: string; subColors: { hex: string; patternImage: string | null }[] }>();
   for (const pc of product.colors) {
+    if (!pc.color || !pc.colorId) continue;
     const subNames = pc.subColors.map((sc) => sc.color.name);
     const groupKey = subNames.length > 0
       ? `${pc.colorId}::${subNames.join(",")}`
@@ -115,7 +116,6 @@ export async function POST(req: NextRequest) {
         isPrimary: false,
         saleType: body.saleType,
         packQuantity: body.saleType === "PACK" ? (body.packQuantity || null) : null,
-        size: body.size || null,
         discountType: body.discountType || null,
         discountValue: body.discountValue || null,
         subColors: subColorIds.length > 0 ? {
@@ -132,20 +132,21 @@ export async function POST(req: NextRequest) {
     });
 
     const subNames = variant.subColors.map((sc) => sc.color.name);
+    const mainColorName = variant.color?.name ?? "";
     const fullName = subNames.length > 0
-      ? [variant.color.name, ...subNames].join("/")
-      : variant.color.name;
+      ? [mainColorName, ...subNames].join("/")
+      : mainColorName;
     const colorNames = subNames.length > 0
-      ? [variant.color.name, ...subNames].join(",")
-      : variant.color.name;
+      ? [mainColorName, ...subNames].join(",")
+      : mainColorName;
 
     return NextResponse.json({
       ok: true,
       variant: {
         id: variant.id,
         name: fullName,
-        hex: variant.color.hex ?? "#9CA3AF",
-        patternImage: variant.color.patternImage ?? null,
+        hex: variant.color?.hex ?? "#9CA3AF",
+        patternImage: variant.color?.patternImage ?? null,
         colorNames,
         subColors: variant.subColors.map((sc) => ({
           hex: sc.color.hex ?? "#9CA3AF",

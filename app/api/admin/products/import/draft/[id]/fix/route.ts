@@ -140,6 +140,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           // Group by color composition (groupKey) to avoid showing UNIT + PACK duplicates
           const grouped = new Map<string, { id: string; name: string; hex: string; patternImage: string | null; subColors: { hex: string; patternImage: string | null }[] }>();
           for (const pc of p.colors) {
+            if (!pc.colorId || !pc.color) continue;
             const subNames = pc.subColors.map((sc) => sc.color.name);
             const groupKey = subNames.length > 0
               ? `${pc.colorId}::${subNames.join(",")}`

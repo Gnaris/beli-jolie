@@ -125,6 +125,8 @@ async function processTransferConfirmed(order: NonNullable<OrderWithItems>) {
       saleType:    item.saleType,
       packQty:     item.packQty,
       size:        item.size,
+      sizesJson:   item.sizesJson,
+      packDetails: item.packDetails,
       imagePath:   item.imagePath,
       unitPrice:   item.unitPrice,
       quantity:    item.quantity,
@@ -294,7 +296,7 @@ async function notifyTransferConfirmed(data: NotifyData): Promise<void> {
         <strong>${item.productName}</strong><br/>
         <small style="color:#6B6B6B;">Réf. ${item.productRef} · ${item.colorName}
         ${item.saleType === "PACK" ? ` · Paquet ×${item.packQty}` : ""}
-        ${item.size ? ` · T.${item.size}` : ""}</small>
+        ${item.sizesJson ? ` · ${(() => { try { return (JSON.parse(item.sizesJson) as {name:string;quantity:number}[]).map(s => `${s.name}×${s.quantity}`).join(", "); } catch { return ""; } })()}` : (item.size ? ` · T.${item.size}` : "")}</small>
       </td>
       <td style="padding:10px 14px;text-align:center;border-bottom:1px solid #E5E5E5;">${item.quantity}</td>
       <td style="padding:10px 14px;text-align:right;border-bottom:1px solid #E5E5E5;">${item.unitPrice.toFixed(2)} €</td>

@@ -59,6 +59,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
             saleType: true,
             packQty: true,
             size: true,
+            sizesJson: true,
           },
         },
       },
@@ -132,7 +133,16 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
                         {i > 0 && ", "}
                         {item.productName}
                         {item.saleType === "PACK" && ` x${item.packQty}`}
-                        {item.size && ` (${t("sizeOption", { size: item.size })})`}
+                        {(() => {
+                          if (item.sizesJson) {
+                            try {
+                              const sizes: { name: string; quantity: number }[] = JSON.parse(item.sizesJson);
+                              if (sizes.length > 0) return ` (${sizes.map(s => `${s.name}×${s.quantity}`).join(", ")})`;
+                            } catch { /* ignore */ }
+                          }
+                          if (item.size) return ` (${t("sizeOption", { size: item.size })})`;
+                          return null;
+                        })()}
                       </span>
                     ))}
                     {order.items.length > 2 && (

@@ -347,18 +347,35 @@ export async function findOrCreateColor(
   // MySQL is case-insensitive by default
   const existing = await prisma.color.findFirst({
     where: { name: frLabel },
-    select: { id: true },
+    select: { id: true, pfsColorRef: true },
   });
 
   if (existing) {
+    // Set pfsColorRef if missing
+    if (!existing.pfsColorRef && reference) {
+      await prisma.color.update({ where: { id: existing.id }, data: { pfsColorRef: reference } }).catch(() => {});
+    }
+    // Ensure PfsMapping exists
+    await prisma.pfsMapping.upsert({
+      where: { type_pfsName: { type: "color", pfsName: frLabel.toLowerCase() } },
+      create: { type: "color", pfsName: frLabel.toLowerCase(), bjEntityId: existing.id, bjName: frLabel },
+      update: { bjEntityId: existing.id, bjName: frLabel },
+    }).catch(() => {});
     colorCache.set(normalized, existing.id);
     await upsertColorTranslations(existing.id, labels);
     return existing.id;
   }
 
   const color = await prisma.color.create({
-    data: { name: frLabel, hex: hex || null },
+    data: { name: frLabel, hex: hex || null, pfsColorRef: reference || null },
   });
+
+  // Create PfsMapping for the new color
+  await prisma.pfsMapping.upsert({
+    where: { type_pfsName: { type: "color", pfsName: frLabel.toLowerCase() } },
+    create: { type: "color", pfsName: frLabel.toLowerCase(), bjEntityId: color.id, bjName: frLabel },
+    update: { bjEntityId: color.id, bjName: frLabel },
+  }).catch(() => {});
 
   await upsertColorTranslations(color.id, labels);
   colorCache.set(normalized, color.id);
@@ -393,6 +410,7 @@ export async function findOrCreateCategory(
   name: string,
   labels?: Record<string, string>,
   pfsOriginalName?: string,
+  pfsCatId?: string,
 ): Promise<string> {
   if (categoryCache.has(name)) return categoryCache.get(name)!;
 
@@ -416,14 +434,26 @@ export async function findOrCreateCategory(
   }
 
   const slug = slugify(name);
+  // Use the pfsOriginalName (FR label) as the PfsMapping key
+  const pfsKey = (pfsOriginalName || name).toLowerCase();
 
   // Use findFirst by name or slug to avoid duplicates
   const existing = await prisma.category.findFirst({
     where: { OR: [{ name }, { slug }] },
-    select: { id: true },
+    select: { id: true, pfsCategoryId: true },
   });
 
   if (existing) {
+    // Set pfsCategoryId if missing
+    if (!existing.pfsCategoryId && pfsCatId) {
+      await prisma.category.update({ where: { id: existing.id }, data: { pfsCategoryId: pfsCatId } }).catch(() => {});
+    }
+    // Ensure PfsMapping exists
+    await prisma.pfsMapping.upsert({
+      where: { type_pfsName: { type: "category", pfsName: pfsKey } },
+      create: { type: "category", pfsName: pfsKey, bjEntityId: existing.id, bjName: name },
+      update: { bjEntityId: existing.id, bjName: name },
+    }).catch(() => {});
     categoryCache.set(name, existing.id);
     if (labels) await upsertCategoryTranslations(existing.id, labels);
     return existing.id;
@@ -432,8 +462,15 @@ export async function findOrCreateCategory(
   // Create with try-catch for race conditions (unique constraint on name/slug)
   try {
     const category = await prisma.category.create({
-      data: { name, slug },
+      data: { name, slug, pfsCategoryId: pfsCatId || null },
     });
+
+    // Create PfsMapping for the new category
+    await prisma.pfsMapping.upsert({
+      where: { type_pfsName: { type: "category", pfsName: pfsKey } },
+      create: { type: "category", pfsName: pfsKey, bjEntityId: category.id, bjName: name },
+      update: { bjEntityId: category.id, bjName: name },
+    }).catch(() => {});
 
     if (labels) await upsertCategoryTranslations(category.id, labels);
     categoryCache.set(name, category.id);
@@ -479,6 +516,7 @@ export const compositionCache = new Map<string, string>(); // normalized name �
 export async function findOrCreateComposition(
   frName: string,
   labels: Record<string, string>,
+  pfsReference?: string,
 ): Promise<string> {
   const normalized = normalizeColorName(frName);
   if (compositionCache.has(normalized)) return compositionCache.get(normalized)!;
@@ -498,10 +536,20 @@ export async function findOrCreateComposition(
 
   const existing = await prisma.composition.findFirst({
     where: { name: frName },
-    select: { id: true },
+    select: { id: true, pfsCompositionRef: true },
   });
 
   if (existing) {
+    // Set pfsCompositionRef if missing
+    if (!existing.pfsCompositionRef && pfsReference) {
+      await prisma.composition.update({ where: { id: existing.id }, data: { pfsCompositionRef: pfsReference } }).catch(() => {});
+    }
+    // Ensure PfsMapping exists
+    await prisma.pfsMapping.upsert({
+      where: { type_pfsName: { type: "composition", pfsName: frName.toLowerCase() } },
+      create: { type: "composition", pfsName: frName.toLowerCase(), bjEntityId: existing.id, bjName: frName },
+      update: { bjEntityId: existing.id, bjName: frName },
+    }).catch(() => {});
     compositionCache.set(normalized, existing.id);
     for (const [locale, name] of Object.entries(labels)) {
       if (locale === "fr" || !name) continue;
@@ -524,7 +572,7 @@ export async function findOrCreateComposition(
     composition = await prisma.composition.upsert({
       where: { name: frName },
       update: {},
-      create: { name: frName },
+      create: { name: frName, pfsCompositionRef: pfsReference || null },
     });
   } catch {
     // Race condition: another parallel sync created it between our findFirst and upsert
@@ -535,6 +583,13 @@ export async function findOrCreateComposition(
     if (!raceCreated) throw new Error(`Failed to find or create composition: ${frName}`);
     composition = raceCreated;
   }
+
+  // Create PfsMapping for the new composition
+  await prisma.pfsMapping.upsert({
+    where: { type_pfsName: { type: "composition", pfsName: frName.toLowerCase() } },
+    create: { type: "composition", pfsName: frName.toLowerCase(), bjEntityId: composition.id, bjName: frName },
+    update: { bjEntityId: composition.id, bjName: frName },
+  }).catch(() => {});
 
   for (const [locale, name] of Object.entries(labels)) {
     if (locale === "fr" || !name) continue;
@@ -585,6 +640,12 @@ export async function findOrCreateCountry(
     select: { id: true },
   });
   if (existingByIso) {
+    // Ensure PfsMapping exists
+    await prisma.pfsMapping.upsert({
+      where: { type_pfsName: { type: "country", pfsName: normalized.toLowerCase() } },
+      create: { type: "country", pfsName: normalized.toLowerCase(), bjEntityId: existingByIso.id, bjName: normalized },
+      update: { bjEntityId: existingByIso.id, bjName: normalized },
+    }).catch(() => {});
     countryCache.set(normalized, existingByIso.id);
     return existingByIso.id;
   }
@@ -605,6 +666,13 @@ export async function findOrCreateCountry(
     if (!raceCreated) throw new Error(`Failed to find or create country: ${normalized}`);
     country = raceCreated;
   }
+
+  // Create PfsMapping for the new country
+  await prisma.pfsMapping.upsert({
+    where: { type_pfsName: { type: "country", pfsName: normalized.toLowerCase() } },
+    create: { type: "country", pfsName: normalized.toLowerCase(), bjEntityId: country.id, bjName: normalized },
+    update: { bjEntityId: country.id, bjName: normalized },
+  }).catch(() => {});
 
   countryCache.set(normalized, country.id);
   return country.id;
@@ -643,6 +711,12 @@ export async function findOrCreateSeason(
     select: { id: true },
   });
   if (existingByRef) {
+    // Ensure PfsMapping exists
+    await prisma.pfsMapping.upsert({
+      where: { type_pfsName: { type: "season", pfsName: reference.toLowerCase() } },
+      create: { type: "season", pfsName: reference.toLowerCase(), bjEntityId: existingByRef.id, bjName: labels?.fr || normalized },
+      update: { bjEntityId: existingByRef.id, bjName: labels?.fr || normalized },
+    }).catch(() => {});
     seasonCache.set(normalized, existingByRef.id);
     return existingByRef.id;
   }
@@ -651,9 +725,19 @@ export async function findOrCreateSeason(
   const frName = labels?.fr || normalized;
   const existingByName = await prisma.season.findFirst({
     where: { name: frName },
-    select: { id: true },
+    select: { id: true, pfsSeasonRef: true },
   });
   if (existingByName) {
+    // Set pfsSeasonRef if missing
+    if (!existingByName.pfsSeasonRef) {
+      await prisma.season.update({ where: { id: existingByName.id }, data: { pfsSeasonRef: normalized } }).catch(() => {});
+    }
+    // Ensure PfsMapping exists
+    await prisma.pfsMapping.upsert({
+      where: { type_pfsName: { type: "season", pfsName: reference.toLowerCase() } },
+      create: { type: "season", pfsName: reference.toLowerCase(), bjEntityId: existingByName.id, bjName: frName },
+      update: { bjEntityId: existingByName.id, bjName: frName },
+    }).catch(() => {});
     seasonCache.set(normalized, existingByName.id);
     return existingByName.id;
   }
@@ -674,6 +758,13 @@ export async function findOrCreateSeason(
     if (!raceCreated) throw new Error(`Failed to find or create season: ${frName}`);
     season = raceCreated;
   }
+
+  // Create PfsMapping for the new season
+  await prisma.pfsMapping.upsert({
+    where: { type_pfsName: { type: "season", pfsName: reference.toLowerCase() } },
+    create: { type: "season", pfsName: reference.toLowerCase(), bjEntityId: season.id, bjName: frName },
+    update: { bjEntityId: season.id, bjName: frName },
+  }).catch(() => {});
 
   // Translations
   for (const [locale, name] of Object.entries(labels)) {
@@ -817,7 +908,8 @@ async function syncSingleProduct(
       categoryName = parsePfsCategoryRef(refDetails.product.category.reference);
     }
 
-    const categoryId = await findOrCreateCategory(categoryName, pfsProduct.category.labels, categoryFr);
+    const pfsCatId = refDetails?.product?.category?.id || pfsProduct.category?.id || undefined;
+    const categoryId = await findOrCreateCategory(categoryName, pfsProduct.category.labels, categoryFr, pfsCatId);
     addLog(`  📂 Catégorie: ${categoryName}`);
 
     // ── Resolve compositions ──
@@ -825,7 +917,7 @@ async function syncSingleProduct(
     if (refDetails?.product?.material_composition) {
       for (const mat of refDetails.product.material_composition) {
         const frName = mat.labels?.fr || mat.reference;
-        const compositionId = await findOrCreateComposition(frName, mat.labels);
+        const compositionId = await findOrCreateComposition(frName, mat.labels, mat.reference);
         compositions.push({ compositionId, percentage: mat.percentage });
       }
       addLog(`  🧪 Compositions: ${refDetails.product.material_composition.map((m) => `${m.labels?.fr || m.reference} ${m.percentage}%`).join(", ")}`);
@@ -869,7 +961,7 @@ async function syncSingleProduct(
       stock: number;
       saleType: "UNIT" | "PACK";
       packQuantity: number | null;
-      size: string | null;
+      sizeName: string | null;
       isPrimary: boolean;
       discountType: "PERCENT" | "AMOUNT" | null;
       discountValue: number | null;
@@ -915,7 +1007,7 @@ async function syncSingleProduct(
           stock: v.stock_qty,
           saleType: "UNIT",
           packQuantity: null,
-          size: v.item.size || null,
+          sizeName: v.item.size || null,
           isPrimary: false, // resolved below
           discountType,
           discountValue,
@@ -949,7 +1041,7 @@ async function syncSingleProduct(
           stock: v.stock_qty,
           saleType: "PACK",
           packQuantity: packQty,
-          size: pack.sizes?.[0]?.size || null,
+          sizeName: pack.sizes?.[0]?.size || null,
           isPrimary: false, // resolved below
           discountType,
           discountValue,
@@ -1042,7 +1134,7 @@ async function syncSingleProduct(
       }
 
       // Create variants (sequential for IDs)
-      const createdVariants: { id: string; colorId: string; colorRef: string }[] = [];
+      const createdVariants: { id: string; colorId: string | null; colorRef: string }[] = [];
       for (const v of variants) {
         const created = await prisma.productColor.create({
           data: {
@@ -1054,13 +1146,24 @@ async function syncSingleProduct(
             isPrimary: v.isPrimary,
             saleType: v.saleType,
             packQuantity: v.packQuantity,
-            size: v.size,
             discountType: v.discountType,
             discountValue: v.discountValue,
           },
           select: { id: true, colorId: true },
         });
         createdVariants.push({ ...created, colorRef: v.colorRef });
+
+        // Create VariantSize record if PFS provided a size
+        if (v.sizeName) {
+          const sizeRecord = await prisma.size.upsert({
+            where: { name: v.sizeName },
+            create: { name: v.sizeName },
+            update: {},
+          });
+          await prisma.variantSize.create({
+            data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
+          });
+        }
       }
       await Promise.all(dbOps);
 
@@ -1092,7 +1195,7 @@ async function syncSingleProduct(
       });
 
       // Create variants (sequential — need IDs for images)
-      const createdVariants: { id: string; colorId: string; colorRef: string }[] = [];
+      const createdVariants: { id: string; colorId: string | null; colorRef: string }[] = [];
       for (const v of variants) {
         const created = await prisma.productColor.create({
           data: {
@@ -1104,13 +1207,24 @@ async function syncSingleProduct(
             isPrimary: v.isPrimary,
             saleType: v.saleType,
             packQuantity: v.packQuantity,
-            size: v.size,
             discountType: v.discountType,
             discountValue: v.discountValue,
           },
           select: { id: true, colorId: true },
         });
         createdVariants.push({ ...created, colorRef: v.colorRef });
+
+        // Create VariantSize record if PFS provided a size
+        if (v.sizeName) {
+          const sizeRecord = await prisma.size.upsert({
+            where: { name: v.sizeName },
+            create: { name: v.sizeName },
+            update: {},
+          });
+          await prisma.variantSize.create({
+            data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
+          });
+        }
       }
 
       // Translations + pendingSimilar in parallel (fast DB ops)
@@ -1168,7 +1282,7 @@ async function syncProductImages(
   productId: string,
   bjRef: string,
   imageSource: { primary: Record<string, string | string[]>; fallback: Record<string, string | string[]> | null },
-  createdVariants: { id: string; colorId: string; colorRef: string }[],
+  createdVariants: { id: string; colorId: string | null; colorRef: string }[],
   addLog: (msg: string) => void,
 ): Promise<void> {
   const primaryImages = extractColorImages(imageSource.primary);
@@ -1196,7 +1310,7 @@ async function syncProductImages(
     const primaryVariant = matchingVariants[0];
     const imageData = paths.map((p, idx) => ({
       productId,
-      colorId: primaryVariant.colorId,
+      colorId: primaryVariant.colorId ?? "",
       productColorId: primaryVariant.id,
       path: p,
       order: idx,

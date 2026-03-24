@@ -147,7 +147,7 @@ async function handleProductRowFix(
       return NextResponse.json({ ok: false, errors: [`La référence "${row.reference}" existe déjà.`] });
     }
 
-    await prisma.product.create({
+    const newProduct = await prisma.product.create({
       data: {
         reference: String(row.reference).toUpperCase(),
         name: String(row.name),
@@ -163,13 +163,35 @@ async function handleProductRowFix(
             isPrimary: true,
             saleType: row.saleType === "PACK" ? "PACK" : "UNIT",
             packQuantity: row.saleType === "PACK" ? (Number(row.packQuantity) || null) : null,
-            size: row.size ? String(row.size) : null,
             discountType: row.discountType ? String(row.discountType) as "PERCENT" | "AMOUNT" : null,
             discountValue: row.discountValue ? Number(row.discountValue) : null,
           }],
         },
       },
+      include: { colors: true },
     });
+
+    // Create VariantSize if size is provided
+    if (row.size) {
+      const sizeName = String(row.size).trim();
+      if (sizeName) {
+        const sizeEntity = await prisma.size.upsert({
+          where: { name: sizeName },
+          create: { name: sizeName },
+          update: {},
+        });
+        const pc = newProduct.colors[0];
+        if (pc) {
+          await prisma.variantSize.create({
+            data: {
+              productColorId: pc.id,
+              sizeId: sizeEntity.id,
+              quantity: 1,
+            },
+          });
+        }
+      }
+    }
 
     // Remove fixed row from draft
     const newRows = rows.filter((_, i) => i !== body.rowIndex);
@@ -265,7 +287,6 @@ async function handleImageRowFix(
         isPrimary: false,
         saleType,
         packQuantity: saleType === "PACK" && cv.packQuantity ? cv.packQuantity : null,
-        size: cv.size?.trim() || null,
         subColors: subColorIds.length > 0 ? {
           create: subColorIds.map((id, i) => ({
             colorId: id,
@@ -275,6 +296,23 @@ async function handleImageRowFix(
       },
     });
     productColorId = newVariant.id;
+
+    // Create VariantSize if size is provided
+    if (cv.size?.trim()) {
+      const sizeName = cv.size.trim();
+      const sizeEntity = await prisma.size.upsert({
+        where: { name: sizeName },
+        create: { name: sizeName },
+        update: {},
+      });
+      await prisma.variantSize.create({
+        data: {
+          productColorId: newVariant.id,
+          sizeId: sizeEntity.id,
+          quantity: 1,
+        },
+      });
+    }
   }
 
   // Create new color variant if requested (legacy single-color flow)
@@ -327,7 +365,7 @@ async function handleImageRowFix(
     await prisma.productColorImage.create({
       data: {
         productId,
-        colorId: variant.colorId,
+        colorId: variant.colorId ?? "",
         productColorId: variant.id,
         path: result.dbPath,
         order: position - 1,

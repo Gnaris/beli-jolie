@@ -50,6 +50,7 @@ export async function GET(
             },
             orderBy: { position: "asc" },
           },
+          variantSizes: { select: { size: { select: { name: true } } } },
           images: {
             select: { id: true, path: true, order: true },
             orderBy: { order: "asc" },
@@ -148,7 +149,7 @@ export async function GET(
     try {
       pfsCategoryId = await findOrCreateCategory(
         pfsCategoryName,
-        refDetails.product.category.labels,
+        undefined,
         rawCatRef,
       );
     } catch (err) {
@@ -206,7 +207,7 @@ export async function GET(
     stock: number;
     saleType: "UNIT" | "PACK";
     packQuantity: number | null;
-    size: string | null;
+    sizeName: string | null;
     isPrimary: boolean;
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | null;
@@ -250,7 +251,7 @@ export async function GET(
         stock: v.stock_qty,
         saleType: "UNIT",
         packQuantity: null,
-        size: v.item.size || null,
+        sizeName: v.item.size || null,
         isPrimary: false,
         discountType,
         discountValue,
@@ -279,7 +280,7 @@ export async function GET(
         stock: v.stock_qty,
         saleType: "PACK",
         packQuantity: packQty,
-        size: pack.sizes?.[0]?.size || null,
+        sizeName: pack.sizes?.[0]?.size || null,
         isPrimary: false,
         discountType,
         discountValue,
@@ -341,10 +342,10 @@ export async function GET(
     status: product.status,
     variants: product.colors.map((pc) => ({
       id: pc.id,
-      colorId: pc.color.id,
-      colorName: pc.color.name,
-      colorHex: pc.color.hex,
-      colorPatternImage: pc.color.patternImage,
+      colorId: pc.color?.id ?? pc.colorId ?? "",
+      colorName: pc.color?.name ?? "",
+      colorHex: pc.color?.hex ?? null,
+      colorPatternImage: pc.color?.patternImage ?? null,
       subColors: pc.subColors.map((sc) => ({
         colorId: sc.color.id,
         colorName: sc.color.name,
@@ -356,7 +357,7 @@ export async function GET(
       stock: pc.stock,
       saleType: pc.saleType,
       packQuantity: pc.packQuantity,
-      size: pc.size,
+      sizeName: pc.variantSizes?.[0]?.size.name ?? null,
       isPrimary: pc.isPrimary,
       discountType: pc.discountType,
       discountValue: pc.discountValue,
@@ -372,6 +373,7 @@ export async function GET(
       }>();
 
       for (const pc of product.colors) {
+        if (!pc.colorId || !pc.color) continue;
         const subKey = pc.subColors.map((sc) => sc.color.name).join(",");
         const groupKey = `${pc.color.id}::${subKey}`;
 

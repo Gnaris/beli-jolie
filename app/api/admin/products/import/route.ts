@@ -281,7 +281,7 @@ async function importRows(rows: ProductImportRow[], adminId: string) {
     }
 
     try {
-      await prisma.product.create({
+      const newProduct = await prisma.product.create({
         data: {
           reference: ref,
           name: firstRow.name,
@@ -300,13 +300,38 @@ async function importRows(rows: ProductImportRow[], adminId: string) {
               isPrimary: row.isPrimary || i === 0,
               saleType: row.saleType,
               packQuantity: row.saleType === "PACK" ? (row.packQuantity ?? null) : null,
-              size: row.size ?? null,
               discountType: row.discountType ?? null,
               discountValue: row.discountValue ?? null,
             })),
           },
         },
+        include: { colors: true },
       });
+
+      // Create VariantSize records for variants with a size value
+      for (const { row, color } of resolvedColors) {
+        if (row.size) {
+          const sizeName = row.size.trim();
+          if (sizeName) {
+            const sizeEntity = await prisma.size.upsert({
+              where: { name: sizeName },
+              create: { name: sizeName },
+              update: {},
+            });
+            const pc = newProduct.colors.find((c) => c.colorId === color.id);
+            if (pc) {
+              await prisma.variantSize.create({
+                data: {
+                  productColorId: pc.id,
+                  sizeId: sizeEntity.id,
+                  quantity: 1,
+                },
+              });
+            }
+          }
+        }
+      }
+
       successCount++;
     } catch (err) {
       for (const row of colorRows) {

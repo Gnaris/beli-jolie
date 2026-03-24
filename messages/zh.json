@@ -246,6 +246,7 @@
     "unitOption": "单件购买",
     "packOption": "{qty}件套装",
     "sizeLabel": "尺寸 {size}",
+    "sizes": "尺码",
     "dimensions": "尺寸规格",
     "length": "长度",
     "width": "宽度",

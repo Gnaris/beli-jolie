@@ -590,7 +590,6 @@ export async function processProductImport(jobId: string): Promise<void> {
                   isPrimary: hasExplicitPrimary ? (row.isPrimary === true) : ci === 0,
                   saleType: row.saleType,
                   packQuantity: row.saleType === "PACK" ? (row.packQuantity ?? null) : null,
-                  size: row.size ?? null,
                   discountType: row.discountType ?? null,
                   discountValue: row.discountValue ?? null,
                   // Create sub-colors if multi-color (e.g. "Bleu/Rose/Vert")
@@ -601,7 +600,32 @@ export async function processProductImport(jobId: string): Promise<void> {
                 })(),
               },
             },
+            include: { colors: true },
           });
+
+          // Create VariantSize records for variants with a size value
+          for (const { row, mainColor } of resolvedColors) {
+            if (row.size) {
+              const sizeName = row.size.trim();
+              if (sizeName) {
+                const sizeEntity = await prisma.size.upsert({
+                  where: { name: sizeName },
+                  create: { name: sizeName },
+                  update: {},
+                });
+                const pc = product.colors.find((c) => c.colorId === mainColor.id);
+                if (pc) {
+                  await prisma.variantSize.create({
+                    data: {
+                      productColorId: pc.id,
+                      sizeId: sizeEntity.id,
+                      quantity: 1,
+                    },
+                  });
+                }
+              }
+            }
+          }
 
           // Handle similar products
           if (similarRefsList.length > 0) {
@@ -934,6 +958,7 @@ export async function processImageImport(jobId: string): Promise<void> {
 
         // Build the ordered color list for each variant (main color + sub-colors by position)
         let matchingVariants = product.colors.filter((pc) => {
+          if (!pc.color) return false;
           const variantColors = [
             normalizeColorName(pc.color.name),
             ...pc.subColors.map((sc) => normalizeColorName(sc.color.name)),
@@ -946,7 +971,7 @@ export async function processImageImport(jobId: string): Promise<void> {
         // Fallback: if no exact ordered match, try matching by main color only (single-color files)
         if (matchingVariants.length === 0 && fileColorParts.length === 1) {
           matchingVariants = product.colors.filter(
-            (pc) => normalizeColorName(pc.color.name) === fileColorParts[0]
+            (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorParts[0]
           );
         }
 
@@ -957,13 +982,13 @@ export async function processImageImport(jobId: string): Promise<void> {
               .sort((a, b) => a.position - b.position)
               .map((sc) => sc.color.name);
             const fullName = subNames.length > 0
-              ? [pc.color.name, ...subNames].join("/")
-              : pc.color.name;
+              ? [pc.color?.name ?? "", ...subNames].join("/")
+              : pc.color?.name ?? "";
             return {
               id: pc.id,              // ProductColor ID (variant), not Color ID
               name: fullName,
-              hex: pc.color.hex ?? "#9CA3AF",
-              patternImage: pc.color.patternImage ?? null,
+              hex: pc.color?.hex ?? "#9CA3AF",
+              patternImage: pc.color?.patternImage ?? null,
               subColors: pc.subColors
                 .sort((a, b) => a.position - b.position)
                 .map((sc) => ({
@@ -1054,7 +1079,7 @@ export async function processImageImport(jobId: string): Promise<void> {
         await prisma.productColorImage.create({
           data: {
             productId: product.id,
-            colorId: matchedVariant.colorId,
+            colorId: matchedVariant.colorId ?? "",
             productColorId: matchedVariant.id,
             path: imagePath,
             order,

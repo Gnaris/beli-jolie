@@ -61,6 +61,7 @@ export default async function ClientDetailPage({
               include: {
                 product: { select: { name: true, reference: true } },
                 color:   { select: { name: true, hex: true } },
+                variantSizes: { include: { size: true } },
               },
             },
           },
@@ -71,10 +72,12 @@ export default async function ClientDetailPage({
   ]);
 
   // Fetch first image for cart items (by productId + colorId)
-  const cartImagePairs = cart?.items.map((item) => ({
-    productId: item.variant.productId,
-    colorId:   item.variant.colorId,
-  })) ?? [];
+  const cartImagePairs = (cart?.items ?? [])
+    .filter((item) => item.variant.colorId != null)
+    .map((item) => ({
+      productId: item.variant.productId,
+      colorId:   item.variant.colorId!,
+    }));
   const cartColorImages = cartImagePairs.length > 0
     ? await prisma.productColorImage.findMany({
         where: {
@@ -299,14 +302,18 @@ export default async function ClientDetailPage({
                     </p>
                     <div className="flex items-center gap-2 mt-0.5 text-xs text-text-muted font-[family-name:var(--font-roboto)]">
                       <span>{v.product.reference}</span>
+                      {v.color && <>
                       <span className="text-border">|</span>
                       <span className="flex items-center gap-1">
                         <span className="w-2.5 h-2.5 rounded-full border border-border-dark inline-block" style={{ backgroundColor: v.color.hex ?? "#9CA3AF" }} />
                         {v.color.name}
                       </span>
+                      </>}
                       {isPack && <span className="text-border">|</span>}
                       {isPack && <span>Pack x{v.packQuantity}</span>}
-                      {v.size && <><span className="text-border">|</span><span>Taille {v.size}</span></>}
+                      {v.variantSizes && v.variantSizes.length > 0 && (
+                        <><span className="text-border">|</span><span>{v.variantSizes.map((vs: { size: { name: string }; quantity: number }) => `${vs.size.name}×${vs.quantity}`).join(", ")}</span></>
+                      )}
                     </div>
                   </div>
 

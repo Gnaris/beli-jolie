@@ -1,5 +1,5 @@
 /**
- * Clear all products + attributes (colors, categories, subcategories, compositions, tags)
+ * Clear all products + attributes (colors, categories, subcategories, compositions, tags, seasons, manufacturing countries)
  *
  * Usage: npx tsx scripts/clear-products.ts
  * or:    npm run clear:products
@@ -95,6 +95,19 @@ async function main() {
 
   const tags = await prisma.tag.deleteMany();
   console.log(`  Tag                 : ${tags.count}`);
+
+  // 4. Seasons & Manufacturing Countries
+  const seasonTranslations = await prisma.seasonTranslation.deleteMany();
+  console.log(`  SeasonTranslation   : ${seasonTranslations.count}`);
+
+  const seasons = await prisma.season.deleteMany();
+  console.log(`  Season              : ${seasons.count}`);
+
+  const countryTranslations = await prisma.manufacturingCountryTranslation.deleteMany();
+  console.log(`  CountryTranslation  : ${countryTranslations.count}`);
+
+  const countries = await prisma.manufacturingCountry.deleteMany();
+  console.log(`  ManufacturingCountry: ${countries.count}`);
 
   console.log("\n✅ Tout a été supprimé.");
 }

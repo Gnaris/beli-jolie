@@ -47,7 +47,8 @@ export async function getCart() {
               },
               color: { select: { id: true, name: true, hex: true } },
               subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
-              packEntries: { orderBy: { position: "asc" }, include: { color: { select: { name: true, hex: true } } } },
+              variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
+              packColorLines: { orderBy: { position: "asc" }, include: { colors: { orderBy: { position: "asc" }, include: { color: { select: { name: true, hex: true } } } } } },
             },
           },
         },
@@ -61,20 +62,22 @@ export async function getCart() {
   // Fetch images per (productId, colorId) pair
   const pairs = [
     ...new Map(
-      cart.items.map((item) => [
-        `${item.variant.productId}__${item.variant.colorId}`,
-        { productId: item.variant.productId, colorId: item.variant.colorId },
-      ])
+      cart.items
+        .filter((item) => item.variant.colorId != null)
+        .map((item) => [
+          `${item.variant.productId}__${item.variant.colorId}`,
+          { productId: item.variant.productId, colorId: item.variant.colorId! },
+        ])
     ).values(),
   ];
 
-  const images = await prisma.productColorImage.findMany({
+  const images = pairs.length > 0 ? await prisma.productColorImage.findMany({
     where: {
       OR: pairs.map((p) => ({ productId: p.productId, colorId: p.colorId })),
     },
     orderBy: { order: "asc" },
     select: { productId: true, colorId: true, path: true, order: true },
-  });
+  }) : [];
 
   // Group images by "productId__colorId"
   const imagesByKey = new Map<string, typeof images>();
@@ -85,11 +88,19 @@ export async function getCart() {
     imagesByKey.set(key, list);
   }
 
-  // Attach first image to each item
+  // Attach first image to each item + transform variantSizes → sizes
   const itemsWithImages = cart.items.map((item) => {
     const key = `${item.variant.productId}__${item.variant.colorId}`;
     const imgs = imagesByKey.get(key) ?? [];
-    return { ...item, variantImages: imgs };
+    const { variantSizes, ...variantRest } = item.variant;
+    return {
+      ...item,
+      variant: {
+        ...variantRest,
+        sizes: (variantSizes ?? []).map((vs) => ({ name: vs.size.name, quantity: vs.quantity })),
+      },
+      variantImages: imgs,
+    };
   });
 
   return { ...cart, items: itemsWithImages };

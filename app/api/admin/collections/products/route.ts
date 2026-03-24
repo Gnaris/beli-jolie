@@ -48,9 +48,9 @@ export async function GET() {
   const shaped = products.map((p) => {
     const colorMap = new Map<string, { id: string; name: string; hex: string | null; images: { path: string }[] }>();
     for (const pc of p.colors) {
-      if (!colorMap.has(pc.colorId)) {
+      if (pc.colorId && !colorMap.has(pc.colorId)) {
         const path = imageMap.get(p.id)?.get(pc.colorId);
-        colorMap.set(pc.colorId, { id: pc.colorId, name: pc.color.name, hex: pc.color.hex, images: path ? [{ path }] : [] });
+        colorMap.set(pc.colorId, { id: pc.colorId, name: pc.color?.name ?? "", hex: pc.color?.hex ?? null, images: path ? [{ path }] : [] });
       }
     }
     return { id: p.id, name: p.name, reference: p.reference, colors: [...colorMap.values()] };

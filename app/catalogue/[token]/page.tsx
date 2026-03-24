@@ -84,7 +84,7 @@ export default async function PublicCatalogPage({ params }: Props) {
             {catalog.products.map(({ product, selectedColorId, selectedImagePath }) => {
               // Variante couleur : selectedColorId en priorité, sinon la primaire
               const variant = selectedColorId
-                ? product.colors.find((c) => c.color.id === selectedColorId) ?? product.colors.find((c) => c.isPrimary) ?? product.colors[0]
+                ? product.colors.find((c) => c.color?.id === selectedColorId) ?? product.colors.find((c) => c.isPrimary) ?? product.colors[0]
                 : product.colors.find((c) => c.isPrimary) ?? product.colors[0];
 
               const price = variant?.unitPrice;

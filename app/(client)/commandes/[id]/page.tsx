@@ -226,11 +226,24 @@ export default async function CommandeDetailPage({
                   <span className="badge badge-neutral text-[10px]">
                     {item.colorName}
                   </span>
-                  {item.size && (
-                    <span className="badge badge-neutral text-[10px]">
-                      {t("sizeOption", { size: item.size })}
-                    </span>
-                  )}
+                  {(() => {
+                    if (item.sizesJson) {
+                      try {
+                        const sizes: { name: string; quantity: number }[] = JSON.parse(item.sizesJson);
+                        if (sizes.length > 0) return (
+                          <span className="badge badge-neutral text-[10px]">
+                            {sizes.map(s => `${s.name}×${s.quantity}`).join(", ")}
+                          </span>
+                        );
+                      } catch { /* ignore */ }
+                    }
+                    if (item.size) return (
+                      <span className="badge badge-neutral text-[10px]">
+                        {t("sizeOption", { size: item.size })}
+                      </span>
+                    );
+                    return null;
+                  })()}
                   <span className={`badge text-[10px] ${item.saleType === "PACK" ? "badge-purple" : "badge-info"}`}>
                     {item.saleType === "PACK" ? t("packOption", { qty: item.packQty ?? 0 }) : t("unitOption")}
                   </span>

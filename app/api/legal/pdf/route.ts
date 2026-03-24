@@ -208,7 +208,7 @@ export async function GET(request: NextRequest) {
 
   const filename = `${doc.title.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüÿçæœ\s-]/g, "").replace(/\s+/g, "-")}.pdf`;
 
-  return new NextResponse(buffer, {
+  return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${filename}"`,

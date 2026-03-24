@@ -246,6 +246,7 @@
     "unitOption": "Per unit",
     "packOption": "Pack of {qty}",
     "sizeLabel": "Size {size}",
+    "sizes": "Sizes",
     "dimensions": "Dimensions",
     "length": "Length",
     "width": "Width",

@@ -33,12 +33,12 @@ type PrismaProduct = {
   category: { name: string };
   colors: {
     id: string;
-    colorId: string;
+    colorId: string | null;
     unitPrice: number;
     isPrimary: boolean;
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | null;
-    color: { name: string; hex: string | null };
+    color: { name: string; hex: string | null } | null;
   }[];
 };
 
@@ -53,10 +53,11 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
     // Deduplicate by colorId, take min price per color
     const colorMap = new Map<string, { id: string; colorId: string; hex: string | null; name: string; unitPrice: number; discountedPrice: number; hasDiscount: boolean; isPrimary: boolean }>();
     for (const c of p.colors) {
+      if (!c.colorId) continue;
       const discounted = computeDiscountedPrice(c.unitPrice, c.discountType, c.discountValue);
       const hasDsc = discounted < c.unitPrice;
       if (!colorMap.has(c.colorId)) {
-        colorMap.set(c.colorId, { id: c.colorId, colorId: c.colorId, hex: c.color.hex, name: c.color.name, unitPrice: c.unitPrice, discountedPrice: discounted, hasDiscount: hasDsc, isPrimary: c.isPrimary });
+        colorMap.set(c.colorId, { id: c.colorId, colorId: c.colorId, hex: c.color?.hex ?? null, name: c.color?.name ?? "", unitPrice: c.unitPrice, discountedPrice: discounted, hasDiscount: hasDsc, isPrimary: c.isPrimary });
       } else {
         const entry = colorMap.get(c.colorId)!;
         if (discounted < entry.discountedPrice) {

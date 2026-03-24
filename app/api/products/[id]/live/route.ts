@@ -17,10 +17,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       colors: {
         select: {
           id: true, colorId: true, unitPrice: true, stock: true,
-          isPrimary: true, saleType: true, packQuantity: true, size: true,
+          isPrimary: true, saleType: true, packQuantity: true,
           discountType: true, discountValue: true,
           color: { select: { name: true, hex: true, patternImage: true } },
           subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
+          variantSizes: { orderBy: { size: { position: "asc" } }, include: { size: true } },
         },
       },
     },
@@ -46,14 +47,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   // Group variants by groupKey
   const colorMap = new Map<string, Record<string, unknown>>();
   for (const v of product.colors) {
+    if (!v.colorId) continue;
     const subNames = v.subColors?.map((sc) => sc.color.name) ?? [];
     const gk = subNames.length === 0 ? v.colorId : `${v.colorId}::${subNames.join(",")}`;
 
     if (!colorMap.has(gk)) {
       const subs = v.subColors?.map((sc) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage })) ?? [];
       colorMap.set(gk, {
-        groupKey: gk, colorId: v.colorId, name: v.color.name,
-        hex: v.color.hex, patternImage: v.color.patternImage,
+        groupKey: gk, colorId: v.colorId, name: v.color?.name,
+        hex: v.color?.hex, patternImage: v.color?.patternImage,
         subColors: subs.length > 0 ? subs : undefined,
         firstImage: imageByVariant.get(v.id) ?? null,
         unitPrice: v.unitPrice, isPrimary: v.isPrimary, totalStock: 0,
@@ -67,7 +69,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (v.isPrimary) cd.isPrimary = true;
     cd.variants.push({
       id: v.id, saleType: v.saleType, packQuantity: v.packQuantity,
-      size: v.size ?? null, unitPrice: v.unitPrice, stock: v.stock ?? 0,
+      sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })),
+      unitPrice: v.unitPrice, stock: v.stock ?? 0,
       discountType: v.discountType ?? null, discountValue: v.discountValue ?? null,
     });
   }

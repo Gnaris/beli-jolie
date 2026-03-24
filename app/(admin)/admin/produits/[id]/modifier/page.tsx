@@ -5,7 +5,7 @@ import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
 import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
-import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons } from "@/lib/cached-data";
+import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes } from "@/lib/cached-data";
 import PfsSyncButton from "@/components/pfs/PfsSyncButton";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
@@ -21,7 +21,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons] = await Promise.all([
+  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -32,6 +32,19 @@ export default async function ModifierProduitPage({
             subColors: {
               orderBy: { position: "asc" },
               include: { color: true },
+            },
+            variantSizes: {
+              orderBy: { size: { position: "asc" } },
+              include: { size: true },
+            },
+            packColorLines: {
+              orderBy: { position: "asc" },
+              include: {
+                colors: {
+                  orderBy: { position: "asc" },
+                  include: { color: true },
+                },
+              },
             },
           },
         },
@@ -73,6 +86,7 @@ export default async function ModifierProduitPage({
     }),
     getCachedManufacturingCountries(),
     getCachedSeasons(),
+    getCachedSizes(),
   ]);
 
   if (!product) notFound();
@@ -81,13 +95,27 @@ export default async function ModifierProduitPage({
   const initialVariants: VariantState[] = product.colors.map((pc) => ({
     tempId:        uid(),
     dbId:          pc.id,
-    colorId:       pc.colorId,
-    colorName:     pc.color.name,
-    colorHex:      pc.color.hex ?? "#9CA3AF",
+    colorId:       pc.colorId ?? "",
+    colorName:     pc.color?.name ?? "",
+    colorHex:      pc.color?.hex ?? "#9CA3AF",
     subColors:     pc.subColors.map((sc) => ({
       colorId:   sc.colorId,
       colorName: sc.color.name,
       colorHex:  sc.color.hex ?? "#9CA3AF",
+    })),
+    packColorLines: pc.packColorLines.map((pcl) => ({
+      tempId: uid(),
+      colors: pcl.colors.map((c) => ({
+        colorId:   c.colorId,
+        colorName: c.color.name,
+        colorHex:  c.color.hex ?? "#9CA3AF",
+      })),
+    })),
+    sizeEntries:   pc.variantSizes.map((vs) => ({
+      tempId:   uid(),
+      sizeId:   vs.sizeId,
+      sizeName: vs.size.name,
+      quantity: String(vs.quantity),
     })),
     unitPrice:     String(pc.unitPrice),
     weight:        String(pc.weight),
@@ -95,13 +123,13 @@ export default async function ModifierProduitPage({
     isPrimary:     pc.isPrimary,
     saleType:      pc.saleType,
     packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
-    size:          pc.size ?? "",
     discountType:  (pc.discountType ?? "") as "" | "PERCENT" | "AMOUNT",
     discountValue: pc.discountValue != null ? String(pc.discountValue) : "",
   }));
 
   // Build group key for each ProductColor (colorId + ordered sub-color names — order matters)
-  function editGroupKey(pc: { colorId: string; subColors: { color: { name: string } }[] }): string {
+  function editGroupKey(pc: { colorId: string | null; subColors: { color: { name: string } }[] }): string {
+    if (!pc.colorId) return ""; // PACK variants have no colorId — no image group
     if (pc.subColors.length === 0) return pc.colorId;
     return `${pc.colorId}::${pc.subColors.map(sc => sc.color.name).join(",")}`;
   }
@@ -123,13 +151,13 @@ export default async function ModifierProduitPage({
         : product.colors.find((pc) => pc.colorId === img.colorId);
       // Build full display name (main + sub-colors)
       const allNames = colorMeta
-        ? [colorMeta.color.name, ...colorMeta.subColors.map((sc) => sc.color.name)]
+        ? [colorMeta.color?.name ?? img.colorId, ...colorMeta.subColors.map((sc) => sc.color.name)]
         : [img.colorId];
       colorImageMap.set(gk, {
         groupKey:      gk,
         colorId:       img.colorId,
         colorName:     allNames.join(" / "),
-        colorHex:      colorMeta?.color.hex ?? "#9CA3AF",
+        colorHex:      colorMeta?.color?.hex ?? "#9CA3AF",
         imagePreviews: [],
         uploadedPaths: [],
         orders:        [],
@@ -195,6 +223,7 @@ export default async function ModifierProduitPage({
       <ProductForm
         categories={categories}
         availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage }))}
+        availableSizes={sizes.map((s) => ({ id: s.id, name: s.name }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
         availableCountries={manufacturingCountries}
         availableSeasons={seasons}

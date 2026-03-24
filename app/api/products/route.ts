@@ -20,11 +20,11 @@ const PRODUCT_INCLUDE = {
       isPrimary:     true,
       saleType:      true,
       packQuantity:  true,
-      size:          true,
       discountType:  true,
       discountValue: true,
       color:         { select: { name: true, hex: true, patternImage: true } },
       subColors:     { orderBy: { position: "asc" as const }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
+      variantSizes:  { orderBy: { size: { position: "asc" } }, include: { size: true } },
     },
   },
 } as const;
@@ -42,9 +42,10 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
     const colorMap = new Map<string, {
       groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null; subColors?: { name: string; hex: string; patternImage?: string | null }[];
       firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
-      variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; size: string | null; unitPrice: number; stock: number; discountType: "PERCENT" | "AMOUNT" | null; discountValue: number | null }[];
+      variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; sizes: {name: string, quantity: number}[]; unitPrice: number; stock: number; discountType: "PERCENT" | "AMOUNT" | null; discountValue: number | null }[];
     }>();
     for (const v of p.colors) {
+      if (!v.colorId) continue;
       const subNames: string[] = v.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
       const gk = apiVariantGroupKey(v.colorId, subNames);
       if (!colorMap.has(gk)) {
@@ -52,9 +53,9 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
         colorMap.set(gk, {
           groupKey:      gk,
           colorId:       v.colorId,
-          name:          v.color.name,
-          hex:           v.color.hex,
-          patternImage:  v.color.patternImage,
+          name:          v.color?.name,
+          hex:           v.color?.hex,
+          patternImage:  v.color?.patternImage,
           subColors:     subs.length > 0 ? subs : undefined,
           firstImage:    imageMap.get(p.id)?.get(v.id) ?? null,
           unitPrice:     v.unitPrice,
@@ -68,7 +69,7 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
       cd.unitPrice = Math.min(cd.unitPrice, v.unitPrice);
       cd.totalStock += v.stock ?? 0;
       if (v.isPrimary) cd.isPrimary = true;
-      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, size: v.size ?? null, unitPrice: v.unitPrice, stock: v.stock ?? 0, discountType: v.discountType ?? null, discountValue: v.discountValue ?? null });
+      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: v.unitPrice, stock: v.stock ?? 0, discountType: v.discountType ?? null, discountValue: v.discountValue ?? null });
     }
     return { ...p, colors: [...colorMap.values()] };
   });

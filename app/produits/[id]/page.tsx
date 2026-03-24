@@ -32,6 +32,10 @@ const getProduct = cache(async (id: string) => {
             orderBy: { position: "asc" },
             include: { color: { select: { name: true, hex: true, patternImage: true } } },
           },
+          variantSizes: {
+            orderBy: { size: { position: "asc" } },
+            include: { size: true },
+          },
         },
         orderBy: { isPrimary: "desc" },
       },
@@ -141,6 +145,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   }
   const pcGroupKeys = new Map<string, string>();
   for (const pc of filteredColors) {
+    if (!pc.colorId) continue;
     const gk = variantGroupKey(pc.colorId, pc.subColors.map(sc => sc.color.name));
     pcGroupKeys.set(pc.id, gk);
   }
@@ -174,7 +179,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       name:             p.name,
       reference:        p.reference,
       primaryImage:     img?.path ?? null,
-      primaryColorName: pc?.color.name ?? null,
+      primaryColorName: pc?.color?.name ?? null,
       minPrice:         pc?.unitPrice ?? 0,
     };
   }
@@ -247,9 +252,9 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                 id:            pc.id,
                 groupKey:      pcGroupKeys.get(pc.id)!,
                 colorId:       pc.colorId,
-                colorName:     pc.color.name,
-                colorHex:      pc.color.hex,
-                patternImage:  pc.color.patternImage,
+                colorName:     pc.color?.name,
+                colorHex:      pc.color?.hex,
+                patternImage:  pc.color?.patternImage,
                 subColors:     pc.subColors.length > 0
                   ? pc.subColors.map((sc) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage }))
                   : undefined,
@@ -259,7 +264,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                 isPrimary:     pc.isPrimary,
                 saleType:      pc.saleType,
                 packQuantity:  pc.packQuantity,
-                size:          pc.size ?? null,
+                sizes:         (pc.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })),
                 discountType:  pc.discountType,
                 discountValue: pc.discountValue,
               }))}

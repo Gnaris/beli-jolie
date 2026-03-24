@@ -15,16 +15,16 @@ import { removeFromCart, updateCartItem, clearCart } from "@/app/actions/client/
 interface VariantData {
   id: string;
   productId: string;
-  colorId: string;
+  colorId: string | null;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  size: string | null;
+  sizes: { name: string; quantity: number }[];
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
   unitPrice: number;
   weight: number;
   stock: number;
-  color: { name: string; hex: string | null };
+  color: { name: string; hex: string | null } | null;
   subColors?: { color: { name: string } }[];
   product: {
     id: string;
@@ -112,18 +112,20 @@ function CartRow({
         </Link>
         <p className="text-xs font-mono text-text-muted">{product.reference}</p>
         <div className="flex flex-wrap gap-1.5 mt-1">
+          {v.color && (
           <span className="text-xs bg-bg-tertiary text-text-secondary px-2 py-0.5 rounded-full border border-border"
             style={{ borderLeftColor: v.color.hex ?? undefined }}>
             {tp(v.subColors?.length ? [v.color.name, ...v.subColors.map(sc => sc.color.name)].join("/") : v.color.name)}
           </span>
+          )}
           {v.saleType === "PACK" && (
             <span className="text-xs bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
               {t("packLabel")} {v.packQuantity}
             </span>
           )}
-          {v.size && (
-            <span className="text-xs bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
-              {t("sizeLabel")} {v.size}
+          {v.sizes?.length > 0 && (
+            <span className="text-xs bg-bg-tertiary text-text-muted px-2 py-0.5 rounded-full border border-border font-[family-name:var(--font-roboto)]">
+              {v.sizes.map((s) => `${s.name}\u00d7${s.quantity}`).join(", ")}
             </span>
           )}
         </div>

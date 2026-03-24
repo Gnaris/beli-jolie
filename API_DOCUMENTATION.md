@@ -1,7 +1,8 @@
 # API Paris Fashion Shop - Documentation Produits
 
-> **Dernière vérification live** : 2026-03-21
-> **Total produits actifs** : ~9 251 (93 pages de 100)
+> **Dernière vérification live** : 2026-03-24
+> **Total produits actifs** : ~9 252 (93 pages de 100)
+> **Tests exhaustifs TESTAPI01** : 2026-03-24 (variants, tailles, catégories, genres, familles)
 
 ## Configuration Générale
 
@@ -175,8 +176,27 @@
 }
 ```
 
-**Catégories observées :**
-- Boucles d'oreilles, Bagues, Parures de bijoux, Colliers, Piercings, Bracelets, Pendentifs, Lots avec présentoir, Porte-clés
+**Catégories Beli Jolie observées (scan complet 2026-03-24 — 18 catégories) :**
+| Catégorie FR | Produits | ID PFS |
+|---|---|---|
+| Boucles d'oreilles | 2 797 | `a045J000003KWwDQAW` |
+| Colliers | 1 596 | `a045J000003KWwNQAW` |
+| Bracelets | 1 503 | `a045J000003KWwIQAW` |
+| Bagues | 1 447 | `a045J000003KWw8QAG` |
+| Parures de bijoux | 981 | `a045J00000BO0vRQAT` |
+| Lots avec présentoir | 456 | `a04AZ000001JiJ3YAK` |
+| Pendentifs | 156 | `a04AZ000001KcELYA0` |
+| Chaînes de cheville | 137 | `a04AZ000001KcGYYA0` |
+| Porte-clés | 45 | `a04W5000006vKzdIAE` |
+| Piercings | 43 | `a04AZ000001KgMBYA0` |
+| Présentoirs et rangements nus | 41 | `a045J00000BO0uaQAD` |
+| Broches | 25 | `a045J000003KYeuQAG` |
+| Lunettes | 10 | `a0458000002fIViAAM` |
+| Sacs | 7 | `a04AZ000001L60cYAC` |
+| Accessoires de cheveux | 3 | `a0458000002fITUAA2` |
+| Boîtes & Pochettes | 2 | `a04AZ000001L61LYAS` |
+| Matériaux bijoux | 2 | `a04W5000005rWN5IAM` |
+| Gants | 1 | `a04AZ000001hpKSYAY` |
 
 **Notes importantes (découvertes lors des tests) :**
 - Le champ `status` dans la réponse est `"READY_FOR_SALE"` (pas `"ACTIVE"` — `ACTIVE` est uniquement pour le filtre query)
@@ -190,6 +210,8 @@
 - **Attention** : certains champs variants sont incorrects dans `listProducts` — voir endpoint `/variants` pour les valeurs fiables (weight, pieces PACK, total PACK)
 - Le champ `state` dans la réponse donne les compteurs globaux : `total`, `active`, `draft`, `for_sale`, `out_of_stock`, `archived`, `deleted`, `star`
 - La pagination inclut `meta.current_page`, `meta.last_page`, `meta.from` et `links` (first/last/prev/next)
+- **Tailles :** 98% des produits ont `sizes = "TU"`. ~40 produits ont des tailles de bague (`"52;53;54;55"` ou `"52;53;54;55;56"`). 1 produit a des tailles en mm (`"70;75;80"`). 169 produits ont `size_details_tu` non vide (taille physique d'une bague/bracelet vendu comme TU)
+- **Statuts possibles dans la réponse :** `"READY_FOR_SALE"` (en vente), `"DRAFT"` (brouillon), `"NEW"` (créé mais jamais publié), `"ARCHIVED"` — le filtre query `status=ACTIVE` retourne les produits en `READY_FOR_SALE`
 
 ---
 
@@ -584,20 +606,20 @@
 
 **⚠️ Important :** le wrapper est `{ data: { ... } }` (objet), pas `{ data: [ ... ] }` (array) comme pour POST.
 
-**Champs modifiables testés (2026-03-22) :**
+**Champs modifiables testés (2026-03-22 + 2026-03-24) :**
 | Champ | Fonctionne | Type | Notes |
 |-------|-----------|------|-------|
 | `label` | ✅ | `{lang: string}` | Peut modifier une seule langue ou toutes (fr/en/de/es/it) |
 | `description` | ✅ | `{lang: string}` | Idem |
-| `category` | ✅ | `string` | ID PFS de la catégorie (ex: `"a045J000003KWwIQAW"`) |
+| `category` | ✅ | `string` | ID PFS de la catégorie (ex: `"a045J000003KWwIQAW"`) — **changeable à n'importe quelle catégorie (même cross-genre, ex: KID → WOMAN)** |
+| `family` | ✅ | `string` | ID PFS de la famille (ex: `"a035J00000185J7QAI"`) — changeable indépendamment du genre |
+| `gender_label` | ✅ | `string` | Label FR du genre : `"Femme"`, `"Homme"`, `"Enfant"`, `"Lifestyle & plus"` — **⚠️ Le genre n'est pas validé par rapport à la famille : on peut avoir genre=MAN avec famille=WOMAN/FASHIONJEWELRY (incohérence acceptée par PFS)** |
 | `country_of_manufacture` | ✅ | `string` | Code ISO pays (ex: `"TR"`, `"CN"`) |
 | `season_name` | ✅ | `string` | Référence collection (ex: `"PE2026"`) — ⚠️ doit exister sur PFS sinon 422 |
 | `material_composition` | ✅ | `string` ou `array` | **String** : référence unique (ex: `"ACIERINOXYDABLE"`). **Array** : `[{id: "REF", value: pourcentage}]` — fonctionne sur PATCH (contrairement à POST qui crash en 500). PFS auto-résout les références (ex: `"LAITON"` → `"BRASS"`) |
 | `lining_composition` | ✅ | `array` | Format `[{id: "REF", value: pourcentage}]` — composition de doublure. Même format que material_composition array |
 | `default_color` | ✅ | `string` | Référence couleur (ex: `"GOLDEN"`, `"SILVER"`) — change aussi l'image DEFAULT automatiquement |
 | `brand_name` | ✅ | `string` | Doit correspondre au nom exact de la marque PFS (`"Beli & Jolie"`) |
-| `gender_label` | ✅ | `string` | Label FR du genre (`"Femme"`) |
-| `family` | ✅ | `string` | ID PFS de la famille (ex: `"a035J00000185J7QAI"`) |
 | `reference_code` | ✅ | `string` | Référence produit — ⚠️ ne modifie pas la `reference` affichée, seulement le `reference_code` interne |
 
 **Réponse 200 :** retourne le produit complet mis à jour dans `{ data: {...} }` (même format que `checkReference`).
@@ -610,10 +632,13 @@
 }
 ```
 
-**Notes :**
+**Notes (2026-03-24) :**
 - On peut envoyer un seul champ ou plusieurs à la fois — les champs non envoyés restent inchangés
 - `material_composition` en array sur PATCH résout automatiquement les références (ex: `LAITON` → `BRASS`, `ACIERINOXYDABLE` → ID interne) — **ceci fonctionne sur PATCH mais crash en 500 sur POST**
 - `season_name` doit être une collection existante sur PFS — utiliser la référence exacte (ex: `"PE2026"`, pas `"AH2026"` si elle n'existe pas)
+- **Changement catégorie possible à tout moment** : un produit peut passer de KID/ACCESSORIES/GLOVES → WOMAN/FASHIONJEWELRY/RINGS → WOMAN/CLOTHES/TOPS sans erreur
+- **Les variants existants ne sont pas supprimés lors d'un changement de catégorie** : un produit peut avoir des variants ITEM TU (bijoux) + ITEM XS/S/M (vêtements) en même temps
+- **Genre et famille décorrélés** : PFS n'impose pas que `gender_label` soit cohérent avec la `family` — anomalie possible à éviter côté BJ
 
 ---
 
@@ -669,32 +694,15 @@ color: GOLDEN
 
 ---
 
-### 8. Créer des variants (TESTÉ - FONCTIONNEL pour ITEM)
+### 8. Créer des variants (TESTÉ - FONCTIONNEL — vérifié 2026-03-24)
 
 #### `POST /catalog/products/{id}/variants`
 
-> Ajoute des variants (déclinaisons) à un produit.
+> Ajoute des variants (déclinaisons) à un produit. Batch supporté (plusieurs variants en un seul appel).
 
 **Headers :** `Authorization: Bearer {token}`, `Content-Type: application/json`
 
-**Body :**
-```json
-{
-  "data": [
-    {
-      "type": "ITEM",
-      "color": "GOLDEN",
-      "size": "TU",
-      "price_eur_ex_vat": 5.0,
-      "stock_qty": 100,
-      "weight": 0.05,
-      "pieces": 1
-    }
-  ]
-}
-```
-
-**Format ITEM :**
+**Format ITEM (unité) :**
 ```json
 {
   "data": [{
@@ -703,42 +711,85 @@ color: GOLDEN
     "size": "TU",
     "price_eur_ex_vat": 5.0,
     "stock_qty": 100,
-    "weight": 0.05,
-    "pieces": 1
-  }]
-}
-```
-
-**Format PACK :**
-```json
-{
-  "data": [{
-    "type": "PACK",
-    "packs": [
-      { "color": "GOLDEN", "size": "TU", "qty": 12 }
-    ],
-    "price_eur_ex_vat": 4.0,
-    "stock_qty": 100,
     "weight": 0.05
   }]
 }
 ```
 
-**Format PACK multi-couleur :**
+**Format ITEM avec taille de bague :**
+```json
+{
+  "data": [
+    { "type": "ITEM", "color": "GOLDEN", "size": "52", "price_eur_ex_vat": 3.5, "weight": 0.03, "stock_qty": 100 },
+    { "type": "ITEM", "color": "GOLDEN", "size": "53", "price_eur_ex_vat": 3.5, "weight": 0.03, "stock_qty": 100 },
+    { "type": "ITEM", "color": "SILVER", "size": "52", "price_eur_ex_vat": 3.5, "weight": 0.03, "stock_qty": 100 }
+  ]
+}
+```
+
+**Format ITEM avec taille vêtements :**
+```json
+{
+  "data": [
+    { "type": "ITEM", "color": "RED", "size": "XS", "price_eur_ex_vat": 8.0, "weight": 0.3, "stock_qty": 100 },
+    { "type": "ITEM", "color": "RED", "size": "S",  "price_eur_ex_vat": 8.0, "weight": 0.3, "stock_qty": 100 },
+    { "type": "ITEM", "color": "BLUE", "size": "T38", "price_eur_ex_vat": 8.0, "weight": 0.3, "stock_qty": 100 },
+    { "type": "ITEM", "color": "BLUE", "size": "T40", "price_eur_ex_vat": 8.0, "weight": 0.3, "stock_qty": 100 }
+  ]
+}
+```
+
+**Format PACK mono-couleur :**
 ```json
 {
   "data": [{
     "type": "PACK",
+    "color": "GOLDEN",
+    "size": "TU",
+    "packs": [{ "color": "GOLDEN", "size": "TU", "qty": 12 }],
+    "price_eur_ex_vat": 4.0,
+    "stock_qty": 100,
+    "weight": 0.5
+  }]
+}
+```
+
+**Format PACK mono-couleur avec taille de bague :**
+```json
+{
+  "data": [
+    {
+      "type": "PACK", "color": "GOLDEN", "size": "52",
+      "packs": [{ "color": "GOLDEN", "size": "52", "qty": 12 }],
+      "price_eur_ex_vat": 3.2, "stock_qty": 50, "weight": 0.36
+    },
+    {
+      "type": "PACK", "color": "GOLDEN", "size": "53",
+      "packs": [{ "color": "GOLDEN", "size": "53", "qty": 12 }],
+      "price_eur_ex_vat": 3.2, "stock_qty": 50, "weight": 0.36
+    }
+  ]
+}
+```
+
+**Format PACK multi-couleurs (TESTÉ 2026-03-24) :**
+```json
+{
+  "data": [{
+    "type": "PACK",
+    "color": "GOLDEN",
+    "size": "TU",
     "packs": [
       { "color": "GOLDEN", "size": "TU", "qty": 6 },
       { "color": "SILVER", "size": "TU", "qty": 6 }
     ],
-    "price_eur_ex_vat": 3.0,
-    "stock_qty": 50,
-    "weight": 0.06
+    "price_eur_ex_vat": 5.0,
+    "stock_qty": 30,
+    "weight": 0.5
   }]
 }
 ```
+→ PFS génère automatiquement `sku_suffix = "GOLDEN_SILVER_TU"` (concaténation des couleurs)
 
 **Champs communs :**
 | Champ | Type | Requis | Description |
@@ -751,28 +802,35 @@ color: GOLDEN
 **Champs ITEM :**
 | Champ | Type | Requis | Description |
 |-------|------|--------|-------------|
-| `color` | string | oui | Référence couleur PFS (ex: `"GOLDEN"`, `"SILVER"`) |
-| `size` | string | oui | Taille (ex: `"TU"`) |
-| `pieces` | number | non | Nombre de pièces (1 pour ITEM) |
+| `color` | string | oui | Référence couleur PFS (ex: `"GOLDEN"`, `"SILVER"`, `"RED"`) |
+| `size` | string | oui | Taille (ex: `"TU"`, `"52"`, `"XS"`, `"T38"`) — voir section Tailles |
+| `size_details_tu` | string | non | Taille effective si size=TU (ex: `"40"` pour une bague TU de tour 40mm) — **⚠️ accepté dans la création mais NON stocké dans /variants** (retourne `""`) |
 
 **Champs PACK :**
 | Champ | Type | Requis | Description |
 |-------|------|--------|-------------|
-| `packs` | array | oui | Array plat d'objets `{ color, size, qty }` |
-| `packs[].color` | string | oui | Référence couleur |
-| `packs[].size` | string | oui | Taille |
-| `packs[].qty` | number | oui | Quantité dans le pack pour cette couleur/taille |
+| `color` | string | oui | Couleur principale (référence PFS) — influence le `sku_suffix` |
+| `size` | string | oui | Taille principale — doit correspondre à celle dans `packs[]` |
+| `packs` | array | oui | Lignes de couleur/taille : `[{ color, size, qty }]` |
+| `packs[].color` | string | oui | Référence couleur (ex: `"GOLDEN"`) |
+| `packs[].size` | string | oui | Taille (ex: `"TU"`, `"52"`) |
+| `packs[].qty` | number | oui | Quantité pour cette ligne |
 
 **⚠️ Important pour PACK :**
-- Le format `packs` est **plat** : `{ color, size, qty }` au même niveau (PAS `sizes: [{ size, qty }]` imbriqué — ce format crash)
+- Les champs `color` et `size` de niveau racine doivent correspondre à la première ligne de `packs[]`
 - `pieces` dans la réponse GET = somme des `qty` (ex: GOLDEN qty=6 + SILVER qty=6 → pieces=12)
 - `price_sale.total` = `price_sale.unit.value × pieces`
+- `sku_suffix` auto-généré : `"COLOR1_COLOR2_SIZE"` (couleurs séparées par `_`, tout en majuscules)
+- Pour PACK de bague : 1 variant par (couleur × taille) : `[{color: "GOLDEN", size: "52", qty: 12}]`
 
 **Réponse 200 (succès) :**
 ```json
 {
-  "resume": { "products": 1, "errors": 0 },
-  "data": [{ "id": "pro_xxx", "type": "ITEM", "color": "GOLDEN", ... }]
+  "resume": { "products": 3, "errors": 0 },
+  "data": [
+    { "id": "pro_xxx", "type": "ITEM", "color": "GOLDEN", "size": "52", ... },
+    { "id": "pro_yyy", "type": "ITEM", "color": "GOLDEN", "size": "53", ... }
+  ]
 }
 ```
 
@@ -915,8 +973,21 @@ Deux endpoints disponibles :
 | `/catalog/attributes/compositions` | 114 | `reference` (ACIERINOXYDABLE...) | `id`, `reference`, `labels` |
 | `/catalog/attributes/countries` | 238 | `reference` (ISO: FR, CN, TR...) | `reference`, `labels`, `preview` (flag SVG) |
 | `/catalog/attributes/families` | 29 | `id` | `id`, `labels`, `gender` |
-| `/catalog/attributes/genders` | 4 | `reference` (MAN/WOMAN/KID/SUPPLIES) | `reference`, `labels` |
-| `/catalog/attributes/sizes` | 673 | `reference` (TU, S, M, L...) | `reference` uniquement |
+| `/catalog/attributes/genders` | 4 | `reference` (MAN/WOMAN/KID/SUPPLIES) | `reference`, `labels` (5 langues) |
+| `/catalog/attributes/sizes` | ~50 | `reference` (TU, S, M, L...) | `reference` uniquement (pas de labels multilingues) |
+
+**Genres complets (testé 2026-03-24) :**
+| Référence | FR | EN | ES | DE | IT |
+|---|---|---|---|---|---|
+| `WOMAN` | Femme | Woman | Mujer | Damen | Donna |
+| `MAN` | Homme | Man | Hombre | Herren | Uomo |
+| `KID` | Enfant | Kids | Niños | Kinder | Bambino |
+| `SUPPLIES` | Lifestyle & plus | Lifestyle & more | Lifestyle & más | Lifestyle & Merh | Lifestyle & altro |
+
+**Familles WOMAN :** Bijoux Fantaisie (`a035J00000185J7QAI`), Vêtements, Lingerie, Chaussures, Accessoires, Maroquinerie, Beauté, Grandes tailles
+**Familles MAN :** Bijoux (`a03AZ000004JlRLYA0`), Vêtements, Maroquinerie, Chaussures, Accessoires, Sous-vêtements, Beauté
+**Familles KID :** Bijoux Fantaisie (`a035J00000NACDzQAP`), Accessoires (`a03AZ000001KjT8YAK`), Montres, Sacs à dos, Vêtements, Fille, Garçon, Jouets, Bébé, Maroquinerie
+**Familles SUPPLIES :** Emballages, Matériel boutique, Uniformes professionnels, Fête et Décorations, Lifestyle
 
 **Usage pour le reverse sync :**
 - `colors.reference` = valeur à passer dans `color` lors du POST variant ou `default_color` du PATCH product
@@ -924,6 +995,177 @@ Deux endpoints disponibles :
 - `categories.id` = valeur à passer dans `category` du POST/PATCH product
 - `collections.reference` = valeur à passer dans `season_name` du POST/PATCH product
 - `countries.reference` = valeur à passer dans `country_of_manufacture`
+
+---
+
+## Tailles (Sizes) — Référence complète (testé 2026-03-24)
+
+> **27 catégories testées exhaustivement sur TESTAPI01** — ITEM, PACK, multi-couleurs, toutes tailles.
+
+### Endpoint `/catalog/attributes/sizes`
+
+Retourne les tailles de référence PFS (`reference` uniquement, pas de labels) :
+
+```
+TU           ← Taille Unique (bijoux standard, écharpes, sacs...)
+XXS, XS, S, M, L, XL, XXL, XXXL, 4XL, 5XL, 6XL   ← Vêtements standard
+XS/S, S/M, M/L, L/XL, XL/XXL, XXL/XXXL (et variantes avec tiret)  ← Tailles doubles
+T24→T34 (pairs) ← Jeans, enfants
+T36, T38, T40, T42, T44, T46, T48, T50, T52, T54, T56, T58, T60, T62, T64, T66, T68  ← Tailles FR femme
+```
+
+**⚠️ Important :** PFS accepte des tailles HORS de cette liste si elles suivent un pattern reconnu (numérique pur, alpha+numérique type "85A"). La seule catégorie explicitement refusée : format **UK** (`UK6`, `UK7` → `"Taille non valide"`).
+
+### Règles de validation PFS (découvertes par tests)
+
+| Pattern | Exemple | Accepté | Note |
+|---------|---------|---------|------|
+| Valeur fixe de la liste | `TU`, `XS`, `S/M` | ✅ | Standard |
+| Numérique pur | `36`, `52`, `80`, `100` | ✅ | Tour de doigt, pointure EU, diamètre mm, longueur cm |
+| Numérique + lettre majuscule | `85A`, `90B`, `95C` | ✅ | Bonnets lingerie |
+| T + numérique pair | `T34`, `T36`...`T68` | ✅ | Tailles françaises |
+| Alpha + `/` + Alpha | `XS/S`, `M/L` | ✅ | Tailles chevauchantes |
+| Alpha + `-` + Alpha | `XS-S`, `M-L` | ✅ | Variante avec tiret |
+| `UK` + numérique | `UK6`, `UK7` | ❌ | **Refusé** : "Taille non valide" |
+
+### Contrainte SKU doublon (⚠️ critique)
+
+PFS génère automatiquement le `sku_suffix = "COLOR_SIZE"`. **Si ce SKU existe déjà sur le produit, la création échoue silencieusement** (HTTP 200 mais `resume: {products: 0, errors: 1}`). Il faut supprimer l'ancien variant avant d'en créer un nouveau avec les mêmes couleur+taille.
+
+### Tailles par catégorie — Résultats tests exhaustifs (2026-03-24)
+
+#### Bijoux Fantaisie WOMAN (12 catégories : Boucles, Bagues, Colliers, Bracelets, Parures, Pendentifs, Chaînes de cheville, Piercings, Broches, Porte-clés, Lots, Présentoirs)
+| Taille | ITEM | PACK | Notes |
+|--------|------|------|-------|
+| `TU` | ✅ | ✅ | Standard bijoux |
+| `52`, `53`, `54`, `55`, `56` | ✅ | ✅ | Tour de doigt (bagues) |
+| `70`, `75`, `80` | ✅ | ✅ | Diamètre mm (créoles) |
+| Tout numérique (85, 90, 100...) | ✅ | ✅ | PFS ne bloque aucun chiffre |
+
+#### Écharpes / Foulards (WOMAN)
+| Taille | ITEM | PACK |
+|--------|------|------|
+| `TU` | ✅ | ✅ |
+| `S`, `M`, `L` | ✅ | — (non testé) |
+
+#### Ceintures (WOMAN)
+| Taille | ITEM | Notes |
+|--------|------|-------|
+| `T34`, `T36`, `T38`, `T40`, `T42`, `T44` | ✅ | Tailles FR |
+| `XS`, `S`, `M`, `L`, `XL` | ✅ | |
+| `TU` | ✅ | |
+| `70`, `80`, `90`, `100`, `110` | ✅ | Longueur en cm |
+
+#### Chapeaux / Gants / Accessoires / Parfums / Beauté
+| Taille | ITEM | PACK |
+|--------|------|------|
+| `TU` | ✅ | ✅ |
+| `S`, `M`, `L` | ✅ | — |
+| `36`, `37`, `38`, `39`, `40`, `41`, `42` | ✅ | — (tour de tête/pointure gant) |
+
+#### Lunettes (KID + toutes catégories)
+| Taille | ITEM | Notes |
+|--------|------|-------|
+| `TU` | ✅ | |
+| `50`, `52`, `54`, `56`, `58` | ✅ | Largeur monture (mm) |
+
+#### Sacs / Maroquinerie (Reporters, Sacs à main...)
+| Taille | ITEM | PACK |
+|--------|------|------|
+| `TU` | ✅ | ✅ |
+| `S`, `M`, `L` | ✅ | — |
+
+#### Vêtements (Tops, Soirées, Boxers, Manteaux KID — toutes catégories vêtements)
+| Taille | ITEM | PACK |
+|--------|------|------|
+| `XS`, `S`, `M`, `L`, `XL`, `XXL` | ✅ | ✅ |
+| `XXXL`, `4XL`, `5XL`, `6XL` | ✅ | — |
+| `T34`, `T36`, `T38`, `T40`, `T42`, `T44`, `T46`, `T48`, `T50`, `T52` | ✅ | — |
+| `XS/S`, `S/M`, `M/L`, `L/XL`, `XL/XXL` | ✅ | — |
+| `TU` | ✅ | — |
+| PACK multi-taille `[S×2, M×2, L×2]` | — | ✅ |
+
+#### Lingerie / Soutiens-gorge
+| Taille | ITEM | Notes |
+|--------|------|-------|
+| `85A`, `85B`, `85C`, `90A`, `90B`, `90C`, `95B`, `95C` | ✅ | Format `{tour_de_poitrine}{bonnet}` |
+| `XS`, `S`, `M`, `L`, `XL` | ✅ | |
+| `TU` | ✅ | |
+| `36`, `38`, `40`, `42`, `44` | ✅ | Tailles FR |
+
+#### Chaussures (Mocassins, Mules, Talons — toutes catégories chaussures)
+| Taille | ITEM | PACK | Notes |
+|--------|------|------|-------|
+| `36`, `37`, `38`, `39`, `40`, `41`, `42` | ✅ | ✅ | EU femme |
+| `43`, `44`, `45`, `46` | ✅ | — | EU homme |
+| `20`, `21`, `22`, `23`, `24`, `25`, `26`, `27`, `28`, `29`, `30` | ✅ | — | EU enfant |
+| `TU` | ✅ | — | |
+| `UK6`, `UK7` | ❌ | ❌ | **Refusé** : "Taille non valide" |
+
+### Champ `size_details_tu` (produit + variant)
+
+Présent sur 169 produits Beli Jolie quand `size = "TU"` mais la pièce a une taille physique mesurable :
+
+| Valeur observée | Signification | Catégories |
+|----------------|---------------|-----------|
+| `"36"`, `"38"`, `"40"` | Tour de doigt en mm (bague TU de taille fixe) | Bagues |
+| `"40"` | Tour de poignet ou diamètre | Bracelets, Boucles d'oreilles |
+| `"null"` (string) | Bug PFS : valeur mal renseignée | — |
+
+**⚠️ Non modifiable via API :** le champ `size_details_tu` est accepté dans le body de création de variant mais **n'est pas stocké** — retourne `""` via `/variants`. C'est une donnée en lecture seule côté back-office PFS.
+
+### Logique de variant par catégorie (résumé)
+
+#### Bijoux (TU)
+```
+ITEM GOLDEN/TU + ITEM SILVER/TU
+PACK GOLDEN:[TU×12] + PACK SILVER:[TU×12]
+sku_suffix: "GOLDEN_TU", "SILVER_TU"
+```
+
+#### Bagues (tailles 52-56)
+```
+ITEM GOLDEN/52, GOLDEN/53, GOLDEN/54, GOLDEN/55
+ITEM SILVER/52, SILVER/53, SILVER/54, SILVER/55
+PACK GOLDEN:[52×12], PACK GOLDEN:[53×12] ...
+sku_suffix: "GOLDEN_52", "SILVER_53"
+```
+→ 2 couleurs × 4 tailles = **8 ITEM + 8 PACK = 16 variants**
+
+#### Vêtements (XS/S/M/L/XL ou T36/T38/T40)
+```
+ITEM RED/XS, RED/S, RED/M, RED/L, RED/XL
+ITEM BLUE/T36, BLUE/T38, BLUE/T40
+PACK RED:[S×5]         ← mono-taille
+PACK BLACK:[S×2,M×2,L×2]  ← multi-taille
+sku_suffix: "RED_XS", "BLUE_T38", "BLACK_S"
+```
+
+#### Lingerie (bonnets)
+```
+ITEM BLACK/85A, BLACK/85B, BLACK/85C, BLACK/90B ...
+WHITE/85A, WHITE/85B ...
+sku_suffix: "BLACK_85A", "WHITE_90B"
+```
+
+#### Chaussures EU
+```
+ITEM BLACK/36, BLACK/37, BLACK/38 ... BLACK/42
+PACK BLACK:[38×1]
+sku_suffix: "BLACK_36", "BLACK_38"
+```
+
+#### PACK multi-couleurs (toutes catégories)
+```json
+{
+  "type": "PACK", "color": "GOLDEN", "size": "TU",
+  "packs": [
+    { "color": "GOLDEN", "size": "TU", "qty": 6 },
+    { "color": "SILVER", "size": "TU", "qty": 6 }
+  ]
+}
+```
+→ `pieces=12`, `sku_suffix="GOLDEN_SILVER_TU"`, `price_total = price_unit × 12`
 
 ---
 

@@ -417,6 +417,37 @@ export async function pfsGetCollections(): Promise<PfsAttributeCollection[]> {
   return data.data ?? [];
 }
 
+export interface PfsAttributeFamily {
+  id: string;
+  labels: Record<string, string>;
+  gender: string;
+}
+
+export interface PfsAttributeGender {
+  reference: string;
+  labels: Record<string, string>;
+}
+
+export async function pfsGetFamilies(): Promise<PfsAttributeFamily[]> {
+  const headers = await getPfsHeaders();
+  const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/attributes/families`, {
+    method: "GET",
+    headers,
+  });
+  const data = (await res.json()) as { data: PfsAttributeFamily[] };
+  return data.data ?? [];
+}
+
+export async function pfsGetGenders(): Promise<PfsAttributeGender[]> {
+  const headers = await getPfsHeaders();
+  const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/attributes/genders`, {
+    method: "GET",
+    headers,
+  });
+  const data = (await res.json()) as { data: PfsAttributeGender[] };
+  return data.data ?? [];
+}
+
 // ─────────────────────────────────────────────
 // AI Translations
 // ─────────────────────────────────────────────

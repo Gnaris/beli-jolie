@@ -246,6 +246,7 @@
     "unitOption": "Singolo",
     "packOption": "Pack da {qty}",
     "sizeLabel": "Taglia {size}",
+    "sizes": "Taglie",
     "dimensions": "Dimensioni",
     "length": "Lunghezza",
     "width": "Larghezza",

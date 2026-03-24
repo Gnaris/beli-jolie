@@ -11,7 +11,7 @@ type VariantItem = {
   id:           string;
   saleType:     "UNIT" | "PACK";
   packQuantity: number | null;
-  size:         string | null;
+  sizes:        { name: string; quantity: number }[];
   unitPrice:    number;
   stock:        number;
   discountType?: "PERCENT" | "AMOUNT" | null;

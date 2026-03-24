@@ -34,7 +34,7 @@ interface PfsVariantData {
   stock: number;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  size: string | null;
+  sizeName: string | null;
   isPrimary: boolean;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
@@ -168,7 +168,7 @@ export async function applyPfsLiveSync(
           changesApplied++;
         }
       } else if (action === "add") {
-        await prisma.productColor.create({
+        const createdVariant = await prisma.productColor.create({
           data: {
             productId,
             colorId: pfsVariant.colorId,
@@ -177,12 +177,24 @@ export async function applyPfsLiveSync(
             stock: pfsVariant.stock,
             saleType: pfsVariant.saleType,
             packQuantity: pfsVariant.packQuantity,
-            size: pfsVariant.size,
             isPrimary: false,
             discountType: pfsVariant.discountType,
             discountValue: pfsVariant.discountValue,
           },
         });
+
+        // Create VariantSize record if PFS provided a size
+        if (pfsVariant.sizeName) {
+          const sizeRecord = await prisma.size.upsert({
+            where: { name: pfsVariant.sizeName },
+            create: { name: pfsVariant.sizeName },
+            update: {},
+          });
+          await prisma.variantSize.create({
+            data: { productColorId: createdVariant.id, sizeId: sizeRecord.id, quantity: 1 },
+          });
+        }
+
         changesApplied++;
       }
     }

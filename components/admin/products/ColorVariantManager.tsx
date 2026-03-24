@@ -16,30 +16,37 @@ export interface SubColorState {
   colorHex: string;
 }
 
-export interface PackEntryState {
+export interface SizeEntryState {
   tempId: string;
-  colorId: string;
-  colorName: string;
-  colorHex: string;
-  size: string;
+  sizeId: string;
+  sizeName: string;
   quantity: string; // string for form input
+}
+
+export interface PackColorLineState {
+  tempId: string;
+  colors: { colorId: string; colorName: string; colorHex: string }[];
 }
 
 export interface VariantState {
   tempId: string;
   dbId?: string;           // ProductColor.id when editing
-  colorId: string;
+  // UNIT: color composition (colorId = 1ère couleur, subColors = suivantes)
+  colorId: string;         // "" for PACK (colors are in packColorLines)
   colorName: string;
   colorHex: string;
-  subColors: SubColorState[]; // Sous-couleurs optionnelles (ex: Doré → Rouge, Noir)
-  unitPrice: string;
+  subColors: SubColorState[];
+  // PACK: multiple color lines (each = a color composition)
+  packColorLines: PackColorLineState[];
+  // Sizes with quantities (shared across all color lines for PACK)
+  sizeEntries: SizeEntryState[];
+  // Pricing & metadata
+  unitPrice: string;       // Prix HT (pour l'unité ou pour le paquet entier)
   weight: string;
   stock: string;
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
-  packQuantity: string;    // "" if UNIT, auto-computed from packEntries if they exist
-  size: string;            // For UNIT or simple PACK (single size)
-  packEntries: PackEntryState[]; // Composition du pack (couleur × taille × qty) — vide pour UNIT
+  packQuantity: string;    // Quantité par paquet (PACK only)
   discountType: "" | "PERCENT" | "AMOUNT";
   discountValue: string;
 }
@@ -62,10 +69,16 @@ export interface AvailableColor {
   patternImage?: string | null;
 }
 
+export interface AvailableSize {
+  id: string;
+  name: string;
+}
+
 interface Props {
   variants: VariantState[];
   colorImages: ColorImageState[];
   availableColors: AvailableColor[];
+  availableSizes: AvailableSize[];
   onChange: (variants: VariantState[]) => void;
   onChangeImages: (images: ColorImageState[]) => void;
   onQuickCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
@@ -78,10 +91,8 @@ interface Props {
 export function computeTotalPrice(v: VariantState): number | null {
   const unit = parseFloat(v.unitPrice);
   if (isNaN(unit) || unit <= 0) return null;
-  if (v.saleType === "UNIT") return unit;
-  const qty = parseInt(v.packQuantity);
-  if (isNaN(qty) || qty <= 0) return null;
-  return unit * qty;
+  // Le prix est toujours le prix total (unitaire ou du paquet entier)
+  return unit;
 }
 
 export function computeFinalPrice(v: VariantState): number | null {
@@ -108,20 +119,21 @@ export function variantGroupKeyFromState(v: { colorId: string; subColors: { colo
   return `${v.colorId}::${v.subColors.map(sc => sc.colorName).join(",")}`;
 }
 
-function defaultVariant(_availableColors: AvailableColor[]): VariantState {
+function defaultVariant(): VariantState {
   return {
     tempId:       uid(),
     colorId:      "",
     colorName:    "",
     colorHex:     "#9CA3AF",
     subColors:    [],
+    packColorLines: [],
+    sizeEntries:  [],
     unitPrice:    "",
     weight:       "",
     stock:        "",
     isPrimary:    false,
     saleType:     "UNIT",
     packQuantity: "",
-    size:         "",
     discountType: "",
     discountValue: "",
   };
@@ -134,13 +146,12 @@ interface BulkEditState {
   unitPrice:    string;
   weight:       string;
   stock:        string;
-  size:         string;
   discountType: "" | "PERCENT" | "AMOUNT";
   discountValue: string;
 }
 
 function defaultBulkEdit(): BulkEditState {
-  return { unitPrice: "", weight: "", stock: "", size: "", discountType: "", discountValue: "" };
+  return { unitPrice: "", weight: "", stock: "", discountType: "", discountValue: "" };
 }
 
 // ─────────────────────────────────────────────
@@ -672,31 +683,15 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
 function findInvalidVariantTempIds(variants: VariantState[]): Set<string> {
   const invalid = new Set<string>();
   // Duplicate UNIT per color group (colorId + sub-colors)
-  const unitSeen = new Map<string, string>(); // groupKey -> tempId
+  const unitSeen = new Map<string, string>();
   for (const v of variants) {
     if (v.saleType === "UNIT") {
       const gk = variantGroupKeyFromState(v);
       if (unitSeen.has(gk)) {
         invalid.add(v.tempId);
-        const prev = unitSeen.get(gk)!;
-        invalid.add(prev);
+        invalid.add(unitSeen.get(gk)!);
       } else {
         unitSeen.set(gk, v.tempId);
-      }
-    }
-  }
-  // Duplicate PACK per color group + packQuantity + size (same pack qty OK if different size)
-  const packSeen = new Map<string, string>(); // key -> tempId
-  for (const v of variants) {
-    if (v.saleType === "PACK" && v.packQuantity) {
-      const gk = variantGroupKeyFromState(v);
-      const key = `${gk}__${v.packQuantity}__${v.size.trim().toLowerCase()}`;
-      if (packSeen.has(key)) {
-        invalid.add(v.tempId);
-        const prev = packSeen.get(key)!;
-        invalid.add(prev);
-      } else {
-        packSeen.set(key, v.tempId);
       }
     }
   }
@@ -1172,6 +1167,7 @@ export default function ColorVariantManager({
   variants,
   colorImages,
   availableColors,
+  availableSizes,
   onChange,
   onChangeImages,
   onQuickCreateColor,
@@ -1186,13 +1182,13 @@ export default function ColorVariantManager({
   const [newColorHex, setNewColorHex]       = useState("#9CA3AF");
   const [newColorPattern, setNewColorPattern] = useState<string | null>(null);
   const [patternUploading, setPatternUploading] = useState(false);
+  const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set());
 
   // ── Bulk edit state ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEdit, setBulkEdit]       = useState<BulkEditState>(defaultBulkEdit());
   const selectAllRef                  = useRef<HTMLInputElement>(null);
 
-  // Sync "select all" indeterminate state
   useEffect(() => {
     if (selectAllRef.current) {
       const allSelected  = selectedIds.size === variants.length && variants.length > 0;
@@ -1205,62 +1201,6 @@ export default function ColorVariantManager({
   const invalidTempIds = findInvalidVariantTempIds(variants);
   const showBulkRow    = selectedIds.size > 0;
 
-  // ── Quick-add variants for existing colors ────────────────────────────────
-  const [quickAddOpen, setQuickAddOpen] = useState(false);
-  const [quickAddGroupKeys, setQuickAddGroupKeys] = useState<Set<string>>(new Set());
-  const [quickAddType, setQuickAddType] = useState<"UNIT" | "PACK">("PACK");
-  const [quickAddPrice, setQuickAddPrice] = useState("");
-  const [quickAddStock, setQuickAddStock] = useState("");
-  const [quickAddWeight, setQuickAddWeight] = useState("");
-  const [quickAddPackQty, setQuickAddPackQty] = useState("");
-
-  function toggleQuickAddGroup(key: string) {
-    setQuickAddGroupKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
-
-  function applyQuickAdd() {
-    if (quickAddGroupKeys.size === 0) return;
-    const price = parseFloat(quickAddPrice);
-    if (isNaN(price) || price <= 0) return;
-    const stock = parseInt(quickAddStock);
-    if (isNaN(stock) || stock < 0) return;
-    if (quickAddType === "PACK") {
-      const pq = parseInt(quickAddPackQty);
-      if (isNaN(pq) || pq < 1) return;
-    }
-    const newVariants: VariantState[] = [];
-    for (const groupKey of quickAddGroupKeys) {
-      // Find a representative variant from this group to copy color info
-      const group = groupedVariants.find((g) => g.key === groupKey);
-      if (!group) continue;
-      const ref = group.variants[0].variant;
-      newVariants.push({
-        ...defaultVariant(availableColors),
-        colorId: ref.colorId,
-        colorName: ref.colorName,
-        colorHex: ref.colorHex,
-        subColors: [...ref.subColors],
-        saleType: quickAddType,
-        unitPrice: quickAddPrice,
-        stock: quickAddStock,
-        weight: quickAddWeight,
-        packQuantity: quickAddType === "PACK" ? quickAddPackQty : "",
-        isPrimary: false,
-      });
-    }
-    onChange([...variants, ...newVariants]);
-    setQuickAddGroupKeys(new Set());
-    setQuickAddOpen(false);
-    setQuickAddPrice("");
-    setQuickAddStock("");
-    setQuickAddWeight("");
-    setQuickAddPackQty("");
-  }
-
   // ── Quick create color ─────────────────────────────────────────────────────
   async function handlePatternUpload(file: File) {
     setPatternUploading(true);
@@ -1269,16 +1209,10 @@ export default function ColorVariantManager({
       fd.append("image", file);
       const res = await fetch("/api/admin/colors/pattern", { method: "POST", body: fd });
       const json = await res.json();
-      if (res.ok) {
-        setNewColorPattern(json.path);
-      } else {
-        setQuickCreateErr(json.error || "Erreur upload motif");
-      }
-    } catch {
-      setQuickCreateErr("Erreur upload motif");
-    } finally {
-      setPatternUploading(false);
-    }
+      if (res.ok) setNewColorPattern(json.path);
+      else setQuickCreateErr(json.error || "Erreur upload motif");
+    } catch { setQuickCreateErr("Erreur upload motif"); }
+    finally { setPatternUploading(false); }
   }
 
   async function handleQuickSave() {
@@ -1286,16 +1220,10 @@ export default function ColorVariantManager({
     setQuickSaving(true);
     try {
       await onQuickCreateColor(newColorName.trim(), newColorHex, newColorPattern);
-      setNewColorName("");
-      setNewColorHex("#9CA3AF");
-      setNewColorPattern(null);
-      setShowQuickCreate(false);
-      setQuickCreateErr("");
-    } catch (e: unknown) {
-      setQuickCreateErr(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setQuickSaving(false);
-    }
+      setNewColorName(""); setNewColorHex("#9CA3AF"); setNewColorPattern(null);
+      setShowQuickCreate(false); setQuickCreateErr("");
+    } catch (e: unknown) { setQuickCreateErr(e instanceof Error ? e.message : "Erreur"); }
+    finally { setQuickSaving(false); }
   }
 
   // ── Mutations ─────────────────────────────────────────────────────────────
@@ -1308,26 +1236,26 @@ export default function ColorVariantManager({
   }
 
   function addVariant() {
-    const def = defaultVariant(availableColors);
+    const def = defaultVariant();
     const isPrimary = variants.length === 0;
-    onChange([...variants, { ...def, isPrimary }]);
+    const newV = { ...def, isPrimary };
+    onChange([...variants, newV]);
+    setExpandedVariants((prev) => new Set(prev).add(newV.tempId));
   }
 
   async function removeVariant(tempId: string) {
     if (variants.length <= 1) return;
     const target = variants.find((v) => v.tempId === tempId);
-    const label = target ? `${target.colorName || "Sans couleur"} (${target.saleType === "PACK" ? "Pack" : "Unité"})` : "cette variante";
-    const ok = await confirmDialog({ title: "Supprimer la variante ?", message: `Voulez-vous supprimer la variante « ${label} » ?`, confirmLabel: "Supprimer", danger: true });
+    const label = target ? `${target.saleType === "PACK" ? "Pack" : "Unité"} ${target.colorName || ""}`.trim() : "cette variante";
+    const ok = await confirmDialog({ title: "Supprimer la variante ?", message: `Voulez-vous supprimer « ${label} » ?`, confirmLabel: "Supprimer", type: "danger" });
     if (!ok) return;
     let newVariants = variants.filter((v) => v.tempId !== tempId);
     if (target?.isPrimary && newVariants.length > 0) {
       newVariants = newVariants.map((v, i) => ({ ...v, isPrimary: i === 0 }));
     }
-    if (selectedIds.has(tempId)) {
-      const next = new Set(selectedIds);
-      next.delete(tempId);
-      setSelectedIds(next);
-    }
+    const next = new Set(selectedIds);
+    next.delete(tempId);
+    setSelectedIds(next);
     onChange(newVariants);
   }
 
@@ -1338,12 +1266,64 @@ export default function ColorVariantManager({
     }
     const [main, ...rest] = colors;
     const patch = {
-      colorId: main.colorId,
-      colorName: main.colorName,
-      colorHex: main.colorHex,
+      colorId: main.colorId, colorName: main.colorName, colorHex: main.colorHex,
       subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
     };
     onChange(variants.map((v) => tempIds.has(v.tempId) ? { ...v, ...patch } : v));
+  }
+
+  // ── Size management ───────────────────────────────────────────────────────
+  function addSizeEntry(tempId: string) {
+    const v = variants.find((x) => x.tempId === tempId);
+    if (!v) return;
+    const usedIds = new Set(v.sizeEntries.map((s) => s.sizeId));
+    const available = availableSizes.filter((s) => !usedIds.has(s.id));
+    if (available.length === 0) return;
+    const next = available[0];
+    updateVariant(tempId, {
+      sizeEntries: [...v.sizeEntries, { tempId: uid(), sizeId: next.id, sizeName: next.name, quantity: "1" }],
+    });
+  }
+
+  function updateSizeEntry(variantTempId: string, sizeTempId: string, patch: Partial<SizeEntryState>) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v) return;
+    updateVariant(variantTempId, {
+      sizeEntries: v.sizeEntries.map((s) => s.tempId === sizeTempId ? { ...s, ...patch } : s),
+    });
+  }
+
+  function removeSizeEntry(variantTempId: string, sizeTempId: string) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v) return;
+    updateVariant(variantTempId, {
+      sizeEntries: v.sizeEntries.filter((s) => s.tempId !== sizeTempId),
+    });
+  }
+
+  // ── Pack color line management ────────────────────────────────────────────
+  function addPackColorLine(tempId: string) {
+    const v = variants.find((x) => x.tempId === tempId);
+    if (!v) return;
+    updateVariant(tempId, {
+      packColorLines: [...v.packColorLines, { tempId: uid(), colors: [] }],
+    });
+  }
+
+  function updatePackColorLine(variantTempId: string, lineTempId: string, colors: { colorId: string; colorName: string; colorHex: string }[]) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v) return;
+    updateVariant(variantTempId, {
+      packColorLines: v.packColorLines.map((l) => l.tempId === lineTempId ? { ...l, colors } : l),
+    });
+  }
+
+  function removePackColorLine(variantTempId: string, lineTempId: string) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v) return;
+    updateVariant(variantTempId, {
+      packColorLines: v.packColorLines.filter((l) => l.tempId !== lineTempId),
+    });
   }
 
   // ── Bulk apply ─────────────────────────────────────────────────────────────
@@ -1355,7 +1335,6 @@ export default function ColorVariantManager({
       if (bulkEdit.unitPrice  !== "") patch.unitPrice  = bulkEdit.unitPrice;
       if (bulkEdit.weight     !== "") patch.weight     = bulkEdit.weight;
       if (bulkEdit.stock      !== "") patch.stock      = bulkEdit.stock;
-      if (bulkEdit.size       !== "") patch.size       = bulkEdit.size;
       if (bulkEdit.discountType !== "") {
         patch.discountType  = bulkEdit.discountType;
         patch.discountValue = bulkEdit.discountValue;
@@ -1365,12 +1344,17 @@ export default function ColorVariantManager({
     setBulkEdit(defaultBulkEdit());
   }
 
-  // ── Group variants by color composition ──────────────────────────────────
-  const groupedVariants = useMemo(() => {
+  // ── Group UNIT variants by color composition ──────────────────────────────
+  const { unitGroups, packVariants } = useMemo(() => {
     const groups: { key: string; colorName: string; colorHex: string; variants: { variant: VariantState; idx: number }[] }[] = [];
     const keyIndex = new Map<string, number>();
+    const packs: { variant: VariantState; idx: number }[] = [];
     for (let i = 0; i < variants.length; i++) {
       const v = variants[i];
+      if (v.saleType === "PACK") {
+        packs.push({ variant: v, idx: i });
+        continue;
+      }
       const key = variantGroupKeyFromState(v);
       const existingIdx = keyIndex.get(key);
       if (existingIdx !== undefined) {
@@ -1381,14 +1365,14 @@ export default function ColorVariantManager({
         groups.push({ key, colorName: fullName || "Sans couleur", colorHex: v.colorHex, variants: [{ variant: v, idx: i }] });
       }
     }
-    return groups;
+    return { unitGroups: groups, packVariants: packs };
   }, [variants]);
 
   async function removeGroup(groupKey: string) {
-    const group = groupedVariants.find((g) => g.key === groupKey);
+    const group = unitGroups.find((g) => g.key === groupKey);
     if (!group) return;
     const tempIds = group.variants.map((gv) => gv.variant.tempId);
-    const ok = await confirmDialog({ title: "Supprimer le groupe ?", message: `Supprimer toutes les variantes de « ${group.colorName} » (${tempIds.length} variante${tempIds.length > 1 ? "s" : ""}) ?`, confirmLabel: "Supprimer", danger: true });
+    const ok = await confirmDialog({ title: "Supprimer le groupe ?", message: `Supprimer toutes les variantes de « ${group.colorName} » (${tempIds.length}) ?`, confirmLabel: "Supprimer", type: "danger" });
     if (!ok) return;
     const idSet = new Set(tempIds);
     let newVariants = variants.filter((v) => !idSet.has(v.tempId));
@@ -1401,6 +1385,347 @@ export default function ColorVariantManager({
     onChange(newVariants);
   }
 
+  function toggleExpanded(tempId: string) {
+    setExpandedVariants((prev) => {
+      const next = new Set(prev);
+      if (next.has(tempId)) next.delete(tempId); else next.add(tempId);
+      return next;
+    });
+  }
+
+  // ── Render helper: size entries section ────────────────────────────────────
+  function renderSizeEntries(v: VariantState) {
+    const usedSizeIds = new Set(v.sizeEntries.map((s) => s.sizeId));
+    const remainingSizes = availableSizes.filter((s) => !usedSizeIds.has(s.id));
+    return (
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">
+          Tailles & quantités
+        </p>
+        {v.sizeEntries.length === 0 ? (
+          <p className="text-xs text-[#9CA3AF] italic font-[family-name:var(--font-roboto)]">Aucune taille sélectionnée</p>
+        ) : (
+          <div className="space-y-1.5">
+            {v.sizeEntries.map((se) => (
+              <div key={se.tempId} className="flex items-center gap-2">
+                <select
+                  value={se.sizeId}
+                  onChange={(e) => {
+                    const sz = availableSizes.find((s) => s.id === e.target.value);
+                    if (sz) updateSizeEntry(v.tempId, se.tempId, { sizeId: sz.id, sizeName: sz.name });
+                  }}
+                  className="flex-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                >
+                  <option value={se.sizeId}>{se.sizeName}</option>
+                  {remainingSizes.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">×</span>
+                <input
+                  type="number" min="1" step="1" value={se.quantity} placeholder="1"
+                  onChange={(e) => updateSizeEntry(v.tempId, se.tempId, { quantity: e.target.value })}
+                  className="w-16 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                />
+                <button type="button" onClick={() => removeSizeEntry(v.tempId, se.tempId)}
+                  className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors" title="Retirer">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {remainingSizes.length > 0 && (
+          <button type="button" onClick={() => addSizeEntry(v.tempId)}
+            className="text-xs text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] flex items-center gap-1 transition-colors">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Ajouter une taille
+          </button>
+        )}
+        {availableSizes.length === 0 && (
+          <p className="text-xs text-amber-600 font-[family-name:var(--font-roboto)]">
+            Aucune taille disponible. Créez des tailles dans Attributs &gt; Tailles et associez-les à la catégorie du produit.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // ── Render helper: UNIT variant card ──────────────────────────────────────
+  function renderUnitVariantRow(v: VariantState) {
+    const isExpanded = expandedVariants.has(v.tempId);
+    const isInvalid = invalidTempIds.has(v.tempId);
+    const isSelected = selectedIds.has(v.tempId);
+    const totalPrice = computeTotalPrice(v);
+    const finalPrice = computeFinalPrice(v);
+    const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
+    const sizeSummary = v.sizeEntries.length > 0
+      ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")
+      : "—";
+
+    return (
+      <div key={v.tempId}>
+        {/* Main row */}
+        <div
+          className={`flex flex-wrap items-center gap-2 px-4 py-2.5 transition-colors cursor-pointer ${
+            isSelected ? "bg-[#F0FDF4]" : isInvalid ? "bg-[#FEF2F2]" : "hover:bg-[#F7F7F8]"
+          }`}
+          onClick={() => toggleExpanded(v.tempId)}
+        >
+          <input type="checkbox" checked={isSelected}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const next = new Set(selectedIds);
+              if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
+              setSelectedIds(next);
+            }}
+            className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
+
+          <span className="badge badge-info text-[10px]">Unité</span>
+
+          {/* Size summary */}
+          <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] truncate max-w-[200px]" title={sizeSummary}>
+            {sizeSummary}
+          </span>
+
+          {/* Price */}
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+              {v.unitPrice ? `${v.unitPrice}€` : "—"}
+            </span>
+            {finalPrice !== null && hasDiscount && (
+              <span className="text-xs font-semibold text-emerald-600 font-[family-name:var(--font-poppins)]">
+                {finalPrice.toFixed(2)}€
+              </span>
+            )}
+            <span className="text-[10px] text-[#9CA3AF]">stock: {v.stock || "0"}</span>
+
+            {/* Expand/collapse */}
+            <svg className={`w-4 h-4 text-[#9CA3AF] transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+
+            {variants.length > 1 && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); removeVariant(v.tempId); }}
+                title="Supprimer" className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Expanded details */}
+        {isExpanded && (
+          <div className="px-4 py-3 border-t border-[#F0F0F0] bg-[#FAFAFA] space-y-4" onClick={(e) => e.stopPropagation()}>
+            {/* Pricing row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Prix (€ HT)</label>
+                <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
+                  onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Stock</label>
+                <input type="number" min="0" step="1" value={v.stock} placeholder="0"
+                  onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Poids (kg)</label>
+                <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.008"
+                  onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Remise</label>
+                <div className="flex gap-1 mt-1">
+                  <CustomSelect value={v.discountType}
+                    onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
+                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
+                    size="sm" className="w-[65px]" />
+                  {v.discountType && (
+                    <input type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
+                      onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
+                      className="w-16 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Sizes */}
+            {renderSizeEntries(v)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Render helper: PACK variant card ──────────────────────────────────────
+  function renderPackVariant(v: VariantState) {
+    const isExpanded = expandedVariants.has(v.tempId);
+    const isSelected = selectedIds.has(v.tempId);
+    const totalPrice = computeTotalPrice(v);
+    const finalPrice = computeFinalPrice(v);
+    const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
+    const colorLinesSummary = v.packColorLines.length > 0
+      ? v.packColorLines.map((l) => l.colors.map((c) => c.colorName).join("+")).join(" | ")
+      : "Aucune couleur";
+    const sizeSummary = v.sizeEntries.length > 0
+      ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")
+      : "—";
+
+    return (
+      <div key={v.tempId} className="rounded-xl border-2 border-[#D5D5D5] bg-white overflow-hidden">
+        {/* Header */}
+        <div
+          className={`flex flex-wrap items-center gap-2 px-4 py-3 cursor-pointer transition-colors ${
+            isSelected ? "bg-[#F0FDF4]" : "bg-[#F7F7F8] hover:bg-[#EFEFEF]"
+          }`}
+          onClick={() => toggleExpanded(v.tempId)}
+        >
+          <input type="checkbox" checked={isSelected}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const next = new Set(selectedIds);
+              if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
+              setSelectedIds(next);
+            }}
+            className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
+
+          <span className="badge badge-purple text-[10px]">Pack ×{v.packQuantity || "?"}</span>
+
+          {/* Color lines summary */}
+          <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] truncate max-w-[300px]" title={colorLinesSummary}>
+            {colorLinesSummary}
+          </span>
+
+          <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]" title={sizeSummary}>
+            [{sizeSummary}]
+          </span>
+
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+              {v.unitPrice ? `${v.unitPrice}€` : "—"}
+            </span>
+            {finalPrice !== null && hasDiscount && (
+              <span className="text-xs font-semibold text-emerald-600 font-[family-name:var(--font-poppins)]">
+                {finalPrice.toFixed(2)}€
+              </span>
+            )}
+            <span className="text-[10px] text-[#9CA3AF]">stock: {v.stock || "0"}</span>
+
+            <svg className={`w-4 h-4 text-[#9CA3AF] transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+
+            {variants.length > 1 && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); removeVariant(v.tempId); }}
+                title="Supprimer" className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Expanded body */}
+        {isExpanded && (
+          <div className="px-4 py-4 border-t border-[#E5E5E5] space-y-4" onClick={(e) => e.stopPropagation()}>
+            {/* Color lines */}
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">
+                Lignes de couleur
+              </p>
+              {v.packColorLines.map((line, lineIdx) => (
+                <div key={line.tempId} className="flex items-center gap-2 p-2 rounded-lg border border-[#E5E5E5] bg-[#FAFAFA]">
+                  <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] shrink-0 w-5">
+                    {lineIdx + 1}.
+                  </span>
+                  <div className="flex-1">
+                    <MultiColorSelect
+                      selected={line.colors}
+                      options={availableColors}
+                      onChange={(colors) => updatePackColorLine(v.tempId, line.tempId, colors)}
+                      onCreateColor={onQuickCreateColor}
+                    />
+                  </div>
+                  {v.packColorLines.length > 1 && (
+                    <button type="button" onClick={() => removePackColorLine(v.tempId, line.tempId)}
+                      className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors" title="Retirer">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button type="button" onClick={() => addPackColorLine(v.tempId)}
+                className="text-xs text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] flex items-center gap-1 transition-colors">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Ajouter une ligne de couleur
+              </button>
+            </div>
+
+            {/* Shared sizes */}
+            {renderSizeEntries(v)}
+
+            {/* Pricing */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Qté/paquet</label>
+                <input type="number" min="1" step="1" value={v.packQuantity} placeholder="12"
+                  onChange={(e) => updateVariant(v.tempId, { packQuantity: e.target.value })}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Prix paquet (€)</label>
+                <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
+                  onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Stock</label>
+                <input type="number" min="0" step="1" value={v.stock} placeholder="0"
+                  onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Poids (kg)</label>
+                <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.008"
+                  onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Remise</label>
+                <div className="flex gap-1 mt-1">
+                  <CustomSelect value={v.discountType}
+                    onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
+                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
+                    size="sm" className="w-[65px]" />
+                  {v.discountType && (
+                    <input type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
+                      onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
+                      className="w-16 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
 
@@ -1411,7 +1736,7 @@ export default function ColorVariantManager({
         </div>
       ) : (
         <div className="space-y-4">
-          {/* ── Bulk edit bar (always visible, disabled when nothing selected) ── */}
+          {/* ── Bulk edit bar ── */}
           <div className={`rounded-xl p-4 space-y-3 border-2 transition-colors ${
             showBulkRow ? "bg-[#F0FDF4] border-[#22C55E]" : "bg-[#F7F7F8] border-[#E5E5E5]"
           }`}>
@@ -1421,35 +1746,29 @@ export default function ColorVariantManager({
                   checked={selectedIds.size === variants.length && variants.length > 0}
                   ref={selectAllRef}
                   onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedIds(new Set(variants.map((v) => v.tempId)));
-                    } else {
-                      setSelectedIds(new Set());
-                    }
+                    if (e.target.checked) setSelectedIds(new Set(variants.map((v) => v.tempId)));
+                    else setSelectedIds(new Set());
                   }}
                   className="accent-[#22C55E] cursor-pointer w-4 h-4"
                 />
                 <span className={`text-xs font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>
                   {showBulkRow
-                    ? `✦ ${selectedIds.size} variante${selectedIds.size > 1 ? "s" : ""} sélectionnée${selectedIds.size > 1 ? "s" : ""}`
+                    ? `${selectedIds.size} variante${selectedIds.size > 1 ? "s" : ""} sélectionnée${selectedIds.size > 1 ? "s" : ""}`
                     : "Tout sélectionner pour modifier en masse"}
                 </span>
               </label>
               <button type="button" onClick={applyBulk} disabled={!showBulkRow}
                 className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors font-[family-name:var(--font-roboto)] ${
-                  showBulkRow
-                    ? "bg-[#22C55E] text-white hover:bg-[#16A34A]"
-                    : "bg-[#E5E5E5] text-[#9CA3AF] cursor-not-allowed"
-                }`}
-              >Appliquer</button>
+                  showBulkRow ? "bg-[#22C55E] text-white hover:bg-[#16A34A]" : "bg-[#E5E5E5] text-[#9CA3AF] cursor-not-allowed"
+                }`}>Appliquer</button>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
                 <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Prix</label>
                 <input type="number" min="0" step="0.01" placeholder="—" value={bulkEdit.unitPrice} disabled={!showBulkRow}
                   onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
                   className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
-                    showBulkRow ? "border-[#22C55E] bg-white focus:border-[#16A34A]" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
+                    showBulkRow ? "border-[#22C55E] bg-white" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
                   }`} />
               </div>
               <div>
@@ -1457,7 +1776,7 @@ export default function ColorVariantManager({
                 <input type="number" min="0" step="1" placeholder="—" value={bulkEdit.stock} disabled={!showBulkRow}
                   onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
                   className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
-                    showBulkRow ? "border-[#22C55E] bg-white focus:border-[#16A34A]" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
+                    showBulkRow ? "border-[#22C55E] bg-white" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
                   }`} />
               </div>
               <div>
@@ -1465,23 +1784,15 @@ export default function ColorVariantManager({
                 <input type="number" min="0" step="0.001" placeholder="—" value={bulkEdit.weight} disabled={!showBulkRow}
                   onChange={(e) => setBulkEdit((b) => ({ ...b, weight: e.target.value }))}
                   className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
-                    showBulkRow ? "border-[#22C55E] bg-white focus:border-[#16A34A]" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
-                  }`} />
-              </div>
-              <div>
-                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Taille</label>
-                <input type="text" placeholder="—" value={bulkEdit.size} disabled={!showBulkRow}
-                  onChange={(e) => setBulkEdit((b) => ({ ...b, size: e.target.value }))}
-                  className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
-                    showBulkRow ? "border-[#22C55E] bg-white focus:border-[#16A34A]" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
+                    showBulkRow ? "border-[#22C55E] bg-white" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
                   }`} />
               </div>
               <div>
                 <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Remise</label>
                 <div className="flex gap-1 mt-1">
                   <CustomSelect value={bulkEdit.discountType} disabled={!showBulkRow}
-                    onChange={(v) => setBulkEdit((b) => ({ ...b, discountType: v as "" | "PERCENT" | "AMOUNT", discountValue: "" }))}
-                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "EUR" }]}
+                    onChange={(val) => setBulkEdit((b) => ({ ...b, discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" }))}
+                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
                     size="sm" className="w-[70px]" />
                   {bulkEdit.discountType && (
                     <input type="number" min="0" step="0.01" placeholder="0" value={bulkEdit.discountValue} disabled={!showBulkRow}
@@ -1495,57 +1806,31 @@ export default function ColorVariantManager({
             </div>
           </div>
 
-          {/* ── Grouped cards ── */}
-          {groupedVariants.map((group) => {
+          {/* ── UNIT grouped cards ── */}
+          {unitGroups.map((group) => {
             const firstV = group.variants[0].variant;
             const cimg = colorImages.find((ci) => ci.groupKey === group.key);
-            const allSelected = group.variants.every(({ variant: gv }) => selectedIds.has(gv.tempId));
-            const someSelected = group.variants.some(({ variant: gv }) => selectedIds.has(gv.tempId));
 
             return (
               <div key={group.key} className="rounded-xl border-2 border-[#D5D5D5] bg-white overflow-hidden">
-                {/* ── Color header ── */}
+                {/* Color header */}
                 <div className="flex items-center gap-3 px-4 py-3 border-b border-[#E5E5E5] bg-[#F7F7F8]">
-                  {/* Group checkbox */}
-                  <input
-                    ref={allSelected ? selectAllRef : undefined}
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={(e) => {
-                      const next = new Set(selectedIds);
-                      for (const gv of group.variants) {
-                        if (e.target.checked) next.add(gv.variant.tempId);
-                        else next.delete(gv.variant.tempId);
-                      }
-                      setSelectedIds(next);
-                    }}
-                    className={`accent-[#22C55E] cursor-pointer w-4 h-4 ${someSelected && !allSelected ? "opacity-50" : ""}`}
-                    title="Sélectionner le groupe"
-                  />
-
-                  {/* Color swatch */}
                   <ColorSwatch
                     hex={firstV.colorHex}
                     patternImage={availableColors.find((c) => c.id === firstV.colorId)?.patternImage ?? null}
                     subColors={firstV.subColors.length > 0
                       ? [{ hex: firstV.colorHex, patternImage: null }, ...firstV.subColors.map((sc) => ({ hex: sc.colorHex, patternImage: null }))]
                       : undefined}
-                    size={28}
-                    rounded="full"
-                    border
+                    size={28} rounded="full" border
                   />
-
-                  {/* Color name */}
                   <span className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">
                     {group.colorName}
                   </span>
 
-                  {/* Photo thumbnail */}
                   {cimg?.imagePreviews[0] && (
                     <button type="button"
                       onClick={() => setGalleryState({ images: cimg.imagePreviews, colorName: group.colorName, colorHex: group.colorHex })}
-                      className="relative w-8 h-8 rounded-lg overflow-hidden border border-[#E5E5E5] hover:border-[#1A1A1A] transition-all ml-auto shrink-0"
-                      title={`${cimg.imagePreviews.length} photo(s)`}
+                      className="relative w-8 h-8 rounded-lg overflow-hidden border border-[#E5E5E5] hover:border-[#1A1A1A] transition-all shrink-0"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={cimg.imagePreviews[0]} alt={group.colorName} className="w-full h-full object-cover" />
@@ -1557,16 +1842,14 @@ export default function ColorVariantManager({
                     </button>
                   )}
 
-                  {/* Variant count */}
                   <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] ml-auto">
                     {group.variants.length} variante{group.variants.length > 1 ? "s" : ""}
                   </span>
 
-                  {/* Delete group */}
                   {variants.length > group.variants.length && (
                     <button type="button" onClick={() => removeGroup(group.key)}
-                      title="Supprimer ce groupe" aria-label="Supprimer ce groupe de variantes"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-[#EF4444]/10 hover:text-[#EF4444]">
+                      title="Supprimer ce groupe"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-[#EF4444]/10 hover:text-[#EF4444] transition-colors">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
@@ -1574,151 +1857,12 @@ export default function ColorVariantManager({
                   )}
                 </div>
 
-                {/* ── Scrollable variant table ── */}
-                <div className="overflow-x-auto">
-                  {/* Column headers */}
-                  <div className="grid grid-cols-[28px_90px_1fr_1fr_1fr_1fr_1fr_1fr_1fr_36px] gap-0 px-4 py-2 border-b border-[#E5E5E5] bg-[#FAFAFA]" style={{ minWidth: 820 }}>
-                    <span />
-                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Type</span>
-                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Prix unitaire</span>
-                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Stock</span>
-                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Poids (kg)</span>
-                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Qté pack</span>
-                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Taille</span>
-                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Remise</span>
-                    <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)] text-right">Prix final</span>
-                    <span />
-                  </div>
-
-                  {/* Variant rows */}
-                  <div className="divide-y divide-[#F0F0F0]">
-                    {group.variants.map(({ variant: v }) => {
-                      const isInvalid = invalidTempIds.has(v.tempId);
-                      const isSelected = selectedIds.has(v.tempId);
-                      const totalPrice = computeTotalPrice(v);
-                      const finalPrice = computeFinalPrice(v);
-                      const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
-
-                      return (
-                        <div key={v.tempId}
-                          className={`grid grid-cols-[28px_90px_1fr_1fr_1fr_1fr_1fr_1fr_1fr_36px] gap-0 items-center px-4 py-2.5 transition-colors ${
-                            isSelected ? "bg-[#F0FDF4]" : isInvalid ? "bg-[#FEF2F2]" : "hover:bg-[#F7F7F8]"
-                          }`}
-                          style={{ minWidth: 820 }}
-                        >
-                          {/* Checkbox individuelle */}
-                          <div>
-                            <input type="checkbox" checked={isSelected}
-                              onChange={(e) => {
-                                const next = new Set(selectedIds);
-                                if (e.target.checked) next.add(v.tempId);
-                                else next.delete(v.tempId);
-                                setSelectedIds(next);
-                              }}
-                              className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5" />
-                          </div>
-
-                          {/* Type toggle */}
-                          <div>
-                            <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden w-fit">
-                              {(["UNIT", "PACK"] as const).map((type) => (
-                                <button key={type} type="button"
-                                  onClick={() => updateVariant(v.tempId, { saleType: type, packQuantity: type === "UNIT" ? "" : v.packQuantity })}
-                                  aria-pressed={v.saleType === type}
-                                  className={`px-2.5 py-1 text-[11px] font-semibold transition-colors font-[family-name:var(--font-roboto)] ${
-                                    v.saleType === type
-                                      ? "bg-[#1A1A1A] text-white"
-                                      : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
-                                  }`}
-                                >{type === "UNIT" ? "Unité" : "Pack"}</button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Prix unitaire */}
-                          <div className="pr-2">
-                            <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
-                              onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
-                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-                          </div>
-
-                          {/* Stock */}
-                          <div className="pr-2">
-                            <input type="number" min="0" step="1" value={v.stock} placeholder="0"
-                              onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
-                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-                          </div>
-
-                          {/* Poids */}
-                          <div className="pr-2">
-                            <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.008"
-                              onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
-                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-                          </div>
-
-                          {/* Qté pack */}
-                          <div className="pr-2">
-                            <input type="number" min="2" max="99999" value={v.packQuantity} placeholder="—"
-                              disabled={v.saleType === "UNIT"}
-                              onChange={(e) => updateVariant(v.tempId, { packQuantity: e.target.value })}
-                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)] disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-[#F7F7F8]" />
-                          </div>
-
-                          {/* Taille */}
-                          <div className="pr-2">
-                            <input type="text" value={v.size} placeholder="—"
-                              onChange={(e) => updateVariant(v.tempId, { size: e.target.value })}
-                              className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-                          </div>
-
-                          {/* Remise */}
-                          <div className="pr-2">
-                            <div className="flex items-center gap-1">
-                              <CustomSelect value={v.discountType}
-                                onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
-                                options={[{ value: "", label: "Aucune" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "EUR" }]}
-                                size="sm" className="w-[70px]" />
-                              {v.discountType && (
-                                <input type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
-                                  onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
-                                  className="w-14 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Prix final */}
-                          <div className="text-right">
-                            {finalPrice !== null ? (
-                              <span className={`text-xs font-semibold font-[family-name:var(--font-poppins)] ${hasDiscount ? "text-emerald-600" : "text-[#1A1A1A]"}`}>
-                                {hasDiscount && totalPrice !== null && (
-                                  <span className="text-[#9CA3AF] line-through mr-1 font-normal text-[10px]">{totalPrice.toFixed(2)}</span>
-                                )}
-                                {finalPrice.toFixed(2)}€
-                              </span>
-                            ) : (
-                              <span className="text-[#9CA3AF] text-xs">—</span>
-                            )}
-                          </div>
-
-                          {/* Supprimer */}
-                          <div className="flex justify-center">
-                            {variants.length > 1 && (
-                              <button type="button" onClick={() => removeVariant(v.tempId)}
-                                title="Supprimer cette variante" aria-label="Supprimer cette variante"
-                                className="flex items-center justify-center w-9 h-9 rounded-lg text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors">
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                {/* Variant rows */}
+                <div className="divide-y divide-[#F0F0F0]">
+                  {group.variants.map(({ variant: v }) => renderUnitVariantRow(v))}
                 </div>
 
-                {/* ── Color select (bottom of card) ── */}
+                {/* Color select */}
                 <div className="px-4 py-3 border-t border-[#E5E5E5] bg-[#FAFAFA]">
                   <MultiColorSelect
                     selected={firstV.colorId ? [
@@ -1726,10 +1870,7 @@ export default function ColorVariantManager({
                       ...firstV.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
                     ] : []}
                     options={availableColors}
-                    onChange={(colors) => {
-                      // Apply to ALL variants in this group in a SINGLE onChange call
-                      handleMultiColorChange(new Set(group.variants.map((gv) => gv.variant.tempId)), colors);
-                    }}
+                    onChange={(colors) => handleMultiColorChange(new Set(group.variants.map((gv) => gv.variant.tempId)), colors)}
                     existingVariants={variants}
                     onCreateColor={onQuickCreateColor}
                   />
@@ -1738,6 +1879,20 @@ export default function ColorVariantManager({
             );
           })}
 
+          {/* ── PACK variants ── */}
+          {packVariants.length > 0 && (
+            <>
+              {unitGroups.length > 0 && (
+                <div className="flex items-center gap-3 pt-2">
+                  <div className="flex-1 border-t border-[#E5E5E5]" />
+                  <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Paquets</span>
+                  <div className="flex-1 border-t border-[#E5E5E5]" />
+                </div>
+              )}
+              {packVariants.map(({ variant: v }) => renderPackVariant(v))}
+            </>
+          )}
+
           {/* Validation warning */}
           {invalidTempIds.size > 0 && (
             <div className="px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg flex items-center gap-2">
@@ -1745,7 +1900,7 @@ export default function ColorVariantManager({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">
-                Doublon détecté : une couleur ne peut avoir qu&apos;une variante à l&apos;unité, et pas deux paquets identiques (même quantité et même taille).
+                Doublon détecté : une couleur ne peut avoir qu&apos;une variante UNITÉ.
               </p>
             </div>
           )}
@@ -1754,162 +1909,16 @@ export default function ColorVariantManager({
 
       {/* ── Action buttons ── */}
       <div className="flex flex-col gap-2">
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={addVariant}
-            disabled={availableColors.length === 0}
-            className="flex-1 border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Ajouter une variante
-          </button>
-          <button
-            type="button"
-            onClick={() => setQuickAddOpen((v) => !v)}
-            disabled={groupedVariants.length === 0}
-            className={`border-2 border-dashed py-3 px-4 text-sm font-[family-name:var(--font-roboto)] transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg ${
-              quickAddOpen ? "border-[#1A1A1A] bg-[#1A1A1A] text-white" : "border-[#E5E5E5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8]"
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
-            </svg>
-            Création rapide
-          </button>
-        </div>
-
-        {/* ── Quick-add by color panel ── */}
-        {quickAddOpen && (
-          <div className="border-2 border-[#1A1A1A] rounded-xl p-4 space-y-3 bg-[#F7F7F8]">
-            <p className="text-xs font-semibold text-[#1A1A1A] uppercase tracking-wider font-[family-name:var(--font-roboto)]">
-              Créer une variante pour chaque couleur sélectionnée
-            </p>
-
-            {/* Select all + color group chips */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {groupedVariants.length > 1 && (
-                <label className="flex items-center gap-1.5 text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={quickAddGroupKeys.size === groupedVariants.length && groupedVariants.length > 0}
-                    onChange={(e) => {
-                      if (e.target.checked) setQuickAddGroupKeys(new Set(groupedVariants.map((g) => g.key)));
-                      else setQuickAddGroupKeys(new Set());
-                    }}
-                    className="accent-[#22C55E] w-3.5 h-3.5 cursor-pointer"
-                  />
-                  Tout
-                </label>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto" tabIndex={0}>
-              {groupedVariants.map((g) => {
-                const picked = quickAddGroupKeys.has(g.key);
-                const firstV = g.variants[0].variant;
-                const colorId = firstV.colorId;
-                const pattern = availableColors.find((c) => c.id === colorId)?.patternImage ?? null;
-                const hasSubColors = firstV.subColors.length > 0;
-                return (
-                  <button key={g.key} type="button" onClick={() => toggleQuickAddGroup(g.key)}
-                    aria-pressed={picked}
-                    aria-label={`Sélectionner ${g.colorName}`}
-                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-full border text-xs font-[family-name:var(--font-roboto)] transition-all ${
-                      picked
-                        ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                        : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
-                    }`}
-                  >
-                    <ColorSwatch
-                      hex={g.colorHex ?? null}
-                      patternImage={pattern}
-                      subColors={hasSubColors
-                        ? [{ hex: firstV.colorHex, patternImage: pattern }, ...firstV.subColors.map((sc) => ({ hex: sc.colorHex, patternImage: availableColors.find((c) => c.id === sc.colorId)?.patternImage ?? null }))]
-                        : undefined}
-                      size={16}
-                      rounded="full"
-                      border
-                    />
-                    {g.colorName}
-                    {picked && <span className="text-[10px]" aria-hidden="true">✓</span>}
-                  </button>
-                );
-              })}
-              {groupedVariants.length === 0 && (
-                <span className="text-xs text-[#9CA3AF] italic font-[family-name:var(--font-roboto)]">Aucune couleur dans le produit</span>
-              )}
-            </div>
-
-            {/* Type toggle */}
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] font-medium">Type :</span>
-              <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden" role="group" aria-label="Type de vente">
-                {(["UNIT", "PACK"] as const).map((type) => (
-                  <button key={type} type="button" onClick={() => setQuickAddType(type)}
-                    aria-pressed={quickAddType === type}
-                    className={`px-3 py-2 text-xs font-semibold transition-colors font-[family-name:var(--font-roboto)] ${
-                      quickAddType === type
-                        ? "bg-[#1A1A1A] text-white"
-                        : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
-                    }`}
-                  >{type === "UNIT" ? "Unité" : "Pack"}</button>
-                ))}
-              </div>
-            </div>
-
-            {/* Fields row */}
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="flex flex-col gap-1">
-                <label htmlFor="qa-price" className="text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider">Prix unitaire (€)</label>
-                <input id="qa-price" type="number" min="0" step="0.01" value={quickAddPrice} onChange={(e) => setQuickAddPrice(e.target.value)}
-                  placeholder="0.00"
-                  className="w-24 px-2.5 py-2 text-xs bg-white border border-[#E5E5E5] rounded-lg font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-2 focus:ring-[#1A1A1A]/20 transition-colors" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="qa-stock" className="text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider">Stock</label>
-                <input id="qa-stock" type="number" min="0" step="1" value={quickAddStock} onChange={(e) => setQuickAddStock(e.target.value)}
-                  placeholder="0"
-                  className="w-20 px-2.5 py-2 text-xs bg-white border border-[#E5E5E5] rounded-lg font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-2 focus:ring-[#1A1A1A]/20 transition-colors" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="qa-weight" className="text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider">Poids (kg)</label>
-                <input id="qa-weight" type="number" min="0" step="0.01" value={quickAddWeight} onChange={(e) => setQuickAddWeight(e.target.value)}
-                  placeholder="0.00"
-                  className="w-20 px-2.5 py-2 text-xs bg-white border border-[#E5E5E5] rounded-lg font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-2 focus:ring-[#1A1A1A]/20 transition-colors" />
-              </div>
-              {quickAddType === "PACK" && (
-                <div className="flex flex-col gap-1">
-                  <label htmlFor="qa-packqty" className="text-[10px] text-[#9CA3AF] font-medium font-[family-name:var(--font-roboto)] uppercase tracking-wider">Qté/pack</label>
-                  <input id="qa-packqty" type="number" min="1" step="1" value={quickAddPackQty} onChange={(e) => setQuickAddPackQty(e.target.value)}
-                    placeholder="1"
-                    className="w-20 px-2.5 py-2 text-xs bg-white border border-[#E5E5E5] rounded-lg font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-2 focus:ring-[#1A1A1A]/20 transition-colors" />
-                </div>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="flex flex-wrap items-center gap-3 pt-1">
-              <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] min-w-0 shrink">
-                {quickAddGroupKeys.size > 0
-                  ? `${quickAddGroupKeys.size} couleur${quickAddGroupKeys.size > 1 ? "s" : ""} sélectionnée${quickAddGroupKeys.size > 1 ? "s" : ""}`
-                  : "Aucune couleur sélectionnée"}
-              </span>
-
-              <div className="ml-auto flex gap-2">
-                <button type="button" onClick={() => { setQuickAddOpen(false); setQuickAddGroupKeys(new Set()); }}
-                  className="px-3 py-2 text-xs text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] transition-colors">
-                  Annuler
-                </button>
-                <button type="button" onClick={applyQuickAdd} disabled={quickAddGroupKeys.size === 0}
-                  className="px-4 py-2 bg-[#1A1A1A] text-white text-xs font-semibold rounded-lg hover:bg-black transition-colors font-[family-name:var(--font-roboto)] disabled:opacity-40 disabled:cursor-not-allowed">
-                  Créer {quickAddGroupKeys.size > 0 ? `${quickAddGroupKeys.size} variante${quickAddGroupKeys.size > 1 ? "s" : ""}` : ""}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={addVariant}
+          className="w-full border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 rounded-lg"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Ajouter une variante
+        </button>
 
         {variants.length > 0 && (
           <button
@@ -1926,11 +1935,8 @@ export default function ColorVariantManager({
 
         {onQuickCreateColor && (
           !showQuickCreate ? (
-            <button
-              type="button"
-              onClick={() => setShowQuickCreate(true)}
-              className="w-full border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 rounded-lg"
-            >
+            <button type="button" onClick={() => setShowQuickCreate(true)}
+              className="w-full border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 rounded-lg">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
               </svg>
@@ -1938,85 +1944,39 @@ export default function ColorVariantManager({
             </button>
           ) : (
             <div className="border-2 border-dashed border-[#1A1A1A] bg-[#F7F7F8] p-4 space-y-3 rounded-lg">
-              <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider font-[family-name:var(--font-roboto)]">
-                Nouvelle couleur
-              </p>
+              <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider font-[family-name:var(--font-roboto)]">Nouvelle couleur</p>
               <div className="flex gap-3">
-                <input
-                  type="text"
-                  value={newColorName}
-                  onChange={(e) => setNewColorName(e.target.value)}
-                  placeholder="Nom de la couleur"
-                  autoFocus
+                <input type="text" value={newColorName} onChange={(e) => setNewColorName(e.target.value)} placeholder="Nom de la couleur" autoFocus
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleQuickSave(); } }}
-                  className="flex-1 border border-[#E5E5E5] px-3 py-2 text-sm font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] bg-white rounded"
-                />
-                <div className="flex items-center gap-2 shrink-0">
-                  <input
-                    type="color"
-                    value={newColorHex}
-                    onChange={(e) => setNewColorHex(e.target.value)}
-                    className="w-9 h-9 border border-[#E5E5E5] cursor-pointer p-0.5 shrink-0 bg-white rounded"
-                    title="Couleur hex"
-                  />
-                </div>
+                  className="flex-1 border border-[#E5E5E5] px-3 py-2 text-sm font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] bg-white rounded" />
+                <input type="color" value={newColorHex} onChange={(e) => setNewColorHex(e.target.value)}
+                  className="w-9 h-9 border border-[#E5E5E5] cursor-pointer p-0.5 shrink-0 bg-white rounded" title="Couleur hex" />
               </div>
-
-              {/* Image motif (optionnel) */}
               <div>
-                <p className="text-[11px] text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1.5">
-                  Image motif <span className="text-[#9CA3AF]">(optionnel — léopard, camouflage, carreaux…)</span>
-                </p>
+                <p className="text-[11px] text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1.5">Image motif <span className="text-[#9CA3AF]">(optionnel)</span></p>
                 {newColorPattern ? (
                   <div className="flex items-center gap-3">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={newColorPattern} alt="Motif" className="w-12 h-12 rounded-lg border border-[#E5E5E5] object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setNewColorPattern(null)}
-                      className="text-xs text-[#EF4444] hover:underline font-[family-name:var(--font-roboto)]"
-                    >
-                      Supprimer
-                    </button>
+                    <button type="button" onClick={() => setNewColorPattern(null)} className="text-xs text-[#EF4444] hover:underline font-[family-name:var(--font-roboto)]">Supprimer</button>
                   </div>
                 ) : (
                   <label className="flex items-center gap-2 px-3 py-2 border border-dashed border-[#D1D5DB] rounded-lg cursor-pointer hover:border-[#1A1A1A] transition-colors bg-white">
-                    <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
-                    </svg>
-                    <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
-                      {patternUploading ? "Upload..." : "Ajouter une image motif"}
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      className="hidden"
-                      disabled={patternUploading}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handlePatternUpload(file);
-                        e.target.value = "";
-                      }}
-                    />
+                    <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" /></svg>
+                    <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">{patternUploading ? "Upload..." : "Ajouter une image motif"}</span>
+                    <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" disabled={patternUploading}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePatternUpload(f); e.target.value = ""; }} />
                   </label>
                 )}
               </div>
-
               {quickCreateErr && <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{quickCreateErr}</p>}
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleQuickSave}
-                  disabled={quickSaving || patternUploading || !newColorName.trim()}
-                  className="flex-1 py-2 bg-[#1A1A1A] text-white text-sm font-medium hover:bg-black transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)] rounded"
-                >
+                <button type="button" onClick={handleQuickSave} disabled={quickSaving || patternUploading || !newColorName.trim()}
+                  className="flex-1 py-2 bg-[#1A1A1A] text-white text-sm font-medium hover:bg-black transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)] rounded">
                   {quickSaving ? "Création..." : "Créer la couleur"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowQuickCreate(false); setQuickCreateErr(""); setNewColorPattern(null); }}
-                  className="px-4 py-2 border border-[#E5E5E5] text-sm text-[#6B6B6B] hover:border-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)] rounded"
-                >
+                <button type="button" onClick={() => { setShowQuickCreate(false); setQuickCreateErr(""); setNewColorPattern(null); }}
+                  className="px-4 py-2 border border-[#E5E5E5] text-sm text-[#6B6B6B] hover:border-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)] rounded">
                   Annuler
                 </button>
               </div>
@@ -2025,7 +1985,7 @@ export default function ColorVariantManager({
         )}
       </div>
 
-      {/* ── Image Gallery Modal ── key resets idx to 0 when color changes */}
+      {/* ── Image Gallery Modal ── */}
       <ImageGalleryModal
         key={galleryState?.colorName ?? ""}
         open={galleryState !== null}
@@ -2043,9 +2003,7 @@ export default function ColorVariantManager({
         onChange={onChangeImages}
         variants={variants}
         availableColors={availableColors}
-        onSetPrimary={(variantTempId) => {
-          setPrimary(variantTempId);
-        }}
+        onSetPrimary={(variantTempId) => setPrimary(variantTempId)}
       />
     </div>
   );

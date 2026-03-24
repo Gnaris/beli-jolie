@@ -37,6 +37,7 @@ export async function GET(
                 },
               },
               color: { select: { id: true, name: true, hex: true } },
+              variantSizes: { include: { size: true } },
             },
           },
         },
@@ -51,7 +52,7 @@ export async function GET(
 
   const items = cart.items.map((item) => {
     const v = item.variant;
-    const image = v.product.colorImages.find((img) => img.colorId === v.color.id);
+    const image = v.product.colorImages.find((img) => img.colorId === v.color?.id);
 
     // Compute price
     let unitPrice = v.unitPrice;
@@ -80,11 +81,11 @@ export async function GET(
         discountType: v.discountType,
         discountValue: v.discountValue,
         stock: v.stock,
-        size: v.size,
+        sizes: v.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({ name: vs.size.name, quantity: vs.quantity })),
       },
       color: {
-        name: v.color.name,
-        hex: v.color.hex,
+        name: v.color?.name ?? "",
+        hex: v.color?.hex ?? null,
       },
       image: image?.path ?? null,
       lineTotal: Math.round(lineTotal * 100) / 100,

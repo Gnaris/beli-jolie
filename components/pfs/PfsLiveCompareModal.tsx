@@ -502,13 +502,13 @@ export default function PfsLiveCompareModal({
         description: pfs.description,
         categoryId: pfs.categoryId,
         categoryName: pfs.categoryName,
-        variants: pfs.variants,
+        variants: pfs.variants as any,
         compositions: pfs.compositions,
       }, {
         name: existing.name,
         description: existing.description,
         categoryId: existing.categoryId,
-        variants: existing.variants,
+        variants: existing.variants as any,
         compositions: existing.compositions,
       });
 

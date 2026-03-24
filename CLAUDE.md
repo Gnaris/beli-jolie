@@ -19,35 +19,10 @@ Après chaque tâche terminée, vérifier si CLAUDE.md doit être mis à jour (n
 ### Parallélisation via sous-agents
 Quand une tâche peut être découpée en sous-tâches indépendantes, **toujours** lancer plusieurs sous-agents en parallèle pour accélérer le travail. Ne jamais faire séquentiellement ce qui peut être fait en parallèle. Les agents spécialisés (Designer, Front-End, Back-End, SEO, Hackeur Éthique) doivent être sollicités dès que leur domaine est concerné — ne pas hésiter à les invoquer pour obtenir des résultats plus optimaux.
 
-### Validation par 9 testeurs IA (TRÈS IMPORTANT — obligatoire après chaque tâche)
-**TRÈS IMPORTANT** : Après chaque tâche terminée, lancer **9 sous-agents testeurs** en parallèle (3 équipes × 3 testeurs). Chaque testeur reçoit un **brief du Rédacteur** qui reformule précisément la demande originale de l'utilisateur, les critères d'acceptation, et ce que chaque testeur doit vérifier de son côté. Le Rédacteur doit s'assurer que chaque testeur comprend parfaitement les besoins de l'utilisateur pour que chacun puisse vérifier indépendamment si la demande est **entièrement** satisfaite.
+### Validation par 1 testeur IA (obligatoire après chaque tâche)
+Après chaque tâche terminée, lancer **1 sous-agent testeur** dont le rôle est de vérifier que **la demande originale de l'utilisateur** (reformulée par le Rédacteur) a été **entièrement satisfaite**.
 
-**TRÈS IMPORTANT** : À chaque prompt envoyé aux testeurs, inclure la mention **« TRÈS IMPORTANT »** pour souligner la criticité de la vérification, même si la tâche semble simple ou évidente.
-
-#### Équipe 1 — Testeurs Fonctionnels (3 testeurs)
-1. **Testeur Fonctionnel A (Cas nominal)** — Vérifie que le code fait exactement ce qui était demandé, que le comportement attendu est respecté dans le scénario principal, et que les données sont correctes.
-2. **Testeur Fonctionnel B (Cas limites)** — Vérifie les edge cases : données vides, valeurs nulles, listes très longues, caractères spéciaux, permissions insuffisantes, doublons, et toute situation inhabituelle.
-3. **Testeur Fonctionnel C (Régressions)** — Vérifie qu'aucune fonctionnalité existante n'a été cassée par les changements, que les flux adjacents fonctionnent toujours, et que les données existantes restent intactes.
-
-#### Équipe 2 — Testeurs UI/UX (3 testeurs)
-4. **Testeur UI/UX A (Responsive)** — Vérifie le rendu sur mobile (320px–480px), tablette (768px–1024px) et desktop (1280px+). Grilles, overflow, textes tronqués, images déformées.
-5. **Testeur UI/UX B (Accessibilité)** — Vérifie les attributs ARIA, les touch targets (min 44px), le contraste des couleurs, la navigation clavier, le focus visible, et le support RTL (arabe).
-6. **Testeur UI/UX C (Cohérence visuelle)** — Vérifie la conformité avec le design system monochrome (palette, fonts Poppins/Roboto, badges `badge badge-*`, CSS utilities existantes), les animations, les transitions, et le dark mode admin.
-
-#### Équipe 3 — Testeurs Techniques (3 testeurs)
-7. **Testeur Technique A (Lint & TypeScript)** — Exécute `npm run lint`, vérifie la compatibilité TypeScript stricte, les imports corrects, et l'absence d'erreurs de compilation.
-8. **Testeur Technique B (Conventions & Architecture)** — Vérifie les conventions Prisma/NextAuth/Zod, l'utilisation de `requireAdmin()`/`requireAuth()`, les `revalidateTag` à 2 args, les `getCached*`, et le respect de l'architecture documentée.
-9. **Testeur Technique C (Performance & Sécurité)** — Vérifie l'absence de requêtes N+1, de re-renders inutiles, de failles OWASP (XSS, injection, IDOR), et que `lib/security.ts` est utilisé dans les flux d'auth.
-
-#### Rôle du Rédacteur (TRÈS IMPORTANT)
-**TRÈS IMPORTANT** : Avant de lancer les 9 testeurs, le **Rédacteur** doit :
-1. **Reformuler** la demande originale de l'utilisateur de manière claire et précise
-2. **Lister les critères d'acceptation** : qu'est-ce qui doit fonctionner pour que la demande soit considérée comme 100% satisfaite ?
-3. **Rédiger un brief personnalisé** pour chaque testeur, adapté à son angle de test, en incluant systématiquement : la demande utilisateur, les fichiers modifiés, les points spécifiques à vérifier
-4. **Inclure « TRÈS IMPORTANT »** dans chaque brief envoyé aux testeurs
-
-#### Règle de consensus (TRÈS IMPORTANT)
-**TRÈS IMPORTANT** : Si **au moins un** testeur sur les 9 signale un problème, il produit un rapport détaillé. Le problème doit être corrigé, puis **les 9 testeurs repassent** jusqu'à ce que **tous** soient d'accord (zéro désaccord). On ne passe à la tâche suivante que quand les 9 testeurs valident unanimement que la demande de l'utilisateur est **entièrement** satisfaite.
+Le testeur ne vérifie PAS le code en tant que tel — il vérifie que le résultat correspond à ce que l'utilisateur a demandé. S'il estime que la demande n'a pas été correctement remplie ou qu'il manque quelque chose, il produit un rapport et le problème est corrigé avant de passer à la suite.
 
 ### Résumé et guide de test (obligatoire après chaque tâche)
 À la fin de chaque tâche terminée, fournir :
@@ -135,8 +110,12 @@ Products have a nested structure — read this before touching product code:
 Product
   ├── ProductColor[]          (one row per variant — flat, includes saleType/price/stock)
   │     ├── saleType: UNIT | PACK
-  │     ├── unitPrice, weight, stock, discountType, discountValue, size, packQuantity, pfsVariantId?
-  │     ├── ProductColorSubColor[]  (optional sub-colors, e.g. Doré → Rouge, Noir)
+  │     ├── unitPrice, weight, stock, discountType, discountValue, packQuantity, pfsVariantId?
+  │     ├── colorId: String? (UNIT = main color, PACK = null — colors in packColorLines)
+  │     ├── ProductColorSubColor[]  (UNIT: optional sub-colors, e.g. Doré → Rouge, Noir)
+  │     ├── VariantSize[]           (sizes with quantities, e.g. XS×2, S×2, M×2)
+  │     ├── PackColorLine[]         (PACK only: color compositions per line)
+  │     │     └── PackColorLineColor[]  (ordered colors in each line)
   │     └── ProductColorImage[]     (max 5 per variant, linked via productColorId)
   ├── ProductTranslation[]    (locale: "en"|"ar"|"zh"|"de"|"es"|"it" — auto-translated name+description)
   ├── ProductSimilar[]        (M2M self-relation for "you may also like")
@@ -144,6 +123,11 @@ Product
   ├── ProductComposition[]    (material + percentage, e.g. 85% acier)
   ├── ProductTag[]            (tags for search)
   └── RestockAlert[]          (client alerts when out-of-stock variant is restocked)
+
+Size (admin-managed library)
+  ├── name: String @unique (e.g. "XS", "S", "17", "Taille unique")
+  ├── position: Int (display order)
+  └── SizeCategoryLink[] (M2M: which categories use this size)
 ```
 - `Color` model has optional `patternImage` (leopard, camouflage, etc.) — takes priority over hex. Also has `pfsColorRef` (PFS color reference like "GOLDEN")
 - `Category` model has `pfsCategoryId` (PFS category ID for reverse sync)
@@ -153,8 +137,12 @@ Product
 - `Product` has `manufacturingCountryId` (FK → ManufacturingCountry), `seasonId` (FK → Season)
 - `Product` has `pfsSyncStatus` (null|"pending"|"synced"|"failed"), `pfsSyncError` (error message), `pfsSyncedAt` (last successful sync)
 - `ProductStatus` enum: `OFFLINE` | `ONLINE` | `ARCHIVED` | `SYNCING` (archived = invisible but preserved for order history; SYNCING = PFS sync in progress, becomes ONLINE after images downloaded)
-- Prices are **computed on the fly**, not stored: `totalPrice = UNIT ? unitPrice : unitPrice × packQuantity`, then discount applied
-- **Multi-color variants**: two variants can share the same main `colorId` (e.g. "Doré/Argenté/Or Rose" and "Doré/Argenté/Or Rose/Vert/Jaune"). They are distinguished by their sub-colors via a `groupKey` = `colorId::orderedSubColorNames` (**order matters**: "Doré/Rouge" ≠ "Rouge/Doré"). First selected color = main, rest = sub-colors in selection order. `ProductColorImage.productColorId` links images to the specific variant. The admin form's `ColorImageState` uses `groupKey` (not `colorId` or `variantTempId`) — variants with the same color+sub-colors selection in the same order (e.g. UNIT + PACK) share the same image group. Helper: `variantGroupKeyFromState()` exported from `ColorVariantManager.tsx`.
+- Prices: `unitPrice` IS the total price for both UNIT and PACK (no multiplication). Discount applied on top.
+- **Variant types**:
+  - **UNIT**: one color composition (`colorId` + optional `subColors`), sizes with quantities (e.g. XS×2, S×2), one price/weight/stock. Images linked to color composition via `groupKey`.
+  - **PACK**: multiple color lines (`PackColorLine[]`), all sharing the same sizes/quantities. `colorId` is null. `packQuantity` = items per pack. No images for multi-color packs.
+- **Sizes**: managed via `Size` model (admin CRUD at `/admin/tailles`). Sizes are linked to categories via `SizeCategoryLink` M2M. Each variant has `VariantSize[]` entries with `sizeId` + `quantity`. No "choose a size" on the public site — sizes describe what's inside the variant.
+- **Multi-color variants**: two variants can share the same main `colorId` (e.g. "Doré/Argenté/Or Rose" and "Doré/Argenté/Or Rose/Vert/Jaune"). They are distinguished by their sub-colors via a `groupKey` = `colorId::orderedSubColorNames` (**order matters**: "Doré/Rouge" ≠ "Rouge/Doré"). First selected color = main, rest = sub-colors in selection order. `ProductColorImage.productColorId` links images to the specific variant. The admin form's `ColorImageState` uses `groupKey` (not `colorId` or `variantTempId`) — variants with the same color+sub-colors selection in the same order share the same image group. Helper: `variantGroupKeyFromState()` exported from `ColorVariantManager.tsx`.
 
 ### Order Data Model
 ```
@@ -203,6 +191,11 @@ All image uploads (manual and bulk import) pass through `processProductImage()`:
 - **`CategoryTranslation`** / **`SubCategoryTranslation`** / **`ColorTranslation`** / **`CompositionTranslation`** / **`ManufacturingCountryTranslation`** / **`SeasonTranslation`** — auto-translated names per locale (same pattern as `ProductTranslation`)
 - **`ManufacturingCountry`** — pays de fabrication (`name` unique, `isoCode` unique optional, `pfsCountryRef` optional); admin CRUD at `/admin/pays`
 - **`Season`** — saisons/collections (`name` unique, `pfsSeasonRef` unique optional); admin CRUD at `/admin/saisons`
+- **`Size`** — tailles réutilisables (`name` unique, `position` for ordering); admin CRUD at `/admin/tailles`
+- **`SizeCategoryLink`** — M2M linking sizes to categories; `@@unique([sizeId, categoryId])`
+- **`VariantSize`** — taille × quantité par variant (`productColorId`, `sizeId`, `quantity`); `@@unique([productColorId, sizeId])`
+- **`PackColorLine`** — ligne de couleur dans un PACK (`productColorId`, `position`); contains `PackColorLineColor[]`
+- **`PackColorLineColor`** — couleur ordonnée dans une ligne de pack (`packColorLineId`, `colorId`, `position`)
 
 ### Internationalisation (i18n)
 - **next-intl** with cookie-based locale (`bj_locale`, 1-year TTL); default `fr`
@@ -249,10 +242,11 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Public header**: `PublicSidebar.tsx` (NOT `Navbar.tsx`) — logo, functional search bar, nav links, cart
 - **Admin mobile**: `AdminMobileNav.tsx` — hamburger + slide-in drawer with all nav links
 - **3D Hero**: `JewelryScene.tsx` loaded via `JewelrySceneLoader.tsx` (client wrapper for `ssr: false`)
-- **Product form**: `ProductForm.tsx` — 4 separate blocks (fiche produit, mots-clés, dimensions, composition). Includes unsaved changes guard (`beforeunload` + global link click interception → `ConfirmDialog`)
+- **Product form**: `ProductForm.tsx` — 4 separate blocks (fiche produit, mots-clés, dimensions, composition). Passes `availableSizes` to `ColorVariantManager`. Includes unsaved changes guard (`beforeunload` + global link click interception → `ConfirmDialog`)
+- **Sizes manager**: `SizesManager.tsx` — admin CRUD for sizes at `/admin/tailles` (create, edit, delete, link to categories)
 - **Live client tracking**: `LiveClientsTracker.tsx` — real-time view of connected clients at `/admin/suivi`
 - **Cart modal**: `CartModal.tsx` — admin can peek at a client's current cart
-- **Reusable UI**: `ConfirmDialog.tsx` (replaces window.confirm), `CustomSelect.tsx` (searchable select), `Toast.tsx`, `ColorSwatch.tsx` (single/multi-color swatch with patternImage support — renders camembert pie chart for multi-color variants)
+- **Reusable UI**: `ConfirmDialog.tsx` (context-based — use `useConfirm()` hook, NOT default import), `CustomSelect.tsx` (searchable select), `Toast.tsx` (context-based — use `useToast()` hook, NOT default import), `ColorSwatch.tsx` (single/multi-color swatch with patternImage support — renders camembert pie chart for multi-color variants)
 - **Import history**: `ImportHistoryClient.tsx` — view past import jobs at `/admin/produits/importer/historique`
 - **PFS Sync**: `/admin/pfs` — synchronize products from Paris Fashion Shop marketplace
 - **Admin email compose**: `ComposeEmailDrawer.tsx` — Gmail-style drawer (bottom-right, minimizable) with rich text editor, file attachments, client autocomplete. Context via `EmailComposeProvider` + `useEmailCompose()`. Trigger from anywhere via `SendEmailButton` component. API: `POST /api/admin/emails/send`, `GET /api/admin/emails` (history), `GET /api/admin/users/search` (autocomplete)
@@ -297,6 +291,10 @@ All mutations go through Server Actions in `app/actions/`. Each action calls `re
 - **Entity mapping uniqueness**: each PFS ref can only be linked to ONE BJ entity (enforced in server actions + create-entities endpoint). Mapping UI disables already-used PFS refs.
 - **Auto-fill mapping on entity creation**: when `POST /api/admin/pfs-sync/create-entities` creates colors/categories/compositions during pre-validation, PFS refs (`pfsColorRef`, `pfsCategoryId`, `pfsCompositionRef`) are stored automatically — no need for manual mapping afterwards.
 - **Variant tracking**: `ProductColor.pfsVariantId` stores the PFS variant ID for updates/deletes. New variants are created on PFS and ID stored back. Variants with stock=0 are set `is_active: false` on PFS.
+- **SKU duplicate constraint (critical)**: PFS auto-generates `sku_suffix = COLOR_SIZE` (e.g. `GOLDEN_TU`, `RED_52`). Multi-color PACK = `COLOR1_COLOR2_SIZE`. If a variant with the same sku_suffix already exists on the product, PFS silently rejects it with HTTP 200 + `resume: {products: 0, errors: 1}` — no error thrown. Always check `pfsVariantId` before attempting to create; if it already exists, PATCH instead of POST.
+- **Accepted sizes on PFS**: any integer (52, 70…), standard alpha (XS/S/M/L/XL/XXL/XXXL), French T-sizes (T34–T68), bra sizes (85A/90B…), EU shoe sizes (20–46), TU. **Rejected**: UK format (`UK6`, `UK7` → "Taille non valide"). PFS does NOT enforce size-category consistency — any size can be used with any category.
+- **`size_details_tu` is read-only**: accepted in variant POST body and present in POST response, but NOT stored — always returns `""` via `GET /catalog/products/{id}/variants`. Do not rely on it for syncing.
+- **Genre/family decoupling**: PFS PATCH accepts mismatched `genre` + `family` combinations (e.g. `genre=MAN` + `family` pointing to a WOMAN family) without validation error. Taxonomy is not cross-validated server-side.
 - **PFS attributes API**: `GET /api/admin/pfs-sync/attributes` — fetches available PFS colors/categories/compositions/countries/collections for mapping in admin UI
 - **Mapping admin UI**: `/admin/pfs/mapping` — 5-tab page (Couleurs, Catégories, Compositions, Pays, Saisons) to link BJ entities to PFS equivalents. Already-used refs are disabled in dropdowns.
 - **Server actions for mapping**: `updateColorPfsRef()`, `updateCategoryPfsId()`, `updateCompositionPfsRef()`, `updateManufacturingCountryPfsRef()`, `updateSeasonPfsRef()` — set PFS references on existing entities (with uniqueness check)
@@ -329,7 +327,8 @@ In-memory IP-based rate limiter used on sensitive endpoints: `forgot-password` (
 ### Caching Layer
 `lib/cached-data.ts` centralises all `unstable_cache` calls. Available cached functions:
 - `getCachedSiteConfig(key)` — per-key cache (5min TTL, tag: `site-config`)
-- `getCachedCategories/Collections/Colors/Tags/ManufacturingCountries/Seasons` — reference data (5min)
+- `getCachedCategories/Collections/Colors/Tags/ManufacturingCountries/Seasons/Sizes` — reference data (1h, tags: categories/collections/colors/tags/manufacturing-countries/seasons/sizes)
+- `getCachedSizesByCategory(categoryId)` — filters cached sizes by category
 - `getCachedProductCount` — total product count (5min)
 - `getCachedBestsellerRefs(limit)` — top selling references (10min)
 - `getCachedAdminWarnings()` — admin sidebar warning counts (5min, tags: products/categories/colors/tags/compositions)
@@ -360,6 +359,10 @@ When adding new cached data: use `unstable_cache` from `next/cache`, always prov
 - **Color change on variant groups**: `handleMultiColorChange` accepts a `Set<string>` of tempIds and applies the color patch in a **single** `onChange` call. Never call `updateVariant` in a loop — each call uses the same stale `variants` reference, causing only the last variant to be updated
 - **Never group/display color variants by `colorId` alone** — always use `groupKey` (colorId + ordered sub-color names, **order matters**). Keying by `colorId` merges variants with different sub-colors; keying by `variantTempId` prevents UNIT/PACK image sharing. See `variantGroupKeyFromState()` in `ColorVariantManager.tsx`
 - **Always display the FULL color composition** — whenever showing a color (variants, images, swatches), display ALL colors in the composition (e.g. "Blanc, Rouge, Jaune"), never just the main color name alone. Use `ColorSwatch` with `subColors` segments for multi-color variants. This applies everywhere: PFS review, edit modals, product detail, image grouping headers.
+- **PACK variants have null `colorId`** — colors are in `PackColorLine[]`, not on the variant itself. Always check `colorId` for null before using it for groupKey, image linking, or swatch rendering. The `color` relation is also nullable — always use `pc.color?.name`, `pc.color?.hex`, never `pc.color.name`.
+- **Sizes are NOT a selector** — variants contain sizes as part of their description (e.g. XS×2, S×2). The customer buys the whole variant. There is no "choose a size" flow.
+- **OrderItem.sizesJson** stores sizes as JSON `[{name,quantity}]` for new orders. Old orders still use `OrderItem.size` (string). Display code must check both, preferring `sizesJson`.
+- **ConfirmDialog and Toast are context-based** — import `{ useConfirm }` from `ConfirmDialog.tsx` and `{ useToast }` from `Toast.tsx`. Do NOT use default imports (`import ConfirmDialog from ...` will fail — there is no default export). Use `const { confirm } = useConfirm()` and `const toast = useToast()` then call `confirm({type, title, message})` and `toast.success(title)` / `toast.error(title)`.
 
 ### Key Libraries
 - **Next.js 16.1.6** (App Router, Server Components)

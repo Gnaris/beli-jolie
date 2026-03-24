@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
       const fileColorParts = file.color.split(",").map((c) => normalizeColorName(c.trim())).sort();
 
       let matchingVariants = product.colors.filter((pc) => {
+        if (!pc.color) return false;
         const variantColors = [
           normalizeColorName(pc.color.name),
           ...pc.subColors.map((sc) => normalizeColorName(sc.color.name)),
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
       // Fallback: single color
       if (matchingVariants.length === 0 && fileColorParts.length === 1) {
         matchingVariants = product.colors.filter(
-          (pc) => normalizeColorName(pc.color.name) === fileColorParts[0]
+          (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorParts[0]
         );
       }
 

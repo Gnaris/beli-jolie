@@ -104,7 +104,8 @@ export async function placeOrder(
                 product: { select: { id: true, name: true, reference: true, status: true, category: { select: { name: true } } } },
                 color:   { select: { id: true, name: true, hex: true } },
                 subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
-                packEntries: { orderBy: { position: "asc" }, include: { color: { select: { name: true } } } },
+                packColorLines: { orderBy: { position: "asc" }, include: { colors: { orderBy: { position: "asc" }, include: { color: { select: { name: true } } } } } },
+                variantSizes: { include: { size: true } },
               },
             },
           },
@@ -121,19 +122,21 @@ export async function placeOrder(
   // ── Fetch images for each cart item via ProductColorImage ─────────────────
   const pairs = [
     ...new Map(
-      cart.items.map((item) => [
-        `${item.variant.productId}__${item.variant.colorId}`,
-        { productId: item.variant.productId, colorId: item.variant.colorId },
-      ])
+      cart.items
+        .filter((item) => item.variant.colorId != null)
+        .map((item) => [
+          `${item.variant.productId}__${item.variant.colorId}`,
+          { productId: item.variant.productId, colorId: item.variant.colorId! },
+        ])
     ).values(),
   ];
 
-  const allImages = await prisma.productColorImage.findMany({
+  const allImages = pairs.length > 0 ? await prisma.productColorImage.findMany({
     where: {
       OR: pairs.map((p) => ({ productId: p.productId, colorId: p.colorId })),
     },
     orderBy: { order: "asc" },
-  });
+  }) : [];
 
   const imagesByKey = new Map<string, string>();
   for (const img of allImages) {
@@ -221,17 +224,20 @@ export async function placeOrder(
     return {
       productName: item.variant.product.name,
       productRef:  item.variant.product.reference,
-      colorName:   item.variant.subColors?.length
-        ? [item.variant.color.name, ...item.variant.subColors.map((sc: { color: { name: string } }) => sc.color.name)].join("/")
-        : item.variant.color.name,
+      colorName:   item.variant.color
+        ? (item.variant.subColors?.length
+            ? [item.variant.color.name, ...item.variant.subColors.map((sc: { color: { name: string } }) => sc.color.name)].join("/")
+            : item.variant.color.name)
+        : "Pack",
       saleType:    item.variant.saleType,
       packQty:     item.variant.packQuantity,
-      size:        item.variant.size,
-      packDetails: item.variant.packEntries && item.variant.packEntries.length > 0
-        ? JSON.stringify(item.variant.packEntries.map((e: { color: { name: string }; size: string; quantity: number }) => ({
-            colorName: e.color.name,
-            size: e.size,
-            qty: e.quantity,
+      size:        null,
+      sizesJson:   item.variant.variantSizes.length > 0
+        ? JSON.stringify(item.variant.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({ name: vs.size.name, quantity: vs.quantity })))
+        : null,
+      packDetails: item.variant.packColorLines && item.variant.packColorLines.length > 0
+        ? JSON.stringify(item.variant.packColorLines.map((line: { colors: { color: { name: string } }[] }) => ({
+            colors: line.colors.map((c) => c.color.name),
           })))
         : null,
       imagePath:   imagesByKey.get(imgKey) ?? null,
@@ -289,7 +295,8 @@ export async function placeOrder(
           colorName:   item.colorName,
           saleType:    item.saleType,
           packQty:     item.packQty ?? null,
-          size:        item.size ?? null,
+          size:        null,
+          sizesJson:   item.sizesJson ?? null,
           packDetails: item.packDetails ?? null,
           imagePath:   item.imagePath ?? null,
           unitPrice:   item.unitPrice,
@@ -444,7 +451,7 @@ async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
         <strong>${item.productName}</strong><br/>
         <small style="color:#6B6B6B;">Réf. ${item.productRef} · ${item.colorName}
         ${item.saleType === "PACK" ? ` · Paquet ×${item.packQty}` : ""}
-        ${item.size ? ` · T.${item.size}` : ""}</small>
+        ${item.sizesJson ? ` · ${(() => { try { return (JSON.parse(item.sizesJson) as {name:string;quantity:number}[]).map(s => `${s.name}×${s.quantity}`).join(", "); } catch { return ""; } })()}` : (item.size ? ` · T.${item.size}` : "")}</small>
       </td>
       <td style="padding:10px 14px;text-align:center;border-bottom:1px solid #E5E5E5;">${item.quantity}</td>
       <td style="padding:10px 14px;text-align:right;border-bottom:1px solid #E5E5E5;">${item.unitPrice.toFixed(2)} €</td>

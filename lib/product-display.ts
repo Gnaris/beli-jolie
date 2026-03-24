@@ -235,12 +235,12 @@ type CarouselPrismaProduct = {
   category: { name: string };
   colors: {
     id: string;
-    colorId: string;
+    colorId: string | null;
     unitPrice: number;
     isPrimary: boolean;
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | null;
-    color: { name: string; hex: string | null };
+    color: { name: string; hex: string | null } | null;
   }[];
 };
 

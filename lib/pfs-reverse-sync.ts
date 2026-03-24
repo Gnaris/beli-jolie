@@ -148,7 +148,7 @@ interface FullProduct {
     isPrimary: boolean;
     saleType: "UNIT" | "PACK";
     packQuantity: number | null;
-    size: string | null;
+    variantSizes: { size: { name: string } }[];
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | null;
     color: { id: string; name: string; pfsColorRef: string | null };
@@ -186,7 +186,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           isPrimary: true,
           saleType: true,
           packQuantity: true,
-          size: true,
+          variantSizes: { select: { size: { select: { name: true } } } },
           discountType: true,
           discountValue: true,
           color: { select: { id: true, name: true, pfsColorRef: true } },
@@ -350,10 +350,12 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
         continue;
       }
 
+      const variantSizeName = variant.variantSizes[0]?.size.name || "TU";
+
       const pfsVariant: PfsVariantCreateData = {
         type: variant.saleType === "PACK" ? "PACK" : "ITEM",
         color: colorRef,
-        size: variant.size || "TU",
+        size: variantSizeName,
         price_eur_ex_vat: variant.unitPrice,
         weight: variant.weight,
         stock_qty: variant.stock ?? 0,
@@ -362,7 +364,7 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
 
       // PACK format
       if (variant.saleType === "PACK" && variant.packQuantity) {
-        pfsVariant.packs = [{ color: colorRef, size: variant.size || "TU", qty: variant.packQuantity }];
+        pfsVariant.packs = [{ color: colorRef, size: variantSizeName, qty: variant.packQuantity }];
       }
 
       try {

@@ -54,7 +54,7 @@ export default function ManufacturingCountriesManager({
 
   async function handleSave(name: string, translations: Record<string, string>) {
     if (!editTarget) return;
-    await updateManufacturingCountryDirect(editTarget.id, name, translations);
+    await updateManufacturingCountryDirect(editTarget.id, name, editTarget.isoCode ?? null, translations);
     router.refresh();
   }
 

@@ -14,16 +14,21 @@ import CustomSelect from "@/components/ui/CustomSelect";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
+interface VariantSizeEntry {
+  quantity: number;
+  size: { name: string };
+}
+
 interface ColorVariant {
   id: string;
-  colorId: string;
+  colorId: string | null;
   unitPrice: number;
   weight: number;
   stock: number;
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  size: string | null;
+  variantSizes?: VariantSizeEntry[];
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
   color: { name: string; hex: string | null; patternImage?: string | null };
@@ -74,7 +79,6 @@ function VariantRow({
   const [weight, setWeight] = useState(String(variant.weight));
   const [saleType, setSaleType] = useState(variant.saleType);
   const [packQuantity, setPackQuantity] = useState(String(variant.packQuantity ?? ""));
-  const [size, setSize] = useState(variant.size ?? "");
   const [discountType, setDiscountType] = useState(variant.discountType ?? "");
   const [discountValue, setDiscountValue] = useState(String(variant.discountValue ?? ""));
   const [saving, setSaving] = useState(false);
@@ -90,7 +94,6 @@ function VariantRow({
         weight: parseFloat(weight) || 0,
         saleType,
         packQuantity: saleType === "PACK" ? (parseInt(packQuantity) || null) : null,
-        size: size.trim() || null,
         discountType: discountType === "PERCENT" || discountType === "AMOUNT" ? discountType : null,
         discountValue: discountValue ? parseFloat(discountValue) : null,
       });
@@ -159,9 +162,9 @@ function VariantRow({
           <span className={`badge text-[10px] ${variant.saleType === "UNIT" ? "badge-info" : "badge-purple"}`}>
             {variant.saleType === "UNIT" ? "Unité" : `Pack ×${variant.packQuantity}`}
           </span>
-          {variant.size && (
+          {variant.variantSizes && variant.variantSizes.length > 0 && (
             <span className="badge badge-neutral text-[10px] ml-1.5">
-              {variant.size}
+              {variant.variantSizes.map(vs => vs.quantity > 1 ? `${vs.size.name}\u00D7${vs.quantity}` : vs.size.name).join(", ")}
             </span>
           )}
         </td>
@@ -251,7 +254,11 @@ function VariantRow({
             {saleType === "PACK" && (
               <input type="number" min={2} value={packQuantity} onChange={(e) => setPackQuantity(e.target.value)} placeholder="Qté" className={`${inputClass} !w-14`} />
             )}
-            <input type="text" value={size} onChange={(e) => setSize(e.target.value)} placeholder="Taille" className={`${inputClass} !w-16`} />
+            {variant.variantSizes && variant.variantSizes.length > 0 && (
+              <span className="badge badge-neutral text-[10px]">
+                {variant.variantSizes.map(vs => vs.quantity > 1 ? `${vs.size.name}\u00D7${vs.quantity}` : vs.size.name).join(", ")}
+              </span>
+            )}
           </div>
         </td>
         <td className="px-3 py-2.5">

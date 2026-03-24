@@ -155,11 +155,24 @@ export default async function AdminCommandeDetailPage({
                           Paquet ×{item.packQty}
                         </span>
                       )}
-                      {item.size && (
-                        <span className="badge badge-neutral">
-                          Taille {item.size}
-                        </span>
-                      )}
+                      {(() => {
+                        if (item.sizesJson) {
+                          try {
+                            const sizes: { name: string; quantity: number }[] = JSON.parse(item.sizesJson);
+                            if (sizes.length > 0) return (
+                              <span className="badge badge-neutral">
+                                {sizes.map(s => `${s.name}×${s.quantity}`).join(", ")}
+                              </span>
+                            );
+                          } catch { /* ignore */ }
+                        }
+                        if (item.size) return (
+                          <span className="badge badge-neutral">
+                            Taille {item.size}
+                          </span>
+                        );
+                        return null;
+                      })()}
                     </div>
                   </div>
 

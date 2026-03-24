@@ -246,6 +246,7 @@
     "unitOption": "بالوحدة",
     "packOption": "حزمة من {qty}",
     "sizeLabel": "مقاس {size}",
+    "sizes": "المقاسات",
     "dimensions": "الأبعاد",
     "length": "الطول",
     "width": "العرض",

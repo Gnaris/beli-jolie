@@ -116,7 +116,7 @@ model Category {
   subCategories  SubCategory[]
   products       Product[]
   translations   CategoryTranslation[]
-  suggestedSizes CategorySize[]
+  sizes          SizeCategoryLink[]
   createdAt      DateTime              @default(now())
 }
 
@@ -168,7 +168,7 @@ model Color {
   colorImages   ProductColorImage[]
   translations  ColorTranslation[]
   subColorUsages ProductColorSubColor[] // Utilisations en tant que sous-couleur
-  packEntries   PackEntry[]             // Utilisations dans les compositions de packs
+  packColorLineColors PackColorLineColor[] // Utilisations dans les lignes de couleur des packs
 }
 
 model ColorTranslation {
@@ -378,39 +378,43 @@ model PendingSimilar {
   @@index([similarRef])
 }
 
-// Variante plate d'un produit (couleur + type de vente + prix + stock)
-// Une même couleur peut apparaître plusieurs fois (UNIT, PACK×12, PACK×24…)
+// Variante d'un produit
+// UNIT: une composition de couleurs + tailles×qty + prix/poids/stock/remise
+// PACK: N lignes de couleurs + tailles×qty partagées + packQuantity + prix/poids/stock/remise
 model ProductColor {
   id          String       @id @default(cuid())
   productId   String
   product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  colorId     String
-  color       Color        @relation(fields: [colorId], references: [id])
-  unitPrice   Float        // Prix par unité HT
-  weight      Float        // Poids en kg (ex: 0.008)
+  colorId     String?      // Couleur principale (UNIT only — null pour PACK)
+  color       Color?       @relation(fields: [colorId], references: [id])
+  unitPrice   Float        // Prix HT (par unité ou par paquet)
+  weight      Float        // Poids en kg
   stock       Int          @default(0)
   isPrimary   Boolean      @default(false)
   saleType    SaleType     // UNIT ou PACK
   packQuantity Int?        // Quantité par paquet (null si UNIT)
-  size        String?      // Taille (ex: 17, 18, L, XL) — optionnel
   discountType  DiscountType? // Type de remise (null = pas de remise)
   discountValue Float?        // Valeur de la remise
-  subColors   ProductColorSubColor[] // Sous-couleurs optionnelles (ex: Doré → Rouge, Noir)
-  images      ProductColorImage[]   // Images spécifiques à ce variant
+  // UNIT: composition de couleurs (colorId = 1ère couleur, subColors = couleurs suivantes)
+  subColors   ProductColorSubColor[]
+  // Tailles avec quantités (partagées entre toutes les lignes couleur pour PACK)
+  variantSizes VariantSize[]
+  // PACK: lignes de couleur (chaque ligne = une composition de couleurs)
+  packColorLines PackColorLine[]
+  images      ProductColorImage[]   // Images (UNIT seulement)
   cartItems   CartItem[]
-  collectionOverrides CollectionProduct[] // Apparitions dans des collections avec cette couleur
-  packEntries PackEntry[]   // Composition du pack (couleur × taille × qty) — vide si UNIT
+  collectionOverrides CollectionProduct[]
   restockAlerts RestockAlert[]
-  pfsVariantId  String?      // ID variant sur PFS (ex: "pro_c33dcc49...") — pour reverse sync
+  pfsVariantId  String?      // ID variant sur PFS — pour reverse sync
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
   @@index([productId, colorId])
-  @@index([productId, isPrimary])       // fast primary color lookup
-  @@index([colorId])                    // color filter queries
-  @@index([discountType, discountValue]) // promo filter
-  @@index([stock])                      // OOS filter
-  @@index([unitPrice])                  // price range filter
+  @@index([productId, isPrimary])
+  @@index([colorId])
+  @@index([discountType, discountValue])
+  @@index([stock])
+  @@index([unitPrice])
 }
 
 // Sous-couleurs optionnelles d'une variante (ex: Doré/Rouge/Noir)
@@ -427,33 +431,72 @@ model ProductColorSubColor {
   @@index([productColorId])
 }
 
-// Entrée de composition d'un PACK (couleur × taille × quantité)
-// Un PACK variant peut contenir N couleurs × M tailles × qty par combinaison
-// Ex: Doré:17×2, Doré:18×2, Argenté:17×2, Argenté:18×2 = 8 pièces
-model PackEntry {
-  id              String       @id @default(cuid())
-  productColorId  String
-  productColor    ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
-  colorId         String
-  color           Color        @relation(fields: [colorId], references: [id])
-  size            String       // ex: "17", "L", "TU"
-  quantity        Int          // nombre de pièces de cette couleur×taille
-  position        Int          @default(0)
+// ─────────────────────────────────────────────
+// Tailles (gérées par l'admin, liées aux catégories)
+// ─────────────────────────────────────────────
+
+// Bibliothèque de tailles réutilisables (ex: "XS", "S", "17", "Taille unique")
+model Size {
+  id         String             @id @default(cuid())
+  name       String             @unique
+  position   Int                @default(0)
+  categories SizeCategoryLink[]
+  variantSizes VariantSize[]
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+}
+
+// M2M: taille ↔ catégorie (une taille peut appartenir à plusieurs catégories)
+model SizeCategoryLink {
+  id         String   @id @default(cuid())
+  sizeId     String
+  size       Size     @relation(fields: [sizeId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([sizeId, categoryId])
+  @@index([categoryId])
+}
+
+// Taille × quantité dans une variante (UNIT ou PACK — partagées pour PACK)
+model VariantSize {
+  id             String       @id @default(cuid())
+  productColorId String
+  productColor   ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  sizeId         String
+  size           Size         @relation(fields: [sizeId], references: [id])
+  quantity       Int          @default(1) // nombre de pièces de cette taille
+
+  @@unique([productColorId, sizeId])
+  @@index([productColorId])
+}
+
+// ─────────────────────────────────────────────
+// Lignes de couleur pour PACK (N compositions de couleurs par paquet)
+// ─────────────────────────────────────────────
+
+// Une ligne de couleur dans un PACK (ex: ligne 1 = "Doré, Rouge" / ligne 2 = "Doré, Noir")
+model PackColorLine {
+  id             String              @id @default(cuid())
+  productColorId String
+  productColor   ProductColor        @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  position       Int                 @default(0) // Ordre d'affichage
+  colors         PackColorLineColor[]
 
   @@index([productColorId])
 }
 
-// Tailles suggérées par catégorie (configurable par l'admin)
-// Permet de filtrer les 673 tailles PFS par catégorie côté BJ
-model CategorySize {
-  id         String   @id @default(cuid())
-  categoryId String
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  size       String   // ex: "17", "S", "TU"
-  position   Int      @default(0)
+// Couleur dans une ligne de couleur de PACK (ordonnée)
+model PackColorLineColor {
+  id              String        @id @default(cuid())
+  packColorLineId String
+  packColorLine   PackColorLine @relation(fields: [packColorLineId], references: [id], onDelete: Cascade)
+  colorId         String
+  color           Color         @relation(fields: [colorId], references: [id])
+  position        Int           @default(0) // Ordre dans la composition
 
-  @@unique([categoryId, size])
-  @@index([categoryId])
+  @@unique([packColorLineId, colorId])
+  @@index([packColorLineId])
 }
 
 // Images liées à un variant spécifique (ProductColor)
@@ -593,12 +636,13 @@ model OrderItem {
 
   productName String
   productRef  String
-  colorName   String
-  saleType    String  // "UNIT" | "PACK"
+  colorName   String   // Composition couleur (UNIT) ou vide (PACK — détails dans packDetails)
+  saleType    String   // "UNIT" | "PACK"
   packQty     Int?
-  size        String?
-  packDetails String?  @db.Text // JSON snapshot composition pack : [{colorName,size,qty}]
-  imagePath   String? // première image (relatif /public)
+  size        String?  // Ancien champ — conservé pour compatibilité historique
+  sizesJson   String?  @db.Text // JSON: [{name, quantity}] — tailles avec quantités
+  packDetails String?  @db.Text // JSON: PACK color lines [{colors: [name], ...}]
+  imagePath   String?  // première image (relatif /public)
 
   unitPrice   Float   // prix unitaire calculé (remise incluse)
   quantity    Int

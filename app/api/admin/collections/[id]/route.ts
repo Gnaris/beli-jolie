@@ -76,9 +76,9 @@ export async function GET(
       // Deduplicate colors by colorId
       const colorMap = new Map<string, { id: string; name: string; hex: string | null; images: { path: string }[] }>();
       for (const pc of cp.product.colors) {
-        if (!colorMap.has(pc.colorId)) {
+        if (pc.colorId && !colorMap.has(pc.colorId)) {
           const path = colImageMap.get(cp.product.id)?.get(pc.colorId);
-          colorMap.set(pc.colorId, { id: pc.colorId, name: pc.color.name, hex: pc.color.hex, images: path ? [{ path }] : [] });
+          colorMap.set(pc.colorId, { id: pc.colorId, name: pc.color?.name ?? "", hex: pc.color?.hex ?? null, images: path ? [{ path }] : [] });
         }
       }
       return {

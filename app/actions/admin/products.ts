@@ -20,17 +20,19 @@ async function requireAdmin() {
 // Types
 // ─────────────────────────────────────────────
 
-export interface PackEntryInput {
-  dbId?: string;         // PackEntry.id when editing existing (undefined for new)
-  colorId: string;
-  size: string;
+export interface SizeEntryInput {
+  sizeId: string;
   quantity: number;
+}
+
+export interface PackColorLineInput {
+  colorIds: string[];   // Ordered color IDs for this line
   position: number;
 }
 
 export interface ColorInput {
   dbId?: string;         // ProductColor.id when editing existing (undefined for new)
-  colorId: string;
+  colorId: string | null; // Couleur principale (UNIT) — null pour PACK multi-couleur
   subColorIds?: string[]; // IDs de sous-couleurs optionnelles (ex: Doré → [Rouge, Noir])
   unitPrice: number;
   weight: number;
@@ -38,8 +40,8 @@ export interface ColorInput {
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  size: string | null;
-  packEntries?: PackEntryInput[]; // Composition du pack (couleur × taille × qty) — vide/absent pour UNIT
+  sizeEntries: SizeEntryInput[];         // Tailles avec quantités
+  packColorLines: PackColorLineInput[];  // PACK: lignes de couleur
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
 }
@@ -84,17 +86,9 @@ export interface ProductInput {
 
 /** Build a group key from ColorInput (colorId + ordered sub-color IDs). Order matters. */
 function colorInputGroupKey(c: ColorInput): string {
+  if (!c.colorId) return "";
   if (!c.subColorIds || c.subColorIds.length === 0) return c.colorId;
   return `${c.colorId}::${c.subColorIds.join(",")}`;
-}
-
-/** Hash sorted pack entries for deduplication. */
-function packEntriesHash(entries?: PackEntryInput[]): string {
-  if (!entries || entries.length === 0) return "";
-  return entries
-    .map((e) => `${e.colorId}|${e.size}|${e.quantity}`)
-    .sort()
-    .join(";;");
 }
 
 function validateVariants(colors: ColorInput[]): void {
@@ -102,6 +96,7 @@ function validateVariants(colors: ColorInput[]): void {
   const unitByColor = new Map<string, boolean>();
   for (const c of colors) {
     if (c.saleType === "UNIT") {
+      if (!c.colorId) throw new Error("Une variante UNIT doit avoir une couleur.");
       const gk = colorInputGroupKey(c);
       if (unitByColor.has(gk)) {
         throw new Error("Une couleur ne peut avoir qu'une variante à l'unité.");
@@ -110,27 +105,12 @@ function validateVariants(colors: ColorInput[]): void {
     }
   }
 
-  // No two PACK variants with same composition
-  const packKeys = new Set<string>();
+  // PACK variants: must have at least one color line
   for (const c of colors) {
     if (c.saleType === "PACK") {
-      const gk = colorInputGroupKey(c);
-      const entriesHash = packEntriesHash(c.packEntries);
-      // If pack has entries, use entries hash; otherwise fall back to old key
-      const key = entriesHash
-        ? `${gk}__entries__${entriesHash}`
-        : `${gk}__${c.packQuantity ?? ""}__${(c.size ?? "").trim().toLowerCase()}`;
-      if (packKeys.has(key)) {
-        throw new Error("Une couleur ne peut pas avoir deux paquets de même composition.");
+      if (c.packColorLines.length === 0) {
+        throw new Error("Un paquet doit avoir au moins une ligne de couleur.");
       }
-      packKeys.add(key);
-    }
-  }
-
-  // Sync packQuantity from entries if entries exist
-  for (const c of colors) {
-    if (c.saleType === "PACK" && c.packEntries && c.packEntries.length > 0) {
-      c.packQuantity = c.packEntries.reduce((sum, e) => sum + e.quantity, 0);
     }
   }
 }
@@ -189,22 +169,19 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   });
 
   // Create variants one by one to guarantee order + inline sub-colors
-  // (bulk nested create via colors.create doesn't guarantee insertion order when
-  //  multiple variants share the same colorId, causing sub-color mismatch)
-  const createdVariants: { id: string; colorId: string }[] = [];
+  const createdVariants: { id: string; colorId: string | null }[] = [];
   for (let i = 0; i < input.colors.length; i++) {
     const color = input.colors[i];
     const variant = await prisma.productColor.create({
       data: {
         productId:     product.id,
-        colorId:       color.colorId,
+        colorId:       color.colorId || null,
         unitPrice:     color.unitPrice,
         weight:        color.weight,
         stock:         color.stock,
         isPrimary:     color.isPrimary || i === 0,
         saleType:      color.saleType,
         packQuantity:  color.packQuantity,
-        size:          color.size,
         discountType:  color.discountType,
         discountValue: color.discountValue,
         subColors: color.subColorIds && color.subColorIds.length > 0
@@ -215,17 +192,36 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     });
     createdVariants.push(variant);
 
-    // Create pack entries for PACK variants with composition
-    if (color.saleType === "PACK" && color.packEntries && color.packEntries.length > 0) {
-      await prisma.packEntry.createMany({
-        data: color.packEntries.map((e) => ({
+    // Create variant sizes
+    if (color.sizeEntries && color.sizeEntries.length > 0) {
+      await prisma.variantSize.createMany({
+        data: color.sizeEntries.map((se) => ({
           productColorId: variant.id,
-          colorId: e.colorId,
-          size: e.size,
-          quantity: e.quantity,
-          position: e.position,
+          sizeId: se.sizeId,
+          quantity: se.quantity,
         })),
       });
+    }
+
+    // Create pack color lines for PACK variants
+    if (color.saleType === "PACK" && color.packColorLines.length > 0) {
+      for (const pcl of color.packColorLines) {
+        const line = await prisma.packColorLine.create({
+          data: {
+            productColorId: variant.id,
+            position: pcl.position,
+          },
+        });
+        if (pcl.colorIds.length > 0) {
+          await prisma.packColorLineColor.createMany({
+            data: pcl.colorIds.map((cId, pos) => ({
+              packColorLineId: line.id,
+              colorId: cId,
+              position: pos,
+            })),
+          });
+        }
+      }
     }
   }
 
@@ -234,10 +230,10 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     const imageData: { productId: string; colorId: string; productColorId: string; path: string; order: number }[] = [];
     const usedVariantIds = new Set<string>();
     for (const group of input.imagePaths) {
-      if (group.paths.length === 0) continue;
+      if (group.paths.length === 0 || !group.colorId) continue;
       // Match variant by colorId + ordered subColorIds (order matters)
       const groupSubIds = group.subColorIds ?? [];
-      let matched: { id: string; colorId: string } | undefined;
+      let matched: { id: string; colorId: string | null } | undefined;
       for (let i = 0; i < input.colors.length; i++) {
         const cv = createdVariants[i];
         if (!cv || usedVariantIds.has(cv.id)) continue;
@@ -422,14 +418,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         await tx.productColor.update({
           where: { id: colorInput.dbId },
           data: {
-            colorId:       colorInput.colorId,
+            colorId:       colorInput.colorId || null,
             unitPrice:     colorInput.unitPrice,
             weight:        colorInput.weight,
             stock:         colorInput.stock,
             isPrimary:     colorInput.isPrimary,
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
-            size:          colorInput.size,
             discountType:  colorInput.discountType,
             discountValue: colorInput.discountValue,
           },
@@ -440,14 +435,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         const created = await tx.productColor.create({
           data: {
             productId:     id,
-            colorId:       colorInput.colorId,
+            colorId:       colorInput.colorId || null,
             unitPrice:     colorInput.unitPrice,
             weight:        colorInput.weight,
             stock:         colorInput.stock,
             isPrimary:     colorInput.isPrimary,
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
-            size:          colorInput.size,
             discountType:  colorInput.discountType,
             discountValue: colorInput.discountValue,
           },
@@ -475,28 +469,51 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       await tx.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
     }
 
-    // ── Pack entries: full replace for all PACK variants ──────────
+    // ── Variant sizes: full replace for all variants ──────────
     if (allVariantIds.length > 0) {
-      await tx.packEntry.deleteMany({
+      await tx.variantSize.deleteMany({
         where: { productColorId: { in: allVariantIds } },
       });
     }
-    const packEntryData: { productColorId: string; colorId: string; size: string; quantity: number; position: number }[] = [];
+    const variantSizeData: { productColorId: string; sizeId: string; quantity: number }[] = [];
     for (const { colorInput, variantId } of variantIdMap) {
-      if (colorInput.saleType === "PACK" && colorInput.packEntries && colorInput.packEntries.length > 0) {
-        for (const entry of colorInput.packEntries) {
-          packEntryData.push({
+      if (colorInput.sizeEntries && colorInput.sizeEntries.length > 0) {
+        for (const se of colorInput.sizeEntries) {
+          variantSizeData.push({
             productColorId: variantId,
-            colorId: entry.colorId,
-            size: entry.size,
-            quantity: entry.quantity,
-            position: entry.position,
+            sizeId: se.sizeId,
+            quantity: se.quantity,
           });
         }
       }
     }
-    if (packEntryData.length > 0) {
-      await tx.packEntry.createMany({ data: packEntryData });
+    if (variantSizeData.length > 0) {
+      await tx.variantSize.createMany({ data: variantSizeData });
+    }
+
+    // ── Pack color lines: full replace for all PACK variants ──────────
+    if (allVariantIds.length > 0) {
+      await tx.packColorLine.deleteMany({
+        where: { productColorId: { in: allVariantIds } },
+      });
+    }
+    for (const { colorInput, variantId } of variantIdMap) {
+      if (colorInput.saleType === "PACK" && colorInput.packColorLines.length > 0) {
+        for (const pcl of colorInput.packColorLines) {
+          const line = await tx.packColorLine.create({
+            data: { productColorId: variantId, position: pcl.position },
+          });
+          if (pcl.colorIds.length > 0) {
+            await tx.packColorLineColor.createMany({
+              data: pcl.colorIds.map((cId, pos) => ({
+                packColorLineId: line.id,
+                colorId: cId,
+                position: pos,
+              })),
+            });
+          }
+        }
+      }
     }
 
     // ── Images: full replace linked to specific ProductColor variant ──────────
@@ -795,7 +812,6 @@ export interface VariantQuickUpdate {
   weight?: number;
   saleType?: "UNIT" | "PACK";
   packQuantity?: number | null;
-  size?: string | null;
   discountType?: "PERCENT" | "AMOUNT" | null;
   discountValue?: number | null;
 }

@@ -74,6 +74,7 @@ export async function GET(
   >();
 
   for (const pc of productColors) {
+    if (!pc.colorId || !pc.color) continue;
     const existing = colorMap.get(pc.colorId);
     if (existing) {
       // Merge images, avoiding duplicates by id

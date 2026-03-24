@@ -37,6 +37,7 @@ export async function createCategory(formData: FormData) {
   });
   revalidatePath("/admin/categories");
   revalidateTag("categories", "default");
+  revalidateTag("sizes", "default");
   revalidatePath("/admin/produits");
 }
 

@@ -18,9 +18,9 @@ interface SubColorInfo {
 interface VariantData {
   id: string;
   groupKey: string;              // Unique key: colorId + ordered sub-color names (order matters)
-  colorId: string;
-  colorName: string;
-  colorHex: string | null;
+  colorId: string | null;
+  colorName: string | undefined;
+  colorHex: string | null | undefined;
   patternImage?: string | null;     // Image motif (léopard, camouflage…) — prioritaire sur hex
   subColors?: SubColorInfo[]; // Sous-couleurs optionnelles (ex: [{name:"Rouge",hex:"#FF0000"}])
   unitPrice: number;
@@ -29,7 +29,7 @@ interface VariantData {
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  size: string | null;
+  sizes: { name: string; quantity: number }[];
   discountType:  "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
 }
@@ -494,12 +494,12 @@ export default function ProductDetail({
                       <div>
                         <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] flex items-center flex-wrap gap-1.5">
                           {v.saleType === "UNIT" ? t("unitOption") : t("packOption", { qty: v.packQuantity ?? 1 })}
-                          {v.size && (
-                            <span className="text-xs font-normal bg-bg-tertiary text-text-primary px-2 py-0.5 rounded-full border border-border">
-                              {t("sizeLabel", { size: v.size })}
-                            </span>
-                          )}
                         </p>
+                        {v.sizes?.length > 0 && (
+                          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+                            {t("sizes")}: {v.sizes.map((s) => `${s.name}\u00d7${s.quantity}`).join(", ")}
+                          </p>
+                        )}
                         <p className="text-xs text-text-muted mt-0.5 font-[family-name:var(--font-roboto)]">
                           {effectiveStock > 0
                             ? <span className="text-text-secondary">&#10003; {effectiveStock} {effectiveStock !== 1 ? t("available_plural") : t("available")}</span>

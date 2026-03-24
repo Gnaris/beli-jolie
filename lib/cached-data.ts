@@ -62,6 +62,31 @@ export const getCachedManufacturingCountries = unstable_cache(
   { revalidate: 3600, tags: ["manufacturing-countries"] }
 );
 
+// ─── Tailles (par catégorie) ──────────────────────────────────────────────────
+export const getCachedSizes = unstable_cache(
+  async () =>
+    prisma.size.findMany({
+      orderBy: { position: "asc" },
+      select: {
+        id: true,
+        name: true,
+        categories: {
+          select: { categoryId: true },
+        },
+      },
+    }),
+  ["filter-sizes"],
+  { revalidate: 3600, tags: ["sizes"] }
+);
+
+/** Get sizes for a specific category */
+export async function getCachedSizesByCategory(categoryId: string) {
+  const allSizes = await getCachedSizes();
+  return allSizes.filter((s) =>
+    s.categories.some((c) => c.categoryId === categoryId)
+  );
+}
+
 // ─── Saisons ────────────────────────────────────────────────────────────────
 export const getCachedSeasons = unstable_cache(
   async () =>

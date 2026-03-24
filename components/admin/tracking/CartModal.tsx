@@ -14,7 +14,7 @@ interface CartItem {
     discountType: string | null;
     discountValue: number | null;
     stock: number;
-    size: string | null;
+    sizes: { name: string; quantity: number }[];
   };
   color: { name: string; hex: string | null };
   image: string | null;

@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, uid as genUid, variantGroupKeyFromState } from "./ColorVariantManager";
+import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState } from "./ColorVariantManager";
 import { createProduct, updateProduct, saveProductTranslations } from "@/app/actions/admin/products";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
@@ -42,6 +42,7 @@ interface TranslationState {
 interface ProductFormProps {
   categories: Category[];
   availableColors: AvailableColor[];
+  availableSizes: AvailableSize[];
   availableCompositions: AvailableComposition[];
   availableCountries?: { id: string; name: string; isoCode: string | null }[];
   availableSeasons?: { id: string; name: string }[];
@@ -81,13 +82,14 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
     colorName:    first?.name ?? "",
     colorHex:     first?.hex  ?? "#9CA3AF",
     subColors:    [],
+    packColorLines: [],
+    sizeEntries:  [],
     unitPrice:    "",
     weight:       "",
     stock:        "",
     isPrimary:    true,
     saleType:     "UNIT",
     packQuantity: "",
-    size:         "",
     discountType: "",
     discountValue: "",
   };
@@ -278,6 +280,7 @@ function TagsDropdown({
 export default function ProductForm({
   categories,
   availableColors,
+  availableSizes,
   availableCompositions,
   availableCountries = [],
   availableSeasons = [],
@@ -338,7 +341,7 @@ export default function ProductForm({
 
   const buildSnapshot = useCallback(() => JSON.stringify({
     reference, name, description, categoryId, subCategoryIds,
-    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, size: v.size, discountType: v.discountType, discountValue: v.discountValue })),
+    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, packColorLines: v.packColorLines, discountType: v.discountType, discountValue: v.discountValue })),
     compositions, similarProductIds, tagNames, isBestSeller,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
     manufacturingCountryId, seasonId,
@@ -374,7 +377,7 @@ export default function ProductForm({
       title: "Modifications non enregistrées",
       message: "Vous avez des modifications non enregistrées. Voulez-vous vraiment quitter cette page ? Vos changements seront perdus.",
       confirmLabel: "Quitter",
-      danger: true,
+      type: "danger" as const,
     });
     if (ok) {
       isDirty.current = false;
@@ -846,16 +849,18 @@ export default function ProductForm({
     }
 
     for (const v of variants) {
-      if (!v.colorId) return setError("Chaque variante doit avoir une couleur sélectionnée.");
+      if (v.saleType === "UNIT" && !v.colorId) return setError("Chaque variante UNIT doit avoir une couleur sélectionnée.");
+      if (v.saleType === "PACK" && v.packColorLines.length === 0) return setError("Chaque variante PACK doit avoir au moins une ligne de couleur.");
+      const label = v.colorName || "variante";
       const price = parseFloat(v.unitPrice);
-      if (isNaN(price) || price <= 0) return setError(`Prix invalide pour "${v.colorName || "variante"}".`);
+      if (isNaN(price) || price <= 0) return setError(`Prix invalide pour "${label}".`);
       const w = parseFloat(v.weight);
-      if (isNaN(w) || w <= 0) return setError(`Poids invalide pour "${v.colorName || "variante"}".`);
+      if (isNaN(w) || w <= 0) return setError(`Poids invalide pour "${label}".`);
       if (v.stock !== "" && parseInt(v.stock) < 0)
-        return setError(`Stock invalide pour "${v.colorName || "variante"}" (doit être ≥ 0).`);
+        return setError(`Stock invalide pour "${label}" (doit être ≥ 0).`);
       if (v.saleType === "PACK") {
         const qty = parseInt(v.packQuantity);
-        if (isNaN(qty) || qty < 2) return setError(`Quantité paquet invalide pour "${v.colorName}" (minimum 2).`);
+        if (isNaN(qty) || qty < 2) return setError(`Quantité paquet invalide pour "${label}" (minimum 2).`);
       }
     }
     // Duplicate variant checks — use full groupKey (colorId + ordered sub-colors)
@@ -867,15 +872,7 @@ export default function ProductForm({
         unitByGroup.set(gk, true);
       }
     }
-    const packKeys2 = new Set<string>();
-    for (const v of variants) {
-      if (v.saleType === "PACK" && v.packQuantity) {
-        const gk = variantGroupKeyFromState(v);
-        const key = `${gk}__${v.packQuantity}`;
-        if (packKeys2.has(key)) return setError(`La couleur "${v.colorName}" a deux paquets de même quantité.`);
-        packKeys2.add(key);
-      }
-    }
+    // No pack duplicate check needed — each pack is independent
     if (colorImages.some((ci) => ci.uploading)) return setError("Des images sont encore en cours d'upload. Veuillez patienter.");
 
     if (compositions.length > 0 && Math.abs(totalPct - 100) > 0.5) {
@@ -890,7 +887,7 @@ export default function ProductForm({
       subCategoryIds,
       colors: variants.map((v) => ({
         dbId:          v.dbId,
-        colorId:       v.colorId,
+        colorId:       v.colorId || null,
         subColorIds:   v.subColors.map((sc) => sc.colorId),
         unitPrice:     parseFloat(v.unitPrice),
         weight:        parseFloat(v.weight),
@@ -898,7 +895,15 @@ export default function ProductForm({
         isPrimary:     v.isPrimary,
         saleType:      v.saleType,
         packQuantity:  v.saleType === "PACK" ? (parseInt(v.packQuantity) || null) : null,
-        size:          v.size.trim() || null,
+        sizeEntries:   v.sizeEntries
+          .filter((se) => se.sizeId)
+          .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
+        packColorLines: v.saleType === "PACK"
+          ? v.packColorLines.map((pcl, pos) => ({
+              colorIds: pcl.colors.map((c) => c.colorId),
+              position: pos,
+            }))
+          : [],
         discountType:  v.discountType || null,
         discountValue: v.discountValue ? parseFloat(v.discountValue) : null,
       })),
@@ -1342,6 +1347,7 @@ export default function ProductForm({
             variants={variants}
             colorImages={colorImages}
             availableColors={localColors}
+            availableSizes={availableSizes}
             onChange={setVariants}
             onChangeImages={setColorImages}
             onQuickCreateColor={handleQuickCreateColor}

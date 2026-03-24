@@ -59,7 +59,7 @@ export interface StagedVariantData {
   stock: number;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  size: string | null;
+  sizeName: string | null;
   isPrimary: boolean;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
@@ -81,6 +81,7 @@ export interface StagedImageGroup {
   colorRef: string;
   colorName: string;
   colorId: string;
+  colorHex?: string | null;
   paths: string[]; // staging paths like /uploads/products/staging/pfs_...webp
   orders?: number[]; // optional: explicit order for each path (same length as paths)
 }
@@ -177,7 +178,8 @@ async function prepareSingleProduct(
       categoryName = parsePfsCategoryRef(refDetails.product.category.reference);
     }
 
-    const categoryId = await findOrCreateCategory(categoryName, pfsProduct.category.labels, categoryFr);
+    const pfsCatId = refDetails?.product?.category?.id || pfsProduct.category?.id || undefined;
+    const categoryId = await findOrCreateCategory(categoryName, pfsProduct.category.labels, categoryFr, pfsCatId);
     addLog(`  📂 Catégorie: ${categoryName}`);
 
     // ── Resolve compositions ──
@@ -185,7 +187,7 @@ async function prepareSingleProduct(
     if (refDetails?.product?.material_composition) {
       for (const mat of refDetails.product.material_composition) {
         const frName = mat.labels?.fr || mat.reference;
-        const compositionId = await findOrCreateComposition(frName, mat.labels);
+        const compositionId = await findOrCreateComposition(frName, mat.labels, mat.reference);
         compositions.push({ compositionId, name: frName, percentage: mat.percentage });
       }
     }
@@ -262,7 +264,7 @@ async function prepareSingleProduct(
           stock: v.stock_qty,
           saleType: "UNIT",
           packQuantity: null,
-          size: v.item.size || null,
+          sizeName: v.item.size || null,
           isPrimary: false,
           discountType,
           discountValue,
@@ -294,7 +296,7 @@ async function prepareSingleProduct(
           stock: v.stock_qty,
           saleType: "PACK",
           packQuantity: packQty,
-          size: pack.sizes?.[0]?.size || null,
+          sizeName: pack.sizes?.[0]?.size || null,
           isPrimary: false,
           discountType,
           discountValue,
@@ -371,7 +373,7 @@ async function prepareSingleProduct(
       }
 
       // Compare colors (check if sync has colors that don't exist in app)
-      const existingColorNames = new Set(existingProduct.colors.map(c => c.color.name));
+      const existingColorNames = new Set(existingProduct.colors.map(c => c.color?.name).filter(Boolean) as string[]);
       const stagedColorNames = variants.map(v => v.colorName);
       const newColors = stagedColorNames.filter(cn => !existingColorNames.has(cn));
       if (newColors.length > 0) {
@@ -380,7 +382,7 @@ async function prepareSingleProduct(
 
       // Compare prices (check each matching variant)
       for (const sv of variants) {
-        const matchingExisting = existingProduct.colors.find(c => c.color.name === sv.colorName);
+        const matchingExisting = existingProduct.colors.find(c => c.color?.name === sv.colorName);
         if (matchingExisting) {
           if (Math.abs(matchingExisting.unitPrice - sv.unitPrice) > 0.01) {
             differences.push({
@@ -996,7 +998,7 @@ async function createProductChildren(
     throw new Error(`Couleurs manquantes en base: ${missingColors.join(", ")}. Re-lancez la préparation.`);
   }
 
-  const createdVariants: { id: string; colorId: string; colorRef: string }[] = [];
+  const createdVariants: { id: string; colorId: string | null; colorRef: string }[] = [];
   for (const v of variants) {
     const created = await prisma.productColor.create({
       data: {
@@ -1008,7 +1010,6 @@ async function createProductChildren(
         isPrimary: v.isPrimary,
         saleType: v.saleType,
         packQuantity: v.packQuantity,
-        size: v.size,
         discountType: v.discountType,
         discountValue: v.discountValue,
       },
@@ -1016,6 +1017,18 @@ async function createProductChildren(
     });
     createdVariants.push({ ...created, colorRef: v.colorRef });
     console.log(`[CREATE_CHILDREN] Created variant id=${created.id} colorId=${created.colorId} colorRef=${v.colorRef}`);
+
+    // Create VariantSize record if PFS provided a size
+    if (v.sizeName) {
+      const sizeRecord = await prisma.size.upsert({
+        where: { name: v.sizeName },
+        create: { name: v.sizeName },
+        update: {},
+      });
+      await prisma.variantSize.create({
+        data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
+      });
+    }
   }
 
   // Move images from staging to final + create DB records
@@ -1079,7 +1092,7 @@ async function createProductChildren(
       await prisma.productColorImage.createMany({
         data: finalPaths.map((fp) => ({
           productId,
-          colorId: matchingVariant.colorId,
+          colorId: matchingVariant.colorId ?? "",
           productColorId: matchingVariant.id,
           path: fp.path,
           order: fp.order,
@@ -1253,6 +1266,7 @@ async function applyCompareSelections(
             },
             orderBy: { position: "asc" },
           },
+          variantSizes: { select: { size: { select: { name: true } } } },
           images: {
             select: { path: true, order: true },
             orderBy: { order: "asc" },
@@ -1294,9 +1308,9 @@ async function applyCompareSelections(
 
   // Build BJ variants in staged format
   const bjVariants: StagedVariantData[] = existing.colors.map((pc) => ({
-    colorId: pc.color.id,
-    colorRef: pc.color.name.toUpperCase().replace(/\s+/g, "_"),
-    colorName: pc.color.name,
+    colorId: pc.color?.id ?? "",
+    colorRef: pc.color?.name.toUpperCase().replace(/\s+/g, "_") ?? "",
+    colorName: pc.color?.name ?? "",
     subColors: pc.subColors.map((sc) => ({
       colorId: sc.color.id,
       colorName: sc.color.name,
@@ -1308,7 +1322,7 @@ async function applyCompareSelections(
     stock: pc.stock,
     saleType: pc.saleType as "UNIT" | "PACK",
     packQuantity: pc.packQuantity,
-    size: pc.size,
+    sizeName: pc.variantSizes?.[0]?.size.name ?? null,
     isPrimary: pc.isPrimary,
     discountType: pc.discountType as "PERCENT" | "AMOUNT" | null,
     discountValue: pc.discountValue,
@@ -1317,6 +1331,7 @@ async function applyCompareSelections(
   // Build BJ image groups
   const bjImageGroups = new Map<string, StagedImageGroup>();
   for (const pc of existing.colors) {
+    if (!pc.color) continue;
     const subNames = pc.subColors.map((sc) => sc.color.name).join(",");
     const key = `${pc.color.id}::${subNames}`;
     if (!bjImageGroups.has(key)) {

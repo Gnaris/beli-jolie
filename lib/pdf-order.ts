@@ -37,6 +37,7 @@ export interface OrderItemPDF {
   saleType:    string;
   packQty:     number | null;
   size:        string | null;
+  sizesJson?:  string | null; // JSON: [{name, quantity}] — tailles avec quantités
   packDetails: string | null; // JSON: [{colorName,size,qty}] — composition du pack
   imagePath:   string | null;
   unitPrice:   number;
@@ -322,7 +323,14 @@ export function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
           ? "Vendu à l'unité"
           : `Paquet de ${item.packQty} pièces`,
       ];
-      if (item.size) details.push(`Taille : ${item.size}`);
+      if (item.sizesJson) {
+        try {
+          const sizes: { name: string; quantity: number }[] = JSON.parse(item.sizesJson);
+          if (sizes.length > 0) details.push(`Tailles : ${sizes.map(s => `${s.name}×${s.quantity}`).join(", ")}`);
+        } catch { /* ignore parse errors */ }
+      } else if (item.size) {
+        details.push(`Taille : ${item.size}`);
+      }
 
       doc.text(details.join("  ·  "), TEXT_X, ty, { width: TEXT_W - 10 });
       ty += 16;

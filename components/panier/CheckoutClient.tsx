@@ -26,7 +26,7 @@ interface VariantData {
   colorId: string;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  size: string | null;
+  sizes: { name: string; quantity: number }[];
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
   unitPrice: number;

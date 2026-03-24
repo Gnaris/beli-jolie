@@ -56,6 +56,17 @@ interface PfsCategory {
   gender: string;
 }
 
+interface PfsFamily {
+  id: string;
+  labels: Record<string, string>;
+  gender: string;
+}
+
+interface PfsGender {
+  reference: string;
+  labels: Record<string, string>;
+}
+
 interface PfsComposition {
   id: string;
   reference: string;
@@ -97,10 +108,15 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
   const [pfsCompositions, setPfsCompositions] = useState<PfsComposition[]>([]);
   const [pfsCountries, setPfsCountries] = useState<PfsCountry[]>([]);
   const [pfsCollections, setPfsCollections] = useState<PfsCollection[]>([]);
+  const [pfsFamilies, setPfsFamilies] = useState<PfsFamily[]>([]);
+  const [pfsGenders, setPfsGenders] = useState<PfsGender[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  // Per-row filter state for category mapping: catId → { gender, familyId }
+  const [catFilters, setCatFilters] = useState<Record<string, { gender: string; familyId: string }>>({});
 
   // Fetch PFS attributes
   useEffect(() => {
@@ -114,12 +130,52 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
         setPfsCompositions(data.compositions ?? []);
         setPfsCountries(data.countries ?? []);
         setPfsCollections(data.collections ?? []);
+        setPfsFamilies(data.families ?? []);
+        setPfsGenders(data.genders ?? []);
         setError(null);
       })
       .catch((err) => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  // Helper: safely extract family ID from a PFS category (family can be string or {id})
+  const getFamilyIdFromPfsCat = useCallback((pfsCat: PfsCategory): string => {
+    if (!pfsCat.family) return "";
+    if (typeof pfsCat.family === "string") return pfsCat.family;
+    return pfsCat.family.id ?? "";
+  }, []);
+
+  // Initialize catFilters from already-mapped categories (only once when PFS data loads)
+  const [catFiltersInitialized, setCatFiltersInitialized] = useState(false);
+  useEffect(() => {
+    if (pfsCategories.length === 0 || catFiltersInitialized) return;
+    const initial: Record<string, { gender: string; familyId: string }> = {};
+    for (const cat of categories) {
+      if (cat.pfsCategoryId) {
+        const pfsCat = pfsCategories.find((c) => c.id === cat.pfsCategoryId);
+        if (pfsCat) {
+          initial[cat.id] = { gender: pfsCat.gender, familyId: getFamilyIdFromPfsCat(pfsCat) };
+        } else if (cat.pfsGender) {
+          initial[cat.id] = { gender: cat.pfsGender, familyId: cat.pfsFamilyId || "" };
+        }
+      }
+    }
+    setCatFilters(initial);
+    setCatFiltersInitialized(true);
+  }, [pfsCategories, categories, catFiltersInitialized, getFamilyIdFromPfsCat]);
+
+  // Helper: get family label
+  const getFamilyLabel = useCallback((familyId: string) => {
+    const fam = pfsFamilies.find((f) => f.id === familyId);
+    return fam?.labels?.fr ?? familyId;
+  }, [pfsFamilies]);
+
+  // Helper: get gender label
+  const getGenderLabel = useCallback((genderRef: string) => {
+    const g = pfsGenders.find((g) => g.reference === genderRef);
+    return g?.labels?.fr ?? genderRef;
+  }, [pfsGenders]);
 
   const handleSaveColor = useCallback(async (colorId: string, pfsRef: string | null) => {
     setSaving(colorId);
@@ -138,9 +194,17 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
       // Find the selected PFS category to extract gender + familyId
       const pfsCat = pfsCatId ? pfsCategories.find((c) => c.id === pfsCatId) : null;
       const pfsGender = pfsCat?.gender || null;
-      const pfsFamilyId = pfsCat?.family?.id || null;
+      const pfsFamilyId = pfsCat ? (typeof pfsCat.family === "string" ? pfsCat.family : pfsCat.family?.id) || null : null;
       await updateCategoryPfsId(catId, pfsCatId || null, pfsGender, pfsFamilyId);
       setCategories((prev) => prev.map((c) => (c.id === catId ? { ...c, pfsCategoryId: pfsCatId, pfsGender, pfsFamilyId } : c)));
+      // Keep filter state in sync when a PFS category is selected
+      if (pfsCat) {
+        const famId = typeof pfsCat.family === "string" ? pfsCat.family : pfsCat.family?.id ?? "";
+        setCatFilters((prev) => ({
+          ...prev,
+          [catId]: { gender: pfsCat.gender, familyId: famId },
+        }));
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : "Erreur");
     }
@@ -311,60 +375,116 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
         </div>
       )}
 
-      {/* Category mapping */}
+      {/* Category mapping — hierarchical: Genre → Famille → Catégorie */}
       {tab === "categories" && (
         <div className="card overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="table-header">
                 <th className="text-left p-3">Catégorie BJ</th>
+                <th className="text-left p-3">Genre PFS</th>
+                <th className="text-left p-3">Famille PFS</th>
                 <th className="text-left p-3">Catégorie PFS</th>
-                <th className="text-left p-3">Genre / Famille</th>
                 <th className="text-left p-3 w-20">Statut</th>
               </tr>
             </thead>
             <tbody>
-              {filteredCategories.map((cat) => (
-                <tr key={cat.id} className="table-row">
-                  <td className="p-3 font-medium">{cat.name}</td>
-                  <td className="p-3">
-                    <select
-                      value={cat.pfsCategoryId ?? ""}
-                      onChange={(e) => handleSaveCategory(cat.id, e.target.value || null)}
-                      disabled={saving === cat.id}
-                      className="field-input py-1.5 text-sm max-w-[350px]"
-                    >
-                      <option value="">— Non liée —</option>
-                      {pfsCategories.map((pc) => {
-                        const taken = usedCategoryIds.has(pc.id) && cat.pfsCategoryId !== pc.id;
-                        return (
-                          <option key={pc.id} value={pc.id} disabled={taken}>
-                            {pc.labels?.fr ?? pc.id} ({pc.gender}){taken ? " ✗ déjà liée" : ""}
+              {filteredCategories.map((cat) => {
+                const filter = catFilters[cat.id] ?? { gender: "", familyId: "" };
+                // Available genders from PFS data
+                const availableGenders = [...new Set(pfsCategories.map((c) => c.gender))].sort();
+                // Families for the selected gender
+                const availableFamilies = filter.gender
+                  ? pfsFamilies.filter((f) => f.gender === filter.gender)
+                  : [];
+                // Categories for the selected gender + family
+                const availableCategoriesForRow = filter.gender
+                  ? pfsCategories.filter((c) => {
+                      if (c.gender !== filter.gender) return false;
+                      if (!filter.familyId) return true;
+                      const famId = typeof c.family === "string" ? c.family : c.family?.id;
+                      return famId === filter.familyId;
+                    })
+                  : [];
+
+                return (
+                  <tr key={cat.id} className="table-row align-top">
+                    <td className="p-3 font-medium">{cat.name}</td>
+                    {/* Genre dropdown — filter only, doesn't change mapping */}
+                    <td className="p-3">
+                      <select
+                        value={filter.gender}
+                        onChange={(e) => {
+                          const gender = e.target.value;
+                          setCatFilters((prev) => ({
+                            ...prev,
+                            [cat.id]: { gender, familyId: "" },
+                          }));
+                        }}
+                        disabled={saving === cat.id}
+                        className="field-input py-1.5 text-sm w-full min-w-[130px]"
+                      >
+                        <option value="">— Genre —</option>
+                        {availableGenders.map((g) => (
+                          <option key={g} value={g}>
+                            {getGenderLabel(g)}
                           </option>
-                        );
-                      })}
-                    </select>
-                  </td>
-                  <td className="p-3 text-xs text-text-secondary whitespace-nowrap">
-                    {cat.pfsGender ? (
-                      <span>{cat.pfsGender}{cat.pfsFamilyId ? ` / ${cat.pfsFamilyId.substring(0, 8)}…` : ""}</span>
-                    ) : cat.pfsCategoryId ? (
-                      <span className="badge badge-warning">Incomplet</span>
-                    ) : (
-                      <span>—</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    {saving === cat.id ? (
-                      <span className="text-text-secondary text-xs">...</span>
-                    ) : cat.pfsCategoryId ? (
-                      <span className="badge badge-success">Liée</span>
-                    ) : (
-                      <span className="badge badge-neutral">Non liée</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                        ))}
+                      </select>
+                    </td>
+                    {/* Famille dropdown — filter only, doesn't change mapping */}
+                    <td className="p-3">
+                      <select
+                        value={filter.familyId}
+                        onChange={(e) => {
+                          const familyId = e.target.value;
+                          setCatFilters((prev) => ({
+                            ...prev,
+                            [cat.id]: { ...prev[cat.id], familyId },
+                          }));
+                        }}
+                        disabled={saving === cat.id || !filter.gender}
+                        className="field-input py-1.5 text-sm w-full min-w-[180px]"
+                      >
+                        <option value="">— Toutes —</option>
+                        {availableFamilies.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.labels?.fr ?? f.id}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    {/* Catégorie PFS dropdown — filtered */}
+                    <td className="p-3">
+                      <select
+                        value={cat.pfsCategoryId ?? ""}
+                        onChange={(e) => handleSaveCategory(cat.id, e.target.value || null)}
+                        disabled={saving === cat.id || !filter.gender}
+                        className="field-input py-1.5 text-sm w-full min-w-[220px]"
+                      >
+                        <option value="">— Catégorie —</option>
+                        {availableCategoriesForRow.map((pc) => {
+                          const taken = usedCategoryIds.has(pc.id) && cat.pfsCategoryId !== pc.id;
+                          return (
+                            <option key={pc.id} value={pc.id} disabled={taken}>
+                              {pc.labels?.fr ?? pc.id}{taken ? " ✗ déjà liée" : ""}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </td>
+                    <td className="p-3">
+                      {saving === cat.id ? (
+                        <span className="text-text-secondary text-xs">...</span>
+                      ) : cat.pfsCategoryId ? (
+                        <span className="badge badge-success">Liée</span>
+                      ) : (
+                        <span className="badge badge-neutral">Non liée</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

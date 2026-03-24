@@ -42,7 +42,8 @@ export default async function CommandePage() {
   // Vérification minimum commande (couche serveur — ne peut pas être contournée)
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
   if (minOrderHT > 0) {
-    const subtotalHT = cart.items.reduce((sum, item) => {
+    let subtotalHT = 0;
+    for (const item of cart.items) {
       const v = item.variant;
       const base = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
       let price = base;
@@ -51,8 +52,8 @@ export default async function CommandePage() {
           ? Math.max(0, base * (1 - v.discountValue / 100))
           : Math.max(0, base - v.discountValue);
       }
-      return sum + price * item.quantity;
-    }, 0);
+      subtotalHT += price * item.quantity;
+    }
     if (subtotalHT < minOrderHT) redirect("/panier");
   }
 

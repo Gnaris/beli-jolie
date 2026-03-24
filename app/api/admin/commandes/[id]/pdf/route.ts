@@ -61,6 +61,8 @@ export async function GET(
         saleType:    item.saleType,
         packQty:     item.packQty,
         size:        item.size,
+        sizesJson:   item.sizesJson,
+        packDetails: item.packDetails,
         imagePath:   item.imagePath,
         unitPrice:   item.unitPrice,
         quantity:    item.quantity,

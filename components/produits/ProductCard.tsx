@@ -9,13 +9,12 @@ import FavoriteToggle from "@/components/client/FavoriteToggle";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useTranslations } from "next-intl";
 import { addToCart } from "@/app/actions/client/cart";
-import CustomSelect from "@/components/ui/CustomSelect";
 
 interface VariantData {
   id: string;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  size: string | null;
+  sizes: { name: string; quantity: number }[];
   unitPrice: number;
   stock: number;
   discountType?: "PERCENT" | "AMOUNT" | null;
@@ -134,14 +133,14 @@ export default function ProductCard({
     c.variants.some((v) => v.discountType && v.discountValue && v.discountValue > 0)
   );
 
-  // Detect sizes for selected color's UNIT variants
+  // Detect pack options for selected color
   const unitOptions = displayed?.variants.filter((v) => v.saleType === "UNIT") ?? [];
   const packOptions = (displayed?.variants.filter((v) => v.saleType === "PACK") ?? [])
     .sort((a, b) => (b.packQuantity ?? 0) - (a.packQuantity ?? 0));
-  const hasSizes = unitOptions.some((v) => v.size);
-  const uniqueSizes = [...new Set(unitOptions.filter((v) => v.size).map((v) => v.size!))];
 
-  const [selectedSize, setSelectedSize] = useState<string>(uniqueSizes[0] ?? "");
+  // Sizes info from the first UNIT variant (descriptive, not selectable)
+  const firstUnitVariant = unitOptions[0];
+  const sizesInfo = firstUnitVariant?.sizes?.length ? firstUnitVariant.sizes : [];
 
   // Stock check: is selected color entirely out of stock?
   const selectedColorOutOfStock = (displayed?.totalStock ?? 0) <= 0;
@@ -152,9 +151,6 @@ export default function ProductCard({
     setSelectedColor(c);
     setAddedMsg("");
     setAddError("");
-    const newUnitOpts = c.variants.filter((v) => v.saleType === "UNIT");
-    const newSizes = [...new Set(newUnitOpts.filter((v) => v.size).map((v) => v.size!))];
-    setSelectedSize(newSizes[0] ?? "");
   }
 
   async function handleAddToCart() {
@@ -171,9 +167,7 @@ export default function ProductCard({
     const qty = Math.max(1, quantity);
     const opts = displayed?.variants ?? [];
 
-    const unitOpt = hasSizes && selectedSize
-      ? opts.find((v) => v.saleType === "UNIT" && v.size === selectedSize)
-      : opts.find((v) => v.saleType === "UNIT");
+    const unitOpt = opts.find((v) => v.saleType === "UNIT");
     const sortedPacks = (opts.filter((v) => v.saleType === "PACK"))
       .sort((a, b) => (b.packQuantity ?? 0) - (a.packQuantity ?? 0));
 
@@ -384,12 +378,10 @@ export default function ProductCard({
 
         {/* Add to cart */}
         <div className="mt-auto space-y-2">
-          {hasSizes && uniqueSizes.length > 0 && (
-            <CustomSelect
-              value={selectedSize}
-              onChange={(v) => setSelectedSize(v)}
-              options={uniqueSizes.map((s) => ({ value: s, label: t("sizeLabel", { size: s }) }))}
-            />
+          {sizesInfo.length > 0 && (
+            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+              {t("sizes")}: {sizesInfo.map((s) => `${s.name}\u00d7${s.quantity}`).join(", ")}
+            </p>
           )}
 
           <div className="flex items-center gap-2">

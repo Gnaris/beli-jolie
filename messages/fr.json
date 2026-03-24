@@ -246,6 +246,7 @@
     "unitOption": "À l'unité",
     "packOption": "Par paquet de {qty}",
     "sizeLabel": "Taille {size}",
+    "sizes": "Tailles",
     "dimensions": "Dimensions",
     "length": "Longueur",
     "width": "Largeur",

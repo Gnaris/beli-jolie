@@ -43,6 +43,7 @@ export interface StagedImageGroup {
   colorRef: string;
   colorName: string;
   colorId: string;
+  colorHex?: string | null;
   paths: string[];
 }
 
