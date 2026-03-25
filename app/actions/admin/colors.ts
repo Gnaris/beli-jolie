@@ -107,6 +107,44 @@ export async function updateColorPfsRef(id: string, pfsColorRef: string | null) 
   revalidateTag("colors", "default");
 }
 
+/**
+ * Fetch PFS colors list + existing BJ→PFS mappings.
+ * Used in the color assignment modal for marketplace mapping.
+ */
+export async function fetchPfsColorsForMapping(): Promise<{
+  pfsColors: { reference: string; value: string; image: string | null; label: string }[];
+  existingMappings: Record<string, { colorId: string; colorName: string }>;
+}> {
+  await requireAdmin();
+
+  const { pfsGetColors } = await import("@/lib/pfs-api-write");
+
+  const [pfsColors, mappedColors] = await Promise.all([
+    pfsGetColors(),
+    prisma.color.findMany({
+      where: { pfsColorRef: { not: null } },
+      select: { id: true, name: true, pfsColorRef: true },
+    }),
+  ]);
+
+  const existingMappings: Record<string, { colorId: string; colorName: string }> = {};
+  for (const c of mappedColors) {
+    if (c.pfsColorRef) {
+      existingMappings[c.pfsColorRef] = { colorId: c.id, colorName: c.name };
+    }
+  }
+
+  return {
+    pfsColors: pfsColors.map((c) => ({
+      reference: c.reference,
+      value: c.value,
+      image: c.image,
+      label: c.labels?.fr || c.reference,
+    })),
+    existingMappings,
+  };
+}
+
 export async function deleteColor(id: string) {
   await requireAdmin();
   const count = await prisma.productColor.count({ where: { colorId: id } });

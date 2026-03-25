@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import PfsMappingTab from "@/components/pfs/PfsMappingTab";
 import CustomSelect from "@/components/ui/CustomSelect";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
@@ -171,8 +170,6 @@ type Step = "idle" | "analyzing" | "validation" | "creating" | "preparing";
 
 export default function PfsSyncPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const activeTab = searchParams.get("tab") ?? "sync";
   const [step, setStep] = useState<Step>("idle");
   const [pendingLimit, setPendingLimit] = useState<number | undefined>(undefined);
   const [customLimit, setCustomLimit] = useState("");
@@ -624,34 +621,6 @@ export default function PfsSyncPage() {
         </div>
       </div>
 
-      {/* Tab navigation */}
-      <div className="flex border-b border-border">
-        <Link
-          href="/admin/pfs"
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors font-[family-name:var(--font-roboto)] ${
-            activeTab !== "mapping"
-              ? "border-text-primary text-text-primary"
-              : "border-transparent text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          Synchronisation
-        </Link>
-        <Link
-          href="/admin/pfs?tab=mapping"
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors font-[family-name:var(--font-roboto)] ${
-            activeTab === "mapping"
-              ? "border-text-primary text-text-primary"
-              : "border-transparent text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          Mapping
-        </Link>
-      </div>
-
-      {activeTab === "mapping" ? (
-        <PfsMappingTab />
-      ) : (
-        <>
           <div className="flex items-start justify-between">
             <p className="page-subtitle">
               Prépare et importe les produits depuis Paris Fashion Shop
@@ -1242,8 +1211,6 @@ export default function PfsSyncPage() {
           </div>
         </div>
       )}
-        </>
-      )}
     </div>
   );
 }
@@ -1615,7 +1582,7 @@ function CreateSizeModal({
               autoFocus
             />
             <p className="text-[10px] text-text-secondary">
-              Ce nom sera affiché dans les produits Beli Jolie
+              Ce nom sera affiché dans les produits Boutique
             </p>
           </div>
 

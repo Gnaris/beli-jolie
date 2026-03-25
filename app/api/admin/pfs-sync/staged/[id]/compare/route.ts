@@ -70,6 +70,8 @@ export async function GET(
           tag: { select: { id: true, name: true } },
         },
       },
+      manufacturingCountry: { select: { id: true, name: true } },
+      season: { select: { id: true, name: true } },
     },
   });
 
@@ -159,6 +161,10 @@ export async function GET(
       name: pc.composition.name,
       percentage: pc.percentage,
     })),
+    manufacturingCountryId: existing.manufacturingCountryId || null,
+    manufacturingCountryName: existing.manufacturingCountry?.name || null,
+    seasonId: existing.seasonId || null,
+    seasonName: existing.season?.name || null,
     tags: existing.tags.map((pt) => pt.tag.name),
   };
 
@@ -182,6 +188,10 @@ export async function GET(
     imagesByColor: typeof staged.imagesByColor === "string"
       ? JSON.parse(staged.imagesByColor)
       : staged.imagesByColor ?? [],
+    manufacturingCountryId: staged.manufacturingCountryId || null,
+    manufacturingCountryName: staged.manufacturingCountryName || null,
+    seasonId: staged.seasonId || null,
+    seasonName: staged.seasonName || null,
     tags: typeof staged.tags === "string"
       ? JSON.parse(staged.tags)
       : staged.tags ?? [],

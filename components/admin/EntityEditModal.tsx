@@ -18,6 +18,8 @@ interface Props {
   initialHex?: string;
   /** Image motif existante (prioritaire sur hex) */
   initialPatternImage?: string | null;
+  /** Contenu supplémentaire injecté avant le footer (ex: mapping marketplace) */
+  renderExtra?: React.ReactNode;
   onSave: (
     name: string,
     translations: Record<string, string>,
@@ -35,6 +37,7 @@ export default function EntityEditModal({
   withHex = false,
   initialHex,
   initialPatternImage,
+  renderExtra,
   onSave,
 }: Props) {
   const [name, setName] = useState(initialName);
@@ -308,6 +311,9 @@ export default function EntityEditModal({
               ))}
             </div>
           </div>
+
+          {/* Extra content (marketplace mapping, etc.) */}
+          {renderExtra}
 
           {error && (
             <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{error}</p>

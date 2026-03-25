@@ -2,16 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteManufacturingCountry, updateManufacturingCountryDirect } from "@/app/actions/admin/manufacturing-countries";
+import { deleteManufacturingCountry, updateManufacturingCountryDirect, updateManufacturingCountryPfsRef } from "@/app/actions/admin/manufacturing-countries";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import EntityEditModal from "@/components/admin/EntityEditModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
+import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface CountryItem {
   id: string;
   name: string;
   isoCode: string | null;
+  pfsCountryRef: string | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -24,6 +26,7 @@ export default function ManufacturingCountriesManager({
   const router = useRouter();
   const { confirm } = useConfirm();
   const [editTarget, setEditTarget] = useState<CountryItem | null>(null);
+  const [editPfsRef, setEditPfsRef] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -31,6 +34,12 @@ export default function ManufacturingCountriesManager({
   const filtered = search.trim()
     ? initialCountries.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()) || c.isoCode?.toLowerCase().includes(search.trim().toLowerCase()))
     : initialCountries;
+
+  function openEdit(item: CountryItem) {
+    setError("");
+    setEditTarget(item);
+    setEditPfsRef(item.pfsCountryRef ?? "");
+  }
 
   async function handleDelete(item: CountryItem) {
     if (item.productCount > 0) {
@@ -55,6 +64,10 @@ export default function ManufacturingCountriesManager({
   async function handleSave(name: string, translations: Record<string, string>) {
     if (!editTarget) return;
     await updateManufacturingCountryDirect(editTarget.id, name, editTarget.isoCode ?? null, translations);
+    const origRef = editTarget.pfsCountryRef ?? "";
+    if (editPfsRef !== origRef) {
+      await updateManufacturingCountryPfsRef(editTarget.id, editPfsRef || null);
+    }
     router.refresh();
   }
 
@@ -116,7 +129,7 @@ export default function ManufacturingCountriesManager({
               </span>
 
               {/* Nom + badges */}
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
                 <span className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] truncate">
                   {item.name}
                 </span>
@@ -128,6 +141,11 @@ export default function ManufacturingCountriesManager({
                 <span className="badge badge-neutral text-[10px] shrink-0">
                   {item.productCount}
                 </span>
+                {item.pfsCountryRef && (
+                  <span className="badge badge-purple text-[10px] shrink-0">
+                    PFS: {item.pfsCountryRef}
+                  </span>
+                )}
                 {Object.keys(item.translations).length === 0 && (
                   <span className="relative group/tw shrink-0">
                     <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold cursor-default select-none">⚠</span>
@@ -145,7 +163,7 @@ export default function ManufacturingCountriesManager({
               <div className="flex items-center gap-0.5 max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity ml-auto">
                 <button
                   type="button"
-                  onClick={() => { setError(""); setEditTarget(item); }}
+                  onClick={() => openEdit(item)}
                   className="p-2.5 text-text-muted hover:text-text-primary transition-colors"
                   title="Modifier"
                   aria-label={`Modifier le pays ${item.name}`}
@@ -178,6 +196,15 @@ export default function ManufacturingCountriesManager({
         title="Modifier le pays"
         initialName={editTarget?.name ?? ""}
         initialTranslations={editTarget?.translations ?? {}}
+        renderExtra={
+          editTarget ? (
+            <MarketplaceMappingSection
+              entityType="country"
+              pfsRef={editPfsRef}
+              onPfsRefChange={setEditPfsRef}
+            />
+          ) : undefined
+        }
         onSave={handleSave}
       />
     </>

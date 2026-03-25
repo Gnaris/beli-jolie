@@ -30,6 +30,7 @@ import {
 } from "@/lib/pfs-api";
 import { processProductImage } from "@/lib/image-processor";
 import { normalizeColorName } from "@/lib/import-processor";
+import { stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -344,9 +345,12 @@ export async function findOrCreateColor(
     await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
   }
 
-  // MySQL is case-insensitive by default
+  // MySQL is case-insensitive by default — also try by pfsColorRef
+  const orConditions: { name?: string; pfsColorRef?: string }[] = [{ name: frLabel }];
+  if (reference) orConditions.push({ pfsColorRef: reference });
+
   const existing = await prisma.color.findFirst({
-    where: { name: frLabel },
+    where: { OR: orConditions },
     select: { id: true, pfsColorRef: true },
   });
 
@@ -424,9 +428,12 @@ export async function findOrCreateCategory(
   // Use the pfsOriginalName (FR label) as the PfsMapping key
   const pfsKey = (pfsOriginalName || name).toLowerCase();
 
-  // Use findFirst by name or slug to avoid duplicates
+  // Use findFirst by name, slug, OR pfsCategoryId to avoid duplicates
+  const orConditions: { name?: string; slug?: string; pfsCategoryId?: string }[] = [{ name }, { slug }];
+  if (pfsCatId) orConditions.push({ pfsCategoryId: pfsCatId });
+
   const existing = await prisma.category.findFirst({
-    where: { OR: [{ name }, { slug }] },
+    where: { OR: orConditions },
     select: { id: true, pfsCategoryId: true },
   });
 
@@ -494,8 +501,12 @@ export async function findOrCreateComposition(
     await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
   }
 
+  // Also try by pfsCompositionRef
+  const orConditions: { name?: string; pfsCompositionRef?: string }[] = [{ name: frName }];
+  if (pfsReference) orConditions.push({ pfsCompositionRef: pfsReference });
+
   const existing = await prisma.composition.findFirst({
-    where: { name: frName },
+    where: { OR: orConditions },
     select: { id: true, pfsCompositionRef: true },
   });
 
@@ -555,23 +566,41 @@ export async function findOrCreateCountry(
     await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
   }
 
-  // Check by ISO code OR by name (ISO code used as name when manually created)
-  const existingByIso = await prisma.manufacturingCountry.findFirst({
-    where: { OR: [{ isoCode: normalized }, { name: normalized }] },
-    select: { id: true },
+  // Check by ISO code, pfsCountryRef, OR name
+  const existing = await prisma.manufacturingCountry.findFirst({
+    where: { OR: [{ isoCode: normalized }, { pfsCountryRef: normalized }, { name: normalized }] },
+    select: { id: true, isoCode: true, pfsCountryRef: true },
   });
-  if (existingByIso) {
+  if (existing) {
+    // Fill missing fields if needed
+    const updates: Record<string, string> = {};
+    if (!existing.isoCode) updates.isoCode = normalized;
+    if (!existing.pfsCountryRef) updates.pfsCountryRef = normalized;
+    if (Object.keys(updates).length > 0) {
+      await prisma.manufacturingCountry.update({ where: { id: existing.id }, data: updates }).catch(() => {});
+    }
     // Ensure PfsMapping exists
     await prisma.pfsMapping.upsert({
       where: { type_pfsName: { type: "country", pfsName: normalized.toLowerCase() } },
-      create: { type: "country", pfsName: normalized.toLowerCase(), bjEntityId: existingByIso.id, bjName: normalized },
-      update: { bjEntityId: existingByIso.id, bjName: normalized },
+      create: { type: "country", pfsName: normalized.toLowerCase(), bjEntityId: existing.id, bjName: normalized },
+      update: { bjEntityId: existing.id, bjName: normalized },
     }).catch(() => {});
-    countryCache.set(normalized, existingByIso.id);
-    return existingByIso.id;
+    countryCache.set(normalized, existing.id);
+    return existing.id;
   }
 
-  return null; // Pays non lié — l'admin doit le lier via l'interface PFS
+  // Auto-create country from ISO code
+  const created = await prisma.manufacturingCountry.create({
+    data: { name: normalized, isoCode: normalized, pfsCountryRef: normalized },
+    select: { id: true },
+  });
+  await prisma.pfsMapping.upsert({
+    where: { type_pfsName: { type: "country", pfsName: normalized.toLowerCase() } },
+    create: { type: "country", pfsName: normalized.toLowerCase(), bjEntityId: created.id, bjName: normalized },
+    update: { bjEntityId: created.id, bjName: normalized },
+  }).catch(() => {});
+  countryCache.set(normalized, created.id);
+  return created.id;
 }
 
 // ─────────────────────────────────────────────
@@ -639,6 +668,28 @@ export async function findOrCreateSeason(
   }
 
   return null; // Saison non liée — l'admin doit la lier via l'interface PFS
+}
+
+// ─────────────────────────────────────────────
+// Size resolution helper
+// ─────────────────────────────────────────────
+
+async function resolveSizeRecord(sizeName: string) {
+  // First try to find by SizePfsMapping, then by name, then create with mapping
+  const mapping = await prisma.sizePfsMapping.findFirst({
+    where: { pfsSizeRef: sizeName },
+    select: { size: true },
+  });
+  if (mapping?.size) return mapping.size;
+
+  const existing = await prisma.size.findUnique({ where: { name: sizeName } });
+  if (existing) return existing;
+
+  const created = await prisma.size.create({ data: { name: sizeName } });
+  await prisma.sizePfsMapping.create({
+    data: { sizeId: created.id, pfsSizeRef: sizeName },
+  });
+  return created;
 }
 
 // ─────────────────────────────────────────────
@@ -810,12 +861,12 @@ async function syncSingleProduct(
       variantMap.set(v.id, v);
     }
 
-    const activeVariants = (variantDetails.length > 0 ? variantDetails : pfsProduct.variants)
-      .filter((v) => v.is_active);
+    // Import ALL variants (including disabled ones — they get stock=0)
+    const allVariants = variantDetails.length > 0 ? variantDetails : pfsProduct.variants;
 
-    if (activeVariants.length === 0) {
-      addLog(`  ⏭ ${bjRef} — Aucune variante active, skip`);
-      return { action: "skipped", reference: bjRef, error: "Aucune variante active" };
+    if (allVariants.length === 0) {
+      addLog(`  ⏭ ${bjRef} — Aucune variante, skip`);
+      return { action: "skipped", reference: bjRef, error: "Aucune variante" };
     }
 
     interface VariantData {
@@ -827,6 +878,8 @@ async function syncSingleProduct(
       saleType: "UNIT" | "PACK";
       packQuantity: number | null;
       sizeName: string | null;
+      sizeNames?: string[];
+      sizeEntries?: { name: string; qty: number; pricePerUnit: number }[];
       isPrimary: boolean;
       discountType: "PERCENT" | "AMOUNT" | null;
       discountValue: number | null;
@@ -841,7 +894,7 @@ async function syncSingleProduct(
 
     const variants: VariantData[] = [];
 
-    for (const v of activeVariants) {
+    for (const v of allVariants) {
       const detail = variantMap.get(v.id);
       const weight = detail?.weight ?? v.weight ?? 0;
 
@@ -873,7 +926,7 @@ async function syncSingleProduct(
           colorRef: v.item.color.reference,
           unitPrice: bjPrice,
           weight,
-          stock: v.stock_qty,
+          stock: v.is_active ? v.stock_qty : 0,
           saleType: "UNIT",
           packQuantity: null,
           sizeName: v.item.size || null,
@@ -906,15 +959,38 @@ async function syncSingleProduct(
 
         addLog(`  📦 PACK ×${packQty} ${pack.color.labels?.fr || pack.color.reference} — PFS: ${pfsPrice}€ → BJ: ${bjPrice}€ | stock: ${v.stock_qty} | poids: ${weight}kg`);
 
+        // Collect ALL sizes with quantities from ALL packs
+        const sizeQtyMap = new Map<string, number>();
+        for (const p of v.packs!) {
+          if (p.sizes) {
+            for (const s of p.sizes) {
+              if (s.size) {
+                sizeQtyMap.set(s.size, (sizeQtyMap.get(s.size) || 0) + (s.qty || 1));
+              }
+            }
+          }
+        }
+        const sizeNames = [...sizeQtyMap.keys()];
+        // Distribute pack price equally across all items
+        const totalItems = [...sizeQtyMap.values()].reduce((a, b) => a + b, 0);
+        const pricePerItem = totalItems > 0 ? bjPrice / totalItems : 0;
+        const sizeEntries = sizeNames.map((name) => ({
+          name,
+          qty: sizeQtyMap.get(name) || 1,
+          pricePerUnit: Math.round(pricePerItem * 100) / 100,
+        }));
+
         variants.push({
           colorId,
           colorRef: pack.color.reference,
           unitPrice: bjPrice,
           weight,
-          stock: v.stock_qty,
+          stock: v.is_active ? v.stock_qty : 0,
           saleType: "PACK",
           packQuantity: packQty,
-          sizeName: pack.sizes?.[0]?.size || null,
+          sizeName: sizeNames[0] || null,
+          sizeNames,
+          sizeEntries,
           isPrimary: false, // resolved below
           discountType,
           discountValue,
@@ -942,16 +1018,18 @@ async function syncSingleProduct(
       return { action: "skipped", reference: bjRef, error: "Aucune variante valide" };
     }
 
-    // ── Product name/description ──
+    // ── Product name/description (strip dimensions suffix added by reverse sync) ──
     const nameFr = pfsProduct.labels?.fr || bjRef;
-    const descriptionFr = refDetails?.product?.description?.fr || nameFr;
+    const rawDescFr = refDetails?.product?.description?.fr || nameFr;
+    const descriptionFr = stripDimensionsSuffix(rawDescFr);
 
-    // ── Translations (no tags) ──
+    // ── Translations (no tags, strip dimensions) ──
     const translations: { locale: string; name: string; description: string }[] = [];
     const locales = ["en", "de", "es", "it"];
     for (const locale of locales) {
       const name = pfsProduct.labels?.[locale];
-      const desc = refDetails?.product?.description?.[locale] || name;
+      const rawDesc = refDetails?.product?.description?.[locale] || name;
+      const desc = rawDesc ? stripDimensionsSuffix(rawDesc) : name;
       if (name) {
         translations.push({ locale, name, description: desc || name });
       }
@@ -1026,31 +1104,27 @@ async function syncSingleProduct(
         });
         createdVariants.push({ ...created, colorRef: v.colorRef });
 
-        // Create VariantSize record if PFS provided a size
-        if (v.sizeName) {
-          // First try to find by SizePfsMapping, then by name, then create with mapping
-          const mapping = await prisma.sizePfsMapping.findFirst({
-            where: { pfsSizeRef: v.sizeName },
-            select: { size: true },
-          });
-          let sizeRecord = mapping?.size ?? null;
-          if (!sizeRecord) {
-            sizeRecord = await prisma.size.findUnique({
-              where: { name: v.sizeName },
+        // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
+        if (v.sizeEntries?.length) {
+          for (const entry of v.sizeEntries) {
+            const sizeRecord = await resolveSizeRecord(entry.name);
+            await prisma.variantSize.create({
+              data: {
+                productColorId: created.id,
+                sizeId: sizeRecord.id,
+                quantity: entry.qty,
+                pricePerUnit: entry.pricePerUnit,
+              },
             });
           }
-          if (!sizeRecord) {
-            sizeRecord = await prisma.size.create({
-              data: { name: v.sizeName },
-            });
-            // Auto-create M2M mapping for the new size
-            await prisma.sizePfsMapping.create({
-              data: { sizeId: sizeRecord.id, pfsSizeRef: v.sizeName },
+        } else {
+          const sizes = v.sizeNames?.length ? v.sizeNames : (v.sizeName ? [v.sizeName] : []);
+          for (const sizeName of sizes) {
+            const sizeRecord = await resolveSizeRecord(sizeName);
+            await prisma.variantSize.create({
+              data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
             });
           }
-          await prisma.variantSize.create({
-            data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
-          });
         }
       }
       await Promise.all(dbOps);
@@ -1102,31 +1176,27 @@ async function syncSingleProduct(
         });
         createdVariants.push({ ...created, colorRef: v.colorRef });
 
-        // Create VariantSize record if PFS provided a size
-        if (v.sizeName) {
-          // First try to find by SizePfsMapping, then by name, then create with mapping
-          const mapping = await prisma.sizePfsMapping.findFirst({
-            where: { pfsSizeRef: v.sizeName },
-            select: { size: true },
-          });
-          let sizeRecord = mapping?.size ?? null;
-          if (!sizeRecord) {
-            sizeRecord = await prisma.size.findUnique({
-              where: { name: v.sizeName },
+        // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
+        if (v.sizeEntries?.length) {
+          for (const entry of v.sizeEntries) {
+            const sizeRecord = await resolveSizeRecord(entry.name);
+            await prisma.variantSize.create({
+              data: {
+                productColorId: created.id,
+                sizeId: sizeRecord.id,
+                quantity: entry.qty,
+                pricePerUnit: entry.pricePerUnit,
+              },
             });
           }
-          if (!sizeRecord) {
-            sizeRecord = await prisma.size.create({
-              data: { name: v.sizeName },
-            });
-            // Auto-create M2M mapping for the new size
-            await prisma.sizePfsMapping.create({
-              data: { sizeId: sizeRecord.id, pfsSizeRef: v.sizeName },
+        } else {
+          const sizes = v.sizeNames?.length ? v.sizeNames : (v.sizeName ? [v.sizeName] : []);
+          for (const sizeName of sizes) {
+            const sizeRecord = await resolveSizeRecord(sizeName);
+            await prisma.variantSize.create({
+              data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
             });
           }
-          await prisma.variantSize.create({
-            data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
-          });
         }
       }
 

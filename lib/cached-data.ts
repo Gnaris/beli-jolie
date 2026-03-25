@@ -34,7 +34,7 @@ export const getCachedColors = unstable_cache(
   async () =>
     prisma.color.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, hex: true, patternImage: true },
+      select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
     }),
   ["filter-colors"],
   { revalidate: 60, tags: ["colors"] }

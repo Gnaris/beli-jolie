@@ -6,28 +6,45 @@ import { pfsGetColors, pfsGetCategories, pfsGetCompositions, pfsGetCountries, pf
 /**
  * GET /api/admin/pfs-sync/attributes
  * Fetch available PFS attributes (colors, categories, compositions, families, genders) for mapping UI.
- * Admin only.
+ * Admin only. Resilient: individual attribute failures return empty arrays instead of failing the whole request.
  */
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN")
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
-  try {
-    const [colors, categories, compositions, countries, collections, families, genders, sizes] = await Promise.all([
-      pfsGetColors(),
-      pfsGetCategories(),
-      pfsGetCompositions(),
-      pfsGetCountries(),
-      pfsGetCollections(),
-      pfsGetFamilies(),
-      pfsGetGenders(),
-      pfsGetSizes(),
-    ]);
+  const errors: string[] = [];
 
-    return NextResponse.json({ colors, categories, compositions, countries, collections, families, genders, sizes });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: msg }, { status: 500 });
+  async function safe<T>(fn: () => Promise<T[]>, label: string): Promise<T[]> {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${label}: ${msg}`);
+      console.error(`[PFS attributes] ${label} failed:`, msg);
+      return [];
+    }
   }
+
+  const [colors, categories, compositions, countries, collections, families, genders, sizes] = await Promise.all([
+    safe(pfsGetColors, "colors"),
+    safe(pfsGetCategories, "categories"),
+    safe(pfsGetCompositions, "compositions"),
+    safe(pfsGetCountries, "countries"),
+    safe(pfsGetCollections, "collections"),
+    safe(pfsGetFamilies, "families"),
+    safe(pfsGetGenders, "genders"),
+    safe(pfsGetSizes, "sizes"),
+  ]);
+
+  // If ALL attributes failed, return 500 with details
+  const totalItems = colors.length + categories.length + compositions.length + countries.length + collections.length + families.length + genders.length + sizes.length;
+  if (totalItems === 0 && errors.length > 0) {
+    return NextResponse.json({ error: errors.join(" | ") }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    colors, categories, compositions, countries, collections, families, genders, sizes,
+    ...(errors.length > 0 ? { warnings: errors } : {}),
+  });
 }

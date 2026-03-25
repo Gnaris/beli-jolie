@@ -78,10 +78,8 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     const product = await loadProductFull(productId);
     if (!product) throw new Error("Produit introuvable");
 
-    // Skip if no PFS-compatible data
-    if (!product.category.pfsCategoryId) {
-      throw new Error(`Catégorie "${product.category.name}" non liée à PFS (pfsCategoryId manquant)`);
-    }
+    // Vérification des mappings PFS (bloque la sync si une entité n'est pas mappée)
+    validatePfsMappings(product);
 
     // 2. Create or update product on PFS
     let pfsProductId = product.pfsProductId;
@@ -137,6 +135,11 @@ interface FullProduct {
   name: string;
   description: string;
   status: string;
+  dimensionLength: number | null;
+  dimensionWidth: number | null;
+  dimensionHeight: number | null;
+  dimensionDiameter: number | null;
+  dimensionCircumference: number | null;
   category: { id: string; name: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null };
   colors: {
     id: string;
@@ -178,6 +181,11 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       status: true,
+      dimensionLength: true,
+      dimensionWidth: true,
+      dimensionHeight: true,
+      dimensionDiameter: true,
+      dimensionCircumference: true,
       category: { select: { id: true, name: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true } },
       colors: {
         select: {
@@ -226,12 +234,44 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
 }
 
 // ─────────────────────────────────────────────
+// Dimension helpers
+// ─────────────────────────────────────────────
+
+/**
+ * Regex to match the dimensions block appended at the end of a description.
+ * Matches from "\n\nDimensions" (or translated variants) to end of string.
+ * Handles single-line and multi-line formats (in case PFS AI reformats).
+ * Uses dotAll via [\s\S] to span multiple lines.
+ */
+const DIMENSIONS_REGEX = /\n\n(?:Dimensions?|Dimensiones|Dimensioni|Abmessungen|Maße)\s*:[\s\S]*$/;
+
+/** Build a "Dimensions : ..." suffix from product dimension fields. Returns empty string if no dimensions. */
+function buildDimensionsSuffix(product: Pick<FullProduct, "dimensionLength" | "dimensionWidth" | "dimensionHeight" | "dimensionDiameter" | "dimensionCircumference">): string {
+  const parts: string[] = [];
+  if (product.dimensionLength != null) parts.push(`Longueur : ${product.dimensionLength}mm`);
+  if (product.dimensionWidth != null) parts.push(`Largeur : ${product.dimensionWidth}mm`);
+  if (product.dimensionHeight != null) parts.push(`Hauteur : ${product.dimensionHeight}mm`);
+  if (product.dimensionDiameter != null) parts.push(`Diamètre : ${product.dimensionDiameter}mm`);
+  if (product.dimensionCircumference != null) parts.push(`Circonférence : ${product.dimensionCircumference}mm`);
+  if (parts.length === 0) return "";
+  return `\n\nDimensions : ${parts.join(" / ")}`;
+}
+
+/** Strip the dimensions suffix from a description (removes from "\n\nDimensions..." to end) */
+export function stripDimensionsSuffix(description: string): string {
+  return description.replace(DIMENSIONS_REGEX, "");
+}
+
+// ─────────────────────────────────────────────
 // Create product on PFS
 // ─────────────────────────────────────────────
 
 async function createProductOnPfs(product: FullProduct): Promise<string> {
+  // Append dimensions to description if product has any
+  const descriptionWithDims = product.description + buildDimensionsSuffix(product);
+
   // Use PFS AI translation API for labels
-  const translated = await pfsTranslate(product.name, product.description);
+  const translated = await pfsTranslate(product.name, descriptionWithDims);
   const label = translated.productName;
   const description = translated.productDescription;
 
@@ -287,8 +327,11 @@ async function createProductOnPfs(product: FullProduct): Promise<string> {
 // ─────────────────────────────────────────────
 
 async function updateProductOnPfs(pfsProductId: string, product: FullProduct): Promise<void> {
+  // Append dimensions to description if product has any
+  const descriptionWithDims = product.description + buildDimensionsSuffix(product);
+
   // Use PFS AI translation API for labels
-  const translated = await pfsTranslate(product.name, product.description);
+  const translated = await pfsTranslate(product.name, descriptionWithDims);
   const label = translated.productName;
   const description = translated.productDescription;
 
@@ -400,7 +443,7 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
         // Build packs[] by crossing PackColorLine colors × VariantSizes
         const packEntries: { color: string; size: string; qty: number }[] = [];
 
-        // Collect all colors from PackColorLines (each line = 1 color for PFS packs)
+        // Collect all colors from the single PackColorLine composition
         const packColors: { ref: string; name: string }[] = [];
         for (const line of variant.packColorLines) {
           for (const c of line.colors) {
@@ -560,11 +603,80 @@ async function syncStatus(pfsProductId: string, bjStatus: string): Promise<void>
   const pfsStatus = statusMap[bjStatus];
   if (!pfsStatus) return; // SYNCING — don't push
 
-  try {
-    await pfsUpdateStatus([{ id: pfsProductId, status: pfsStatus }]);
-  } catch (err) {
-    // READY_FOR_SALE may fail if no images — log but don't fail the whole sync
-    console.warn(`[PFS Reverse Sync] Status update to ${pfsStatus} failed:`, err);
+  await pfsUpdateStatus([{ id: pfsProductId, status: pfsStatus }]);
+}
+
+// ─────────────────────────────────────────────
+// Validation des mappings PFS
+// ─────────────────────────────────────────────
+
+function validatePfsMappings(product: FullProduct): void {
+  const issues: string[] = [];
+
+  // Catégorie
+  if (!product.category.pfsCategoryId) {
+    issues.push(`Catégorie "${product.category.name}" non mappée (pfsCategoryId manquant)`);
+  }
+
+  // Compositions
+  for (const c of product.compositions) {
+    if (!c.composition.pfsCompositionRef) {
+      issues.push(`Composition "${c.composition.name}" non mappée (pfsCompositionRef manquant)`);
+    }
+  }
+
+  // Couleurs + sous-couleurs + couleurs PACK + tailles
+  const seenColorIds = new Set<string>();
+  const seenSizeIds = new Set<string>();
+  for (const variant of product.colors) {
+    if (variant.color?.id && !seenColorIds.has(variant.color.id)) {
+      seenColorIds.add(variant.color.id);
+      if (!variant.color.pfsColorRef) {
+        issues.push(`Couleur "${variant.color.name}" non mappée (pfsColorRef manquant)`);
+      }
+    }
+    for (const sc of variant.subColors) {
+      if (!seenColorIds.has(sc.color.id)) {
+        seenColorIds.add(sc.color.id);
+        if (!sc.color.pfsColorRef) {
+          issues.push(`Couleur "${sc.color.name}" non mappée (pfsColorRef manquant)`);
+        }
+      }
+    }
+    for (const pcl of variant.packColorLines) {
+      for (const c of pcl.colors) {
+        if (!seenColorIds.has(c.color.id)) {
+          seenColorIds.add(c.color.id);
+          if (!c.color.pfsColorRef) {
+            issues.push(`Couleur "${c.color.name}" non mappée (pfsColorRef manquant)`);
+          }
+        }
+      }
+    }
+    for (const vs of variant.variantSizes) {
+      if (!seenSizeIds.has(vs.size.name)) {
+        seenSizeIds.add(vs.size.name);
+        if (vs.size.pfsMappings.length === 0) {
+          issues.push(`Taille "${vs.size.name}" non mappée (SizePfsMapping manquant)`);
+        }
+      }
+    }
+  }
+
+  // Pays de fabrication
+  if (product.manufacturingCountry && !product.manufacturingCountry.pfsCountryRef) {
+    issues.push(`Pays "${product.manufacturingCountry.name}" non mappé (pfsCountryRef manquant)`);
+  }
+
+  // Saison
+  if (product.season && !product.season.pfsSeasonRef) {
+    issues.push(`Saison "${product.season.name}" non mappée (pfsSeasonRef manquant)`);
+  }
+
+  if (issues.length > 0) {
+    throw new Error(
+      `Synchronisation impossible — mapping(s) PFS absent(s) :\n• ${issues.join("\n• ")}`
+    );
   }
 }
 

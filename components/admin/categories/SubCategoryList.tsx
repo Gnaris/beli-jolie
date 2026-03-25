@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import DeleteButton from "./DeleteButton";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import EntityEditModal from "@/components/admin/EntityEditModal";
+import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import {
   deleteSubCategory,
   updateCategoryDirect,
+  updateCategoryPfsId,
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
@@ -22,6 +24,9 @@ interface SubCategoryItem {
 interface Category {
   id: string;
   name: string;
+  pfsCategoryId: string | null;
+  pfsGender: string | null;
+  pfsFamilyId: string | null;
   productCount: number;
   translations: Record<string, string>;
   subCategories: SubCategoryItem[];
@@ -32,13 +37,32 @@ export default function CategoriesManager({ categories }: { categories: Category
   const [subModalOpen, setSubModalOpen] = useState(false);
   const [editCat, setEditCat] = useState<Category | null>(null);
   const [editSub, setEditSub] = useState<SubCategoryItem | null>(null);
+  const [editPfsCategoryId, setEditPfsCategoryId] = useState("");
+  const [editPfsGender, setEditPfsGender] = useState<string | null>(null);
+  const [editPfsFamilyId, setEditPfsFamilyId] = useState<string | null>(null);
   const router = useRouter();
 
   const activeCat = categories.find((c) => c.id === activeCatId);
 
+  function openEditCat(cat: Category) {
+    setEditCat(cat);
+    setEditPfsCategoryId(cat.pfsCategoryId ?? "");
+    setEditPfsGender(cat.pfsGender ?? null);
+    setEditPfsFamilyId(cat.pfsFamilyId ?? null);
+  }
+
   async function handleSaveCat(name: string, translations: Record<string, string>) {
     if (!editCat) return;
     await updateCategoryDirect(editCat.id, name, translations);
+    const origPfsCatId = editCat.pfsCategoryId ?? "";
+    if (editPfsCategoryId !== origPfsCatId) {
+      await updateCategoryPfsId(
+        editCat.id,
+        editPfsCategoryId || null,
+        editPfsGender,
+        editPfsFamilyId,
+      );
+    }
     router.refresh();
   }
 
@@ -115,11 +139,12 @@ export default function CategoriesManager({ categories }: { categories: Category
                 const hasSubCatWarning = subCatWarnings.length > 0;
                 return (
                   <li key={cat.id}>
-                    <div className={`flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
+                    <div className={`flex flex-col rounded-xl transition-colors ${
                         isActive
                           ? "bg-[#1A1A1A] text-white"
                           : "bg-bg-primary border border-border hover:bg-bg-secondary"
                       }`}>
+                      <div className="flex items-center justify-between px-4 py-3">
                       <button
                         type="button"
                         onClick={() => setActiveCatId(isActive ? null : cat.id)}
@@ -170,7 +195,7 @@ export default function CategoriesManager({ categories }: { categories: Category
                         )}
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); setEditCat(cat); }}
+                          onClick={(e) => { e.stopPropagation(); openEditCat(cat); }}
                           className={`p-1 rounded transition-colors ${isActive ? "hover:bg-white/20 text-white/80 hover:text-white" : "hover:bg-bg-tertiary text-text-muted hover:text-text-primary"}`}
                           title="Modifier"
                         >
@@ -179,6 +204,15 @@ export default function CategoriesManager({ categories }: { categories: Category
                           </svg>
                         </button>
                       </div>
+                      </div>
+                      {/* PFS mapping badge */}
+                      {cat.pfsCategoryId && (
+                        <div className="px-4 pb-2.5 -mt-1">
+                          <span className={`badge text-[10px] ${isActive ? "bg-purple-500/30 text-purple-200 border-purple-400/40" : "badge-purple"}`}>
+                            PFS: {cat.pfsCategoryId.slice(0, 12)}…
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </li>
                 );
@@ -290,6 +324,19 @@ export default function CategoriesManager({ categories }: { categories: Category
         title="Modifier la catégorie"
         initialName={editCat?.name ?? ""}
         initialTranslations={editCat?.translations ?? {}}
+        renderExtra={
+          editCat ? (
+            <MarketplaceMappingSection
+              entityType="category"
+              pfsCategoryId={editPfsCategoryId}
+              onPfsCategoryChange={(catId, gender, familyId) => {
+                setEditPfsCategoryId(catId);
+                setEditPfsGender(gender);
+                setEditPfsFamilyId(familyId);
+              }}
+            />
+          ) : undefined
+        }
         onSave={handleSaveCat}
       />
 

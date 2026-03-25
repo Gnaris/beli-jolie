@@ -2,15 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteComposition, updateCompositionDirect } from "@/app/actions/admin/compositions";
+import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef } from "@/app/actions/admin/compositions";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import EntityEditModal from "@/components/admin/EntityEditModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
+import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface CompositionItem {
   id: string;
   name: string;
+  pfsCompositionRef: string | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -23,6 +25,7 @@ export default function CompositionsManager({
   const router = useRouter();
   const { confirm } = useConfirm();
   const [editTarget, setEditTarget] = useState<CompositionItem | null>(null);
+  const [editPfsRef, setEditPfsRef] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -30,6 +33,12 @@ export default function CompositionsManager({
   const filtered = search.trim()
     ? initialCompositions.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
     : initialCompositions;
+
+  function openEdit(comp: CompositionItem) {
+    setError("");
+    setEditTarget(comp);
+    setEditPfsRef(comp.pfsCompositionRef ?? "");
+  }
 
   async function handleDelete(comp: CompositionItem) {
     if (comp.productCount > 0) {
@@ -54,6 +63,10 @@ export default function CompositionsManager({
   async function handleSave(name: string, translations: Record<string, string>) {
     if (!editTarget) return;
     await updateCompositionDirect(editTarget.id, name, translations);
+    const origRef = editTarget.pfsCompositionRef ?? "";
+    if (editPfsRef !== origRef) {
+      await updateCompositionPfsRef(editTarget.id, editPfsRef || null);
+    }
     router.refresh();
   }
 
@@ -115,13 +128,18 @@ export default function CompositionsManager({
               </span>
 
               {/* Nom + badge */}
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
                 <span className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] truncate">
                   {comp.name}
                 </span>
                 <span className="badge badge-neutral text-[10px] shrink-0">
                   {comp.productCount}
                 </span>
+                {comp.pfsCompositionRef && (
+                  <span className="badge badge-purple text-[10px] shrink-0">
+                    PFS: {comp.pfsCompositionRef}
+                  </span>
+                )}
                 {Object.keys(comp.translations).length === 0 && (
                   <span className="relative group/tw shrink-0">
                     <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold cursor-default select-none">⚠</span>
@@ -139,7 +157,7 @@ export default function CompositionsManager({
               <div className="flex items-center gap-0.5 max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity ml-auto">
                 <button
                   type="button"
-                  onClick={() => { setError(""); setEditTarget(comp); }}
+                  onClick={() => openEdit(comp)}
                   className="p-2.5 text-text-muted hover:text-text-primary transition-colors"
                   title="Modifier"
                   aria-label={`Modifier la composition ${comp.name}`}
@@ -172,6 +190,15 @@ export default function CompositionsManager({
         title="Modifier la composition"
         initialName={editTarget?.name ?? ""}
         initialTranslations={editTarget?.translations ?? {}}
+        renderExtra={
+          editTarget ? (
+            <MarketplaceMappingSection
+              entityType="composition"
+              pfsRef={editPfsRef}
+              onPfsRefChange={setEditPfsRef}
+            />
+          ) : undefined
+        }
         onSave={handleSave}
       />
     </>

@@ -12,7 +12,7 @@ async function requireAdmin() {
   }
 }
 
-/** Create a new size and optionally link it to categories */
+/** Create a new size and optionally link it to categories. Returns created size. */
 export async function createSize(name: string, categoryIds: string[]) {
   await requireAdmin();
   const trimmed = name.trim();
@@ -25,7 +25,7 @@ export async function createSize(name: string, categoryIds: string[]) {
   const maxPos = await prisma.size.aggregate({ _max: { position: true } });
   const position = (maxPos._max.position ?? -1) + 1;
 
-  await prisma.size.create({
+  const created = await prisma.size.create({
     data: {
       name: trimmed,
       position,
@@ -38,6 +38,8 @@ export async function createSize(name: string, categoryIds: string[]) {
   revalidatePath("/admin/tailles");
   revalidatePath("/admin/categories");
   revalidateTag("sizes", "default");
+
+  return { id: created.id, name: created.name };
 }
 
 /** Update a size name and its category links */

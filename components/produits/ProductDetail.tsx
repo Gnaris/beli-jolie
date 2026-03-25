@@ -652,25 +652,24 @@ export default function ProductDetail({
                           <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)]">
                             {t("packOption", { qty: v.packQuantity ?? 1 })}
                           </p>
-                          {v.packColorLines && v.packColorLines.length > 0 && (
-                            <div className="mt-1.5 space-y-1">
-                              {v.packColorLines.map((line, li) => (
-                                <div key={li} className="flex items-center gap-2">
-                                  <ColorSwatch
-                                    hex={line.colors[0]?.hex ?? "#9CA3AF"}
-                                    patternImage={line.colors[0]?.patternImage}
-                                    subColors={line.colors.slice(1).map(c => ({ hex: c.hex, patternImage: c.patternImage }))}
-                                    size={22}
-                                    rounded="full"
-                                    border={true}
-                                  />
-                                  <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] truncate">
-                                    {line.colors.map(c => c.name).join(" / ")}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                          {(v.packColorLines?.[0]?.colors?.length ?? 0) > 0 && (() => {
+                            const line = v.packColorLines![0];
+                            return (
+                              <div className="mt-1.5 flex items-center gap-2">
+                                <ColorSwatch
+                                  hex={line.colors[0]?.hex ?? "#9CA3AF"}
+                                  patternImage={line.colors[0]?.patternImage}
+                                  subColors={line.colors.slice(1).map(c => ({ hex: c.hex, patternImage: c.patternImage }))}
+                                  size={22}
+                                  rounded="full"
+                                  border={true}
+                                />
+                                <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] truncate">
+                                  {line.colors.map(c => c.name).join(" / ")}
+                                </span>
+                              </div>
+                            );
+                          })()}
                           {v.sizes?.length > 0 && (
                             <div className="mt-1 space-y-0.5">
                               {v.sizes.map((s) => (

@@ -6,6 +6,8 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
+import { fetchPfsColorsForMapping, updateColorPfsRef } from "@/app/actions/admin/colors";
+import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 
 // ─────────────────────────────────────────────
 // Exported types
@@ -22,7 +24,7 @@ export interface SizeEntryState {
   sizeId: string;
   sizeName: string;
   quantity: string;     // string for form input
-  pricePerUnit?: string; // PACK only — prix par unité pour cette taille
+  pricePerUnit?: string; // kept for backward compat during migration — ignored in new UI
 }
 
 export interface PackColorLineState {
@@ -43,7 +45,7 @@ export interface VariantState {
   // Sizes with quantities (shared across all color lines for PACK)
   sizeEntries: SizeEntryState[];
   // Pricing & metadata
-  unitPrice: string;       // Prix HT (pour l'unité ou pour le paquet entier)
+  unitPrice: string;       // Prix HT par unité
   weight: string;
   stock: string;
   isPrimary: boolean;
@@ -51,16 +53,18 @@ export interface VariantState {
   packQuantity: string;    // Quantité par paquet (PACK only)
   discountType: "" | "PERCENT" | "AMOUNT";
   discountValue: string;
+  // PFS color override for multi-color variants (single-color uses Color.pfsColorRef)
+  pfsColorRef: string;
 }
 
 export interface ColorImageState {
-  groupKey: string;       // colorId + ordered sub-color names — shared by variants with same color selection (order matters)
+  groupKey: string;
   colorId: string;
-  colorName: string;      // Full display name including sub-colors (e.g. "Doré / Argenté / Or Rose")
+  colorName: string;
   colorHex: string;
   imagePreviews: string[];
   uploadedPaths: string[];
-  orders: number[];       // 0-based order values (parallel to uploadedPaths), preserved from DB
+  orders: number[];
   uploading: boolean;
 }
 
@@ -69,12 +73,13 @@ export interface AvailableColor {
   name: string;
   hex: string | null;
   patternImage?: string | null;
+  pfsColorRef?: string | null;
 }
 
 export interface AvailableSize {
   id: string;
   name: string;
-  categoryIds?: string[]; // sizes linked to specific categories
+  categoryIds?: string[];
 }
 
 interface Props {
@@ -85,29 +90,29 @@ interface Props {
   onChange: (variants: VariantState[]) => void;
   onChangeImages: (images: ColorImageState[]) => void;
   onQuickCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
+  categoryId?: string;
+  allCategories?: { id: string; name: string }[];
+  onQuickCreateSize?: (name: string, categoryIds: string[]) => Promise<AvailableSize>;
 }
 
 // ─────────────────────────────────────────────
 // Price helpers (exported for reuse in ProductForm)
 // ─────────────────────────────────────────────
 
+/** Total price = unitPrice × total quantity across all sizes.
+ *  For UNIT: if no sizes, total = unitPrice × 1.
+ *  For PACK: total = unitPrice × sum(quantities). */
 export function computeTotalPrice(v: VariantState): number | null {
-  if (v.saleType === "UNIT") {
-    const unit = parseFloat(v.unitPrice);
-    return (isNaN(unit) || unit <= 0) ? null : unit;
-  }
-  // PACK: Σ(qty_i × pricePerUnit_i) × packQuantity
-  const packQty = parseInt(v.packQuantity);
-  if (isNaN(packQty) || packQty <= 0) return null;
-  if (v.sizeEntries.length === 0) return null;
-  let sum = 0;
+  const unit = parseFloat(v.unitPrice);
+  if (isNaN(unit) || unit <= 0) return null;
+  if (v.sizeEntries.length === 0) return unit;
+  let totalQty = 0;
   for (const se of v.sizeEntries) {
     const qty = parseInt(se.quantity);
-    const ppu = parseFloat(se.pricePerUnit ?? "");
-    if (isNaN(qty) || qty <= 0 || isNaN(ppu) || ppu <= 0) return null;
-    sum += qty * ppu;
+    if (isNaN(qty) || qty <= 0) return null;
+    totalQty += qty;
   }
-  return sum > 0 ? sum * packQty : null;
+  return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : unit;
 }
 
 export function computeFinalPrice(v: VariantState): number | null {
@@ -118,6 +123,14 @@ export function computeFinalPrice(v: VariantState): number | null {
   if (isNaN(disc) || disc <= 0) return total;
   if (v.discountType === "PERCENT") return Math.max(0, total * (1 - disc / 100));
   return Math.max(0, total - disc);
+}
+
+/**
+ * Compute global price = unitPrice × total quantity (same as computeTotalPrice now).
+ * Kept for backward compat.
+ */
+export function computeGlobalPrice(v: VariantState): number | null {
+  return computeTotalPrice(v);
 }
 
 // ─────────────────────────────────────────────
@@ -139,16 +152,13 @@ function buildVariantDuplicateKey(v: VariantState): string {
     const subColorKey = v.subColors.map((sc) => sc.colorName).join(",");
     return `UNIT::${v.colorId}::${subColorKey}::${sizeKey}`;
   }
-  // PACK: sort each line's colors, then sort lines — also include packQuantity
-  const linesKey = v.packColorLines
-    .map((line) => line.colors.map((c) => c.colorId).sort().join("+"))
-    .sort()
-    .join("|");
-  return `PACK::${v.packQuantity}::${linesKey}::${sizeKey}`;
+  // PACK: single color line composition + packQuantity
+  const lineKey = (v.packColorLines[0]?.colors ?? []).map((c) => c.colorId).sort().join("+");
+  return `PACK::${v.packQuantity}::${lineKey}::${sizeKey}`;
 }
 
 function findDuplicateVariantTempIds(variants: VariantState[]): Set<string> {
-  const seen = new Map<string, string>(); // key → first tempId
+  const seen = new Map<string, string>();
   const duplicates = new Set<string>();
   for (const v of variants) {
     const key = buildVariantDuplicateKey(v);
@@ -162,9 +172,7 @@ function findDuplicateVariantTempIds(variants: VariantState[]): Set<string> {
   return duplicates;
 }
 
-/** Unique key for a color+sub-colors combination. Variants sharing this key share images.
- *  Order matters: "Doré/Rouge" ≠ "Rouge/Doré". The first color is the main color (colorId),
- *  the rest are sub-colors in selection order. */
+/** Unique key for a color+sub-colors combination. */
 export function variantGroupKeyFromState(v: { colorId: string; subColors: { colorName: string }[] }): string {
   if (v.subColors.length === 0) return v.colorId;
   return `${v.colorId}::${v.subColors.map(sc => sc.colorName).join(",")}`;
@@ -187,6 +195,7 @@ function defaultVariant(): VariantState {
     packQuantity: "",
     discountType: "",
     discountValue: "",
+    pfsColorRef: "",
   };
 }
 
@@ -206,14 +215,184 @@ function defaultBulkEdit(): BulkEditState {
 }
 
 // ─────────────────────────────────────────────
+// PFS Color Mapping types & dropdown
+// ─────────────────────────────────────────────
+interface PfsColorOption {
+  reference: string;
+  value: string;       // hex
+  image: string | null;
+  label: string;       // French label
+}
+
+interface PfsMappingData {
+  pfsColors: PfsColorOption[];
+  existingMappings: Record<string, { colorId: string; colorName: string }>;
+}
+
+function PfsColorDropdown({
+  colorId,
+  currentPfsRef,
+  pfsData,
+  onMap,
+}: {
+  colorId: string;
+  currentPfsRef: string | null;
+  pfsData: PfsMappingData;
+  onMap: (colorId: string, pfsRef: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const filtered = search.trim()
+    ? pfsData.pfsColors.filter((c) =>
+        c.label.toLowerCase().includes(search.trim().toLowerCase()) ||
+        c.reference.toLowerCase().includes(search.trim().toLowerCase())
+      )
+    : pfsData.pfsColors;
+
+  const currentPfs = currentPfsRef ? pfsData.pfsColors.find((c) => c.reference === currentPfsRef) : null;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={`w-full flex items-center gap-1.5 border px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[28px] ${
+          currentPfsRef
+            ? "bg-[#F0FDF4] border-[#BBF7D0] text-[#1A1A1A]"
+            : "bg-white border-[#E5E5E5] text-[#9CA3AF] hover:border-[#9CA3AF]"
+        }`}
+      >
+        {currentPfs ? (
+          <>
+            <span
+              className="w-3 h-3 rounded-full shrink-0 border border-black/10"
+              style={{ backgroundColor: currentPfs.value || "#9CA3AF" }}
+            />
+            <span className="flex-1 truncate font-[family-name:var(--font-roboto)]">{currentPfs.label}</span>
+          </>
+        ) : (
+          <span className="flex-1 italic font-[family-name:var(--font-roboto)]">Non mappé</span>
+        )}
+        <svg className="w-3 h-3 shrink-0 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && createPortal(
+        <div
+          className="fixed bg-white border border-[#E5E5E5] rounded-lg shadow-2xl z-[9999] max-h-[220px] flex flex-col"
+          style={(() => {
+            const rect = ref.current?.getBoundingClientRect();
+            if (!rect) return {};
+            return { top: rect.bottom + 4, left: rect.left, width: rect.width };
+          })()}
+        >
+          <div className="px-2 py-1.5 border-b border-[#F0F0F0] shrink-0">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher..."
+              className="w-full text-xs bg-transparent outline-none text-[#1A1A1A] placeholder-[#9CA3AF] font-[family-name:var(--font-roboto)]"
+              autoFocus
+            />
+          </div>
+          <div className="overflow-y-auto flex-1">
+            {/* Option to unmap */}
+            {currentPfsRef && (
+              <button
+                type="button"
+                onClick={() => { onMap(colorId, null); setOpen(false); setSearch(""); }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left hover:bg-[#FEF2F2] text-[#EF4444] font-[family-name:var(--font-roboto)] border-b border-[#F0F0F0]"
+              >
+                <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Retirer le mapping
+              </button>
+            )}
+            {filtered.length === 0 ? (
+              <div className="px-2.5 py-3 text-xs text-[#9CA3AF] text-center font-[family-name:var(--font-roboto)]">Aucun résultat</div>
+            ) : filtered.map((pfs) => {
+              const mapping = pfsData.existingMappings[pfs.reference];
+              const isUsedByOther = mapping && mapping.colorId !== colorId;
+              const isCurrentMapping = currentPfsRef === pfs.reference;
+
+              return (
+                <button
+                  key={pfs.reference}
+                  type="button"
+                  disabled={isUsedByOther}
+                  onClick={() => {
+                    if (!isUsedByOther) {
+                      onMap(colorId, pfs.reference);
+                      setOpen(false);
+                      setSearch("");
+                    }
+                  }}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left transition-colors font-[family-name:var(--font-roboto)] ${
+                    isUsedByOther
+                      ? "opacity-50 cursor-not-allowed bg-[#F7F7F8]"
+                      : isCurrentMapping
+                        ? "bg-[#F0FDF4]"
+                        : "hover:bg-[#F7F7F8]"
+                  }`}
+                >
+                  <span
+                    className="w-3 h-3 rounded-full shrink-0 border border-black/10"
+                    style={{ backgroundColor: pfs.value || "#9CA3AF" }}
+                  />
+                  <span className={`flex-1 truncate ${isUsedByOther ? "line-through text-[#9CA3AF]" : "text-[#1A1A1A]"}`}>
+                    {pfs.label}
+                  </span>
+                  {isUsedByOther && (
+                    <span className="text-[9px] text-[#9CA3AF] shrink-0 whitespace-nowrap">
+                      Utilisé par {mapping.colorName}
+                    </span>
+                  )}
+                  {isCurrentMapping && (
+                    <svg className="w-3 h-3 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // MultiColorSelect — modal-based multi-select (first = main, rest = sub-colors)
 // With drag & drop reordering + remove in the selection zone
 // ─────────────────────────────────────────────
-function MultiColorSelect({ selected, options, onChange, existingVariants, onCreateColor }: {
+function MultiColorSelect({ selected, options, onChange, existingVariants, editingGroupKey, pfsColorRef, onPfsColorRefChange, usedPfsColorRefs, onCreateColor }: {
   selected: { colorId: string; colorName: string; colorHex: string }[];
   options: AvailableColor[];
   onChange: (colors: { colorId: string; colorName: string; colorHex: string }[]) => void;
   existingVariants?: VariantState[];
+  /** GroupKey of the variant being edited — excluded from duplicate check */
+  editingGroupKey?: string;
+  /** Per-variant PFS color override (multi-color only) */
+  pfsColorRef?: string;
+  onPfsColorRefChange?: (ref: string) => void;
+  /** PFS color refs already used by other variants in this product */
+  usedPfsColorRefs?: Map<string, string>; // pfsRef → variantLabel
   onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
 }) {
   const [open, setOpen] = useState(false);
@@ -227,36 +406,73 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
-  // Create color form state
-  const [showCreate, setShowCreate] = useState(false);
-  const [createName, setCreateName] = useState("");
-  const [createHex, setCreateHex] = useState("#9CA3AF");
-  const [createMode, setCreateMode] = useState<"hex" | "pattern">("hex");
-  const [, setCreatePatternFile] = useState<File | null>(null);
-  const [createPatternPreview, setCreatePatternPreview] = useState<string | null>(null);
-  const [createPatternPath, setCreatePatternPath] = useState<string | null>(null);
-  const [createSaving, setCreateSaving] = useState(false);
-  const [createUploading, setCreateUploading] = useState(false);
-  const [createError, setCreateError] = useState("");
+  // Quick-create color modal
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+
+  // Marketplace mapping state
+  const [showMapping, setShowMapping] = useState(false);
+  const [pfsData, setPfsData] = useState<PfsMappingData | null>(null);
+  const [pfsLoading, setPfsLoading] = useState(false);
+  const [pfsSaving, setPfsSaving] = useState<string | null>(null); // colorId being saved
+  // Per-variant PFS color override for multi-color combos
+  const [draftPfsColorRef, setDraftPfsColorRef] = useState(pfsColorRef ?? "");
+
+  async function loadPfsData() {
+    if (pfsData) { setShowMapping(true); return; }
+    setPfsLoading(true);
+    try {
+      const data = await fetchPfsColorsForMapping();
+      setPfsData(data);
+      setShowMapping(true);
+    } catch (err) {
+      console.error("[PFS mapping] load error:", err);
+    } finally {
+      setPfsLoading(false);
+    }
+  }
+
+  async function handlePfsMap(colorId: string, pfsRef: string | null) {
+    setPfsSaving(colorId);
+    try {
+      await updateColorPfsRef(colorId, pfsRef);
+      // Update local pfsData mappings
+      setPfsData((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, existingMappings: { ...prev.existingMappings } };
+        // Remove old mapping for this color
+        for (const [ref, m] of Object.entries(next.existingMappings)) {
+          if (m.colorId === colorId) delete next.existingMappings[ref];
+        }
+        // Add new mapping
+        if (pfsRef) {
+          const opt = options.find((o) => o.id === colorId);
+          next.existingMappings[pfsRef] = { colorId, colorName: opt?.name || "" };
+        }
+        return next;
+      });
+    } catch (err) {
+      console.error("[PFS mapping] save error:", err);
+    } finally {
+      setPfsSaving(null);
+    }
+  }
 
   const openModal = useCallback(() => {
     setDraft(selected);
     setSearch("");
-    setShowCreate(false);
-    setCreateName("");
-    setCreateHex("#9CA3AF");
-    setCreateMode("hex");
-    setCreatePatternFile(null);
-    setCreatePatternPreview(null);
-    setCreatePatternPath(null);
-    setCreateError("");
+    setShowQuickCreate(false);
+    setDraftPfsColorRef(pfsColorRef ?? "");
     setOpen(true);
-  }, [selected]);
+  }, [selected, pfsColorRef]);
 
   const confirm = useCallback(() => {
     onChange(draft);
+    // Propagate PFS color override for multi-color combos
+    if (draft.length > 1 && onPfsColorRefChange) {
+      onPfsColorRefChange(draftPfsColorRef);
+    }
     setOpen(false);
-  }, [draft, onChange]);
+  }, [draft, draftPfsColorRef, onChange, onPfsColorRefChange]);
 
   const cancel = useCallback(() => {
     setOpen(false);
@@ -290,7 +506,6 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
       if (!v.colorId) continue;
       const gk = variantGroupKeyFromState(v);
       if (seen.has(gk)) {
-        // Add saleType to existing entry
         const existing = combos.find((c) => c.key === gk);
         if (existing && !existing.saleTypes.includes(v.saleType)) {
           existing.saleTypes.push(v.saleType);
@@ -311,7 +526,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
   const draftGroupKey = draft.length > 0
     ? (draft.length === 1 ? draft[0].colorId : `${draft[0].colorId}::${draft.slice(1).map((s) => s.colorName).join(",")}`)
     : "";
-  const matchingCombo = existingCombinations.find((c) => c.key === draftGroupKey);
+  const matchingCombo = existingCombinations.find((c) => c.key === draftGroupKey && c.key !== editingGroupKey);
 
   function selectCombination(combo: typeof existingCombinations[0]) {
     setDraft(combo.colors);
@@ -348,55 +563,9 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
     setDragOverIdx(null);
   }
 
-  // ── Create color helpers ──
-  async function handleCreatePatternUpload(file: File) {
-    const validTypes = ["image/png", "image/jpeg", "image/webp"];
-    if (!validTypes.includes(file.type)) { setCreateError("Format non supporté (PNG, JPG, WebP)."); return; }
-    if (file.size > 512 * 1024) { setCreateError("Image trop lourde (max 500 Ko)."); return; }
-    setCreateUploading(true);
-    setCreateError("");
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/admin/colors/upload-pattern", { method: "POST", body: fd });
-      const data = await res.json();
-      if (res.ok && data.path) {
-        setCreatePatternPath(data.path);
-        setCreatePatternPreview(URL.createObjectURL(file));
-        setCreatePatternFile(file);
-      } else {
-        setCreateError(data.error || "Erreur upload motif.");
-      }
-    } catch {
-      setCreateError("Erreur réseau upload motif.");
-    } finally {
-      setCreateUploading(false);
-    }
-  }
-
-  async function handleCreateColorSave() {
-    if (!createName.trim() || !onCreateColor) return;
-    setCreateSaving(true);
-    setCreateError("");
-    try {
-      const hex = createMode === "hex" ? createHex : null;
-      const pattern = createMode === "pattern" ? createPatternPath : null;
-      const created = await onCreateColor(createName.trim(), hex, pattern);
-      // Auto-select the new color
-      setDraft((prev) => [...prev, { colorId: created.id, colorName: created.name, colorHex: created.hex ?? "#9CA3AF" }]);
-      // Reset form
-      setShowCreate(false);
-      setCreateName("");
-      setCreateHex("#9CA3AF");
-      setCreateMode("hex");
-      setCreatePatternFile(null);
-      setCreatePatternPreview(null);
-      setCreatePatternPath(null);
-    } catch (e: unknown) {
-      setCreateError(e instanceof Error ? e.message : "Erreur création couleur.");
-    } finally {
-      setCreateSaving(false);
-    }
+  function handleQuickColorCreated(item: { id: string; name: string; hex?: string | null }) {
+    setDraft((prev) => [...prev, { colorId: item.id, colorName: item.name, colorHex: item.hex ?? "#9CA3AF" }]);
+    setShowQuickCreate(false);
   }
 
   // Build display for the trigger button
@@ -407,22 +576,22 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
   });
 
   return (
-    <div style={{ minWidth: 180 }}>
+    <div style={{ minWidth: 140 }}>
       <button
         type="button"
         onClick={openModal}
-        className="w-full flex items-center gap-1.5 bg-white border border-[#E5E5E5] px-2.5 py-2 text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A] focus:outline-none focus:border-[#1A1A1A] hover:border-[#9CA3AF] transition-colors text-left min-h-[34px]"
+        className="w-full flex items-center gap-1.5 bg-white border border-[#E5E5E5] px-2 py-1.5 text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A] focus:outline-none focus:border-[#1A1A1A] hover:border-[#9CA3AF] transition-colors text-left min-h-[32px] rounded-md"
       >
         {selected.length === 0 ? (
-          <span className="text-[#9CA3AF] flex-1 italic">— Sans couleur</span>
+          <span className="text-[#9CA3AF] flex-1 italic">— Couleur</span>
         ) : (
           <>
             {selectedSegments.length === 1 ? (
-              <ColorSwatch hex={selectedSegments[0].hex} patternImage={selectedSegments[0].patternImage} size={16} rounded="full" />
+              <ColorSwatch hex={selectedSegments[0].hex} patternImage={selectedSegments[0].patternImage} size={14} rounded="full" />
             ) : (
-              <ColorSwatch hex={selectedSegments[0]?.hex} patternImage={selectedSegments[0]?.patternImage} subColors={selectedSegments.slice(1)} size={16} rounded="full" />
+              <ColorSwatch hex={selectedSegments[0]?.hex} patternImage={selectedSegments[0]?.patternImage} subColors={selectedSegments.slice(1)} size={14} rounded="full" />
             )}
-            <span className="flex-1 truncate">{displayName}</span>
+            <span className="flex-1 truncate text-[11px]">{displayName}</span>
           </>
         )}
         <svg className="w-3 h-3 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -433,281 +602,292 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
       {/* Modal */}
       {open && createPortal(
         <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onMouseDown={backdropColorPicker.onMouseDown} onMouseUp={backdropColorPicker.onMouseUp}>
-          {/* Backdrop */}
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-          {/* Panel — wide two-column layout */}
+
           <div
             className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col"
-            style={{ maxHeight: "min(92vh, 700px)" }}
+            style={{ maxHeight: "min(90vh, 720px)" }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
+            {/* ── Header ── */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] shrink-0">
-              <div>
-                <h3 className="text-base font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
-                  Sélectionner les couleurs
-                </h3>
-                <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
-                  La 1re couleur sélectionnée sera la principale. Glissez pour réordonner.
-                </p>
-              </div>
-              <button type="button" onClick={cancel} className="p-2 hover:bg-[#F7F7F8] rounded-xl transition-colors" aria-label="Fermer">
-                <svg className="w-5 h-5 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <h3 className="text-base font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+                Couleurs de la variante
+              </h3>
+              <button type="button" onClick={cancel} className="p-1.5 hover:bg-[#F7F7F8] rounded-lg transition-colors" aria-label="Fermer">
+                <svg className="w-5 h-5 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {/* Two-column body */}
-            <div className="flex flex-1 min-h-0">
-
-              {/* ── LEFT COLUMN: Catalogue couleurs ── */}
-              <div className="flex-1 flex flex-col border-r border-[#E5E5E5] min-w-0">
-                {/* Search */}
-                <div className="px-5 py-3 border-b border-[#E5E5E5] shrink-0">
-                  <div className="flex items-center gap-2.5 bg-[#F7F7F8] border border-[#E5E5E5] px-3.5 py-2.5 rounded-xl">
-                    <svg className="w-4.5 h-4.5 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+            {/* ── Selected colors zone (top, always visible) ── */}
+            <div className="px-6 py-4 bg-[#FAFAFA] border-b border-[#E5E5E5] shrink-0">
+              {draft.length === 0 ? (
+                <div className="flex items-center gap-3 text-[#9CA3AF]">
+                  <div className="w-8 h-8 rounded-full border-2 border-dashed border-[#D1D5DB] flex items-center justify-center">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
-                    <input
-                      ref={searchRef}
-                      type="text"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Rechercher une couleur..."
-                      className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder-[#9CA3AF] outline-none min-w-0 font-[family-name:var(--font-roboto)]"
-                    />
-                    {search && (
-                      <button type="button" onClick={() => setSearch("")} className="p-0.5 text-[#9CA3AF] hover:text-[#1A1A1A]">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                  </div>
+                  <span className="text-sm font-[family-name:var(--font-roboto)]">
+                    Sélectionnez une ou plusieurs couleurs ci-dessous
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Chips row */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {draft.map((s, i) => {
+                      const opt = options.find((o) => o.id === s.colorId);
+                      return (
+                        <div
+                          key={s.colorId}
+                          draggable
+                          onDragStart={() => handleDragStart(i)}
+                          onDragOver={(e) => handleDragOver(e, i)}
+                          onDragEnd={handleDragEnd}
+                          className={`group flex items-center gap-2 pl-1.5 pr-1 py-1 rounded-full border cursor-grab active:cursor-grabbing transition-all ${
+                            i === 0
+                              ? "bg-[#1A1A1A] border-[#1A1A1A] text-white"
+                              : dragOverIdx === i ? "bg-[#F0F0F0] border-[#1A1A1A]" : "bg-white border-[#E5E5E5] hover:border-[#9CA3AF]"
+                          }`}
+                        >
+                          <ColorSwatch hex={s.colorHex} patternImage={opt?.patternImage ?? null} size={20} rounded="full" border />
+                          <span className={`text-xs font-medium font-[family-name:var(--font-roboto)] max-w-[100px] truncate ${i === 0 ? "text-white" : "text-[#1A1A1A]"}`}>
+                            {s.colorName}
+                          </span>
+                          {i === 0 && (
+                            <span className="text-[9px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-semibold">1re</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); removeFromDraft(s.colorId); }}
+                            className={`p-0.5 rounded-full transition-colors ${
+                              i === 0 ? "text-white/60 hover:text-white hover:bg-white/20" : "text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#FEF2F2]"
+                            }`}
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {draft.length > 1 && (
+                      <button type="button" onClick={() => setDraft([])} className="text-[11px] text-[#9CA3AF] hover:text-[#EF4444] font-[family-name:var(--font-roboto)] transition-colors ml-1">
+                        Vider
                       </button>
                     )}
                   </div>
-                </div>
 
-                {/* Color list */}
-                <div className="flex-1 overflow-y-auto">
-                  {filtered.length === 0 ? (
-                    <div className="px-5 py-12 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucun résultat</div>
-                  ) : filtered.map((opt) => {
-                    const isChecked = draftIds.has(opt.id);
-                    const position = draft.findIndex((s) => s.colorId === opt.id);
+                  {/* Reorder hint */}
+                  {draft.length > 1 && (
+                    <p className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                      Glissez pour réordonner. La 1re couleur = couleur principale.
+                    </p>
+                  )}
+
+                  {/* PFS mapping — inline, only for multi-color */}
+                  {draft.length > 1 && (
+                    <div className="flex items-center gap-3 pt-1">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
+                        <span className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Couleur PFS</span>
+                      </div>
+                      {!pfsData && !pfsLoading ? (
+                        <button type="button" onClick={loadPfsData} className="text-[11px] text-[#6B6B6B] hover:text-[#1A1A1A] underline font-[family-name:var(--font-roboto)]">
+                          Charger les options
+                        </button>
+                      ) : pfsLoading ? (
+                        <div className="flex items-center gap-1.5 text-[#9CA3AF]">
+                          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          <span className="text-[11px] font-[family-name:var(--font-roboto)]">Chargement…</span>
+                        </div>
+                      ) : pfsData ? (
+                        <div className="flex-1 min-w-0">
+                          <PfsColorDropdown
+                            colorId={"__variant__"}
+                            currentPfsRef={draftPfsColorRef || null}
+                            pfsData={{
+                              ...pfsData,
+                              existingMappings: (() => {
+                                const map: Record<string, { colorId: string; colorName: string }> = { ...pfsData.existingMappings };
+                                if (usedPfsColorRefs) {
+                                  for (const [ref, label] of usedPfsColorRefs) {
+                                    if (!map[ref]) map[ref] = { colorId: "__other__", colorName: label };
+                                  }
+                                }
+                                return map;
+                              })(),
+                            }}
+                            onMap={(_id, ref) => setDraftPfsColorRef(ref ?? "")}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                  {/* PFS conflict warning */}
+                  {draft.length > 1 && draftPfsColorRef && usedPfsColorRefs?.has(draftPfsColorRef) && (
+                    <p className="text-[10px] text-[#EF4444] font-[family-name:var(--font-roboto)]">
+                      Couleur PFS déjà utilisée par « {usedPfsColorRefs.get(draftPfsColorRef)} »
+                    </p>
+                  )}
+
+                  {/* Single-color PFS status */}
+                  {draft.length === 1 && (() => {
+                    const mainOpt = options.find((o) => o.id === draft[0].colorId);
+                    const autoRef = mainOpt?.pfsColorRef;
+                    if (!autoRef) return null;
                     return (
-                      <button key={opt.id} type="button"
-                        onClick={() => toggle(opt)}
-                        className={`w-full flex items-center gap-3.5 px-5 py-3 text-left hover:bg-[#F7F7F8] transition-colors border-b border-[#F0F0F0] last:border-b-0 ${isChecked ? "bg-[#F0FDF4]" : ""}`}
+                      <div className="flex items-center gap-1.5 pt-0.5">
+                        <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
+                        <span className="text-[10px] text-[#22C55E] font-[family-name:var(--font-roboto)]">
+                          PFS : {autoRef}
+                        </span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* ── Existing combinations (quick-pick bar) ── */}
+            {existingCombinations.length > 0 && (
+              <div className="px-6 py-2.5 border-b border-[#E5E5E5] shrink-0 bg-white">
+                <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                  <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide shrink-0">Existantes</span>
+                  {existingCombinations.map((combo) => {
+                    const isMatch = combo.key === draftGroupKey;
+                    return (
+                      <button
+                        key={combo.key}
+                        type="button"
+                        onClick={() => selectCombination(combo)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] whitespace-nowrap transition-colors shrink-0 font-[family-name:var(--font-roboto)] ${
+                          isMatch ? "border-[#22C55E] bg-[#F0FDF4] text-[#1A1A1A]" : "border-[#E5E5E5] bg-white text-[#6B6B6B] hover:border-[#9CA3AF]"
+                        }`}
                       >
-                        <input type="checkbox" checked={isChecked} readOnly className="accent-[#22C55E] w-4 h-4 pointer-events-none shrink-0" />
-                        <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={24} rounded="full" />
-                        <span className="flex-1 font-[family-name:var(--font-roboto)] text-[#1A1A1A] text-sm truncate">{opt.name}</span>
-                        {isChecked && (
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${position === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
-                            {position === 0 ? "1re" : `+${position + 1}`}
-                          </span>
+                        <div className="flex -space-x-0.5">
+                          {combo.colors.slice(0, 3).map((c, ci) => {
+                            const optC = options.find((o) => o.id === c.colorId);
+                            return <ColorSwatch key={ci} hex={c.colorHex} patternImage={optC?.patternImage ?? null} size={12} rounded="full" border />;
+                          })}
+                        </div>
+                        <span className="max-w-[100px] truncate">{combo.colors.map((c) => c.colorName).join(" / ")}</span>
+                        {isMatch && (
+                          <svg className="w-3 h-3 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                          </svg>
                         )}
                       </button>
                     );
                   })}
                 </div>
-
-                {/* Create new color */}
-                {onCreateColor && (
-                  <div className="border-t border-[#E5E5E5] px-5 py-3 bg-[#FAFAFA] shrink-0">
-                    {!showCreate ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowCreate(true)}
-                        className="text-sm text-[#1A1A1A] font-medium hover:underline flex items-center gap-2 font-[family-name:var(--font-roboto)]"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                        Créer une couleur
-                      </button>
-                    ) : (
-                      <div className="space-y-2.5">
-                        <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">Nouvelle couleur</p>
-                        <input
-                          className="field-input w-full text-sm"
-                          placeholder="Nom de la couleur"
-                          value={createName}
-                          onChange={(e) => setCreateName(e.target.value)}
-                          autoFocus
-                        />
-                        <div className="flex gap-1.5">
-                          <button type="button" onClick={() => setCreateMode("hex")}
-                            className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${createMode === "hex" ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"}`}
-                          >Couleur unie</button>
-                          <button type="button" onClick={() => setCreateMode("pattern")}
-                            className={`flex-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${createMode === "pattern" ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"}`}
-                          >Motif / Image</button>
-                        </div>
-                        {createMode === "hex" ? (
-                          <div className="flex items-center gap-2">
-                            <input type="color" value={createHex} onChange={(e) => setCreateHex(e.target.value)} className="w-9 h-9 rounded-lg cursor-pointer border border-[#E5E5E5]" />
-                            <input className="field-input w-28 font-mono text-sm" value={createHex} onChange={(e) => setCreateHex(e.target.value)} />
-                          </div>
-                        ) : (
-                          <div>
-                            {createPatternPreview ? (
-                              <div className="flex items-center gap-3">
-                                <div className="w-14 h-14 rounded-lg border border-[#E5E5E5]" style={{ backgroundImage: `url(${createPatternPreview})`, backgroundSize: "cover", backgroundPosition: "center" }} />
-                                <button type="button" onClick={() => { setCreatePatternFile(null); setCreatePatternPreview(null); setCreatePatternPath(null); }} className="text-xs text-red-500 hover:underline font-[family-name:var(--font-roboto)]">Supprimer</button>
-                              </div>
-                            ) : (
-                              <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-[#E5E5E5] rounded-lg cursor-pointer hover:border-[#9CA3AF] transition-colors ${createUploading ? "opacity-50 pointer-events-none" : ""}`}>
-                                <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                <span className="text-xs text-[#9CA3AF]">{createUploading ? "Upload..." : "PNG, JPG, WebP — max 500 Ko"}</span>
-                                <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleCreatePatternUpload(file); e.target.value = ""; }} />
-                              </label>
-                            )}
-                          </div>
-                        )}
-                        {createError && <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{createError}</p>}
-                        <div className="flex gap-2">
-                          <button type="button" onClick={handleCreateColorSave} disabled={createSaving || createUploading || !createName.trim() || (createMode === "pattern" && !createPatternPath)} className="btn-primary text-xs disabled:opacity-50">{createSaving ? "Création..." : "Créer"}</button>
-                          <button type="button" onClick={() => { setShowCreate(false); setCreateName(""); setCreatePatternFile(null); setCreatePatternPreview(null); setCreatePatternPath(null); setCreateError(""); }} className="btn-secondary text-xs">Annuler</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
+            )}
 
-              {/* ── RIGHT COLUMN: Sélection + combinaisons ── */}
-              <div className="w-[320px] shrink-0 flex flex-col bg-[#FAFAFA]">
-
-                {/* Selected colors — drag & drop */}
-                <div className="px-5 pt-4 pb-3 shrink-0">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
-                      Sélection {draft.length > 0 && <span className="text-[#1A1A1A]">({draft.length})</span>}
-                    </span>
-                    {draft.length > 1 && (
-                      <span className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] italic">
-                        Glissez pour réordonner
-                      </span>
-                    )}
-                  </div>
-
-                  {draft.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <div className="w-12 h-12 rounded-full bg-[#F0F0F0] flex items-center justify-center mb-3">
-                        <svg className="w-5 h-5 text-[#C0C0C0]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-                        </svg>
-                      </div>
-                      <p className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucune couleur</p>
-                      <p className="text-xs text-[#C0C0C0] font-[family-name:var(--font-roboto)] mt-0.5">Cliquez sur une couleur à gauche</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1">
-                      {draft.map((s, i) => {
-                        const opt = options.find((o) => o.id === s.colorId);
-                        const isDragging = dragIdx === i;
-                        const isDragOver = dragOverIdx === i && dragIdx !== i;
-                        return (
-                          <div
-                            key={s.colorId}
-                            draggable
-                            onDragStart={() => handleDragStart(i)}
-                            onDragOver={(e) => handleDragOver(e, i)}
-                            onDragEnd={handleDragEnd}
-                            className={`flex items-center gap-2.5 bg-white border rounded-xl px-3 py-2.5 cursor-grab active:cursor-grabbing transition-all
-                              ${isDragging ? "opacity-40 scale-95" : ""}
-                              ${isDragOver ? "border-[#1A1A1A] shadow-sm" : "border-[#E5E5E5]"}
-                            `}
-                          >
-                            <svg className="w-3.5 h-3.5 text-[#C0C0C0] shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                              <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
-                              <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
-                              <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
-                            </svg>
-                            <span className={`text-[11px] font-bold w-5 h-5 flex items-center justify-center rounded-full shrink-0
-                              ${i === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}
-                            `}>{i + 1}</span>
-                            <ColorSwatch hex={s.colorHex} patternImage={opt?.patternImage ?? null} size={20} rounded="full" />
-                            <span className="flex-1 text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] truncate">{s.colorName}</span>
-                            {i === 0 && (
-                              <span className="text-[10px] font-semibold bg-[#22C55E] text-white px-1.5 py-0.5 rounded shrink-0">1re</span>
-                            )}
-                            <button type="button" onClick={(e) => { e.stopPropagation(); removeFromDraft(s.colorId); }}
-                              className="p-1 hover:bg-red-50 rounded-lg transition-colors shrink-0" aria-label={`Retirer ${s.colorName}`}>
-                              <svg className="w-3.5 h-3.5 text-[#C0C0C0] hover:text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+            {/* ── Color catalogue (scrollable) ── */}
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* Search */}
+              <div className="px-6 py-3 shrink-0">
+                <div className="flex items-center gap-2.5 bg-[#F7F7F8] border border-[#E5E5E5] px-3 py-2 rounded-xl">
+                  <svg className="w-4 h-4 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                  </svg>
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Rechercher une couleur…"
+                    className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder-[#9CA3AF] outline-none min-w-0 font-[family-name:var(--font-roboto)]"
+                  />
+                  {search && (
+                    <button type="button" onClick={() => setSearch("")} className="p-0.5 text-[#9CA3AF] hover:text-[#1A1A1A]">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   )}
                 </div>
+              </div>
 
-                {/* Matching variant message */}
-                {matchingCombo && draft.length > 0 && (
-                  <div className="mx-5 mb-3 px-3 py-2 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg flex items-center gap-2 shrink-0">
-                    <svg className="w-4 h-4 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span className="text-xs text-[#166534] font-[family-name:var(--font-roboto)]">
-                      Variante existante ({matchingCombo.saleTypes.join(" + ")})
-                    </span>
-                  </div>
-                )}
-
-                {/* Existing combinations */}
-                {existingCombinations.length > 0 && (
-                  <div className="px-5 pb-4 shrink-0 border-t border-[#E5E5E5] pt-3 mt-auto">
-                    <span className="text-xs font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
-                      Raccourcis
-                    </span>
-                    <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-2">
-                      Reprendre une combinaison existante
-                    </p>
-                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                      {existingCombinations.map((combo) => {
-                        const isActive = combo.key === draftGroupKey;
-                        return (
-                          <button
-                            key={combo.key}
-                            type="button"
-                            onClick={() => selectCombination(combo)}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-[family-name:var(--font-roboto)] rounded-lg border transition-colors
-                              ${isActive
-                                ? "bg-[#F0FDF4] border-[#22C55E] text-[#166534]"
-                                : "bg-white border-[#E5E5E5] text-[#1A1A1A] hover:border-[#9CA3AF] hover:bg-white"
-                              }`}
-                          >
-                            {combo.colors.length === 1 ? (
-                              <ColorSwatch hex={combo.colors[0].colorHex} patternImage={options.find((o) => o.id === combo.colors[0].colorId)?.patternImage ?? null} size={16} rounded="full" />
-                            ) : (
-                              <ColorSwatch
-                                hex={combo.colors[0].colorHex}
-                                patternImage={options.find((o) => o.id === combo.colors[0].colorId)?.patternImage ?? null}
-                                subColors={combo.colors.slice(1).map((c) => ({ hex: c.colorHex, patternImage: options.find((o) => o.id === c.colorId)?.patternImage ?? null }))}
-                                size={16}
-                                rounded="full"
-                              />
+              {/* Color grid */}
+              <div className="flex-1 overflow-y-auto px-6 pb-3">
+                {filtered.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucun résultat</div>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {filtered.map((opt) => {
+                      const isChecked = draftIds.has(opt.id);
+                      const position = draft.findIndex((s) => s.colorId === opt.id);
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => toggle(opt)}
+                          className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all text-center ${
+                            isChecked
+                              ? "border-[#1A1A1A] bg-[#F7F7F8] shadow-sm"
+                              : "border-transparent bg-white hover:bg-[#F7F7F8] hover:border-[#E5E5E5]"
+                          }`}
+                        >
+                          <div className="relative">
+                            <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={36} rounded="lg" />
+                            {isChecked && (
+                              <span className={`absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                                position === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#1A1A1A]"
+                              }`}>
+                                {position + 1}
+                              </span>
                             )}
-                            <span className="truncate max-w-[140px]">{combo.colors.map((c) => c.colorName).join(" / ")}</span>
-                            <span className="text-[10px] text-[#9CA3AF]">({combo.saleTypes.join("+")})</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                          </div>
+                          <span className="text-[11px] font-[family-name:var(--font-roboto)] text-[#1A1A1A] truncate w-full leading-tight">
+                            {opt.name}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
+
+              {/* Create new color — uses the same modal as /admin/couleurs */}
+              <div className="border-t border-[#E5E5E5] px-6 py-3 shrink-0 bg-white">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickCreate(true)}
+                  className="flex items-center gap-2 text-sm text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Créer une couleur
+                </button>
+              </div>
+              <QuickCreateModal
+                type="color"
+                open={showQuickCreate}
+                onClose={() => setShowQuickCreate(false)}
+                onCreated={handleQuickColorCreated}
+              />
             </div>
 
-            {/* Footer */}
+            {/* ── Footer ── */}
             <div className="flex items-center justify-between px-6 py-3.5 border-t border-[#E5E5E5] bg-white rounded-b-2xl shrink-0">
-              <span className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-                {draft.length === 0 ? "Aucune couleur sélectionnée" : `${draft.length} couleur${draft.length > 1 ? "s" : ""} sélectionnée${draft.length > 1 ? "s" : ""}`}
-              </span>
+              {matchingCombo ? (
+                <span className="text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] px-3 py-1 rounded-lg font-[family-name:var(--font-roboto)]">
+                  Combinaison déjà utilisée ({matchingCombo.saleTypes.join(" + ")})
+                </span>
+              ) : (
+                <span className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                  {draft.length === 0 ? "Aucune couleur" : `${draft.length} couleur${draft.length > 1 ? "s" : ""}`}
+                </span>
+              )}
               <div className="flex items-center gap-2.5">
                 <button type="button" onClick={cancel}
                   className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-xl hover:bg-[#F7F7F8] transition-colors"
@@ -715,7 +895,8 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
                   Annuler
                 </button>
                 <button type="button" onClick={confirm}
-                  className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-xl hover:bg-[#333] transition-colors"
+                  className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-xl hover:bg-[#333] transition-colors disabled:opacity-50"
+                  disabled={draft.length === 0}
                 >
                   Valider
                 </button>
@@ -854,12 +1035,10 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   const colorImagesRef = useRef(colorImages);
   colorImagesRef.current = colorImages;
 
-  // Find a representative variant for a given groupKey
   function findVariantByGroupKey(groupKey: string): VariantState | undefined {
     return variants.find((v) => variantGroupKeyFromState(v) === groupKey);
   }
 
-  // Build color segments per group key for camembert display (supports patterns)
   function getSwatchSegments(groupKey: string): { main: { hex?: string | null; patternImage?: string | null }; subs: { hex?: string | null; patternImage?: string | null }[] } {
     const v = findVariantByGroupKey(groupKey);
     if (!v) return { main: { hex: "#9CA3AF" }, subs: [] };
@@ -878,15 +1057,11 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   async function handleAddImageAtPosition(groupKey: string, file: File, position: number) {
     const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
     if (!state) return;
-
-    // If there's already an image at this position, replace it
     const existingIdx = state.orders.indexOf(position);
-
     const blob = URL.createObjectURL(file);
     setUploadingSlots((prev) => ({ ...prev, [groupKey]: position }));
 
     if (existingIdx !== -1) {
-      // Replace: update preview immediately
       onChange(colorImagesRef.current.map((c) => {
         if (c.groupKey !== groupKey) return c;
         const newPreviews = [...c.imagePreviews];
@@ -894,14 +1069,12 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
         return { ...c, imagePreviews: newPreviews, uploading: true };
       }));
     } else {
-      // Add new
       onChange(colorImagesRef.current.map((c) => c.groupKey === groupKey
         ? { ...c, imagePreviews: [...c.imagePreviews, blob], orders: [...c.orders, position], uploading: true }
         : c
       ));
     }
 
-    // Upload
     let path = "";
     const fd = new FormData(); fd.append("image", file);
     try {
@@ -913,14 +1086,11 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     setUploadingSlots((prev) => ({ ...prev, [groupKey]: null }));
 
     if (!path) {
-      // Upload failed — revert
       onChange(colorImagesRef.current.map((c) => {
         if (c.groupKey !== groupKey) return c;
         if (existingIdx !== -1) {
-          // Revert replaced preview
           return { ...c, uploading: false };
         }
-        // Remove the added preview
         return {
           ...c,
           imagePreviews: c.imagePreviews.filter((p) => p !== blob),
@@ -934,7 +1104,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     onChange(colorImagesRef.current.map((c) => {
       if (c.groupKey !== groupKey) return c;
       if (existingIdx !== -1) {
-        // Replace uploaded path
         const newPaths = [...c.uploadedPaths];
         newPaths[existingIdx] = path;
         return { ...c, uploadedPaths: newPaths, uploading: false };
@@ -989,11 +1158,9 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     setRotatingSlots((prev) => ({ ...prev, [groupKey]: position }));
 
     try {
-      // Blob preview (freshly uploaded, not yet saved) — rotate client-side via canvas
       if (preview?.startsWith("blob:")) {
         const rotatedBlob = await rotateImageClientSide(preview);
         const newBlobUrl = URL.createObjectURL(rotatedBlob);
-        // Re-upload rotated file
         const fd = new FormData();
         fd.append("image", rotatedBlob, "rotated.webp");
         const res = await fetch("/api/admin/products/images", { method: "POST", body: fd });
@@ -1009,9 +1176,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
           }));
         }
       } else {
-        // Server path (from DB or after upload) — rotate server-side with sharp
         const pathToRotate = uploadedPath || preview;
-        // Strip any existing cache buster query param
         const cleanPath = pathToRotate.split("?")[0];
         const res = await fetch("/api/admin/products/images/rotate", {
           method: "POST",
@@ -1020,7 +1185,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
         });
         const json = await res.json();
         if (res.ok && json.cacheBuster) {
-          // Update preview URL with cache buster to force browser re-render
           onChange(colorImagesRef.current.map((c) => {
             if (c.groupKey !== groupKey) return c;
             const newPreviews = [...c.imagePreviews];
@@ -1088,7 +1252,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
 
         {/* Body */}
         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-          {/* Couleur principale */}
           {colorImages.length > 0 && (
             <div className="border border-[#E5E5E5] rounded-xl p-4">
               <p className="text-xs font-semibold text-[#1A1A1A] uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-3">
@@ -1196,8 +1359,776 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
 }
 
 // ─────────────────────────────────────────────
-// Main component
+// SizeModal — modal for editing sizes per variant
 // ─────────────────────────────────────────────
+interface SizeModalProps {
+  open: boolean;
+  onClose: () => void;
+  variant: VariantState;
+  availableSizes: AvailableSize[];
+  categoryId?: string;
+  allCategories?: { id: string; name: string }[];
+  onSave: (entries: SizeEntryState[]) => void;
+  onQuickCreateSize?: (name: string, categoryIds: string[]) => Promise<AvailableSize>;
+}
+
+function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCategories, onSave, onQuickCreateSize }: SizeModalProps) {
+  const backdrop = useBackdropClose(onClose);
+  const [draft, setDraft] = useState<SizeEntryState[]>(variant.sizeEntries);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newSizeName, setNewSizeName] = useState("");
+  const [newSizeCatIds, setNewSizeCatIds] = useState<Set<string>>(categoryId ? new Set([categoryId]) : new Set());
+  const [createSaving, setCreateSaving] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  // Reset draft when variant changes
+  useEffect(() => {
+    setDraft(variant.sizeEntries);
+  }, [variant.sizeEntries]);
+
+  // Lock body scroll
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  const isUnit = variant.saleType === "UNIT";
+  const usedSizeIds = new Set(draft.map((s) => s.sizeId));
+
+  // Filter sizes by category
+  const filteredSizes = categoryId
+    ? availableSizes.filter((s) => !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId))
+    : availableSizes;
+  const remainingSizes = filteredSizes.filter((s) => !usedSizeIds.has(s.id));
+
+  function toggleSize(size: AvailableSize) {
+    if (usedSizeIds.has(size.id)) {
+      setDraft(draft.filter((s) => s.sizeId !== size.id));
+    } else {
+      if (isUnit && draft.length >= 1) {
+        // UNIT: replace existing
+        setDraft([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      } else {
+        setDraft([...draft, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      }
+    }
+  }
+
+  function updateQty(sizeId: string, qty: string) {
+    setDraft(draft.map((s) => s.sizeId === sizeId ? { ...s, quantity: qty } : s));
+  }
+
+  function handleSave() {
+    onSave(draft);
+    onClose();
+  }
+
+  async function handleCreateSize() {
+    if (!newSizeName.trim() || !onQuickCreateSize) return;
+    setCreateSaving(true);
+    setCreateError("");
+    try {
+      const created = await onQuickCreateSize(newSizeName.trim(), Array.from(newSizeCatIds));
+      // Auto-add to draft
+      if (!(isUnit && draft.length >= 1)) {
+        setDraft((prev) => [...prev, { tempId: uid(), sizeId: created.id, sizeName: created.name, quantity: "1" }]);
+      }
+      setNewSizeName("");
+      setShowCreate(false);
+    } catch (e: unknown) {
+      setCreateError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setCreateSaving(false);
+    }
+  }
+
+  if (!open) return null;
+
+  const modal = (
+    <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onMouseDown={backdrop.onMouseDown} onMouseUp={backdrop.onMouseUp}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col"
+        style={{ maxHeight: "min(85vh, 600px)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] shrink-0">
+          <div>
+            <h3 className="text-base font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+              {isUnit ? "Taille" : "Tailles & quantités"}
+            </h3>
+            <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+              {isUnit ? "Sélectionnez une taille (max 1)" : "Sélectionnez les tailles et définissez les quantités"}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-[#F7F7F8] rounded-xl transition-colors" aria-label="Fermer">
+            <svg className="w-5 h-5 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Selected sizes with quantity */}
+          {draft.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">
+                Sélectionnées ({draft.length})
+              </p>
+              {draft.map((se) => (
+                <div key={se.tempId} className="flex items-center gap-3 px-3 py-2.5 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg">
+                  <svg className="w-4 h-4 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="flex-1 text-sm font-medium text-[#1A1A1A] font-[family-name:var(--font-roboto)]">{se.sizeName}</span>
+                  {!isUnit && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-[10px] text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Qté</label>
+                      <input
+                        type="number" min="1" step="1"
+                        value={se.quantity}
+                        onChange={(e) => updateQty(se.sizeId, e.target.value)}
+                        className="w-16 border border-[#E5E5E5] bg-white px-2 py-1 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                      />
+                    </div>
+                  )}
+                  <button type="button" onClick={() => toggleSize({ id: se.sizeId, name: se.sizeName })} className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Available sizes */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">
+              Tailles disponibles
+            </p>
+            {filteredSizes.length === 0 ? (
+              <p className="text-xs text-amber-600 font-[family-name:var(--font-roboto)]">
+                Aucune taille disponible pour cette catégorie. Créez-en une ci-dessous.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {filteredSizes.map((size) => {
+                  const isSelected = usedSizeIds.has(size.id);
+                  return (
+                    <button
+                      key={size.id}
+                      type="button"
+                      onClick={() => toggleSize(size)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors font-[family-name:var(--font-roboto)] ${
+                        isSelected
+                          ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                          : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
+                      }`}
+                    >
+                      {size.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Quick create size */}
+          {onQuickCreateSize && (
+            <div className="border-t border-[#E5E5E5] pt-4">
+              {!showCreate ? (
+                <button
+                  type="button"
+                  onClick={() => { setShowCreate(true); setNewSizeCatIds(categoryId ? new Set([categoryId]) : new Set()); }}
+                  className="text-sm text-[#1A1A1A] font-medium hover:underline flex items-center gap-2 font-[family-name:var(--font-roboto)]"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Créer une taille
+                </button>
+              ) : (
+                <div className="space-y-3 bg-[#F7F7F8] p-4 rounded-xl">
+                  <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">Nouvelle taille</p>
+                  <input
+                    className="field-input w-full text-sm"
+                    placeholder="Nom (ex: 36, S, TU...)"
+                    value={newSizeName}
+                    onChange={(e) => setNewSizeName(e.target.value)}
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateSize(); } }}
+                  />
+                  {/* Category checkboxes */}
+                  {allCategories && allCategories.length > 0 && (
+                    <div>
+                      <p className="text-[11px] text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1.5">Catégories associées</p>
+                      <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto">
+                        {allCategories.map((cat) => (
+                          <label key={cat.id} className="flex items-center gap-1.5 text-xs font-[family-name:var(--font-roboto)] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={newSizeCatIds.has(cat.id)}
+                              onChange={() => {
+                                const next = new Set(newSizeCatIds);
+                                if (next.has(cat.id)) next.delete(cat.id); else next.add(cat.id);
+                                setNewSizeCatIds(next);
+                              }}
+                              className="accent-[#1A1A1A] w-3.5 h-3.5"
+                            />
+                            {cat.name}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {createError && <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{createError}</p>}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleCreateSize} disabled={createSaving || !newSizeName.trim()}
+                      className="btn-primary text-xs disabled:opacity-50">{createSaving ? "Création..." : "Créer"}</button>
+                    <button type="button" onClick={() => { setShowCreate(false); setCreateError(""); }}
+                      className="btn-secondary text-xs">Annuler</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-6 py-3.5 border-t border-[#E5E5E5] bg-white rounded-b-2xl shrink-0">
+          <span className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+            {draft.length === 0 ? "Aucune taille" : `${draft.length} taille${draft.length > 1 ? "s" : ""}`}
+            {!isUnit && draft.length > 0 && (() => {
+              const totalQty = draft.reduce((a, s) => a + (parseInt(s.quantity) || 0), 0);
+              return ` — ${totalQty} pièce${totalQty > 1 ? "s" : ""}`;
+            })()}
+          </span>
+          <div className="flex items-center gap-2.5">
+            <button type="button" onClick={onClose}
+              className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-xl hover:bg-[#F7F7F8] transition-colors"
+            >Annuler</button>
+            <button type="button" onClick={handleSave}
+              className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-xl hover:bg-[#333] transition-colors"
+            >Valider</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return typeof window !== "undefined" ? createPortal(modal, document.body) : null;
+}
+
+
+// ─────────────────────────────────────────────
+// QuickAddModal — create multiple variants at once
+// ─────────────────────────────────────────────
+interface QuickAddColorLine {
+  id: string;
+  colors: { colorId: string; colorName: string; colorHex: string }[];
+}
+
+interface QuickAddModalProps {
+  open: boolean;
+  onClose: () => void;
+  existingVariants: VariantState[];
+  availableColors: AvailableColor[];
+  availableSizes: AvailableSize[];
+  categoryId?: string;
+  onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
+  onQuickCreateSize?: (name: string, categoryIds: string[]) => Promise<AvailableSize>;
+  allCategories?: { id: string; name: string }[];
+  onConfirm: (variants: VariantState[]) => void;
+}
+
+function QuickAddModal({
+  open, onClose, existingVariants, availableColors, availableSizes,
+  categoryId, onCreateColor, onQuickCreateSize, allCategories, onConfirm,
+}: QuickAddModalProps) {
+  const backdrop = useBackdropClose(onClose);
+
+  // Color lines — each line becomes one variant
+  const [colorLines, setColorLines] = useState<QuickAddColorLine[]>([
+    { id: uid(), colors: [] },
+  ]);
+
+  // Shared fields
+  const [saleType, setSaleType] = useState<"UNIT" | "PACK">("UNIT");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [stock, setStock] = useState("");
+  const [weight, setWeight] = useState("");
+  const [discountType, setDiscountType] = useState<"" | "PERCENT" | "AMOUNT">("");
+  const [discountValue, setDiscountValue] = useState("");
+  const [sizeEntries, setSizeEntries] = useState<SizeEntryState[]>([]);
+
+  // Size picker inline
+  const [showSizePicker, setShowSizePicker] = useState(false);
+  const [showSizeCreate, setShowSizeCreate] = useState(false);
+  const [newSizeName, setNewSizeName] = useState("");
+  const [newSizeCatIds, setNewSizeCatIds] = useState<Set<string>>(categoryId ? new Set([categoryId]) : new Set());
+  const [sizeCreateSaving, setSizeCreateSaving] = useState(false);
+  const [sizeCreateError, setSizeCreateError] = useState("");
+
+  // Lock body scroll
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  // Reset on open
+  useEffect(() => {
+    if (open) {
+      setColorLines([{ id: uid(), colors: [] }]);
+      setSaleType("UNIT");
+      setUnitPrice("");
+      setStock("");
+      setWeight("");
+      setDiscountType("");
+      setDiscountValue("");
+      setSizeEntries([]);
+      setShowSizePicker(false);
+    }
+  }, [open]);
+
+  // Existing color combos for quick-select
+  const existingCombos = useMemo(() => {
+    const seen = new Set<string>();
+    const combos: { key: string; colors: { colorId: string; colorName: string; colorHex: string }[] }[] = [];
+    for (const v of existingVariants) {
+      if (!v.colorId) continue;
+      const gk = variantGroupKeyFromState(v);
+      if (seen.has(gk)) continue;
+      seen.add(gk);
+      combos.push({
+        key: gk,
+        colors: [
+          { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
+          ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
+        ],
+      });
+    }
+    // Also add PACK color lines
+    for (const v of existingVariants) {
+      if (v.saleType !== "PACK") continue;
+      const line = v.packColorLines[0];
+      if (!line || line.colors.length === 0) continue;
+      const gk = `pack::${line.colors.map((c) => c.colorId).sort().join("+")}`;
+      if (seen.has(gk)) continue;
+      seen.add(gk);
+      combos.push({ key: gk, colors: line.colors });
+    }
+    return combos;
+  }, [existingVariants]);
+
+  // Filtered sizes by category
+  const filteredSizes = categoryId
+    ? availableSizes.filter((s) => !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId))
+    : availableSizes;
+  const usedSizeIds = new Set(sizeEntries.map((s) => s.sizeId));
+
+  function addColorLine() {
+    setColorLines((prev) => [...prev, { id: uid(), colors: [] }]);
+  }
+
+  function removeColorLine(lineId: string) {
+    setColorLines((prev) => prev.filter((l) => l.id !== lineId));
+  }
+
+  function updateColorLine(lineId: string, colors: { colorId: string; colorName: string; colorHex: string }[]) {
+    setColorLines((prev) => prev.map((l) => l.id === lineId ? { ...l, colors } : l));
+  }
+
+  function addExistingCombo(combo: typeof existingCombos[0]) {
+    setColorLines((prev) => [...prev, { id: uid(), colors: combo.colors }]);
+  }
+
+  function addAllExistingCombos() {
+    const newLines = existingCombos.map((c) => ({ id: uid(), colors: c.colors }));
+    setColorLines((prev) => [...prev, ...newLines]);
+  }
+
+  function toggleSize(size: AvailableSize) {
+    if (usedSizeIds.has(size.id)) {
+      setSizeEntries((prev) => prev.filter((s) => s.sizeId !== size.id));
+    } else {
+      if (saleType === "UNIT" && sizeEntries.length >= 1) {
+        setSizeEntries([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      } else {
+        setSizeEntries((prev) => [...prev, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      }
+    }
+  }
+
+  function updateSizeQty(sizeId: string, qty: string) {
+    setSizeEntries((prev) => prev.map((s) => s.sizeId === sizeId ? { ...s, quantity: qty } : s));
+  }
+
+  async function handleCreateSize() {
+    if (!newSizeName.trim() || !onQuickCreateSize) return;
+    setSizeCreateSaving(true);
+    setSizeCreateError("");
+    try {
+      const created = await onQuickCreateSize(newSizeName.trim(), Array.from(newSizeCatIds));
+      if (!(saleType === "UNIT" && sizeEntries.length >= 1)) {
+        setSizeEntries((prev) => [...prev, { tempId: uid(), sizeId: created.id, sizeName: created.name, quantity: "1" }]);
+      }
+      setNewSizeName("");
+      setShowSizeCreate(false);
+    } catch (e: unknown) {
+      setSizeCreateError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSizeCreateSaving(false);
+    }
+  }
+
+  const validLines = colorLines.filter((l) => l.colors.length > 0);
+  const canConfirm = validLines.length > 0;
+
+  function handleConfirm() {
+    const newVariants: VariantState[] = validLines.map((line, i) => {
+      const [main, ...rest] = line.colors;
+      const isUnit = saleType === "UNIT";
+      return {
+        tempId: uid(),
+        colorId: isUnit ? (main?.colorId ?? "") : "",
+        colorName: isUnit ? (main?.colorName ?? "") : "",
+        colorHex: isUnit ? (main?.colorHex ?? "#9CA3AF") : "#9CA3AF",
+        subColors: isUnit ? rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })) : [],
+        packColorLines: isUnit ? [] : [{ tempId: uid(), colors: line.colors }],
+        sizeEntries: sizeEntries.map((se) => ({ ...se, tempId: uid() })),
+        unitPrice,
+        weight,
+        stock,
+        isPrimary: i === 0 && existingVariants.length === 0,
+        saleType,
+        packQuantity: saleType === "PACK" ? (sizeEntries.length > 1 ? String(sizeEntries.length) : "1") : "",
+        discountType,
+        discountValue,
+        pfsColorRef: "",
+      };
+    });
+    onConfirm(newVariants);
+    onClose();
+  }
+
+  if (!open) return null;
+
+  const modal = (
+    <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onMouseDown={backdrop.onMouseDown} onMouseUp={backdrop.onMouseUp}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col"
+        style={{ maxHeight: "min(92vh, 750px)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] shrink-0">
+          <div>
+            <h3 className="text-base font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+              Création rapide de variantes
+            </h3>
+            <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+              Chaque ligne de couleur = 1 variante. Les autres champs sont partagés.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-[#F7F7F8] rounded-xl transition-colors" aria-label="Fermer">
+            <svg className="w-5 h-5 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+
+          {/* ── Color lines ── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">
+                Couleurs ({colorLines.length} variante{colorLines.length > 1 ? "s" : ""})
+              </p>
+              <button type="button" onClick={addColorLine}
+                className="text-xs text-[#1A1A1A] font-medium hover:underline flex items-center gap-1 font-[family-name:var(--font-roboto)]">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Ligne
+              </button>
+            </div>
+
+            {colorLines.map((line, idx) => (
+              <div key={line.id} className="flex items-center gap-2">
+                <span className="text-[10px] text-[#9CA3AF] font-semibold w-5 text-right shrink-0 font-[family-name:var(--font-roboto)]">{idx + 1}</span>
+                <div className="flex-1">
+                  <MultiColorSelect
+                    selected={line.colors}
+                    options={availableColors}
+                    onChange={(colors) => updateColorLine(line.id, colors)}
+                    existingVariants={existingVariants}
+                    onCreateColor={onCreateColor}
+                  />
+                </div>
+                {colorLines.length > 1 && (
+                  <button type="button" onClick={() => removeColorLine(line.id)}
+                    className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors shrink-0">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {/* Quick-add existing combos */}
+            {existingCombos.length > 0 && (
+              <div className="pt-2 border-t border-[#F0F0F0]">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] text-[#9CA3AF] font-semibold uppercase tracking-wide font-[family-name:var(--font-roboto)]">
+                    Couleurs existantes
+                  </p>
+                  <button type="button" onClick={addAllExistingCombos}
+                    className="text-[10px] text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] hover:underline transition-colors">
+                    Tout ajouter
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {existingCombos.map((combo) => (
+                    <button
+                      key={combo.key}
+                      type="button"
+                      onClick={() => addExistingCombo(combo)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#E5E5E5] bg-white hover:border-[#9CA3AF] transition-colors text-left"
+                    >
+                      <div className="flex -space-x-1">
+                        {combo.colors.slice(0, 4).map((c, ci) => {
+                          const optC = availableColors.find((o) => o.id === c.colorId);
+                          return (
+                            <ColorSwatch key={ci} hex={c.colorHex} patternImage={optC?.patternImage ?? null} size={14} rounded="full" border />
+                          );
+                        })}
+                      </div>
+                      <span className="text-[11px] text-[#6B6B6B] font-[family-name:var(--font-roboto)] truncate max-w-[140px]">
+                        {combo.colors.map((c) => c.colorName).join(" / ")}
+                      </span>
+                      <svg className="w-3 h-3 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Shared fields ── */}
+          <div className="space-y-3 border-t border-[#E5E5E5] pt-4">
+            <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">
+              Attributs partagés
+            </p>
+
+            {/* Type + Price row */}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Type</label>
+                <div className="flex gap-1.5 mt-1">
+                  <button type="button"
+                    onClick={() => { setSaleType("UNIT"); if (sizeEntries.length > 1) setSizeEntries(sizeEntries.slice(0, 1)); }}
+                    className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors font-[family-name:var(--font-roboto)] ${
+                      saleType === "UNIT" ? "bg-[#3B82F6] text-white" : "border border-[#D5D5D5] text-[#6B6B6B] hover:border-[#1A1A1A]"
+                    }`}>Unité</button>
+                  <button type="button"
+                    onClick={() => setSaleType("PACK")}
+                    className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors font-[family-name:var(--font-roboto)] ${
+                      saleType === "PACK" ? "bg-[#7C3AED] text-white" : "border border-[#D5D5D5] text-[#6B6B6B] hover:border-[#1A1A1A]"
+                    }`}>Pack</button>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Prix/unité (€)</label>
+                <input type="number" min="0" step="0.01" value={unitPrice} placeholder="0.00"
+                  onChange={(e) => setUnitPrice(e.target.value)}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Remise</label>
+                <div className="flex gap-1 mt-1">
+                  <CustomSelect value={discountType}
+                    onChange={(val) => { setDiscountType(val as "" | "PERCENT" | "AMOUNT"); setDiscountValue(""); }}
+                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
+                    size="sm" className="w-[60px]" />
+                  {discountType && (
+                    <input type="number" min="0" step="0.01" value={discountValue} placeholder="0"
+                      onChange={(e) => setDiscountValue(e.target.value)}
+                      className="w-16 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Stock + Weight row */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Stock</label>
+                <input type="number" min="0" step="1" value={stock} placeholder="0"
+                  onChange={(e) => setStock(e.target.value)}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Poids (kg)</label>
+                <input type="number" min="0" step="0.001" value={weight} placeholder="0.000"
+                  onChange={(e) => setWeight(e.target.value)}
+                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+              </div>
+            </div>
+
+            {/* Sizes */}
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">
+                  Tailles {saleType === "UNIT" ? "(max 1)" : "& quantités"}
+                </label>
+                <button type="button" onClick={() => setShowSizePicker(!showSizePicker)}
+                  className="text-[10px] text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] hover:underline transition-colors">
+                  {showSizePicker ? "Masquer" : "Modifier"}
+                </button>
+              </div>
+
+              {/* Selected sizes summary */}
+              {sizeEntries.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {sizeEntries.map((se) => (
+                    <span key={se.tempId} className="inline-flex items-center gap-1 px-2 py-1 bg-[#F0FDF4] border border-[#BBF7D0] rounded-md text-xs font-[family-name:var(--font-roboto)]">
+                      {se.sizeName}
+                      {saleType === "PACK" && <span className="text-[#6B6B6B]">×{se.quantity}</span>}
+                      <button type="button" onClick={() => setSizeEntries((prev) => prev.filter((s) => s.sizeId !== se.sizeId))}
+                        className="text-[#9CA3AF] hover:text-[#EF4444] ml-0.5">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-[#9CA3AF] italic mt-1 font-[family-name:var(--font-roboto)]">Aucune taille</p>
+              )}
+
+              {/* Size picker dropdown */}
+              {showSizePicker && (
+                <div className="mt-2 p-3 bg-[#FAFAFA] border border-[#E5E5E5] rounded-xl space-y-3">
+                  {/* Available sizes as toggle buttons */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {filteredSizes.map((size) => {
+                      const isSelected = usedSizeIds.has(size.id);
+                      return (
+                        <button key={size.id} type="button" onClick={() => toggleSize(size)}
+                          className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors font-[family-name:var(--font-roboto)] ${
+                            isSelected ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#1A1A1A]"
+                          }`}>
+                          {size.name}
+                        </button>
+                      );
+                    })}
+                    {filteredSizes.length === 0 && (
+                      <p className="text-xs text-amber-600 font-[family-name:var(--font-roboto)]">Aucune taille pour cette catégorie.</p>
+                    )}
+                  </div>
+
+                  {/* PACK: quantity per size */}
+                  {saleType === "PACK" && sizeEntries.length > 0 && (
+                    <div className="space-y-1.5">
+                      {sizeEntries.map((se) => (
+                        <div key={se.tempId} className="flex items-center gap-2">
+                          <span className="text-xs text-[#1A1A1A] font-medium w-16 font-[family-name:var(--font-roboto)]">{se.sizeName}</span>
+                          <input type="number" min="1" step="1" value={se.quantity}
+                            onChange={(e) => updateSizeQty(se.sizeId, e.target.value)}
+                            className="w-16 border border-[#E5E5E5] bg-white px-2 py-1 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                          />
+                          <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">pièces</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Quick create size */}
+                  {onQuickCreateSize && (
+                    !showSizeCreate ? (
+                      <button type="button" onClick={() => { setShowSizeCreate(true); setNewSizeCatIds(categoryId ? new Set([categoryId]) : new Set()); }}
+                        className="text-xs text-[#6B6B6B] hover:text-[#1A1A1A] flex items-center gap-1 font-[family-name:var(--font-roboto)] hover:underline transition-colors">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Créer une taille
+                      </button>
+                    ) : (
+                      <div className="space-y-2 bg-white p-3 rounded-lg border border-[#E5E5E5]">
+                        <input className="field-input w-full text-sm" placeholder="Nom (ex: 36, S, TU...)" value={newSizeName}
+                          onChange={(e) => setNewSizeName(e.target.value)} autoFocus
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateSize(); } }} />
+                        {allCategories && allCategories.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {allCategories.map((cat) => (
+                              <label key={cat.id} className="flex items-center gap-1 text-[11px] font-[family-name:var(--font-roboto)] cursor-pointer">
+                                <input type="checkbox" checked={newSizeCatIds.has(cat.id)}
+                                  onChange={() => { const n = new Set(newSizeCatIds); if (n.has(cat.id)) n.delete(cat.id); else n.add(cat.id); setNewSizeCatIds(n); }}
+                                  className="accent-[#1A1A1A] w-3 h-3" />
+                                {cat.name}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                        {sizeCreateError && <p className="text-xs text-[#EF4444]">{sizeCreateError}</p>}
+                        <div className="flex gap-2">
+                          <button type="button" onClick={handleCreateSize} disabled={sizeCreateSaving || !newSizeName.trim()}
+                            className="btn-primary text-xs disabled:opacity-50">{sizeCreateSaving ? "..." : "Créer"}</button>
+                          <button type="button" onClick={() => { setShowSizeCreate(false); setSizeCreateError(""); }}
+                            className="btn-secondary text-xs">Annuler</button>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-6 py-3.5 border-t border-[#E5E5E5] bg-white rounded-b-2xl shrink-0">
+          <span className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+            {validLines.length === 0
+              ? "Aucune couleur sélectionnée"
+              : `${validLines.length} variante${validLines.length > 1 ? "s" : ""} à créer`
+            }
+          </span>
+          <div className="flex items-center gap-2.5">
+            <button type="button" onClick={onClose}
+              className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-xl hover:bg-[#F7F7F8] transition-colors"
+            >Annuler</button>
+            <button type="button" onClick={handleConfirm} disabled={!canConfirm}
+              className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-xl hover:bg-[#333] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >Créer {validLines.length > 0 ? `${validLines.length} variante${validLines.length > 1 ? "s" : ""}` : ""}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return typeof window !== "undefined" ? createPortal(modal, document.body) : null;
+}
+
+
+// ─────────────────────────────────────────────
+// Main component — TABLE LAYOUT
+// ─────────────────────────────────────────────
+
 export default function ColorVariantManager({
   variants,
   colorImages,
@@ -1206,26 +2137,25 @@ export default function ColorVariantManager({
   onChange,
   onChangeImages,
   onQuickCreateColor,
+  categoryId,
+  allCategories,
+  onQuickCreateSize,
 }: Props) {
   const { confirm: confirmDialog } = useConfirm();
   const [showImageModal, setShowImageModal] = useState(false);
   const [galleryState, setGalleryState] = useState<{ images: string[]; colorName: string; colorHex: string } | null>(null);
-  const [quickCreateErr, setQuickCreateErr] = useState("");
-  const [quickSaving, setQuickSaving]       = useState(false);
-  const [showQuickCreate, setShowQuickCreate] = useState(false);
-  const [newColorName, setNewColorName]     = useState("");
-  const [newColorHex, setNewColorHex]       = useState("#9CA3AF");
-  const [newColorPattern, setNewColorPattern] = useState<string | null>(null);
-  const [patternUploading, setPatternUploading] = useState(false);
-  const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set());
 
   // ── Bulk edit state ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEdit, setBulkEdit]       = useState<BulkEditState>(defaultBulkEdit());
-
-  // ── Quick-fill state (PACK size columns) ───────────────────────────────────
-  const [bulkFillValues, setBulkFillValues] = useState<Record<string, { qty: string; price: string }>>({});
   const selectAllRef                  = useRef<HTMLInputElement>(null);
+
+  // ── Size modal state ─────────────────────────────────────────────────────
+  const [sizeModalVariantId, setSizeModalVariantId] = useState<string | null>(null);
+  const sizeModalVariant = variants.find((v) => v.tempId === sizeModalVariantId);
+
+  // ── Quick-add modal state ─────────────────────────────────────────────────
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
 
   useEffect(() => {
     if (selectAllRef.current) {
@@ -1238,31 +2168,6 @@ export default function ColorVariantManager({
   const totalPhotos   = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
   const showBulkRow   = selectedIds.size > 0;
   const duplicateTempIds = findDuplicateVariantTempIds(variants);
-
-  // ── Quick create color ─────────────────────────────────────────────────────
-  async function handlePatternUpload(file: File) {
-    setPatternUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("image", file);
-      const res = await fetch("/api/admin/colors/pattern", { method: "POST", body: fd });
-      const json = await res.json();
-      if (res.ok) setNewColorPattern(json.path);
-      else setQuickCreateErr(json.error || "Erreur upload motif");
-    } catch { setQuickCreateErr("Erreur upload motif"); }
-    finally { setPatternUploading(false); }
-  }
-
-  async function handleQuickSave() {
-    if (!newColorName.trim() || !onQuickCreateColor) return;
-    setQuickSaving(true);
-    try {
-      await onQuickCreateColor(newColorName.trim(), newColorHex, newColorPattern);
-      setNewColorName(""); setNewColorHex("#9CA3AF"); setNewColorPattern(null);
-      setShowQuickCreate(false); setQuickCreateErr("");
-    } catch (e: unknown) { setQuickCreateErr(e instanceof Error ? e.message : "Erreur"); }
-    finally { setQuickSaving(false); }
-  }
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   function updateVariant(tempId: string, patch: Partial<VariantState>) {
@@ -1278,7 +2183,14 @@ export default function ColorVariantManager({
     const isPrimary = variants.length === 0;
     const newV = { ...def, isPrimary };
     onChange([...variants, newV]);
-    setExpandedVariants((prev) => new Set(prev).add(newV.tempId));
+  }
+
+  function handleQuickAddConfirm(newVariants: VariantState[]) {
+    // If no existing variants, first new one is primary
+    if (variants.length === 0 && newVariants.length > 0) {
+      newVariants[0].isPrimary = true;
+    }
+    onChange([...variants, ...newVariants]);
   }
 
   async function removeVariant(tempId: string) {
@@ -1299,83 +2211,49 @@ export default function ColorVariantManager({
 
   function handleMultiColorChange(tempIds: Set<string>, colors: { colorId: string; colorName: string; colorHex: string }[]) {
     if (colors.length === 0) {
-      onChange(variants.map((v) => tempIds.has(v.tempId) ? { ...v, colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [] } : v));
+      onChange(variants.map((v) => tempIds.has(v.tempId) ? { ...v, colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [], pfsColorRef: "" } : v));
       return;
     }
     const [main, ...rest] = colors;
-    const patch = {
-      colorId: main.colorId, colorName: main.colorName, colorHex: main.colorHex,
-      subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
-    };
-    onChange(variants.map((v) => tempIds.has(v.tempId) ? { ...v, ...patch } : v));
+    onChange(variants.map((v) => {
+      if (!tempIds.has(v.tempId)) return v;
+      // Check if color combination actually changed — if so, clear pfsColorRef override
+      const oldKey = variantGroupKeyFromState(v);
+      const newKey = rest.length === 0 ? main.colorId : `${main.colorId}::${rest.map((c) => c.colorName).join(",")}`;
+      return {
+        ...v,
+        colorId: main.colorId, colorName: main.colorName, colorHex: main.colorHex,
+        subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
+        // Clear PFS override if combination changed
+        pfsColorRef: oldKey === newKey ? v.pfsColorRef : "",
+      };
+    }));
   }
 
-  // ── Size management ───────────────────────────────────────────────────────
-  function addSizeEntry(tempId: string) {
-    const v = variants.find((x) => x.tempId === tempId);
-    if (!v) return;
-    // UNIT: max 1 size
-    if (v.saleType === "UNIT" && v.sizeEntries.length >= 1) return;
-    const usedIds = new Set(v.sizeEntries.map((s) => s.sizeId));
-    const available = availableSizes.filter((s) => !usedIds.has(s.id));
-    if (available.length === 0) return;
-    const next = available[0];
-    updateVariant(tempId, {
-      sizeEntries: [...v.sizeEntries, { tempId: uid(), sizeId: next.id, sizeName: next.name, quantity: "1" }],
-    });
-  }
-
-  function updateSizeEntry(variantTempId: string, sizeTempId: string, patch: Partial<SizeEntryState>) {
+  // ── Pack color line management ─────────────────────────────────────────────
+  function updatePackColorLine(variantTempId: string, colors: { colorId: string; colorName: string; colorHex: string }[]) {
     const v = variants.find((x) => x.tempId === variantTempId);
     if (!v) return;
+    const line = v.packColorLines[0] ?? { tempId: uid(), colors: [] };
     updateVariant(variantTempId, {
-      sizeEntries: v.sizeEntries.map((s) => s.tempId === sizeTempId ? { ...s, ...patch } : s),
+      packColorLines: [{ ...line, colors }],
     });
   }
 
-  function removeSizeEntry(variantTempId: string, sizeTempId: string) {
+  // ── Size modal save ─────────────────────────────────────────────────────
+  function handleSizeSave(variantTempId: string, entries: SizeEntryState[]) {
     const v = variants.find((x) => x.tempId === variantTempId);
     if (!v) return;
-    updateVariant(variantTempId, {
-      sizeEntries: v.sizeEntries.filter((s) => s.tempId !== sizeTempId),
-    });
-  }
-
-  function bulkFillQty(variantTempId: string, qty: string) {
-    const v = variants.find((x) => x.tempId === variantTempId);
-    if (!v || !qty.trim()) return;
-    updateVariant(variantTempId, { sizeEntries: v.sizeEntries.map((s) => ({ ...s, quantity: qty })) });
-  }
-
-  function bulkFillPrice(variantTempId: string, price: string) {
-    const v = variants.find((x) => x.tempId === variantTempId);
-    if (!v || !price.trim()) return;
-    updateVariant(variantTempId, { sizeEntries: v.sizeEntries.map((s) => ({ ...s, pricePerUnit: price })) });
-  }
-
-  // ── Pack color line management ────────────────────────────────────────────
-  function addPackColorLine(tempId: string) {
-    const v = variants.find((x) => x.tempId === tempId);
-    if (!v) return;
-    updateVariant(tempId, {
-      packColorLines: [...v.packColorLines, { tempId: uid(), colors: [] }],
-    });
-  }
-
-  function updatePackColorLine(variantTempId: string, lineTempId: string, colors: { colorId: string; colorName: string; colorHex: string }[]) {
-    const v = variants.find((x) => x.tempId === variantTempId);
-    if (!v) return;
-    updateVariant(variantTempId, {
-      packColorLines: v.packColorLines.map((l) => l.tempId === lineTempId ? { ...l, colors } : l),
-    });
-  }
-
-  function removePackColorLine(variantTempId: string, lineTempId: string) {
-    const v = variants.find((x) => x.tempId === variantTempId);
-    if (!v) return;
-    updateVariant(variantTempId, {
-      packColorLines: v.packColorLines.filter((l) => l.tempId !== lineTempId),
-    });
+    const patch: Partial<VariantState> = { sizeEntries: entries };
+    // PACK: auto-set packQuantity from size count
+    if (v.saleType === "PACK") {
+      if (entries.length > 1) {
+        patch.packQuantity = String(entries.length);
+      } else if (entries.length <= 1) {
+        patch.packQuantity = v.packQuantity || "1";
+      }
+    }
+    updateVariant(variantTempId, patch);
   }
 
   // ── Bulk apply ─────────────────────────────────────────────────────────────
@@ -1396,10 +2274,8 @@ export default function ColorVariantManager({
     setBulkEdit(defaultBulkEdit());
   }
 
-  // ── Sort UNIT variants so same-color compositions appear adjacent ──────────
-  // Stable sort: variants with same groupKey are grouped together, preserving
-  // their relative creation order. PACK variants are kept at the end.
-  const { sortedUnitVariants, packVariants } = useMemo(() => {
+  // ── Sorted variants ────────────────────────────────────────────────────────
+  const sortedVariants = useMemo(() => {
     const firstSeenByKey = new Map<string, number>();
     for (let i = 0; i < variants.length; i++) {
       const v = variants[i];
@@ -1407,6 +2283,7 @@ export default function ColorVariantManager({
       const gk = variantGroupKeyFromState(v);
       if (!firstSeenByKey.has(gk)) firstSeenByKey.set(gk, i);
     }
+    // UNIT first (grouped by color), then PACK
     const unitVars = variants
       .map((v, i) => ({ v, i }))
       .filter(({ v }) => v.saleType === "UNIT")
@@ -1417,522 +2294,39 @@ export default function ColorVariantManager({
       })
       .map(({ v }) => v);
     const packs = variants.filter((v) => v.saleType === "PACK");
-    return { sortedUnitVariants: unitVars, packVariants: packs };
+    return [...unitVars, ...packs];
   }, [variants]);
 
-  function toggleExpanded(tempId: string) {
-    setExpandedVariants((prev) => {
-      const next = new Set(prev);
-      if (next.has(tempId)) next.delete(tempId); else next.add(tempId);
-      return next;
-    });
-  }
-
-  // ── Render helper: size entries section ────────────────────────────────────
-  function renderSizeEntries(v: VariantState) {
-    const isUnit = v.saleType === "UNIT";
-    const usedSizeIds = new Set(v.sizeEntries.map((s) => s.sizeId));
-    const remainingSizes = availableSizes.filter((s) => !usedSizeIds.has(s.id));
-    const canAddMore = isUnit ? v.sizeEntries.length === 0 && remainingSizes.length > 0 : remainingSizes.length > 0;
-
-    return (
-      <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">
-          {isUnit ? "Taille" : "Tailles & quantités"}
-        </p>
-        {v.sizeEntries.length === 0 ? (
-          <p className="text-xs text-[#9CA3AF] italic font-[family-name:var(--font-roboto)]">Aucune taille sélectionnée</p>
-        ) : isUnit ? (
-          // UNIT: single size, no quantity input
-          <div>
-            {v.sizeEntries.slice(0, 1).map((se) => {
-              const sizeOptions = [
-                { value: se.sizeId, label: se.sizeName },
-                ...remainingSizes.map((s) => ({ value: s.id, label: s.name })),
-              ];
-              return (
-                <div key={se.tempId} className="flex items-center gap-2">
-                  <CustomSelect
-                    options={sizeOptions}
-                    value={se.sizeId}
-                    onChange={(val) => {
-                      const sz = availableSizes.find((s) => s.id === val);
-                      if (sz) updateSizeEntry(v.tempId, se.tempId, { sizeId: sz.id, sizeName: sz.name });
-                    }}
-                    size="sm"
-                    className="flex-1"
-                  />
-                  <button type="button" onClick={() => removeSizeEntry(v.tempId, se.tempId)}
-                    className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors" title="Retirer">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          // PACK: size + quantity + pricePerUnit
-          <div className="space-y-1.5">
-            {/* Column headers — Qté & Prix/u are quick-fill inputs: type a value + Enter to fill the whole column */}
-            <div className="grid grid-cols-[1fr_60px_72px_28px] gap-1.5 items-center">
-              <span className="text-[9px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide">Taille</span>
-              <input
-                type="number" min="1" step="1"
-                value={bulkFillValues[v.tempId]?.qty ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setBulkFillValues((prev) => ({ ...prev, [v.tempId]: { qty: val, price: prev[v.tempId]?.price ?? "" } }));
-                  bulkFillQty(v.tempId, val);
-                }}
-                placeholder="Qté ↓"
-                title="Rempli automatiquement toutes les lignes"
-                className="border border-dashed border-[#D1D5DB] bg-[#F7F7F8] px-1.5 py-0.5 text-[10px] text-right rounded focus:outline-none focus:border-[#9CA3AF] w-full font-[family-name:var(--font-roboto)]"
-              />
-              <input
-                type="number" min="0" step="0.01"
-                value={bulkFillValues[v.tempId]?.price ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setBulkFillValues((prev) => ({ ...prev, [v.tempId]: { qty: prev[v.tempId]?.qty ?? "", price: val } }));
-                  bulkFillPrice(v.tempId, val);
-                }}
-                placeholder="Prix ↓"
-                title="Rempli automatiquement toutes les lignes"
-                className="border border-dashed border-[#D1D5DB] bg-[#F7F7F8] px-1.5 py-0.5 text-[10px] text-right rounded focus:outline-none focus:border-[#9CA3AF] w-full font-[family-name:var(--font-roboto)]"
-              />
-              <span />
-            </div>
-            {v.sizeEntries.map((se) => {
-              const sizeOptions = [
-                { value: se.sizeId, label: se.sizeName },
-                ...remainingSizes.map((s) => ({ value: s.id, label: s.name })),
-              ];
-              return (
-                <div key={se.tempId} className="grid grid-cols-[1fr_60px_72px_28px] gap-1.5 items-center">
-                  <CustomSelect
-                    options={sizeOptions}
-                    value={se.sizeId}
-                    onChange={(val) => {
-                      const sz = availableSizes.find((s) => s.id === val);
-                      if (sz) updateSizeEntry(v.tempId, se.tempId, { sizeId: sz.id, sizeName: sz.name });
-                    }}
-                    size="sm"
-                  />
-                  <input
-                    type="number" min="1" step="1" value={se.quantity} placeholder="1"
-                    onChange={(e) => updateSizeEntry(v.tempId, se.tempId, { quantity: e.target.value })}
-                    className="border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)] w-full"
-                  />
-                  <input
-                    type="number" min="0" step="0.01" value={se.pricePerUnit ?? ""} placeholder="0.00"
-                    onChange={(e) => updateSizeEntry(v.tempId, se.tempId, { pricePerUnit: e.target.value })}
-                    className="border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)] w-full"
-                  />
-                  <button type="button" onClick={() => removeSizeEntry(v.tempId, se.tempId)}
-                    className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors flex items-center justify-center" title="Retirer">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {canAddMore && (
-          <button type="button" onClick={() => addSizeEntry(v.tempId)}
-            className="text-xs text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] flex items-center gap-1 transition-colors">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            {isUnit ? "Ajouter une taille" : "Ajouter une taille"}
-          </button>
-        )}
-        {availableSizes.length === 0 && (
-          <p className="text-xs text-amber-600 font-[family-name:var(--font-roboto)]">
-            Aucune taille disponible. Créez des tailles dans Attributs &gt; Tailles et associez-les à la catégorie du produit.
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  // ── Render helper: UNIT variant card (standalone, one card per variant) ────
-  function renderUnitVariantRow(v: VariantState) {
-    const isExpanded  = expandedVariants.has(v.tempId);
-    const isSelected  = selectedIds.has(v.tempId);
-    const isDuplicate = duplicateTempIds.has(v.tempId);
-    const totalPrice = computeTotalPrice(v);
-    const finalPrice = computeFinalPrice(v);
-    const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
-    const sizeSummary = v.sizeEntries.length > 0
-      ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")
-      : "—";
-    const colorDisplayName = [v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ") || "Sans couleur";
-
-    return (
-      <div key={v.tempId} className={`rounded-xl border-2 overflow-hidden bg-white ${isDuplicate ? "border-[#EF4444]" : isSelected ? "border-[#22C55E]" : "border-[#D5D5D5]"}`}>
-        {/* Main row */}
-        <div
-          className={`flex flex-wrap items-center gap-2 px-4 py-3 cursor-pointer transition-colors ${
-            isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "hover:bg-[#F7F7F8]"
-          }`}
-          onClick={() => toggleExpanded(v.tempId)}
-        >
-          <input type="checkbox" checked={isSelected}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              const next = new Set(selectedIds);
-              if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
-              setSelectedIds(next);
-            }}
-            className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
-
-          <span className="badge badge-info text-[10px]">Unité</span>
-
-          {/* Color swatch + name */}
-          <ColorSwatch
-            hex={v.colorHex}
-            patternImage={availableColors.find((c) => c.id === v.colorId)?.patternImage ?? null}
-            subColors={v.subColors.length > 0
-              ? [{ hex: v.colorHex, patternImage: null }, ...v.subColors.map((sc) => ({ hex: sc.colorHex, patternImage: null }))]
-              : undefined}
-            size={22} rounded="full" border
-          />
-          <span className="text-xs font-medium text-[#1A1A1A] font-[family-name:var(--font-poppins)] truncate max-w-[140px]" title={colorDisplayName}>
-            {colorDisplayName}
-          </span>
-
-          {/* Size summary */}
-          <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] truncate max-w-[180px]" title={sizeSummary}>
-            {sizeSummary}
-          </span>
-
-          {/* Price + stock */}
-          <div className="ml-auto flex items-center gap-3">
-            <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-              {v.unitPrice ? `${v.unitPrice}€` : "—"}
-            </span>
-            {finalPrice !== null && hasDiscount && (
-              <span className="text-xs font-semibold text-emerald-600 font-[family-name:var(--font-poppins)]">
-                {finalPrice.toFixed(2)}€
-              </span>
-            )}
-            <span className="text-[10px] text-[#9CA3AF]">stock: {v.stock || "0"}</span>
-
-            <svg className={`w-4 h-4 text-[#9CA3AF] transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-
-            {variants.length > 1 && (
-              <button type="button" onClick={(e) => { e.stopPropagation(); removeVariant(v.tempId); }}
-                title="Supprimer" className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Expanded details */}
-        {isExpanded && (
-          <div className="px-4 py-3 border-t border-[#F0F0F0] bg-[#FAFAFA] space-y-4" onClick={(e) => e.stopPropagation()}>
-            {/* Type switcher */}
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)] mb-2">Type de vente</p>
-              <div className="flex gap-2">
-                <button type="button"
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md bg-[#3B82F6] text-white font-[family-name:var(--font-roboto)]">
-                  Unité
-                </button>
-                <button type="button"
-                  onClick={() => updateVariant(v.tempId, {
-                    saleType: "PACK",
-                    colorId: "",
-                    colorName: "",
-                    colorHex: "#9CA3AF",
-                    subColors: [],
-                    packColorLines: [{ tempId: uid(), colors: [] }],
-                  })}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md border border-[#D5D5D5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
-                  Pack
-                </button>
-              </div>
-            </div>
-
-            {/* Color selector */}
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)] mb-2">Couleur</p>
-              <MultiColorSelect
-                selected={v.colorId ? [
-                  { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
-                  ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
-                ] : []}
-                options={availableColors}
-                onChange={(colors) => handleMultiColorChange(new Set([v.tempId]), colors)}
-                existingVariants={variants}
-                onCreateColor={onQuickCreateColor}
-              />
-            </div>
-
-            {/* Pricing row */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Prix (€ HT)</label>
-                <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
-                  onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
-                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Stock</label>
-                <input type="number" min="0" step="1" value={v.stock} placeholder="0"
-                  onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
-                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Poids (kg)</label>
-                <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.008"
-                  onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
-                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Remise</label>
-                <div className="flex gap-1 mt-1">
-                  <CustomSelect value={v.discountType}
-                    onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
-                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
-                    size="sm" className="w-[65px]" />
-                  {v.discountType && (
-                    <input type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
-                      onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
-                      className="w-16 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Sizes */}
-            {renderSizeEntries(v)}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ── Render helper: PACK variant card ──────────────────────────────────────
-  function renderPackVariant(v: VariantState) {
-    const isExpanded  = expandedVariants.has(v.tempId);
-    const isSelected  = selectedIds.has(v.tempId);
-    const isDuplicate = duplicateTempIds.has(v.tempId);
-    const totalPrice = computeTotalPrice(v);
-    const finalPrice = computeFinalPrice(v);
-    const hasDiscount = finalPrice !== null && totalPrice !== null && finalPrice !== totalPrice;
-    const colorLinesSummary = v.packColorLines.length > 0
-      ? v.packColorLines.map((l) => l.colors.map((c) => c.colorName).join("+")).join(" | ")
-      : "Aucune couleur";
-    const sizeSummary = v.sizeEntries.length > 0
-      ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")
-      : "—";
-    // Detect duplicate pack color lines (same colors in same order)
-    const packColorLineKeys = v.packColorLines.map((l) => l.colors.map((c) => c.colorId).join(","));
-    const duplicateLineKeys = new Set<string>();
-    const seenLineKeys = new Set<string>();
-    for (const k of packColorLineKeys) {
-      if (k && seenLineKeys.has(k)) duplicateLineKeys.add(k);
-      if (k) seenLineKeys.add(k);
+  // ── Render helper: size summary cell ──────────────────────────────────────
+  function renderSizeSummary(v: VariantState) {
+    if (v.sizeEntries.length === 0) return <span className="text-[#9CA3AF] italic">—</span>;
+    if (v.saleType === "UNIT") {
+      return <span>{v.sizeEntries[0]?.sizeName}</span>;
     }
-
+    // PACK
     return (
-      <div key={v.tempId} className={`rounded-xl border-2 overflow-hidden bg-white ${isDuplicate ? "border-[#EF4444]" : isSelected ? "border-[#22C55E]" : "border-[#D5D5D5]"}`}>
-        {/* Header */}
-        <div
-          className={`flex flex-wrap items-center gap-2 px-4 py-3 cursor-pointer transition-colors ${
-            isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "bg-[#F7F7F8] hover:bg-[#EFEFEF]"
-          }`}
-          onClick={() => toggleExpanded(v.tempId)}
-        >
-          <input type="checkbox" checked={isSelected}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              const next = new Set(selectedIds);
-              if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
-              setSelectedIds(next);
-            }}
-            className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
+      <span className="truncate" title={v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}>
+        {v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}
+      </span>
+    );
+  }
 
-          <span className="badge badge-purple text-[10px]">Pack ×{v.packQuantity || "?"}</span>
-
-          {/* Color lines summary */}
-          <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] truncate max-w-[300px]" title={colorLinesSummary}>
-            {colorLinesSummary}
-          </span>
-
-          <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]" title={sizeSummary}>
-            [{sizeSummary}]
-          </span>
-
-          <div className="ml-auto flex items-center gap-3">
-            {totalPrice !== null ? (
-              <div className="text-right">
-                {hasDiscount && finalPrice !== null ? (
-                  <>
-                    <span className="text-xs text-[#9CA3AF] line-through font-[family-name:var(--font-roboto)]">{totalPrice.toFixed(2)}€</span>
-                    <span className="ml-1.5 text-xs font-semibold text-emerald-600 font-[family-name:var(--font-poppins)]">{finalPrice.toFixed(2)}€</span>
-                  </>
-                ) : (
-                  <span className="text-xs font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">{totalPrice.toFixed(2)}€</span>
-                )}
-              </div>
-            ) : (
-              <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">—</span>
-            )}
-            <span className="text-[10px] text-[#9CA3AF]">stock: {v.stock || "0"}</span>
-
-            <svg className={`w-4 h-4 text-[#9CA3AF] transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-
-            {variants.length > 1 && (
-              <button type="button" onClick={(e) => { e.stopPropagation(); removeVariant(v.tempId); }}
-                title="Supprimer" className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Expanded body */}
-        {isExpanded && (
-          <div className="px-4 py-4 border-t border-[#E5E5E5] space-y-4" onClick={(e) => e.stopPropagation()}>
-            {/* Type switcher */}
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)] mb-2">Type de vente</p>
-              <div className="flex gap-2">
-                <button type="button"
-                  onClick={() => updateVariant(v.tempId, {
-                    saleType: "UNIT",
-                    packColorLines: [],
-                    packQuantity: "",
-                  })}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md border border-[#D5D5D5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
-                  Unité
-                </button>
-                <button type="button"
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md bg-[#7C3AED] text-white font-[family-name:var(--font-roboto)]">
-                  Pack
-                </button>
-              </div>
-            </div>
-
-            {/* Color lines */}
-            <div className="space-y-2">
-              <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">
-                Lignes de couleur
-              </p>
-              {v.packColorLines.map((line, lineIdx) => {
-                const lineKey = line.colors.map((c) => c.colorId).join(",");
-                const isDupLine = lineKey !== "" && duplicateLineKeys.has(lineKey);
-                return (
-                  <div key={line.tempId} className={`flex items-center gap-2 p-2 rounded-lg border ${isDupLine ? "border-[#EF4444] bg-[#FEF2F2]" : "border-[#E5E5E5] bg-[#FAFAFA]"}`}>
-                    <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] shrink-0 w-5">
-                      {lineIdx + 1}.
-                    </span>
-                    <div className="flex-1">
-                      <MultiColorSelect
-                        selected={line.colors}
-                        options={availableColors}
-                        onChange={(colors) => updatePackColorLine(v.tempId, line.tempId, colors)}
-                        onCreateColor={onQuickCreateColor}
-                      />
-                    </div>
-                    {isDupLine && (
-                      <span className="text-[10px] text-[#EF4444] font-semibold font-[family-name:var(--font-roboto)] shrink-0">Doublon</span>
-                    )}
-                    {v.packColorLines.length > 1 && (
-                      <button type="button" onClick={() => removePackColorLine(v.tempId, line.tempId)}
-                        className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors" title="Retirer">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-              {duplicateLineKeys.size > 0 && (
-                <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)] flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  Doublon : deux lignes ont la même composition de couleurs dans le même ordre.
-                </p>
-              )}
-              <button type="button" onClick={() => addPackColorLine(v.tempId)}
-                className="text-xs text-[#6B6B6B] hover:text-[#1A1A1A] font-[family-name:var(--font-roboto)] flex items-center gap-1 transition-colors">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                Ajouter une ligne de couleur
-              </button>
-            </div>
-
-            {/* Shared sizes with per-size pricing */}
-            {renderSizeEntries(v)}
-
-            {/* Computed total display */}
-            {totalPrice !== null && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg">
-                <svg className="w-3.5 h-3.5 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="text-xs font-[family-name:var(--font-roboto)] text-[#166534]">
-                  Prix total paquet calculé : <strong>{totalPrice.toFixed(2)} €</strong>
-                  {v.packQuantity && <span className="text-[11px] text-[#22C55E] ml-1">(× {v.packQuantity} paquets = {totalPrice.toFixed(2)} € / paquet)</span>}
-                </span>
-              </div>
-            )}
-
-            {/* Pricing: packQuantity, stock, weight, discount — no global price input */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Qté/paquet</label>
-                <input type="number" min="1" step="1" value={v.packQuantity} placeholder="1"
-                  onChange={(e) => updateVariant(v.tempId, { packQuantity: e.target.value })}
-                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Stock</label>
-                <input type="number" min="0" step="1" value={v.stock} placeholder="0"
-                  onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
-                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Poids (kg)</label>
-                <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.008"
-                  onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
-                  className="w-full mt-1 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Remise</label>
-                <div className="flex gap-1 mt-1">
-                  <CustomSelect value={v.discountType}
-                    onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
-                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
-                    size="sm" className="w-[65px]" />
-                  {v.discountType && (
-                    <input type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
-                      onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
-                      className="w-16 border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+  // ── Render helper: total price ────────────────────────────────────────────
+  function renderTotalPrice(v: VariantState) {
+    const total = computeTotalPrice(v);
+    const final = computeFinalPrice(v);
+    const hasDiscount = final !== null && total !== null && final !== total;
+    if (total === null) return <span className="text-[#9CA3AF]">—</span>;
+    return (
+      <div className="text-right">
+        {hasDiscount && final !== null ? (
+          <>
+            <span className="text-[#9CA3AF] line-through text-[10px]">{total.toFixed(2)}€</span>
+            <br />
+            <span className="text-emerald-600 font-semibold">{final.toFixed(2)}€</span>
+          </>
+        ) : (
+          <span className="font-semibold">{total.toFixed(2)}€</span>
         )}
       </div>
     );
@@ -1947,93 +2341,299 @@ export default function ColorVariantManager({
           Cliquez sur &ldquo;Ajouter une variante&rdquo; pour commencer.
         </div>
       ) : (
-        <div className="space-y-4">
-          {/* ── Bulk edit bar ── */}
-          <div className={`rounded-xl p-4 space-y-3 border-2 transition-colors ${
-            showBulkRow ? "bg-[#F0FDF4] border-[#22C55E]" : "bg-[#F7F7F8] border-[#E5E5E5]"
-          }`}>
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox"
-                  checked={selectedIds.size === variants.length && variants.length > 0}
-                  ref={selectAllRef}
-                  onChange={(e) => {
-                    if (e.target.checked) setSelectedIds(new Set(variants.map((v) => v.tempId)));
-                    else setSelectedIds(new Set());
-                  }}
-                  className="accent-[#22C55E] cursor-pointer w-4 h-4"
-                />
-                <span className={`text-xs font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>
-                  {showBulkRow
-                    ? `${selectedIds.size} variante${selectedIds.size > 1 ? "s" : ""} sélectionnée${selectedIds.size > 1 ? "s" : ""}`
-                    : "Tout sélectionner pour modifier en masse"}
-                </span>
-              </label>
-              <button type="button" onClick={applyBulk} disabled={!showBulkRow}
-                className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors font-[family-name:var(--font-roboto)] ${
-                  showBulkRow ? "bg-[#22C55E] text-white hover:bg-[#16A34A]" : "bg-[#E5E5E5] text-[#9CA3AF] cursor-not-allowed"
-                }`}>Appliquer</button>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div>
-                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Prix</label>
-                <input type="number" min="0" step="0.01" placeholder="—" value={bulkEdit.unitPrice} disabled={!showBulkRow}
-                  onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
-                  className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
-                    showBulkRow ? "border-[#22C55E] bg-white" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
-                  }`} />
-              </div>
-              <div>
-                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Stock</label>
-                <input type="number" min="0" step="1" placeholder="—" value={bulkEdit.stock} disabled={!showBulkRow}
-                  onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
-                  className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
-                    showBulkRow ? "border-[#22C55E] bg-white" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
-                  }`} />
-              </div>
-              <div>
-                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Poids</label>
-                <input type="number" min="0" step="0.001" placeholder="—" value={bulkEdit.weight} disabled={!showBulkRow}
-                  onChange={(e) => setBulkEdit((b) => ({ ...b, weight: e.target.value }))}
-                  className={`w-full mt-1 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
-                    showBulkRow ? "border-[#22C55E] bg-white" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
-                  }`} />
-              </div>
-              <div>
-                <label className={`text-[10px] uppercase tracking-wider font-semibold font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A]" : "text-[#9CA3AF]"}`}>Remise</label>
-                <div className="flex gap-1 mt-1">
-                  <CustomSelect value={bulkEdit.discountType} disabled={!showBulkRow}
-                    onChange={(val) => setBulkEdit((b) => ({ ...b, discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" }))}
-                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
-                    size="sm" className="w-[70px]" />
-                  {bulkEdit.discountType && (
-                    <input type="number" min="0" step="0.01" placeholder="0" value={bulkEdit.discountValue} disabled={!showBulkRow}
-                      onChange={(e) => setBulkEdit((b) => ({ ...b, discountValue: e.target.value }))}
-                      className={`w-16 border px-2 py-1.5 text-xs rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
-                        showBulkRow ? "border-[#22C55E] bg-white" : "border-[#E5E5E5] bg-[#EFEFEF] text-[#9CA3AF] cursor-not-allowed"
-                      }`} />
-                  )}
-                </div>
-              </div>
+        <div className="space-y-3">
+          {/* ── Variants TABLE ── */}
+          <div className="border border-[#E5E5E5] rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs font-[family-name:var(--font-roboto)]">
+                <thead>
+                  {/* Column headers */}
+                  <tr className="bg-[#F7F7F8] border-b border-[#E5E5E5]">
+                    <th className="w-8 px-2 py-2 text-center">
+                      <input type="checkbox"
+                        checked={selectedIds.size === variants.length && variants.length > 0}
+                        ref={selectAllRef}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedIds(new Set(variants.map((v) => v.tempId)));
+                          else setSelectedIds(new Set());
+                        }}
+                        className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5"
+                      />
+                    </th>
+                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold">Type</th>
+                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold min-w-[140px]">Couleur</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold w-[90px]">Prix/unité</th>
+                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold min-w-[120px]">Tailles</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold w-[80px]">Total</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold w-[70px]">Stock</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold w-[80px]">Poids</th>
+                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold w-[100px]">Remise</th>
+                    <th className="w-10 px-2 py-2"></th>
+                  </tr>
+                  {/* Bulk edit row — inline in thead */}
+                  <tr className={`border-b transition-colors ${showBulkRow ? "bg-[#F0FDF4] border-[#BBF7D0]" : "bg-[#FAFAFA] border-[#E5E5E5]"}`}>
+                    <td className="px-2 py-1.5 text-center">
+                      <span className={`text-[9px] font-semibold ${showBulkRow ? "text-[#16A34A]" : "text-[#D1D5DB]"}`}>
+                        {showBulkRow ? selectedIds.size : "—"}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5" colSpan={2}>
+                      <span className={`text-[10px] font-[family-name:var(--font-roboto)] ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
+                        {showBulkRow
+                          ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}`
+                          : "Modification en masse"}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice} disabled={!showBulkRow}
+                        onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
+                        className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
+                          showBulkRow ? "border-[#86EFAC] bg-white" : "border-[#E5E5E5] bg-[#F7F7F8] text-[#D1D5DB] cursor-not-allowed"
+                        }`} />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {/* Tailles: not bulk-editable */}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {/* Total: computed */}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock} disabled={!showBulkRow}
+                        onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
+                        className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
+                          showBulkRow ? "border-[#86EFAC] bg-white" : "border-[#E5E5E5] bg-[#F7F7F8] text-[#D1D5DB] cursor-not-allowed"
+                        }`} />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input type="number" min="0" step="0.001" placeholder="Poids" value={bulkEdit.weight} disabled={!showBulkRow}
+                        onChange={(e) => setBulkEdit((b) => ({ ...b, weight: e.target.value }))}
+                        className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
+                          showBulkRow ? "border-[#86EFAC] bg-white" : "border-[#E5E5E5] bg-[#F7F7F8] text-[#D1D5DB] cursor-not-allowed"
+                        }`} />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <div className="flex gap-1 items-center">
+                        <CustomSelect value={bulkEdit.discountType} disabled={!showBulkRow}
+                          onChange={(val) => setBulkEdit((b) => ({ ...b, discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" }))}
+                          options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
+                          size="sm" className="w-[50px]" />
+                        {bulkEdit.discountType && (
+                          <input type="number" min="0" step="0.01" placeholder="0" value={bulkEdit.discountValue} disabled={!showBulkRow}
+                            onChange={(e) => setBulkEdit((b) => ({ ...b, discountValue: e.target.value }))}
+                            className={`w-14 border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-[family-name:var(--font-roboto)] ${
+                              showBulkRow ? "border-[#86EFAC] bg-white" : "border-[#E5E5E5] bg-[#F7F7F8] text-[#D1D5DB] cursor-not-allowed"
+                            }`} />
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 text-center">
+                      <button type="button" onClick={applyBulk} disabled={!showBulkRow}
+                        title="Appliquer en masse"
+                        className={`p-1 rounded transition-colors ${
+                          showBulkRow ? "text-[#16A34A] hover:bg-[#DCFCE7]" : "text-[#D1D5DB] cursor-not-allowed"
+                        }`}>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedVariants.map((v) => {
+                    const isSelected  = selectedIds.has(v.tempId);
+                    const isDuplicate = duplicateTempIds.has(v.tempId);
+                    const isUnit = v.saleType === "UNIT";
+                    const colorDisplayName = isUnit
+                      ? ([v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ") || "Sans couleur")
+                      : (v.packColorLines[0]?.colors?.map((c) => c.colorName).join(" + ") || "Aucune couleur");
+
+                    return (
+                      <tr
+                        key={v.tempId}
+                        className={`border-b border-[#F0F0F0] last:border-b-0 transition-colors ${
+                          isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "hover:bg-[#FAFAFA]"
+                        }`}
+                      >
+                        {/* Checkbox */}
+                        <td className="px-2 py-2 text-center">
+                          <input type="checkbox" checked={isSelected}
+                            onChange={(e) => {
+                              const next = new Set(selectedIds);
+                              if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
+                              setSelectedIds(next);
+                            }}
+                            className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5" />
+                        </td>
+
+                        {/* Type */}
+                        <td className="px-2 py-2">
+                          <CustomSelect
+                            value={v.saleType}
+                            onChange={(val) => {
+                              if (val === "PACK" && v.saleType === "UNIT") {
+                                updateVariant(v.tempId, {
+                                  saleType: "PACK",
+                                  colorId: "",
+                                  colorName: "",
+                                  colorHex: "#9CA3AF",
+                                  subColors: [],
+                                  packColorLines: [{ tempId: uid(), colors: [] }],
+                                  packQuantity: "1",
+                                });
+                              } else if (val === "UNIT" && v.saleType === "PACK") {
+                                updateVariant(v.tempId, {
+                                  saleType: "UNIT",
+                                  packColorLines: [],
+                                  packQuantity: "",
+                                  sizeEntries: v.sizeEntries.slice(0, 1),
+                                });
+                              }
+                            }}
+                            options={[
+                              { value: "UNIT", label: "Unité" },
+                              { value: "PACK", label: "Pack" },
+                            ]}
+                            size="sm"
+                            className="w-[75px]"
+                          />
+                        </td>
+
+                        {/* Color */}
+                        <td className="px-2 py-2">
+                          {isUnit ? (
+                            <MultiColorSelect
+                              selected={v.colorId ? [
+                                { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
+                                ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
+                              ] : []}
+                              options={availableColors}
+                              onChange={(colors) => handleMultiColorChange(new Set([v.tempId]), colors)}
+                              existingVariants={variants}
+                              editingGroupKey={variantGroupKeyFromState(v)}
+                              pfsColorRef={v.pfsColorRef}
+                              onPfsColorRefChange={(ref) => updateVariant(v.tempId, { pfsColorRef: ref })}
+                              usedPfsColorRefs={(() => {
+                                const map = new Map<string, string>();
+                                for (const ov of variants) {
+                                  if (ov.tempId === v.tempId || !ov.colorId) continue;
+                                  // For multi-color: use variant pfsColorRef override
+                                  const ref = ov.subColors.length > 0
+                                    ? ov.pfsColorRef
+                                    : availableColors.find((c) => c.id === ov.colorId)?.pfsColorRef ?? "";
+                                  if (ref) {
+                                    const label = ov.subColors.length > 0
+                                      ? [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ")
+                                      : ov.colorName;
+                                    map.set(ref, label);
+                                  }
+                                }
+                                return map;
+                              })()}
+                              onCreateColor={onQuickCreateColor}
+                            />
+                          ) : (
+                            <MultiColorSelect
+                              selected={v.packColorLines[0]?.colors ?? []}
+                              options={availableColors}
+                              onChange={(colors) => updatePackColorLine(v.tempId, colors)}
+                              onCreateColor={onQuickCreateColor}
+                            />
+                          )}
+                        </td>
+
+                        {/* Unit Price */}
+                        <td className="px-2 py-2">
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={v.unitPrice}
+                            placeholder="0.00"
+                            onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                          />
+                        </td>
+
+                        {/* Sizes — click to open modal */}
+                        <td className="px-2 py-2">
+                          <button
+                            type="button"
+                            onClick={() => setSizeModalVariantId(v.tempId)}
+                            className="w-full flex items-center gap-1.5 bg-white border border-[#E5E5E5] px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px] max-w-[200px]"
+                            title={v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ") : "Ajouter des tailles"}
+                          >
+                            {renderSizeSummary(v)}
+                            <svg className="w-3 h-3 text-[#9CA3AF] shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </button>
+                        </td>
+
+                        {/* Total price */}
+                        <td className="px-2 py-2 text-right text-xs">
+                          {renderTotalPrice(v)}
+                        </td>
+
+                        {/* Stock */}
+                        <td className="px-2 py-2">
+                          <input
+                            type="number" min="0" step="1"
+                            value={v.stock}
+                            placeholder="0"
+                            onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
+                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                          />
+                        </td>
+
+                        {/* Weight */}
+                        <td className="px-2 py-2">
+                          <input
+                            type="number" min="0" step="0.001"
+                            value={v.weight}
+                            placeholder="0.000"
+                            onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
+                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                          />
+                        </td>
+
+                        {/* Discount */}
+                        <td className="px-2 py-2">
+                          <div className="flex gap-1 items-center">
+                            <CustomSelect
+                              value={v.discountType}
+                              onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
+                              options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
+                              size="sm"
+                              className="w-[50px]"
+                            />
+                            {v.discountType && (
+                              <input type="number" min="0" step="0.01"
+                                value={v.discountValue}
+                                placeholder="0"
+                                onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
+                                className="w-14 border border-[#E5E5E5] bg-white px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                              />
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-2 py-2 text-center">
+                          {variants.length > 1 && (
+                            <button type="button" onClick={() => removeVariant(v.tempId)}
+                              title="Supprimer" className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
-
-          {/* ── UNIT variants (1 card per variant, grouped by color adjacency) ── */}
-          {sortedUnitVariants.map((v) => renderUnitVariantRow(v))}
-
-          {/* ── PACK variants ── */}
-          {packVariants.length > 0 && (
-            <>
-              {sortedUnitVariants.length > 0 && (
-                <div className="flex items-center gap-3 pt-2">
-                  <div className="flex-1 border-t border-[#E5E5E5]" />
-                  <span className="text-[10px] uppercase tracking-wider text-[#9CA3AF] font-semibold font-[family-name:var(--font-roboto)]">Paquets</span>
-                  <div className="flex-1 border-t border-[#E5E5E5]" />
-                </div>
-              )}
-              {packVariants.map((v) => renderPackVariant(v))}
-            </>
-          )}
 
           {/* Duplicate warning */}
           {duplicateTempIds.size > 0 && (
@@ -2051,16 +2651,28 @@ export default function ColorVariantManager({
 
       {/* ── Action buttons ── */}
       <div className="flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={addVariant}
-          className="w-full border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 rounded-lg"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Ajouter une variante
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={addVariant}
+            className="flex-1 border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 rounded-lg"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Ajouter une variante
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowQuickAdd(true)}
+            className="flex-1 border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 rounded-lg"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+            </svg>
+            Création rapide
+          </button>
+        </div>
 
         {variants.length > 0 && (
           <button
@@ -2073,57 +2685,6 @@ export default function ColorVariantManager({
             </svg>
             Gérer les images ({totalPhotos} photo{totalPhotos !== 1 ? "s" : ""})
           </button>
-        )}
-
-        {onQuickCreateColor && (
-          !showQuickCreate ? (
-            <button type="button" onClick={() => setShowQuickCreate(true)}
-              className="w-full border-2 border-dashed border-[#E5E5E5] py-3 text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] transition-colors flex items-center justify-center gap-2 rounded-lg">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
-              </svg>
-              Créer une couleur
-            </button>
-          ) : (
-            <div className="border-2 border-dashed border-[#1A1A1A] bg-[#F7F7F8] p-4 space-y-3 rounded-lg">
-              <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider font-[family-name:var(--font-roboto)]">Nouvelle couleur</p>
-              <div className="flex gap-3">
-                <input type="text" value={newColorName} onChange={(e) => setNewColorName(e.target.value)} placeholder="Nom de la couleur" autoFocus
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleQuickSave(); } }}
-                  className="flex-1 border border-[#E5E5E5] px-3 py-2 text-sm font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] bg-white rounded" />
-                <input type="color" value={newColorHex} onChange={(e) => setNewColorHex(e.target.value)}
-                  className="w-9 h-9 border border-[#E5E5E5] cursor-pointer p-0.5 shrink-0 bg-white rounded" title="Couleur hex" />
-              </div>
-              <div>
-                <p className="text-[11px] text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1.5">Image motif <span className="text-[#9CA3AF]">(optionnel)</span></p>
-                {newColorPattern ? (
-                  <div className="flex items-center gap-3">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={newColorPattern} alt="Motif" className="w-12 h-12 rounded-lg border border-[#E5E5E5] object-cover" />
-                    <button type="button" onClick={() => setNewColorPattern(null)} className="text-xs text-[#EF4444] hover:underline font-[family-name:var(--font-roboto)]">Supprimer</button>
-                  </div>
-                ) : (
-                  <label className="flex items-center gap-2 px-3 py-2 border border-dashed border-[#D1D5DB] rounded-lg cursor-pointer hover:border-[#1A1A1A] transition-colors bg-white">
-                    <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" /></svg>
-                    <span className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">{patternUploading ? "Upload..." : "Ajouter une image motif"}</span>
-                    <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" disabled={patternUploading}
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePatternUpload(f); e.target.value = ""; }} />
-                  </label>
-                )}
-              </div>
-              {quickCreateErr && <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{quickCreateErr}</p>}
-              <div className="flex gap-2">
-                <button type="button" onClick={handleQuickSave} disabled={quickSaving || patternUploading || !newColorName.trim()}
-                  className="flex-1 py-2 bg-[#1A1A1A] text-white text-sm font-medium hover:bg-black transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)] rounded">
-                  {quickSaving ? "Création..." : "Créer la couleur"}
-                </button>
-                <button type="button" onClick={() => { setShowQuickCreate(false); setQuickCreateErr(""); setNewColorPattern(null); }}
-                  className="px-4 py-2 border border-[#E5E5E5] text-sm text-[#6B6B6B] hover:border-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)] rounded">
-                  Annuler
-                </button>
-              </div>
-            </div>
-          )
         )}
       </div>
 
@@ -2146,6 +2707,34 @@ export default function ColorVariantManager({
         variants={variants}
         availableColors={availableColors}
         onSetPrimary={(variantTempId) => setPrimary(variantTempId)}
+      />
+
+      {/* ── Size Modal ── */}
+      {sizeModalVariant && (
+        <SizeModal
+          open={!!sizeModalVariantId}
+          onClose={() => setSizeModalVariantId(null)}
+          variant={sizeModalVariant}
+          availableSizes={availableSizes}
+          categoryId={categoryId}
+          allCategories={allCategories}
+          onSave={(entries) => handleSizeSave(sizeModalVariant.tempId, entries)}
+          onQuickCreateSize={onQuickCreateSize}
+        />
+      )}
+
+      {/* ── Quick Add Modal ── */}
+      <QuickAddModal
+        open={showQuickAdd}
+        onClose={() => setShowQuickAdd(false)}
+        existingVariants={variants}
+        availableColors={availableColors}
+        availableSizes={availableSizes}
+        categoryId={categoryId}
+        onCreateColor={onQuickCreateColor}
+        onQuickCreateSize={onQuickCreateSize}
+        allCategories={allCategories}
+        onConfirm={handleQuickAddConfirm}
       />
     </div>
   );

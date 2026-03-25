@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
+import { pfsUpdateStatus, type PfsStatus } from "@/lib/pfs-api-write";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -45,6 +46,7 @@ export interface ColorInput {
   packColorLines: PackColorLineInput[];  // PACK: lignes de couleur
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
+  pfsColorRef?: string | null; // Override PFS color for multi-color variants
 }
 
 export interface CompositionInput {
@@ -79,6 +81,7 @@ export interface ProductInput {
   manufacturingCountryId?: string | null;
   seasonId?: string | null;
   translations?: TranslationInput[];
+  isIncomplete?: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -106,11 +109,11 @@ function validateVariants(colors: ColorInput[]): void {
     }
   }
 
-  // PACK variants: must have at least one color line
+  // PACK variants: must have exactly one color line
   for (const c of colors) {
     if (c.saleType === "PACK") {
-      if (c.packColorLines.length === 0) {
-        throw new Error("Un paquet doit avoir au moins une ligne de couleur.");
+      if (c.packColorLines.length !== 1) {
+        throw new Error("Un paquet doit avoir exactement une ligne de couleur.");
       }
     }
   }
@@ -123,7 +126,10 @@ function validateVariants(colors: ColorInput[]): void {
 export async function createProduct(input: ProductInput): Promise<{ id: string }> {
   await requireAdmin();
 
-  validateVariants(input.colors);
+  // Skip strict variant validation for incomplete products
+  if (!input.isIncomplete) {
+    validateVariants(input.colors);
+  }
 
   const existing = await prisma.product.findUnique({ where: { reference: input.reference }, select: { id: true } });
   if (existing) throw new Error("Cette référence existe déjà.");
@@ -151,6 +157,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       categoryId:    input.categoryId,
       isBestSeller:  input.isBestSeller,
       status:        input.status,
+      isIncomplete:  input.isIncomplete ?? false,
       subCategories: { connect: input.subCategoryIds.map((id) => ({ id })) },
       tags:          { create: tagRecords.map((t) => ({ tagId: t.id })) },
       dimensionLength:       input.dimensionLength,
@@ -185,6 +192,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         packQuantity:  color.packQuantity,
         discountType:  color.discountType,
         discountValue: color.discountValue,
+        pfsColorRef:   color.pfsColorRef || null,
         subColors: color.subColorIds && color.subColorIds.length > 0
           ? { create: color.subColorIds.map((scId, pos) => ({ colorId: scId, position: pos })) }
           : undefined,
@@ -304,16 +312,19 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 export async function updateProduct(id: string, input: ProductInput): Promise<void> {
   await requireAdmin();
 
-  // ── Defensive validation: reject obviously corrupt payloads ────────
+  // ── Defensive validation: DB non-nullable constraints ────────
   if (!input.reference?.trim()) throw new Error("La référence est requise.");
   if (!input.name?.trim()) throw new Error("Le nom est requis.");
-  if (!input.description?.trim()) throw new Error("La description est requise.");
   if (!input.categoryId) throw new Error("La catégorie est requise.");
-  if (!input.colors || input.colors.length === 0) {
-    throw new Error("Au moins une variante est requise.");
-  }
 
-  validateVariants(input.colors);
+  // Skip strict validation for incomplete products (variants, description, etc.)
+  if (!input.isIncomplete) {
+    if (!input.description?.trim()) throw new Error("La description est requise.");
+    if (!input.colors || input.colors.length === 0) {
+      throw new Error("Au moins une variante est requise.");
+    }
+    validateVariants(input.colors);
+  }
 
   const oldProduct = await prisma.product.findUnique({
     where: { id },
@@ -352,6 +363,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         categoryId:    input.categoryId,
         isBestSeller:  input.isBestSeller,
         status:        input.status,
+        isIncomplete:  input.isIncomplete ?? false,
         subCategories: { set: input.subCategoryIds.map((id) => ({ id })) },
         dimensionLength:       input.dimensionLength,
         dimensionWidth:        input.dimensionWidth,
@@ -429,6 +441,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             packQuantity:  colorInput.packQuantity,
             discountType:  colorInput.discountType,
             discountValue: colorInput.discountValue,
+            pfsColorRef:   colorInput.pfsColorRef || null,
           },
         });
         variantIdMap.push({ colorInput, variantId: colorInput.dbId });
@@ -446,6 +459,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             packQuantity:  colorInput.packQuantity,
             discountType:  colorInput.discountType,
             discountValue: colorInput.discountValue,
+            pfsColorRef:   colorInput.pfsColorRef || null,
           },
         });
         variantIdMap.push({ colorInput, variantId: created.id });
@@ -640,6 +654,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
   }
 
+
 }
 
 // ─────────────────────────────────────────────
@@ -672,20 +687,32 @@ export async function deleteProduct(id: string) {
 
 export async function archiveProduct(id: string) {
   await requireAdmin();
+  const product = await prisma.product.findUnique({ where: { id }, select: { pfsProductId: true } });
   await prisma.product.update({ where: { id }, data: { status: "ARCHIVED" } });
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
+  if (product?.pfsProductId) {
+    pfsUpdateStatus([{ id: product.pfsProductId, status: "ARCHIVED" }]).catch((err) => {
+      console.warn(`[PFS] Archive status sync failed for product ${id}:`, err);
+    });
+  }
 }
 
 export async function unarchiveProduct(id: string) {
   await requireAdmin();
+  const product = await prisma.product.findUnique({ where: { id }, select: { pfsProductId: true } });
   await prisma.product.update({ where: { id }, data: { status: "OFFLINE" } });
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
+  if (product?.pfsProductId) {
+    pfsUpdateStatus([{ id: product.pfsProductId, status: "DRAFT" }]).catch((err) => {
+      console.warn(`[PFS] Unarchive status sync failed for product ${id}:`, err);
+    });
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -724,7 +751,9 @@ export async function bulkUpdateProductStatus(
   for (const product of products) {
     if (status === "ONLINE") {
       const reasons: string[] = [];
+      if (product.isIncomplete) reasons.push("produit incomplet");
       if (product.colors.length === 0) reasons.push("aucune variante");
+      if (product.colors.length > 0 && product.colors.every(c => c.stock === 0)) reasons.push("aucun stock");
       if ((imageCountMap.get(product.id) ?? 0) === 0) reasons.push("aucune image");
       if (!product.categoryId) reasons.push("pas de catégorie");
       if (reasons.length > 0) {
@@ -746,12 +775,30 @@ export async function bulkUpdateProductStatus(
   revalidatePath("/produits");
   revalidateTag("products", "default");
 
-  // Emit SSE events + PFS sync for each updated product
+  // Emit SSE events for each updated product
   for (const pid of success) {
     if (status === "ONLINE") {
       emitProductEvent({ type: "PRODUCT_ONLINE", productId: pid });
     } else {
       emitProductEvent({ type: "PRODUCT_OFFLINE", productId: pid });
+    }
+  }
+
+  // Sync status to PFS for linked products
+  const pfsStatusMap: Record<string, PfsStatus> = {
+    ONLINE: "READY_FOR_SALE",
+    OFFLINE: "DRAFT",
+    ARCHIVED: "ARCHIVED",
+  };
+  const pfsStatus = pfsStatusMap[status];
+  if (pfsStatus) {
+    const pfsUpdates = products
+      .filter((p) => success.includes(p.id) && p.pfsProductId && p.status !== status)
+      .map((p) => ({ id: p.pfsProductId!, status: pfsStatus }));
+    if (pfsUpdates.length > 0) {
+      pfsUpdateStatus(pfsUpdates).catch((err) => {
+        console.warn(`[PFS] Bulk status sync failed:`, err);
+      });
     }
   }
 

@@ -28,7 +28,9 @@ interface VariantData {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   size: string | null;
+  sizeName?: string | null;
   isPrimary: boolean;
+  isActive?: boolean;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
 }
@@ -63,6 +65,10 @@ interface ProductData {
   imagesByColor: ImageGroupData[];
   compositions: CompositionData[];
   tags?: string[];
+  manufacturingCountryId?: string | null;
+  manufacturingCountryName?: string | null;
+  seasonId?: string | null;
+  seasonName?: string | null;
 }
 
 // Image slot: 5 positions per color group, each can hold a path or null
@@ -75,6 +81,8 @@ interface CompareSelections {
   description: "bj" | "pfs";
   category: "bj" | "pfs";
   compositions: "bj" | "pfs";
+  season: "bj" | "pfs";
+  manufacturingCountry: "bj" | "pfs";
   // Per variant group key -> "bj" | "pfs" | "add" (new from PFS) | "remove" (only in BJ)
   variants: Record<string, "bj" | "pfs" | "add">;
   // Image slots per color group — 5 positions each
@@ -188,7 +196,7 @@ function PackageIcon({ className }: { className?: string }) {
 }
 
 // ─────────────────────────────────────────────
-// Selection Button
+// Selection Button — "Prendre cette valeur"
 // ─────────────────────────────────────────────
 
 function SelectButton({
@@ -210,19 +218,19 @@ function SelectButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium border transition-all min-h-[36px] ${
+      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition-all ${
         selected ? bgSelected : bgDefault
       }`}
       aria-pressed={selected}
     >
       {selected && <CheckIcon className="h-3.5 w-3.5" />}
-      {label ?? (side === "bj" ? "Garder" : "Remplacer par PFS")}
+      {label ?? "Prendre cette valeur"}
     </button>
   );
 }
 
 // ─────────────────────────────────────────────
-// Field Comparison Row
+// Field Comparison Row — vertical divider layout
 // ─────────────────────────────────────────────
 
 function CompareField({
@@ -249,50 +257,49 @@ function CompareField({
   ));
 
   return (
-    <div className={`rounded-xl border p-4 ${
+    <div className={`rounded-xl border overflow-hidden ${
       isDifferent ? "border-[#F59E0B]/40 bg-[#F59E0B]/5" : "border-border bg-bg-secondary/30"
     }`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)]">
-            {label}
-          </h4>
-          {isDifferent ? (
-            <span className="badge badge-warning text-[10px]">Différent</span>
-          ) : (
-            <span className="badge badge-success text-[10px]">Identique</span>
-          )}
-        </div>
-        {isDifferent && (
-          <div className="flex items-center gap-2">
-            <SelectButton selected={selected === "bj"} onClick={() => onSelect("bj")} side="bj" />
-            <SelectButton selected={selected === "pfs"} onClick={() => onSelect("pfs")} side="pfs" />
-          </div>
+      {/* Section header */}
+      <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)]">
+          {label}
+        </h4>
+        {isDifferent ? (
+          <span className="badge badge-warning text-[10px]">Diff&eacute;rent</span>
+        ) : (
+          <span className="badge badge-success text-[10px]">Identique</span>
         )}
       </div>
 
-      {/* Side by side values */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {/* BJ Side */}
-        <div className={`rounded-lg p-3 border transition-all ${
-          selected === "bj" ? "border-[#3B82F6] bg-[#3B82F6]/5 ring-1 ring-[#3B82F6]/20" : "border-border bg-bg-primary"
+      {/* Two-column grid with vertical divider */}
+      <div className="grid grid-cols-1 md:grid-cols-2">
+        {/* Boutique Side */}
+        <div className={`p-4 md:border-r border-border transition-all ${
+          selected === "bj" && isDifferent ? "bg-[#3B82F6]/5" : ""
         }`}>
-          <div className="flex items-center gap-1.5 mb-2">
+          <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6] bg-[#3B82F6]/10 rounded px-1.5 py-0.5">
-              Beli Jolie
+              Boutique
             </span>
+            {isDifferent && (
+              <SelectButton selected={selected === "bj"} onClick={() => onSelect("bj")} side="bj" />
+            )}
           </div>
           {render(bjValue, "bj")}
         </div>
 
         {/* PFS Side */}
-        <div className={`rounded-lg p-3 border transition-all ${
-          selected === "pfs" ? "border-[#F59E0B] bg-[#F59E0B]/5 ring-1 ring-[#F59E0B]/20" : "border-border bg-bg-primary"
+        <div className={`p-4 border-t md:border-t-0 border-border transition-all ${
+          selected === "pfs" && isDifferent ? "bg-[#F59E0B]/5" : ""
         }`}>
-          <div className="flex items-center gap-1.5 mb-2">
+          <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#F59E0B] bg-[#F59E0B]/10 rounded px-1.5 py-0.5">
               PFS
             </span>
+            {isDifferent && (
+              <SelectButton selected={selected === "pfs"} onClick={() => onSelect("pfs")} side="pfs" />
+            )}
           </div>
           {render(pfsValue, "pfs")}
         </div>
@@ -315,6 +322,7 @@ interface VariantMatch {
   subColors?: SubColorData[];
   onlyIn: "both" | "bj" | "pfs";
   isDifferent: boolean;
+  pfsDisabled: boolean; // PFS variant exists but is disabled (isActive=false)
 }
 
 function matchVariants(bjVariants: VariantData[], pfsVariants: VariantData[]): VariantMatch[] {
@@ -345,8 +353,12 @@ function matchVariants(bjVariants: VariantData[], pfsVariants: VariantData[]): V
       const p = pfs[i];
       if (!p) return true;
       return b.unitPrice !== p.unitPrice || b.stock !== p.stock || b.weight !== p.weight
-        || b.discountType !== p.discountType || b.discountValue !== p.discountValue;
+        || b.discountType !== p.discountType || b.discountValue !== p.discountValue
+        || b.size !== p.size;
     });
+
+    // Check if PFS variants exist but are all disabled
+    const pfsDisabled = pfs.length > 0 && pfs.every((v) => v.isActive === false);
 
     matches.push({
       key,
@@ -358,6 +370,7 @@ function matchVariants(bjVariants: VariantData[], pfsVariants: VariantData[]): V
       subColors: source.subColors,
       onlyIn: bj.length > 0 && pfs.length > 0 ? "both" : bj.length > 0 ? "bj" : "pfs",
       isDifferent: isDiff,
+      pfsDisabled,
     });
   }
 
@@ -384,6 +397,8 @@ export default function PfsCompareModal({
     description: "bj",
     category: "bj",
     compositions: "bj",
+    season: "bj",
+    manufacturingCountry: "bj",
     variants: {},
     imageSlots: {},
   });
@@ -467,6 +482,8 @@ export default function PfsCompareModal({
         description: "bj",
         category: "bj",
         compositions: "bj",
+        season: "bj",
+        manufacturingCountry: "bj",
         variants: variantSels,
         imageSlots: initSlots,
       });
@@ -533,6 +550,8 @@ export default function PfsCompareModal({
     if (selections.description === "pfs" && existing.description !== staged.description) count++;
     if (selections.category === "pfs" && existing.categoryId !== staged.categoryId) count++;
     if (selections.compositions === "pfs") count++;
+    if (selections.season === "pfs" && existing.seasonId !== staged.seasonId) count++;
+    if (selections.manufacturingCountry === "pfs" && existing.manufacturingCountryId !== staged.manufacturingCountryId) count++;
     for (const [, val] of Object.entries(selections.variants)) {
       if (val === "pfs" || val === "add") count++;
     }
@@ -579,7 +598,7 @@ export default function PfsCompareModal({
               <div className="flex items-center gap-3 text-xs text-text-secondary">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-full bg-[#3B82F6]" />
-                  Beli Jolie (actuel)
+                  Boutique (actuel)
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-full bg-[#F59E0B]" />
@@ -587,12 +606,12 @@ export default function PfsCompareModal({
                 </span>
                 {prepareDiffs.length > 0 && (
                   <span className="badge badge-warning text-[10px]">
-                    {prepareDiffs.length} différence{prepareDiffs.length > 1 ? "s" : ""}
+                    {prepareDiffs.length} diff&eacute;rence{prepareDiffs.length > 1 ? "s" : ""}
                   </span>
                 )}
                 {prepareDiffs.length === 0 && (
                   <span className="badge badge-success text-[10px]">
-                    Aucune différence
+                    Aucune diff&eacute;rence
                   </span>
                 )}
               </div>
@@ -618,7 +637,7 @@ export default function PfsCompareModal({
             <div className="p-8 text-center">
               <p className="text-sm text-[#EF4444]">{error}</p>
               <button onClick={fetchCompareData} className="btn-secondary mt-4">
-                Réessayer
+                R&eacute;essayer
               </button>
             </div>
           )}
@@ -654,7 +673,7 @@ export default function PfsCompareModal({
 
               {/* ─── Category ─── */}
               <CompareField
-                label="Catégorie"
+                label="Cat&eacute;gorie"
                 bjValue={existing.categoryName}
                 pfsValue={staged.categoryName}
                 isDifferent={existing.categoryId !== staged.categoryId}
@@ -686,6 +705,32 @@ export default function PfsCompareModal({
                     </div>
                   );
                 }}
+              />
+
+              {/* ─── Season ─── */}
+              <CompareField
+                label="Saison"
+                bjValue={existing.seasonName ?? "—"}
+                pfsValue={staged.seasonName ?? "—"}
+                isDifferent={existing.seasonId !== staged.seasonId}
+                selected={selections.season}
+                onSelect={(s) => updateSelection("season", s)}
+                renderValue={(val) => (
+                  <span className="badge badge-neutral text-xs">{String(val)}</span>
+                )}
+              />
+
+              {/* ─── Manufacturing Country ─── */}
+              <CompareField
+                label="Pays de fabrication"
+                bjValue={existing.manufacturingCountryName ?? "—"}
+                pfsValue={staged.manufacturingCountryName ?? "—"}
+                isDifferent={existing.manufacturingCountryId !== staged.manufacturingCountryId}
+                selected={selections.manufacturingCountry}
+                onSelect={(s) => updateSelection("manufacturingCountry", s)}
+                renderValue={(val) => (
+                  <span className="badge badge-neutral text-xs">{String(val)}</span>
+                )}
               />
 
               {/* ─── Variants ─── */}
@@ -736,7 +781,10 @@ export default function PfsCompareModal({
                             {match.onlyIn === "bj" && (
                               <span className="badge badge-error text-[10px]">Absent de PFS</span>
                             )}
-                            {match.onlyIn === "both" && match.isDifferent && (
+                            {match.onlyIn === "both" && match.pfsDisabled && (
+                              <span className="badge badge-warning text-[10px]">Désactivé sur PFS</span>
+                            )}
+                            {match.onlyIn === "both" && !match.pfsDisabled && match.isDifferent && (
                               <span className="badge badge-warning text-[10px]">Différent</span>
                             )}
                             {match.onlyIn === "both" && !match.isDifferent && (
@@ -744,7 +792,7 @@ export default function PfsCompareModal({
                             )}
                           </div>
 
-                          {/* Action buttons */}
+                          {/* Action buttons for PFS-only variants */}
                           <div className="flex items-center gap-2 shrink-0">
                             {match.onlyIn === "pfs" && (
                               <div className="flex items-center gap-1.5">
@@ -772,28 +820,44 @@ export default function PfsCompareModal({
                                 </button>
                               </div>
                             )}
-                            {match.onlyIn === "both" && match.isDifferent && (
-                              <>
+                          </div>
+                        </div>
+
+                        {/* Values side by side with vertical divider */}
+                        {match.onlyIn === "both" && match.isDifferent && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 mt-2 rounded-lg border border-border overflow-hidden">
+                            {/* Boutique side */}
+                            <div className={`p-3 md:border-r border-border transition-all ${
+                              sel === "bj" ? "bg-[#3B82F6]/5" : "bg-bg-primary"
+                            }`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6] bg-[#3B82F6]/10 rounded px-1.5 py-0.5">
+                                  Boutique
+                                </span>
                                 <SelectButton
                                   selected={sel === "bj"}
                                   onClick={() => updateVariantSelection(match.key, "bj")}
                                   side="bj"
                                 />
+                              </div>
+                              <VariantCard variant={bjV} side="bj" selected={sel === "bj"} bare />
+                            </div>
+                            {/* PFS side */}
+                            <div className={`p-3 border-t md:border-t-0 border-border transition-all ${
+                              sel === "pfs" ? "bg-[#F59E0B]/5" : "bg-bg-primary"
+                            }`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-[#F59E0B] bg-[#F59E0B]/10 rounded px-1.5 py-0.5">
+                                  PFS
+                                </span>
                                 <SelectButton
                                   selected={sel === "pfs"}
                                   onClick={() => updateVariantSelection(match.key, "pfs")}
                                   side="pfs"
                                 />
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Values side by side */}
-                        {match.onlyIn === "both" && match.isDifferent && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
-                            <VariantCard variant={bjV} side="bj" selected={sel === "bj"} />
-                            <VariantCard variant={pfsV} side="pfs" selected={sel === "pfs"} />
+                              </div>
+                              <VariantCard variant={pfsV} side="pfs" selected={sel === "pfs"} bare />
+                            </div>
                           </div>
                         )}
                         {match.onlyIn === "both" && !match.isDifferent && (
@@ -820,15 +884,15 @@ export default function PfsCompareModal({
                   Images
                 </h4>
                 <p className="text-[11px] text-text-secondary mb-4">
-                  Glissez les images PFS vers les emplacements Application. Glissez entre les emplacements pour réordonner. Cliquez sur &times; pour retirer.
+                  Glissez les images PFS vers les emplacements Application. Glissez entre les emplacements pour r&eacute;ordonner. Cliquez sur &times; pour retirer.
                 </p>
 
                 {/* ── Two-column layout ── */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* ── LEFT: Application (BJ) ── */}
+                  {/* ── LEFT: Application (Boutique) ── */}
                   <div>
                     <div className="text-[11px] font-bold uppercase tracking-wider text-[#3B82F6] bg-[#3B82F6]/10 rounded px-2 py-1 mb-3 text-center">
-                      Application (Beli Jolie)
+                      Boutique
                     </div>
                     <div className="space-y-3">
                       {bjColorGroups.map((group) => {
@@ -1033,10 +1097,10 @@ export default function PfsCompareModal({
                 <div className="text-sm text-text-secondary">
                   {changesCount > 0 ? (
                     <span>
-                      <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} sélectionnée{changesCount > 1 ? "s" : ""} depuis PFS
+                      <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} s&eacute;lectionn&eacute;e{changesCount > 1 ? "s" : ""} depuis PFS
                     </span>
                   ) : (
-                    <span>Aucune modification — le produit BJ reste inchangé</span>
+                    <span>Aucune modification — le produit Boutique reste inchang&eacute;</span>
                   )}
                 </div>
                 <div className="flex items-center gap-3">
@@ -1248,14 +1312,46 @@ function VariantCard({
   side,
   selected,
   compact,
+  bare,
 }: {
   variant: VariantData;
   side: "bj" | "pfs";
   selected: boolean;
   compact?: boolean;
+  bare?: boolean;
 }) {
   const color = side === "bj" ? "#3B82F6" : "#F59E0B";
-  const label = side === "bj" ? "Beli Jolie" : "PFS";
+  const label = side === "bj" ? "Boutique" : "PFS";
+
+  // bare mode: no wrapper styling (used inside the divider layout)
+  if (bare) {
+    return (
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <div>
+          <span className="text-text-secondary">Prix unitaire</span>
+          <p className="font-medium text-text-primary tabular-nums">{variant.unitPrice.toFixed(2)}&euro;</p>
+        </div>
+        <div>
+          <span className="text-text-secondary">Stock</span>
+          <p className="font-medium text-text-primary tabular-nums">{variant.stock}</p>
+        </div>
+        <div>
+          <span className="text-text-secondary">Poids</span>
+          <p className="font-medium text-text-primary tabular-nums">{variant.weight.toFixed(2)} kg</p>
+        </div>
+        <div>
+          <span className="text-text-secondary">Remise</span>
+          <p className="font-medium text-text-primary">
+            {formatDiscount(variant.discountType, variant.discountValue)}
+          </p>
+        </div>
+        <div>
+          <span className="text-text-secondary">Taille</span>
+          <p className="font-medium text-text-primary">{variant.sizeName ?? variant.size ?? "\u2014"}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`rounded-lg p-3 border transition-all ${
@@ -1272,7 +1368,7 @@ function VariantCard({
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
         <div>
           <span className="text-text-secondary">Prix unitaire</span>
-          <p className="font-medium text-text-primary tabular-nums">{variant.unitPrice.toFixed(2)}€</p>
+          <p className="font-medium text-text-primary tabular-nums">{variant.unitPrice.toFixed(2)}&euro;</p>
         </div>
         <div>
           <span className="text-text-secondary">Stock</span>
@@ -1287,6 +1383,10 @@ function VariantCard({
           <p className="font-medium text-text-primary">
             {formatDiscount(variant.discountType, variant.discountValue)}
           </p>
+        </div>
+        <div>
+          <span className="text-text-secondary">Taille</span>
+          <p className="font-medium text-text-primary">{variant.sizeName ?? variant.size ?? "\u2014"}</p>
         </div>
       </div>
     </div>

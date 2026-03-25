@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteColor, updateColorDirect } from "@/app/actions/admin/colors";
+import { deleteColor, updateColorDirect, updateColorPfsRef } from "@/app/actions/admin/colors";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import EntityEditModal from "@/components/admin/EntityEditModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
+import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface ColorItem {
@@ -13,6 +14,7 @@ interface ColorItem {
   name: string;
   hex: string | null;
   patternImage: string | null;
+  pfsColorRef: string | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -21,6 +23,7 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
   const router = useRouter();
   const { confirm } = useConfirm();
   const [editTarget, setEditTarget] = useState<ColorItem | null>(null);
+  const [editPfsRef, setEditPfsRef] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -28,6 +31,12 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
   const filtered = search.trim()
     ? initialColors.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
     : initialColors;
+
+  function openEdit(color: ColorItem) {
+    setError("");
+    setEditTarget(color);
+    setEditPfsRef(color.pfsColorRef ?? "");
+  }
 
   async function handleDelete(color: ColorItem) {
     if (color.productCount > 0) {
@@ -52,6 +61,10 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
   async function handleSave(name: string, translations: Record<string, string>, hex?: string, patternImage?: string | null) {
     if (!editTarget) return;
     await updateColorDirect(editTarget.id, name, hex ?? null, translations, patternImage ?? null);
+    const origRef = editTarget.pfsColorRef ?? "";
+    if (editPfsRef !== origRef) {
+      await updateColorPfsRef(editTarget.id, editPfsRef || null);
+    }
     router.refresh();
   }
 
@@ -134,12 +147,17 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
                 <p className="text-[11px] text-text-muted leading-tight">
                   {color.patternImage ? "Motif" : color.hex ?? "—"} · {color.productCount} produit{color.productCount > 1 ? "s" : ""}
                 </p>
+                {color.pfsColorRef && (
+                  <span className="badge badge-purple text-[10px] w-fit mt-0.5">
+                    PFS: {color.pfsColorRef}
+                  </span>
+                )}
               </div>
               {/* Actions */}
               <div className="flex items-center justify-end gap-0.5 px-2 pb-2">
                 <button
                   type="button"
-                  onClick={() => { setError(""); setEditTarget(color); }}
+                  onClick={() => openEdit(color)}
                   className="p-2.5 text-text-muted hover:text-text-primary transition-colors"
                   title="Modifier"
                   aria-label={`Modifier la couleur ${color.name}`}
@@ -175,6 +193,15 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
         withHex
         initialHex={editTarget?.hex ?? "#9CA3AF"}
         initialPatternImage={editTarget?.patternImage}
+        renderExtra={
+          editTarget ? (
+            <MarketplaceMappingSection
+              entityType="color"
+              pfsRef={editPfsRef}
+              onPfsRefChange={setEditPfsRef}
+            />
+          ) : undefined
+        }
         onSave={handleSave}
       />
     </>

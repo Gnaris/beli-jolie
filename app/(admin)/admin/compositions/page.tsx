@@ -18,6 +18,7 @@ export default async function CompositionsPage() {
   const compositionItems = compositions.map((c) => ({
     id: c.id,
     name: c.name,
+    pfsCompositionRef: c.pfsCompositionRef,
     productCount: c._count.products,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

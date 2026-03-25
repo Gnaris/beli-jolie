@@ -44,6 +44,7 @@ interface AdminProduct {
   reference: string;
   name: string;
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
+  isIncomplete: boolean;
   pfsSyncStatus: "synced" | "pending" | "failed" | null;
   categoryName: string;
   subCategoryName: string | null;
@@ -507,6 +508,14 @@ function ProductRow({
             }`}>
               {product.status === "ONLINE" ? "En ligne" : product.status === "SYNCING" ? "Sync en cours" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
             </span>
+            {product.isIncomplete && product.status !== "ONLINE" && (
+              <span
+                className="badge badge-warning text-[10px]"
+                title="Produit incomplet — manque des informations pour être mis en ligne"
+              >
+                Incomplet
+              </span>
+            )}
             {isFullyOutOfStock && (
               <span
                 className="badge badge-error text-[10px]"

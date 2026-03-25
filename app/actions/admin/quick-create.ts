@@ -68,7 +68,9 @@ export async function createColorQuick(
 
 export async function createCategoryQuick(
   names: Record<string, string>,
-  pfsCategoryId?: string | null
+  pfsCategoryId?: string | null,
+  pfsGender?: string | null,
+  pfsFamilyId?: string | null,
 ): Promise<{ id: string; name: string; subCategories: { id: string; name: string }[] }> {
   await requireAdmin();
   const frName = names["fr"]?.trim();
@@ -81,7 +83,13 @@ export async function createCategoryQuick(
   if (existing) throw new Error(`La catégorie "${frName}" existe déjà.`);
 
   const category = await prisma.category.create({
-    data: { name: frName, slug: toSlug(frName), pfsCategoryId: pfsCategoryId || null },
+    data: {
+      name: frName,
+      slug: toSlug(frName),
+      pfsCategoryId: pfsCategoryId || null,
+      pfsGender: pfsGender || null,
+      pfsFamilyId: pfsFamilyId || null,
+    },
     select: { id: true, name: true, subCategories: { select: { id: true, name: true } } },
   });
 

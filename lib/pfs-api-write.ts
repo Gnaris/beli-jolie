@@ -365,14 +365,27 @@ export interface PfsAttributeCollection {
   labels: Record<string, string>;
 }
 
+/** Helper: parse PFS attribute response safely (checks res.ok + JSON structure) */
+async function parsePfsAttributeResponse<T>(res: Response, label: string): Promise<T[]> {
+  if (!res.ok) {
+    let detail = `status ${res.status}`;
+    try { const body = await res.text(); detail += ` — ${body.slice(0, 200)}`; } catch { /* ignore */ }
+    throw new Error(`PFS ${label}: ${detail}`);
+  }
+  const json = await res.json();
+  // PFS returns { data: [...] } for attribute endpoints
+  if (json && Array.isArray(json.data)) return json.data as T[];
+  if (Array.isArray(json)) return json as T[];
+  return [];
+}
+
 export async function pfsGetColors(): Promise<PfsAttributeColor[]> {
   const headers = await getPfsHeaders();
   const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/attributes/colors`, {
     method: "GET",
     headers,
   });
-  const data = (await res.json()) as { data: PfsAttributeColor[] };
-  return data.data ?? [];
+  return parsePfsAttributeResponse<PfsAttributeColor>(res, "colors");
 }
 
 export async function pfsGetCategories(): Promise<PfsAttributeCategory[]> {
@@ -381,8 +394,7 @@ export async function pfsGetCategories(): Promise<PfsAttributeCategory[]> {
     method: "GET",
     headers,
   });
-  const data = (await res.json()) as { data: PfsAttributeCategory[] };
-  return data.data ?? [];
+  return parsePfsAttributeResponse<PfsAttributeCategory>(res, "categories");
 }
 
 export async function pfsGetCompositions(): Promise<PfsAttributeComposition[]> {
@@ -391,8 +403,7 @@ export async function pfsGetCompositions(): Promise<PfsAttributeComposition[]> {
     method: "GET",
     headers,
   });
-  const data = (await res.json()) as { data: PfsAttributeComposition[] };
-  return data.data ?? [];
+  return parsePfsAttributeResponse<PfsAttributeComposition>(res, "compositions");
 }
 
 export async function pfsGetCountries(): Promise<PfsAttributeCountry[]> {
@@ -401,8 +412,7 @@ export async function pfsGetCountries(): Promise<PfsAttributeCountry[]> {
     method: "GET",
     headers,
   });
-  const data = (await res.json()) as { data: PfsAttributeCountry[] };
-  return data.data ?? [];
+  return parsePfsAttributeResponse<PfsAttributeCountry>(res, "countries");
 }
 
 export async function pfsGetCollections(): Promise<PfsAttributeCollection[]> {
@@ -411,8 +421,7 @@ export async function pfsGetCollections(): Promise<PfsAttributeCollection[]> {
     method: "GET",
     headers,
   });
-  const data = (await res.json()) as { data: PfsAttributeCollection[] };
-  return data.data ?? [];
+  return parsePfsAttributeResponse<PfsAttributeCollection>(res, "collections");
 }
 
 export interface PfsAttributeFamily {
@@ -432,8 +441,7 @@ export async function pfsGetFamilies(): Promise<PfsAttributeFamily[]> {
     method: "GET",
     headers,
   });
-  const data = (await res.json()) as { data: PfsAttributeFamily[] };
-  return data.data ?? [];
+  return parsePfsAttributeResponse<PfsAttributeFamily>(res, "families");
 }
 
 export async function pfsGetGenders(): Promise<PfsAttributeGender[]> {
@@ -442,8 +450,7 @@ export async function pfsGetGenders(): Promise<PfsAttributeGender[]> {
     method: "GET",
     headers,
   });
-  const data = (await res.json()) as { data: PfsAttributeGender[] };
-  return data.data ?? [];
+  return parsePfsAttributeResponse<PfsAttributeGender>(res, "genders");
 }
 
 export interface PfsAttributeSize {
@@ -456,8 +463,7 @@ export async function pfsGetSizes(): Promise<PfsAttributeSize[]> {
     method: "GET",
     headers,
   });
-  const data = (await res.json()) as { data: PfsAttributeSize[] };
-  return data.data ?? [];
+  return parsePfsAttributeResponse<PfsAttributeSize>(res, "sizes");
 }
 
 // ─────────────────────────────────────────────

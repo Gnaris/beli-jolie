@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
         // ── 1. Load existing DB entities ──
         const [dbCategories, dbColors, dbCompositions, dbCountries, dbSeasons, dbSizes, pfsMappings] = await Promise.all([
           prisma.category.findMany({ select: { id: true, name: true, slug: true, pfsCategoryId: true } }),
-          prisma.color.findMany({ select: { id: true, name: true, hex: true, patternImage: true } }),
+          prisma.color.findMany({ select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true } }),
           prisma.composition.findMany({ select: { id: true, name: true, pfsCompositionRef: true } }),
           prisma.manufacturingCountry.findMany({ select: { id: true, name: true, isoCode: true, pfsCountryRef: true } }),
           prisma.season.findMany({ select: { id: true, name: true, pfsSeasonRef: true } }),
@@ -181,7 +181,9 @@ export async function POST(req: NextRequest) {
         // Sets for fast lookup
         const categorySlugs = new Set<string>(dbCategories.map((c) => slugify(c.name)));
         const categoryNames = new Set<string>(dbCategories.map((c) => c.name.toLowerCase()));
+        const categoryPfsIds = new Set<string>(dbCategories.filter((c) => c.pfsCategoryId).map((c) => c.pfsCategoryId!));
         const colorNormalized = new Set<string>(dbColors.map((c) => normalizeColorName(c.name)));
+        const colorPfsRefs = new Set<string>(dbColors.filter((c) => c.pfsColorRef).map((c) => c.pfsColorRef!.toUpperCase()));
         const bjSizeNames = new Set<string>(dbSizes.map((s) => s.name.toLowerCase()));
 
         // Composition sets
@@ -257,8 +259,8 @@ export async function POST(req: NextRequest) {
         let errorPages = 0;
 
         const processProduct = (product: PfsProduct) => {
-          analyzeColors(product, missingColors, colorNormalized, mappingSet);
-          analyzeCategory(product, missingCategories, categorySlugs, categoryNames, mappingSet);
+          analyzeColors(product, missingColors, colorNormalized, mappingSet, colorPfsRefs);
+          analyzeCategory(product, missingCategories, categorySlugs, categoryNames, mappingSet, categoryPfsIds);
           analyzeSizes(product, missingSizesInternal, bjSizeNames);
 
           // Collect unique refs for checkReference phase
@@ -498,6 +500,7 @@ function analyzeCategory(
   categorySlugs: Set<string>,
   categoryNames: Set<string>,
   mappingSet: Set<string>,
+  categoryPfsIds: Set<string>,
 ) {
   const categoryFr = product.category?.labels?.fr;
   if (!categoryFr) return;
@@ -506,6 +509,8 @@ function analyzeCategory(
   const nameLower = categoryFr.toLowerCase();
   if (categorySlugs.has(slug) || categoryNames.has(nameLower)) return;
   if (mappingSet.has(`category::${nameLower}`)) return;
+  // Also check by pfsCategoryId — the category may already exist with a different name
+  if (product.category?.id && categoryPfsIds.has(product.category.id)) return;
 
   const key = nameLower;
   const existing = missing.get(key);
@@ -529,6 +534,7 @@ function analyzeColors(
   missing: Map<string, MissingColor>,
   colorNormalized: Set<string>,
   mappingSet: Set<string>,
+  colorPfsRefs: Set<string>,
 ) {
   if (!product.variants) return;
 
@@ -554,6 +560,8 @@ function analyzeColors(
     if (colorNormalized.has(normalized)) continue;
     if (mappingSet.has(`color::${frLabel.toLowerCase()}`)) continue;
     if (mappingSet.has(`color::${normalized}`)) continue;
+    // Also check by pfsColorRef — the color may already exist with a different name
+    if (colorInfo.reference && colorPfsRefs.has(colorInfo.reference.toUpperCase())) continue;
 
     const existingEntry = missing.get(normalized);
     if (existingEntry) {

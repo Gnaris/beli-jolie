@@ -312,6 +312,7 @@ model Product {
   restockAlerts   RestockAlert[]
   isBestSeller  Boolean              @default(false)
   status        ProductStatus        @default(OFFLINE)
+  isIncomplete  Boolean              @default(false) // Produit incomplet (manque prix, poids, images, etc.)
   // Produits similaires (M2M self)
   similarProducts ProductSimilar[]   @relation("PSim_A")
   similarTo       ProductSimilar[]   @relation("PSim_B")
@@ -405,6 +406,7 @@ model ProductColor {
   cartItems   CartItem[]
   collectionOverrides CollectionProduct[]
   restockAlerts RestockAlert[]
+  pfsColorRef   String?      // Override couleur PFS pour variantes multi-couleur
   pfsVariantId  String?      // ID variant sur PFS — pour reverse sync
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt

@@ -4,6 +4,8 @@ import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, computeTotalPrice } from "./ColorVariantManager";
 import { createProduct, updateProduct, saveProductTranslations } from "@/app/actions/admin/products";
+import { createSize } from "@/app/actions/admin/sizes";
+import { forcePfsSync } from "@/app/actions/admin/pfs-reverse-sync";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
@@ -92,6 +94,7 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
     packQuantity: "",
     discountType: "",
     discountValue: "",
+    pfsColorRef: "",
   };
 }
 
@@ -295,6 +298,7 @@ export default function ProductForm({
   const [localCategories,   setLocalCategories]   = useState(categories);
   const [localCompositions, setLocalCompositions] = useState(availableCompositions);
   const [localColors,       setLocalColors]       = useState(availableColors);
+  const [localSizes,        setLocalSizes]        = useState(availableSizes);
   const [localTags,         setLocalTags]         = useState(availableTags);
   const [localCountries,    setLocalCountries]    = useState(availableCountries);
   const [localSeasons,      setLocalSeasons]      = useState(availableSeasons);
@@ -334,7 +338,7 @@ export default function ProductForm({
 
   // ── Unsaved changes guard ─────────────────────────────────────────────
   const router = useRouter();
-  const { confirm: confirmUnsaved } = useConfirm();
+  const { confirm: confirmDialog } = useConfirm();
   const initialSnapshot = useRef<string | null>(null);
   const isDirty = useRef(false);
   const snapshotReady = useRef(false);
@@ -373,7 +377,7 @@ export default function ProductForm({
 
   const navigateWithGuard = useCallback(async (href: string) => {
     if (!isDirty.current) { router.push(href); return; }
-    const ok = await confirmUnsaved({
+    const ok = await confirmDialog({
       title: "Modifications non enregistrées",
       message: "Vous avez des modifications non enregistrées. Voulez-vous vraiment quitter cette page ? Vos changements seront perdus.",
       confirmLabel: "Quitter",
@@ -383,7 +387,7 @@ export default function ProductForm({
       isDirty.current = false;
       router.push(href);
     }
-  }, [router, confirmUnsaved]);
+  }, [router, confirmDialog]);
 
   // Intercept ALL client-side link clicks inside the page
   useEffect(() => {
@@ -402,6 +406,9 @@ export default function ProductForm({
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
   }, [navigateWithGuard]);
+
+  // Reactive dirty state for conditional UI (e.g. cancel button visibility)
+  const hasUnsavedChanges = snapshotReady.current && initialSnapshot.current !== null && buildSnapshot() !== initialSnapshot.current;
 
   // ── Sync colorImages when variant colors change ───────────────────────
   // One ColorImageState per color group (colorId + sub-colors), shared across UNIT/PACK variants
@@ -600,11 +607,11 @@ export default function ProductForm({
   // Filter sizes to only those linked to the selected category
   // If a size has no categoryIds (old data) or no category set, show all
   const filteredSizes = useMemo(() => {
-    if (!categoryId) return availableSizes;
-    return availableSizes.filter((s) =>
+    if (!categoryId) return localSizes;
+    return localSizes.filter((s) =>
       !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId)
     );
-  }, [availableSizes, categoryId]);
+  }, [localSizes, categoryId]);
 
   // Locales that have at least a name filled (green dot)
   const filledLocales = new Set<string>(
@@ -661,6 +668,14 @@ export default function ProductForm({
     const created = await createColorQuick({ fr: colorName }, hex, patternImage);
     setLocalColors((prev) => [...prev, created]);
     return created;
+  }
+
+  // ── Size quick-create handler ────────────────────────────────────────
+  async function handleQuickCreateSize(name: string, categoryIds: string[]): Promise<AvailableSize> {
+    const created = await createSize(name, categoryIds);
+    const newSize: AvailableSize = { id: created.id, name: created.name, categoryIds };
+    setLocalSizes((prev) => [...prev, newSize]);
+    return newSize;
   }
 
   // ── Quick-create modal handlers ──────────────────────────────────────
@@ -800,43 +815,115 @@ export default function ProductForm({
     }
   }
 
-  // ── Online requirements validation ───────────────────────────────────
-  function getOnlineValidationErrors(): string[] {
+  // ── Completeness check (all requirements for a "ready" product) ─────
+  function getCompletenessErrors(): string[] {
     const errors: string[] = [];
     if (!reference.trim())    errors.push("Référence produit manquante");
     if (!name.trim())         errors.push("Nom du produit manquant");
     if (!description.trim())  errors.push("Description manquante");
     if (!categoryId)          errors.push("Catégorie non sélectionnée");
-    if (compositions.length === 0) errors.push("Au moins une composition est requise");
+    if (compositions.length === 0) {
+      errors.push("Au moins une composition est requise");
+    } else if (Math.abs(totalPct - 100) > 0.5) {
+      errors.push(`La composition doit totaliser 100% (actuel : ${totalPct.toFixed(1)}%)`);
+    }
     if (variants.length === 0) {
       errors.push("Au moins une variante de couleur est requise");
     } else {
       const hasImage = colorImages.some((ci) => ci.uploadedPaths.length > 0);
       if (!hasImage) errors.push("Au moins une variante doit avoir une image");
+      // Variant-level completeness
+      for (const v of variants) {
+        const label = v.colorName || "variante pack";
+        if (v.saleType === "UNIT" && !v.colorId)
+          errors.push(`Variante "${label}" : couleur non sélectionnée`);
+        if (v.saleType === "PACK" && (v.packColorLines.length === 0 || v.packColorLines[0]?.colors.length === 0))
+          errors.push(`Variante "${label}" : composition de couleurs manquante`);
+        const w = parseFloat(v.weight);
+        if (isNaN(w) || w <= 0)
+          errors.push(`Variante "${label}" : poids invalide`);
+        const price = parseFloat(v.unitPrice);
+        if (isNaN(price) || price <= 0)
+          errors.push(`Variante "${label}" : prix/unité invalide`);
+        if (v.saleType === "PACK") {
+          const qty = parseInt(v.packQuantity);
+          if (isNaN(qty) || qty < 1)
+            errors.push(`Variante "${label}" : quantité paquet invalide`);
+          if (v.sizeEntries.length === 0)
+            errors.push(`Variante "${label}" : aucune taille`);
+          for (const se of v.sizeEntries) {
+            const seQty = parseInt(se.quantity);
+            if (isNaN(seQty) || seQty <= 0)
+              errors.push(`Variante "${label}" : quantité invalide pour taille "${se.sizeName}"`);
+          }
+        }
+      }
+      // Duplicate check
+      const unitByGroup = new Map<string, boolean>();
+      for (const v of variants) {
+        if (v.saleType === "UNIT") {
+          const gk = variantGroupKeyFromState(v);
+          if (unitByGroup.has(gk))
+            errors.push(`Variante "${v.colorName}" : doublon (même couleur)`);
+          unitByGroup.set(gk, true);
+        }
+      }
     }
     return errors;
   }
 
+  function isOutOfStock(): boolean {
+    const withStock = variants.filter(v => v.stock !== "" && v.stock !== undefined);
+    return withStock.length > 0 && withStock.every(v => parseInt(v.stock) === 0);
+  }
+
   // ── Submit ───────────────────────────────────────────────────────────
-  async function handleSave(statusOverride?: "OFFLINE" | "ONLINE" | "ARCHIVED") {
-    const targetStatus = statusOverride ?? productStatus;
+  async function handleSave() {
     setError("");
     setOnlineErrors([]);
 
-    // When going online, validate specific requirements first
-    if (targetStatus === "ONLINE") {
-      const onlineErrs = getOnlineValidationErrors();
-      if (onlineErrs.length > 0) {
-        setOnlineErrors(onlineErrs);
-        return;
-      }
+    // Compute completeness
+    const completenessErrors = getCompletenessErrors();
+    const isIncomplete = completenessErrors.length > 0;
+    const outOfStock = isOutOfStock();
+
+    // Warn: saving an ONLINE product with errors → auto downgrade to OFFLINE
+    let downgradeConfirmed = false;
+    if (productStatus === "ONLINE" && isIncomplete) {
+      const okDowngrade = await confirmDialog({
+        type: "warning",
+        title: "Produit incomplet",
+        message: "Ce produit est actuellement en ligne mais il est incomplet ou comporte des erreurs. Si vous confirmez l'enregistrement, le produit sera automatiquement mis hors ligne.",
+        confirmLabel: "Enregistrer et mettre hors ligne",
+        cancelLabel: "Annuler",
+      });
+      if (!okDowngrade) return;
+      downgradeConfirmed = true;
     }
 
-    if (!reference.trim())    return setError("La référence est requise.");
-    if (!name.trim())         return setError("Le nom est requis.");
-    if (!description.trim())  return setError("La description est requise.");
-    if (!categoryId)          return setError("Veuillez choisir une catégorie.");
-    if (variants.length === 0) return setError("Ajoutez au moins une variante.");
+    // Warn: saving an ONLINE product with no stock → auto downgrade to OFFLINE
+    if (!downgradeConfirmed && productStatus === "ONLINE" && outOfStock) {
+      const okDowngrade = await confirmDialog({
+        type: "warning",
+        title: "Rupture de stock",
+        message: "Toutes les variantes de ce produit sont en rupture de stock. Le produit sera automatiquement mis hors ligne.",
+        confirmLabel: "Enregistrer et mettre hors ligne",
+        cancelLabel: "Annuler",
+      });
+      if (!okDowngrade) return;
+      downgradeConfirmed = true;
+    }
+
+    const finalStatus = downgradeConfirmed ? "OFFLINE" : productStatus;
+
+    // Minimal validation: DB non-nullable constraints
+    if (!reference.trim()) return setError("La référence est requise.");
+    if (!name.trim()) return setError("Le nom est requis.");
+    if (!categoryId) return setError("Veuillez choisir une catégorie.");
+
+    // Images still uploading — always block
+    if (colorImages.some((ci) => ci.uploading))
+      return setError("Des images sont encore en cours d'upload. Veuillez patienter.");
 
     // ── Integrity check (edit mode): detect corrupted state before sending ──
     if (mode === "edit" && initialData) {
@@ -857,46 +944,18 @@ export default function ProductForm({
       }
     }
 
-    for (const v of variants) {
-      if (v.saleType === "UNIT" && !v.colorId) return setError("Chaque variante UNIT doit avoir une couleur sélectionnée.");
-      if (v.saleType === "PACK" && v.packColorLines.length === 0) return setError("Chaque variante PACK doit avoir au moins une ligne de couleur.");
-      const label = v.colorName || "variante pack";
-      const w = parseFloat(v.weight);
-      if (isNaN(w) || w <= 0) return setError(`Poids invalide pour "${label}".`);
-      if (v.stock !== "" && parseInt(v.stock) < 0)
-        return setError(`Stock invalide pour "${label}" (doit être ≥ 0).`);
-      if (v.saleType === "UNIT") {
-        const price = parseFloat(v.unitPrice);
-        if (isNaN(price) || price <= 0) return setError(`Prix invalide pour "${label}".`);
-      } else {
-        // PACK: validate packQuantity and per-size pricePerUnit
-        const qty = parseInt(v.packQuantity);
-        if (isNaN(qty) || qty < 1) return setError(`Quantité paquet invalide pour "${label}" (minimum 1).`);
-        if (v.sizeEntries.length === 0) return setError(`Le paquet "${label}" doit avoir au moins une taille.`);
-        for (const se of v.sizeEntries) {
-          const seQty = parseInt(se.quantity);
-          const ppu = parseFloat(se.pricePerUnit ?? "");
-          if (isNaN(seQty) || seQty <= 0) return setError(`Quantité invalide pour la taille "${se.sizeName}" du paquet "${label}".`);
-          if (isNaN(ppu) || ppu <= 0) return setError(`Prix/u invalide pour la taille "${se.sizeName}" du paquet "${label}".`);
-        }
-        const computed = computeTotalPrice(v);
-        if (!computed || computed <= 0) return setError(`Prix calculé invalide pour le paquet "${label}".`);
-      }
-    }
-    // Duplicate variant checks — use full groupKey (colorId + ordered sub-colors)
-    const unitByGroup = new Map<string, boolean>();
-    for (const v of variants) {
-      if (v.saleType === "UNIT") {
-        const gk = variantGroupKeyFromState(v);
-        if (unitByGroup.has(gk)) return setError(`La couleur "${v.colorName}" a déjà une variante à l'unité.`);
-        unitByGroup.set(gk, true);
-      }
-    }
-    // No pack duplicate check needed — each pack is independent
-    if (colorImages.some((ci) => ci.uploading)) return setError("Des images sont encore en cours d'upload. Veuillez patienter.");
-
-    if (compositions.length > 0 && Math.abs(totalPct - 100) > 0.5) {
-      return setError(`La composition doit totaliser 100%. Total actuel : ${totalPct.toFixed(1)}%`);
+    // ── Confirmation dialog: save? (skip if downgrade was already confirmed) ──
+    if (!downgradeConfirmed) {
+      const okSave = await confirmDialog({
+        type: "info",
+        title: "Enregistrer les modifications",
+        message: isIncomplete
+          ? "Ce produit est incomplet. Il sera enregistré en tant que brouillon (Hors ligne — Incomplet). Voulez-vous continuer ?"
+          : "Voulez-vous enregistrer toutes les modifications ?",
+        confirmLabel: "Enregistrer",
+        cancelLabel: "Annuler",
+      });
+      if (!okSave) return;
     }
 
     const payload = {
@@ -909,18 +968,19 @@ export default function ProductForm({
         dbId:          v.dbId,
         colorId:       v.colorId || null,
         subColorIds:   v.subColors.map((sc) => sc.colorId),
-        unitPrice:     v.saleType === "PACK" ? (computeTotalPrice(v) ?? 0) : parseFloat(v.unitPrice),
-        weight:        parseFloat(v.weight),
+        unitPrice:     v.saleType === "PACK" ? (computeTotalPrice(v) ?? 0) : (parseFloat(v.unitPrice) || 0),
+        weight:        parseFloat(v.weight) || 0,
         stock:         parseInt(v.stock) || 0,
         isPrimary:     v.isPrimary,
         saleType:      v.saleType,
-        packQuantity:  v.saleType === "PACK" ? (parseInt(v.packQuantity) || null) : null,
+        packQuantity:  v.saleType === "PACK"
+          ? (v.sizeEntries.length > 1 ? v.sizeEntries.length : (parseInt(v.packQuantity) || 1))
+          : null,
         sizeEntries:   v.sizeEntries
           .filter((se) => se.sizeId)
           .map((se) => ({
             sizeId:       se.sizeId,
             quantity:     parseInt(se.quantity) || 1,
-            ...(v.saleType === "PACK" && se.pricePerUnit ? { pricePerUnit: parseFloat(se.pricePerUnit) } : {}),
           })),
         packColorLines: v.saleType === "PACK"
           ? v.packColorLines.map((pcl, pos) => ({
@@ -930,6 +990,7 @@ export default function ProductForm({
           : [],
         discountType:  v.discountType || null,
         discountValue: v.discountValue ? parseFloat(v.discountValue) : null,
+        pfsColorRef:   v.pfsColorRef || null,
       })),
       imagePaths: colorImages.map((ci) => {
         const v = variants.find((vr) => variantGroupKeyFromState(vr) === ci.groupKey);
@@ -943,12 +1004,13 @@ export default function ProductForm({
       }),
       compositions: compositions.map((c) => ({
         compositionId: c.compositionId,
-        percentage:    parseFloat(c.percentage),
+        percentage:    parseFloat(c.percentage) || 0,
       })),
       similarProductIds,
       tagNames,
       isBestSeller,
-      status: targetStatus,
+      status: finalStatus,
+      isIncomplete,
       dimensionLength:        dimLength        ? parseFloat(dimLength)        : null,
       dimensionWidth:         dimWidth         ? parseFloat(dimWidth)         : null,
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
@@ -968,10 +1030,33 @@ export default function ProductForm({
         } else {
           await createProduct(payload);
         }
-        setProductStatus(targetStatus);
+        setProductStatus(finalStatus);
         // Reset dirty flag after successful save
         initialSnapshot.current = buildSnapshot();
         isDirty.current = false;
+
+        // ── After successful save: offer PFS sync (only for complete products) ──
+        if (!isIncomplete && mode === "edit" && productId) {
+          const okSync = await confirmDialog({
+            type: "info",
+            title: "Synchronisation PFS",
+            message: "Les modifications ont été enregistrées avec succès. Voulez-vous synchroniser ce produit avec PFS ?",
+            confirmLabel: "Synchroniser avec PFS",
+            cancelLabel: "Plus tard",
+          });
+          if (okSync) {
+            try {
+              const result = await forcePfsSync(productId);
+              if (!result.success) {
+                setError(`Erreur de synchronisation PFS : ${result.error}`);
+              }
+            } catch {
+              setError("Erreur lors de la synchronisation PFS.");
+            }
+          }
+        } else if (isIncomplete) {
+          // No PFS sync for incomplete products — silent (the badge says it all)
+        }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
       }
@@ -984,9 +1069,51 @@ export default function ProductForm({
 
         {/* ── Informations du produit ── */}
         <div className="space-y-4">
-          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-bold text-[#1A1A1A]">
-            Informations du produit
-          </h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="font-[family-name:var(--font-poppins)] text-xl font-bold text-[#1A1A1A]">
+              Informations du produit
+            </h2>
+            {/* Statut en ligne / hors ligne */}
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-[family-name:var(--font-roboto)] ${
+              productStatus === "ONLINE"
+                ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+                : "bg-[#F7F7F8] text-[#6B6B6B] border border-[#E5E5E5]"
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${productStatus === "ONLINE" ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
+              {productStatus === "ONLINE" ? "En ligne" : "Hors ligne"}
+            </span>
+            {/* Badge Incomplet */}
+            {productStatus !== "ONLINE" && getCompletenessErrors().length > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-[family-name:var(--font-roboto)] bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+                Incomplet
+              </span>
+            )}
+            {/* Badges rupture de stock */}
+            {(() => {
+              const withStock = variants.filter(v => v.stock !== "" && v.stock !== undefined);
+              const outOfStock = withStock.filter(v => parseInt(v.stock) === 0);
+              if (withStock.length > 0 && outOfStock.length === withStock.length) {
+                return (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-[family-name:var(--font-roboto)] bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626]" />
+                    Rupture de stock
+                  </span>
+                );
+              }
+              if (outOfStock.length > 0) {
+                return (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-[family-name:var(--font-roboto)] bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#EA580C]" />
+                    Rupture de variant
+                  </span>
+                );
+              }
+              return null;
+            })()}
+          </div>
 
           {/* Row 1 : Bloc principal (left) + Bloc mots clés (right) */}
           <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
@@ -1375,6 +1502,9 @@ export default function ProductForm({
             onChange={setVariants}
             onChangeImages={setColorImages}
             onQuickCreateColor={handleQuickCreateColor}
+            categoryId={categoryId}
+            allCategories={categories.map((c) => ({ id: c.id, name: c.name }))}
+            onQuickCreateSize={handleQuickCreateSize}
           />
         </section>
 
@@ -1397,84 +1527,111 @@ export default function ProductForm({
           />
         </section>
 
-        {/* ── Erreurs ── */}
-        {error && (
-          <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-5 py-4 text-sm font-[family-name:var(--font-roboto)] rounded-xl">
-            {error}
-          </div>
-        )}
+        <div className="sticky bottom-0 z-10 flex justify-center py-4">
+          <div className="bg-white rounded-2xl px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-[#E5E5E5] space-y-3 w-fit max-w-full">
+            {/* ── Erreurs ── */}
+            {error && (
+              <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-[family-name:var(--font-roboto)] rounded-xl">
+                {error}
+              </div>
+            )}
 
-        {onlineErrors.length > 0 && (
-          <div className="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] px-5 py-4 text-sm font-[family-name:var(--font-roboto)] rounded-xl space-y-2">
-            <p className="font-semibold font-[family-name:var(--font-poppins)]">
-              Ce produit ne peut pas être mis en ligne :
-            </p>
-            <ul className="space-y-1 list-none">
-              {onlineErrors.map((e) => (
-                <li key={e} className="flex items-start gap-2">
-                  <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            {onlineErrors.length > 0 && (
+              <div className="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-[family-name:var(--font-roboto)] rounded-xl space-y-2">
+                <p className="font-semibold font-[family-name:var(--font-poppins)]">
+                  Ce produit ne peut pas être mis en ligne :
+                </p>
+                <ul className="space-y-1 list-none">
+                  {onlineErrors.map((e) => (
+                    <li key={e} className="flex items-start gap-2">
+                      <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      {e}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* ── Boutons d'action ── */}
+            <div className="flex items-center justify-center flex-wrap gap-3">
+              {/* Mettre en ligne / hors ligne (toggle local, enregistrer séparément) */}
+              {productStatus === "OFFLINE" ? (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => {
+                    const errors = getCompletenessErrors();
+                    if (errors.length > 0) {
+                      setOnlineErrors(errors);
+                      setError("Ce produit est incomplet et ne peut pas être mis en ligne. Corrigez les erreurs ci-dessus.");
+                      return;
+                    }
+                    if (isOutOfStock()) {
+                      setOnlineErrors(["Toutes les variantes sont en rupture de stock"]);
+                      setError("Ce produit ne peut pas être mis en ligne car aucune variante n'a de stock.");
+                      return;
+                    }
+                    setOnlineErrors([]);
+                    setError("");
+                    setProductStatus("ONLINE");
+                  }}
+                  className="flex items-center gap-2 px-6 py-3.5 bg-[#22C55E] hover:bg-[#16A34A] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-[family-name:var(--font-roboto)]"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  {e}
-                </li>
-              ))}
-            </ul>
+                  Mettre en ligne
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => setProductStatus("OFFLINE")}
+                  className="flex items-center gap-2 px-6 py-3.5 bg-[#F7F7F8] hover:bg-[#F0F0F0] text-[#6B6B6B] text-sm font-semibold rounded-xl border border-[#E5E5E5] transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-[family-name:var(--font-roboto)]"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                  Mettre hors ligne
+                </button>
+              )}
+
+              {/* Enregistrer (en edit: uniquement si modifications) */}
+              {(mode !== "edit" || hasUnsavedChanges) && (
+                <button type="submit" disabled={isPending}
+                  className="btn-primary px-10 py-3.5 text-base disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isPending
+                    ? mode === "edit" ? "Enregistrement…" : "Création en cours…"
+                    : mode === "edit" ? "Enregistrer les modifications" : "Créer le produit"}
+                </button>
+              )}
+
+              {hasUnsavedChanges && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = await confirmDialog({
+                      type: "danger",
+                      title: "Annuler les modifications",
+                      message: "Voulez-vous vraiment annuler toutes les modifications ? Vos changements seront perdus.",
+                      confirmLabel: "Annuler les modifications",
+                      cancelLabel: "Continuer l\u2019édition",
+                    });
+                    if (ok) {
+                      isDirty.current = false;
+                      window.location.reload();
+                    }
+                  }}
+                  className="btn-secondary px-7 py-3.5 text-sm"
+                >
+                  Annuler les modifications
+                </button>
+              )}
+            </div>
           </div>
-        )}
-
-        <div className="flex items-center flex-wrap gap-3 pt-2 pb-8">
-          {/* Statut actuel */}
-          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-[family-name:var(--font-roboto)] ${
-            productStatus === "ONLINE"
-              ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-              : "bg-[#F7F7F8] text-[#6B6B6B] border border-[#E5E5E5]"
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${productStatus === "ONLINE" ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
-            {productStatus === "ONLINE" ? "En ligne" : "Hors ligne"}
-          </span>
-
-          {/* Enregistrer */}
-          <button type="submit" disabled={isPending}
-            className="btn-primary px-10 py-3.5 text-base disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {isPending
-              ? mode === "edit" ? "Enregistrement…" : "Création en cours…"
-              : mode === "edit" ? "Enregistrer les modifications" : "Créer le produit"}
-          </button>
-
-          {/* Mettre en ligne / hors ligne */}
-          {productStatus === "OFFLINE" ? (
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => handleSave("ONLINE")}
-              className="flex items-center gap-2 px-6 py-3.5 bg-[#22C55E] hover:bg-[#16A34A] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-[family-name:var(--font-roboto)]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              Enregistrer et mettre en ligne
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => handleSave("OFFLINE")}
-              className="flex items-center gap-2 px-6 py-3.5 bg-[#F7F7F8] hover:bg-[#F0F0F0] text-[#6B6B6B] text-sm font-semibold rounded-xl border border-[#E5E5E5] transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-[family-name:var(--font-roboto)]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-              </svg>
-              Enregistrer et mettre hors ligne
-            </button>
-          )}
-
-          <button type="button" onClick={() => navigateWithGuard("/admin/produits")} className="btn-secondary px-7 py-3.5 text-sm">
-            Annuler
-          </button>
-          <button type="button" onClick={() => navigateWithGuard("/admin/produits")} className="text-sm text-[#6B6B6B] underline hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]">
-            Retourner à la page des produits
-          </button>
         </div>
       </form>
 

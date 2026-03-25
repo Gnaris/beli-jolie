@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteSeason, updateSeasonDirect } from "@/app/actions/admin/seasons";
+import { deleteSeason, updateSeasonDirect, updateSeasonPfsRef } from "@/app/actions/admin/seasons";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import EntityEditModal from "@/components/admin/EntityEditModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
+import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface SeasonItem {
@@ -24,6 +25,7 @@ export default function SeasonsManager({
   const router = useRouter();
   const { confirm } = useConfirm();
   const [editTarget, setEditTarget] = useState<SeasonItem | null>(null);
+  const [editPfsRef, setEditPfsRef] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -31,6 +33,12 @@ export default function SeasonsManager({
   const filtered = search.trim()
     ? initialSeasons.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()) || s.pfsSeasonRef?.toLowerCase().includes(search.trim().toLowerCase()))
     : initialSeasons;
+
+  function openEdit(item: SeasonItem) {
+    setError("");
+    setEditTarget(item);
+    setEditPfsRef(item.pfsSeasonRef ?? "");
+  }
 
   async function handleDelete(item: SeasonItem) {
     if (item.productCount > 0) {
@@ -55,6 +63,10 @@ export default function SeasonsManager({
   async function handleSave(name: string, translations: Record<string, string>) {
     if (!editTarget) return;
     await updateSeasonDirect(editTarget.id, name, translations);
+    const origRef = editTarget.pfsSeasonRef ?? "";
+    if (editPfsRef !== origRef) {
+      await updateSeasonPfsRef(editTarget.id, editPfsRef || null);
+    }
     router.refresh();
   }
 
@@ -116,13 +128,13 @@ export default function SeasonsManager({
               </span>
 
               {/* Nom + badges */}
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
                 <span className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] truncate">
                   {item.name}
                 </span>
                 {item.pfsSeasonRef && (
-                  <span className="badge badge-info text-[10px] shrink-0">
-                    {item.pfsSeasonRef}
+                  <span className="badge badge-purple text-[10px] shrink-0">
+                    PFS: {item.pfsSeasonRef}
                   </span>
                 )}
                 <span className="badge badge-neutral text-[10px] shrink-0">
@@ -145,7 +157,7 @@ export default function SeasonsManager({
               <div className="flex items-center gap-0.5 max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity ml-auto">
                 <button
                   type="button"
-                  onClick={() => { setError(""); setEditTarget(item); }}
+                  onClick={() => openEdit(item)}
                   className="p-2.5 text-text-muted hover:text-text-primary transition-colors"
                   title="Modifier"
                   aria-label={`Modifier la saison ${item.name}`}
@@ -178,6 +190,15 @@ export default function SeasonsManager({
         title="Modifier la saison"
         initialName={editTarget?.name ?? ""}
         initialTranslations={editTarget?.translations ?? {}}
+        renderExtra={
+          editTarget ? (
+            <MarketplaceMappingSection
+              entityType="season"
+              pfsRef={editPfsRef}
+              onPfsRefChange={setEditPfsRef}
+            />
+          ) : undefined
+        }
         onSave={handleSave}
       />
     </>

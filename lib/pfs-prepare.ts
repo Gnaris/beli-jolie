@@ -8,11 +8,13 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { revalidatePath, revalidateTag } from "next/cache";
 import {
   pfsListProducts,
   type PfsProduct,
 } from "@/lib/pfs-api";
 import { processProductImage } from "@/lib/image-processor";
+import { stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
 import {
   stripVersionSuffix,
   fullSizeImageUrl,
@@ -65,6 +67,8 @@ export interface StagedVariantData {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   sizeName: string | null;
+  sizeNames?: string[]; // All sizes for PACK variants (multiple sizes)
+  sizeEntries?: { name: string; qty: number; pricePerUnit: number }[]; // Sizes with qty + price
   isPrimary: boolean;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
@@ -231,12 +235,12 @@ async function prepareSingleProduct(
       variantMap.set(v.id, v);
     }
 
-    const activeVariants = (variantDetails.length > 0 ? variantDetails : pfsProduct.variants)
-      .filter((v) => v.is_active);
+    // Import ALL variants (including disabled ones — they get stock=0)
+    const allVariants = variantDetails.length > 0 ? variantDetails : pfsProduct.variants;
 
-    if (activeVariants.length === 0) {
-      addLog(`  ⏭ ${bjRef} — Aucune variante active, skip`);
-      return { status: "error", reference: bjRef, error: "Aucune variante active" };
+    if (allVariants.length === 0) {
+      addLog(`  ⏭ ${bjRef} — Aucune variante, skip`);
+      return { status: "error", reference: bjRef, error: "Aucune variante" };
     }
 
     // Detect default color
@@ -248,7 +252,9 @@ async function prepareSingleProduct(
 
     const variants: StagedVariantData[] = [];
 
-    for (const v of activeVariants) {
+    let inactiveCount = 0;
+    for (const v of allVariants) {
+      if (!v.is_active) inactiveCount++;
       const detail = variantMap.get(v.id);
       const weight = detail?.weight ?? v.weight ?? 0;
 
@@ -278,7 +284,7 @@ async function prepareSingleProduct(
           colorName: v.item.color.labels?.fr || v.item.color.reference,
           unitPrice: bjPrice,
           weight,
-          stock: v.stock_qty,
+          stock: v.is_active ? v.stock_qty : 0,
           saleType: "UNIT",
           packQuantity: null,
           sizeName: v.item.size || null,
@@ -299,24 +305,25 @@ async function prepareSingleProduct(
           continue;
         }
 
-        // Collect ALL pack colors into PackColorLines
-        const packColorLines: StagedPackColorLine[] = [];
+        // Collect ALL pack colors into a single PackColorLine composition
+        const lineColors: StagedPackColorLine["colors"] = [];
         for (const pack of v.packs) {
           const packColorId = await findOrCreateColor(
             pack.color.reference,
             pack.color.value,
             pack.color.labels,
           );
-          if (packColorId) {
-            packColorLines.push({
-              colors: [{
-                colorId: packColorId,
-                colorRef: pack.color.reference,
-                colorName: pack.color.labels?.fr || pack.color.reference,
-              }],
+          if (packColorId && !lineColors.some((c) => c.colorId === packColorId)) {
+            lineColors.push({
+              colorId: packColorId,
+              colorRef: pack.color.reference,
+              colorName: pack.color.labels?.fr || pack.color.reference,
             });
           }
         }
+        const packColorLines: StagedPackColorLine[] = lineColors.length > 0
+          ? [{ colors: lineColors }]
+          : [];
 
         const packQty = detail?.pieces ?? firstPack.sizes?.[0]?.qty ?? v.pieces ?? 1;
         const pfsPrice = v.price_sale.unit.value;
@@ -329,6 +336,27 @@ async function prepareSingleProduct(
           discountValue = v.discount.value;
         }
 
+        // Collect ALL sizes with quantities from ALL packs
+        const sizeQtyMap = new Map<string, number>();
+        for (const pack of v.packs) {
+          if (pack.sizes) {
+            for (const s of pack.sizes) {
+              if (s.size) {
+                sizeQtyMap.set(s.size, (sizeQtyMap.get(s.size) || 0) + (s.qty || 1));
+              }
+            }
+          }
+        }
+        const sizeNames = [...sizeQtyMap.keys()];
+        // Distribute pack price equally across all items
+        const totalItems = [...sizeQtyMap.values()].reduce((a, b) => a + b, 0);
+        const pricePerItem = totalItems > 0 ? bjPrice / totalItems : 0;
+        const sizeEntries = sizeNames.map((name) => ({
+          name,
+          qty: sizeQtyMap.get(name) || 1,
+          pricePerUnit: Math.round(pricePerItem * 100) / 100,
+        }));
+
         variants.push({
           colorId: mainColorId,
           colorRef: firstPack.color.reference,
@@ -336,15 +364,21 @@ async function prepareSingleProduct(
           packColorLines,
           unitPrice: bjPrice,
           weight,
-          stock: v.stock_qty,
+          stock: v.is_active ? v.stock_qty : 0,
           saleType: "PACK",
           packQuantity: packQty,
-          sizeName: firstPack.sizes?.[0]?.size || null,
+          sizeName: sizeNames[0] || null,
+          sizeNames,
+          sizeEntries,
           isPrimary: false,
           discountType,
           discountValue,
         });
       }
+    }
+
+    if (inactiveCount > 0) {
+      addLog(`  ⚠️ ${inactiveCount} variante(s) désactivée(s) importée(s) avec stock=0`);
     }
 
     // Set isPrimary
@@ -360,15 +394,17 @@ async function prepareSingleProduct(
       return { status: "error", reference: bjRef, error: "Aucune variante valide" };
     }
 
-    // ── Product name/description ──
+    // ── Product name/description (strip dimensions suffix added by reverse sync) ──
     const nameFr = pfsProduct.labels?.fr || bjRef;
-    const descriptionFr = refDetails?.product?.description?.fr || nameFr;
+    const rawDescFr = refDetails?.product?.description?.fr || nameFr;
+    const descriptionFr = stripDimensionsSuffix(rawDescFr);
 
-    // ── Translations ──
+    // ── Translations (strip dimensions) ──
     const translations: StagedTranslation[] = [];
     for (const locale of ["en", "de", "es", "it"]) {
       const name = pfsProduct.labels?.[locale];
-      const desc = refDetails?.product?.description?.[locale] || name;
+      const rawDesc = refDetails?.product?.description?.[locale] || name;
+      const desc = rawDesc ? stripDimensionsSuffix(rawDesc) : name;
       if (name) {
         translations.push({ locale, name, description: desc || name });
       }
@@ -389,9 +425,11 @@ async function prepareSingleProduct(
         differences.push({ field: "name", stagedValue: nameFr, existingValue: existingProduct.name });
       }
 
-      // Compare description
-      if (existingProduct.description !== descriptionFr) {
-        differences.push({ field: "description", stagedValue: descriptionFr, existingValue: existingProduct.description || "" });
+      // Compare description (strip dimensions suffix to avoid false differences)
+      const bjDescClean = stripDimensionsSuffix(existingProduct.description || "");
+      const pfsDescClean = stripDimensionsSuffix(descriptionFr);
+      if (bjDescClean !== pfsDescClean) {
+        differences.push({ field: "description", stagedValue: pfsDescClean, existingValue: bjDescClean });
       }
 
       // Compare category
@@ -963,6 +1001,12 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
       data: { approvedProducts: { increment: 1 } },
     });
 
+    // Invalidate product caches so pages show updated data immediately
+    revalidateTag("products", "default");
+    revalidatePath("/admin/produits");
+    revalidatePath(`/admin/produits/${productId}/modifier`);
+    revalidatePath(`/produits/${productId}`);
+
     return { productId };
   }
 
@@ -1016,6 +1060,12 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
     where: { id: staged.prepareJobId },
     data: { approvedProducts: { increment: 1 } },
   });
+
+  // Invalidate product caches so pages show updated data immediately
+  revalidateTag("products", "default");
+  revalidatePath("/admin/produits");
+  revalidatePath(`/admin/produits/${product.id}/modifier`);
+  revalidatePath(`/produits/${product.id}`);
 
   return { productId: product.id };
 }
@@ -1087,16 +1137,36 @@ async function createProductChildren(
       console.log(`[CREATE_CHILDREN] Created ${v.packColorLines.length} PackColorLines for variant ${created.id}`);
     }
 
-    // Create VariantSize record if PFS provided a size
-    if (v.sizeName) {
-      const sizeRecord = await prisma.size.upsert({
-        where: { name: v.sizeName },
-        create: { name: v.sizeName },
-        update: {},
-      });
-      await prisma.variantSize.create({
-        data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
-      });
+    // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
+    if (v.sizeEntries?.length) {
+      for (const entry of v.sizeEntries) {
+        const sizeRecord = await prisma.size.upsert({
+          where: { name: entry.name },
+          create: { name: entry.name },
+          update: {},
+        });
+        await prisma.variantSize.create({
+          data: {
+            productColorId: created.id,
+            sizeId: sizeRecord.id,
+            quantity: entry.qty,
+            pricePerUnit: entry.pricePerUnit,
+          },
+        });
+      }
+    } else {
+      // Fallback: legacy format with just size names
+      const sizes = v.sizeNames?.length ? v.sizeNames : (v.sizeName ? [v.sizeName] : []);
+      for (const sizeName of sizes) {
+        const sizeRecord = await prisma.size.upsert({
+          where: { name: sizeName },
+          create: { name: sizeName },
+          update: {},
+        });
+        await prisma.variantSize.create({
+          data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
+        });
+      }
     }
   }
 
@@ -1297,6 +1367,8 @@ export interface CompareSelections {
   description: "bj" | "pfs";
   category: "bj" | "pfs";
   compositions: "bj" | "pfs";
+  season?: "bj" | "pfs";
+  manufacturingCountry?: "bj" | "pfs";
   variants: Record<string, "bj" | "pfs" | "add">;
   // Image slots: key = colorGroupKey (colorId::subNames), value = array of 5 slots (path or null)
   imageSlots: Record<string, (string | null)[]>;
@@ -1346,6 +1418,8 @@ async function applyCompareSelections(
       compositions: {
         include: { composition: { select: { id: true, name: true } } },
       },
+      manufacturingCountry: { select: { id: true, name: true } },
+      season: { select: { id: true, name: true } },
     },
   });
   if (!existing) return;
@@ -1358,6 +1432,14 @@ async function applyCompareSelections(
   if (selections.category === "bj") {
     updateData.categoryId = existing.categoryId;
     updateData.categoryName = existing.category.name;
+  }
+  if (selections.season === "bj") {
+    updateData.seasonId = existing.seasonId;
+    updateData.seasonName = existing.season?.name ?? null;
+  }
+  if (selections.manufacturingCountry === "bj") {
+    updateData.manufacturingCountryId = existing.manufacturingCountryId;
+    updateData.manufacturingCountryName = existing.manufacturingCountry?.name ?? null;
   }
 
   // Compositions

@@ -29,7 +29,9 @@ interface VariantData {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   size: string | null;
+  sizeName?: string | null;
   isPrimary: boolean;
+  isActive?: boolean;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
 }
@@ -60,6 +62,10 @@ interface ProductData {
     paths: string[];
   }>;
   compositions: CompositionData[];
+  manufacturingCountryId?: string | null;
+  manufacturingCountryName?: string | null;
+  seasonId?: string | null;
+  seasonName?: string | null;
 }
 
 interface CompareSelections {
@@ -67,6 +73,8 @@ interface CompareSelections {
   description: "bj" | "pfs";
   category: "bj" | "pfs";
   compositions: "bj" | "pfs";
+  season: "bj" | "pfs";
+  manufacturingCountry: "bj" | "pfs";
   variants: Record<string, "bj" | "pfs" | "add">;
 }
 
@@ -107,6 +115,17 @@ function getSubSegs(v: VariantData) {
     hex: sc.hex ?? null,
     patternImage: sc.patternImage ?? null,
   }));
+}
+
+function isExternal(path: string): boolean {
+  return path.startsWith("http");
+}
+
+function getThumbSrc(path: string): string {
+  if (!path) return "";
+  if (isExternal(path)) return path;
+  if (path.endsWith(".webp")) return path.replace(/\.webp$/, "_thumb.webp");
+  return path;
 }
 
 // ─────────────────────────────────────────────
@@ -156,6 +175,17 @@ function SyncIcon({ className }: { className?: string }) {
   );
 }
 
+function ZoomIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      <line x1="11" y1="8" x2="11" y2="14" />
+      <line x1="8" y1="11" x2="14" y2="11" />
+    </svg>
+  );
+}
+
 // ─────────────────────────────────────────────
 // Selection Button
 // ─────────────────────────────────────────────
@@ -185,7 +215,7 @@ function SelectButton({
       aria-pressed={selected}
     >
       {selected && <CheckIcon className="h-3.5 w-3.5" />}
-      {label ?? (side === "bj" ? "Garder BJ → PFS" : "Prendre PFS → BJ")}
+      {label ?? "Prendre cette valeur"}
     </button>
   );
 }
@@ -221,45 +251,51 @@ function CompareField({
     <div className={`rounded-xl border p-4 ${
       isDifferent ? "border-[#F59E0B]/40 bg-[#F59E0B]/5" : "border-border bg-bg-secondary/30"
     }`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)]">
-            {label}
-          </h4>
-          {isDifferent ? (
-            <span className="badge badge-warning text-[10px]">Différent</span>
-          ) : (
-            <span className="badge badge-success text-[10px]">Identique</span>
-          )}
-        </div>
-        {isDifferent && (
-          <div className="flex items-center gap-2">
-            <SelectButton selected={selected === "bj"} onClick={() => onSelect("bj")} side="bj" />
-            <SelectButton selected={selected === "pfs"} onClick={() => onSelect("pfs")} side="pfs" />
-          </div>
+      {/* Section header with label + badge */}
+      <div className="flex items-center gap-2 mb-3">
+        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)]">
+          {label}
+        </h4>
+        {isDifferent ? (
+          <span className="badge badge-warning text-[10px]">Différent</span>
+        ) : (
+          <span className="badge badge-success text-[10px]">Identique</span>
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className={`rounded-lg p-3 border transition-all ${
-          selected === "bj" ? "border-[#3B82F6] bg-[#3B82F6]/5 ring-1 ring-[#3B82F6]/20" : "border-border bg-bg-primary"
+      {/* Two-column grid with vertical divider */}
+      <div className="grid grid-cols-1 md:grid-cols-2 divide-x divide-border">
+        {/* Boutique column */}
+        <div className={`pr-3 rounded-l-lg p-3 transition-all ${
+          selected === "bj" ? "bg-[#3B82F6]/5" : "bg-bg-primary"
         }`}>
           <div className="flex items-center gap-1.5 mb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6] bg-[#3B82F6]/10 rounded px-1.5 py-0.5">
-              Beli Jolie
+              Boutique
             </span>
           </div>
+          {isDifferent && (
+            <div className="mb-2">
+              <SelectButton selected={selected === "bj"} onClick={() => onSelect("bj")} side="bj" />
+            </div>
+          )}
           {render(bjValue, "bj")}
         </div>
 
-        <div className={`rounded-lg p-3 border transition-all ${
-          selected === "pfs" ? "border-[#F59E0B] bg-[#F59E0B]/5 ring-1 ring-[#F59E0B]/20" : "border-border bg-bg-primary"
+        {/* PFS column */}
+        <div className={`pl-3 rounded-r-lg p-3 transition-all ${
+          selected === "pfs" ? "bg-[#F59E0B]/5" : "bg-bg-primary"
         }`}>
           <div className="flex items-center gap-1.5 mb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#F59E0B] bg-[#F59E0B]/10 rounded px-1.5 py-0.5">
               PFS (actuel)
             </span>
           </div>
+          {isDifferent && (
+            <div className="mb-2">
+              <SelectButton selected={selected === "pfs"} onClick={() => onSelect("pfs")} side="pfs" />
+            </div>
+          )}
           {render(pfsValue, "pfs")}
         </div>
       </div>
@@ -283,7 +319,7 @@ function VariantCard({
   compact?: boolean;
 }) {
   const color = side === "bj" ? "#3B82F6" : "#F59E0B";
-  const label = side === "bj" ? "Beli Jolie" : "PFS";
+  const label = side === "bj" ? "Boutique" : "PFS";
 
   return (
     <div
@@ -317,6 +353,10 @@ function VariantCard({
           <span className="text-text-secondary">Remise</span>
           <p className="font-medium text-text-primary tabular-nums">{formatDiscount(variant.discountType, variant.discountValue)}</p>
         </div>
+        <div>
+          <span className="text-text-secondary">Taille</span>
+          <p className="font-medium text-text-primary">{variant.sizeName ?? variant.size ?? "—"}</p>
+        </div>
       </div>
     </div>
   );
@@ -336,6 +376,7 @@ interface VariantMatch {
   subColors?: SubColorData[];
   onlyIn: "both" | "bj" | "pfs";
   isDifferent: boolean;
+  pfsDisabled: boolean;
 }
 
 function matchVariants(bjVariants: VariantData[], pfsVariants: VariantData[]): VariantMatch[] {
@@ -365,8 +406,11 @@ function matchVariants(bjVariants: VariantData[], pfsVariants: VariantData[]): V
       const p = pfs[i];
       if (!p) return true;
       return b.unitPrice !== p.unitPrice || b.stock !== p.stock || b.weight !== p.weight
-        || b.discountType !== p.discountType || b.discountValue !== p.discountValue;
+        || b.discountType !== p.discountType || b.discountValue !== p.discountValue
+        || (b.sizeName ?? b.size) !== (p.sizeName ?? p.size);
     });
+
+    const pfsDisabled = pfs.length > 0 && pfs.every((v) => v.isActive === false);
 
     matches.push({
       key,
@@ -378,6 +422,7 @@ function matchVariants(bjVariants: VariantData[], pfsVariants: VariantData[]): V
       subColors: source.subColors,
       onlyIn: bj.length > 0 && pfs.length > 0 ? "both" : bj.length > 0 ? "bj" : "pfs",
       isDifferent: isDiff,
+      pfsDisabled,
     });
   }
 
@@ -406,8 +451,13 @@ export default function PfsLiveCompareModal({
     description: "bj",
     category: "bj",
     compositions: "bj",
+    season: "bj",
+    manufacturingCountry: "bj",
     variants: {},
   });
+  const [imageSlots, setImageSlots] = useState<Record<string, (string | null)[]>>({});
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
+  const [dragData, setDragData] = useState<{ path: string; sourceKey: string } | null>(null);
 
   // ── Initialize selections from data ──
   const initSelectionsFromData = useCallback((data: { existing: ProductData; pfs: ProductData }) => {
@@ -425,8 +475,30 @@ export default function PfsLiveCompareModal({
       description: "bj",
       category: "bj",
       compositions: "bj",
+      season: "bj",
+      manufacturingCountry: "bj",
       variants: variantSels,
     });
+
+    // Initialize image slots from both sides
+    const initSlots: Record<string, (string | null)[]> = {};
+    for (const group of data.existing.imagesByColor ?? []) {
+      const key = `bj::${group.colorId}::${group.colorName}`;
+      const slots: (string | null)[] = [null, null, null, null, null];
+      for (let i = 0; i < Math.min(group.paths.length, 5); i++) {
+        slots[i] = group.paths[i];
+      }
+      initSlots[key] = slots;
+    }
+    for (const group of data.pfs.imagesByColor ?? []) {
+      const key = `pfs::${group.colorId}::${group.colorName}`;
+      const slots: (string | null)[] = [null, null, null, null, null];
+      for (let i = 0; i < Math.min(group.paths.length, 5); i++) {
+        slots[i] = group.paths[i];
+      }
+      initSlots[key] = slots;
+    }
+    setImageSlots(initSlots);
   }, []);
 
   // ── Fetch data (only if no initialData) ──
@@ -489,6 +561,32 @@ export default function PfsLiveCompareModal({
     }));
   }, []);
 
+  const handleDropOnSlot = useCallback((slotKey: string, position: number, imagePath: string) => {
+    setImageSlots((prev) => {
+      const slots = [...(prev[slotKey] ?? [null, null, null, null, null])];
+      slots[position] = imagePath;
+      return { ...prev, [slotKey]: slots };
+    });
+  }, []);
+
+  const handleClearSlot = useCallback((slotKey: string, position: number) => {
+    setImageSlots((prev) => {
+      const slots = [...(prev[slotKey] ?? [null, null, null, null, null])];
+      slots[position] = null;
+      return { ...prev, [slotKey]: slots };
+    });
+  }, []);
+
+  const handleReorderSlot = useCallback((slotKey: string, fromPos: number, toPos: number) => {
+    setImageSlots((prev) => {
+      const slots = [...(prev[slotKey] ?? [null, null, null, null, null])];
+      const tmp = slots[fromPos];
+      slots[fromPos] = slots[toPos];
+      slots[toPos] = tmp;
+      return { ...prev, [slotKey]: slots };
+    });
+  }, []);
+
   // ── Apply changes ──
   const handleApply = useCallback(async () => {
     if (!existing || !pfs) return;
@@ -502,14 +600,22 @@ export default function PfsLiveCompareModal({
         description: pfs.description,
         categoryId: pfs.categoryId,
         categoryName: pfs.categoryName,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         variants: pfs.variants as any,
         compositions: pfs.compositions,
+        seasonId: pfs.seasonId,
+        seasonName: pfs.seasonName,
+        manufacturingCountryId: pfs.manufacturingCountryId,
+        manufacturingCountryName: pfs.manufacturingCountryName,
       }, {
         name: existing.name,
         description: existing.description,
         categoryId: existing.categoryId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         variants: existing.variants as any,
         compositions: existing.compositions,
+        seasonId: existing.seasonId,
+        manufacturingCountryId: existing.manufacturingCountryId,
       });
 
       if (result.success) {
@@ -538,6 +644,8 @@ export default function PfsLiveCompareModal({
     if (existing.description !== pfs.description) count++;
     if (existing.categoryId !== pfs.categoryId) count++;
     if (JSON.stringify(existing.compositions) !== JSON.stringify(pfs.compositions)) count++;
+    if (existing.seasonId !== pfs.seasonId && !!pfs.seasonName) count++;
+    if (existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName) count++;
     for (const [, val] of Object.entries(selections.variants)) {
       if (val === "pfs" || val === "add") count++;
     }
@@ -558,7 +666,9 @@ export default function PfsLiveCompareModal({
     + (existing && pfs && existing.name !== pfs.name ? 1 : 0)
     + (existing && pfs && existing.description !== pfs.description ? 1 : 0)
     + (existing && pfs && existing.categoryId !== pfs.categoryId ? 1 : 0)
-    + (existing && pfs && JSON.stringify(existing.compositions) !== JSON.stringify(pfs.compositions) ? 1 : 0);
+    + (existing && pfs && JSON.stringify(existing.compositions) !== JSON.stringify(pfs.compositions) ? 1 : 0)
+    + (existing && pfs && existing.seasonId !== pfs.seasonId && !!pfs.seasonName ? 1 : 0)
+    + (existing && pfs && existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName ? 1 : 0);
   const changesCount = countChanges();
 
   return (
@@ -587,7 +697,7 @@ export default function PfsLiveCompareModal({
               <div className="flex items-center gap-3 text-xs text-text-secondary">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-full bg-[#3B82F6]" />
-                  Beli Jolie (actuel)
+                  Boutique (actuel)
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-full bg-[#F59E0B]" />
@@ -712,6 +822,32 @@ export default function PfsLiveCompareModal({
                 />
               )}
 
+              {/* ─── Saison ─── */}
+              <CompareField
+                label="Saison"
+                bjValue={existing.seasonName}
+                pfsValue={pfs.seasonName}
+                isDifferent={existing.seasonId !== pfs.seasonId && !!pfs.seasonName}
+                selected={selections.season}
+                onSelect={(s) => updateSelection("season", s)}
+                renderValue={(val) => (
+                  <span className="badge badge-neutral text-xs">{val ? String(val) : "Non défini"}</span>
+                )}
+              />
+
+              {/* ─── Pays de fabrication ─── */}
+              <CompareField
+                label="Pays de fabrication"
+                bjValue={existing.manufacturingCountryName}
+                pfsValue={pfs.manufacturingCountryName}
+                isDifferent={existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName}
+                selected={selections.manufacturingCountry}
+                onSelect={(s) => updateSelection("manufacturingCountry", s)}
+                renderValue={(val) => (
+                  <span className="badge badge-neutral text-xs">{val ? String(val) : "Non défini"}</span>
+                )}
+              />
+
               {/* ─── Variants ─── */}
               <div className="rounded-xl border border-border p-4 bg-bg-secondary/30">
                 <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)] mb-3">
@@ -760,7 +896,10 @@ export default function PfsLiveCompareModal({
                             {match.onlyIn === "bj" && (
                               <span className="badge badge-error text-[10px]">Absent de PFS</span>
                             )}
-                            {match.onlyIn === "both" && match.isDifferent && (
+                            {match.onlyIn === "both" && match.pfsDisabled && (
+                              <span className="badge badge-warning text-[10px]">Désactivé sur PFS</span>
+                            )}
+                            {match.onlyIn === "both" && !match.pfsDisabled && match.isDifferent && (
                               <span className="badge badge-warning text-[10px]">Différent</span>
                             )}
                             {match.onlyIn === "both" && !match.isDifferent && (
@@ -796,28 +935,44 @@ export default function PfsLiveCompareModal({
                                 </button>
                               </div>
                             )}
-                            {match.onlyIn === "both" && match.isDifferent && (
-                              <>
+                          </div>
+                        </div>
+
+                        {/* Values side by side with select buttons inside each column */}
+                        {match.onlyIn === "both" && match.isDifferent && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 mt-2 rounded-lg border border-border overflow-hidden">
+                            {/* Boutique side */}
+                            <div className={`p-3 md:border-r border-border transition-all ${
+                              sel === "bj" ? "bg-[#3B82F6]/5" : "bg-bg-primary"
+                            }`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6] bg-[#3B82F6]/10 rounded px-1.5 py-0.5">
+                                  Boutique
+                                </span>
                                 <SelectButton
                                   selected={sel === "bj"}
                                   onClick={() => updateVariantSelection(match.key, "bj")}
                                   side="bj"
                                 />
+                              </div>
+                              <VariantCard variant={bjV} side="bj" selected={sel === "bj"} compact />
+                            </div>
+                            {/* PFS side */}
+                            <div className={`p-3 border-t md:border-t-0 border-border transition-all ${
+                              sel === "pfs" ? "bg-[#F59E0B]/5" : "bg-bg-primary"
+                            }`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-[#F59E0B] bg-[#F59E0B]/10 rounded px-1.5 py-0.5">
+                                  PFS
+                                </span>
                                 <SelectButton
                                   selected={sel === "pfs"}
                                   onClick={() => updateVariantSelection(match.key, "pfs")}
                                   side="pfs"
                                 />
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Values side by side */}
-                        {match.onlyIn === "both" && match.isDifferent && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
-                            <VariantCard variant={bjV} side="bj" selected={sel === "bj"} />
-                            <VariantCard variant={pfsV} side="pfs" selected={sel === "pfs"} />
+                              </div>
+                              <VariantCard variant={pfsV} side="pfs" selected={sel === "pfs"} compact />
+                            </div>
                           </div>
                         )}
                         {match.onlyIn === "both" && !match.isDifferent && (
@@ -838,12 +993,122 @@ export default function PfsLiveCompareModal({
                 </div>
               </div>
 
+              {/* ─── Images — Drag & Drop ─── */}
+              {(existing.imagesByColor?.length > 0 || pfs.imagesByColor?.length > 0) && (
+                <div className="rounded-xl border border-border p-4 bg-bg-secondary/30">
+                  <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)] mb-1">
+                    Images
+                  </h4>
+                  <p className="text-[11px] text-text-secondary mb-4">
+                    Glissez les images d&apos;un côté à l&apos;autre ou entre les emplacements. Cliquez sur × pour retirer.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* ── LEFT: Boutique ── */}
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#3B82F6] bg-[#3B82F6]/10 rounded px-2 py-1 mb-3 text-center">
+                        Boutique
+                      </div>
+                      <div className="space-y-3">
+                        {existing.imagesByColor?.map((group) => {
+                          const key = `bj::${group.colorId}::${group.colorName}`;
+                          const slots = imageSlots[key] ?? [null, null, null, null, null];
+                          return (
+                            <div key={key} className="rounded-xl border border-[#3B82F6]/20 bg-[#3B82F6]/5 p-3">
+                              <div className="flex items-center gap-1.5 mb-2">
+                                <ColorSwatch
+                                  hex={group.colorHex}
+                                  patternImage={group.colorPatternImage}
+                                  subColors={group.subColors?.map(sc => ({ hex: sc.hex, patternImage: sc.patternImage }))}
+                                  size={16}
+                                  rounded="full"
+                                  border
+                                />
+                                <span className="text-xs font-medium text-[#3B82F6]">{group.colorName}</span>
+                              </div>
+                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                                {slots.map((slotPath, pos) => (
+                                  <LiveImageSlot
+                                    key={`bj-slot-${key}-${pos}`}
+                                    position={pos}
+                                    path={slotPath}
+                                    slotKey={key}
+                                    isDragActive={!!dragData}
+                                    onDrop={(path) => handleDropOnSlot(key, pos, path)}
+                                    onClear={() => handleClearSlot(key, pos)}
+                                    onZoom={(path) => setZoomSrc(path)}
+                                    onReorder={(fromPos) => handleReorderSlot(key, fromPos, pos)}
+                                    setDragData={setDragData}
+                                    side="bj"
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {(!existing.imagesByColor || existing.imagesByColor.length === 0) && (
+                          <p className="text-sm text-text-secondary py-4 text-center">Aucune image</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* ── RIGHT: PFS ── */}
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#D97706] bg-[#F59E0B]/10 rounded px-2 py-1 mb-3 text-center">
+                        PFS
+                      </div>
+                      <div className="space-y-3">
+                        {pfs.imagesByColor?.map((group) => {
+                          const key = `pfs::${group.colorId}::${group.colorName}`;
+                          const slots = imageSlots[key] ?? [null, null, null, null, null];
+                          return (
+                            <div key={key} className="rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-3">
+                              <div className="flex items-center gap-1.5 mb-2">
+                                <ColorSwatch
+                                  hex={group.colorHex}
+                                  patternImage={group.colorPatternImage}
+                                  subColors={group.subColors?.map(sc => ({ hex: sc.hex, patternImage: sc.patternImage }))}
+                                  size={16}
+                                  rounded="full"
+                                  border
+                                />
+                                <span className="text-xs font-medium text-[#D97706]">{group.colorName}</span>
+                              </div>
+                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                                {slots.map((slotPath, pos) => (
+                                  <LiveImageSlot
+                                    key={`pfs-slot-${key}-${pos}`}
+                                    position={pos}
+                                    path={slotPath}
+                                    slotKey={key}
+                                    isDragActive={!!dragData}
+                                    onDrop={(path) => handleDropOnSlot(key, pos, path)}
+                                    onClear={() => handleClearSlot(key, pos)}
+                                    onZoom={(path) => setZoomSrc(path)}
+                                    onReorder={(fromPos) => handleReorderSlot(key, fromPos, pos)}
+                                    setDragData={setDragData}
+                                    side="pfs"
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {(!pfs.imagesByColor || pfs.imagesByColor.length === 0) && (
+                          <p className="text-sm text-text-secondary py-4 text-center">Aucune image</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* ─── Footer (sticky) ─── */}
               <div className="sticky bottom-0 -mx-5 sm:-mx-6 mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border bg-bg-primary px-5 sm:px-6 py-4 rounded-b-2xl">
                 <div className="text-sm text-text-secondary">
                   {changesCount > 0 ? (
                     <span>
-                      <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} — les choix BJ seront poussés vers PFS
+                      <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} — les choix Boutique seront poussés vers PFS
                     </span>
                   ) : (
                     <span>Aucune modification sélectionnée</span>
@@ -873,6 +1138,160 @@ export default function PfsLiveCompareModal({
           )}
         </div>
       </div>
+
+      {/* ── Zoom overlay ── */}
+      {zoomSrc && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setZoomSrc(null)}
+        >
+          <button
+            onClick={() => setZoomSrc(null)}
+            className="absolute top-4 right-4 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+            aria-label="Fermer le zoom"
+          >
+            <XIcon className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={zoomSrc}
+            alt="Zoom"
+            className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Image Slot (drag-and-drop target, works across colors and sides)
+// ─────────────────────────────────────────────
+
+function LiveImageSlot({
+  position,
+  path,
+  slotKey,
+  isDragActive,
+  onDrop,
+  onClear,
+  onZoom,
+  onReorder,
+  setDragData,
+  side,
+}: {
+  position: number;
+  path: string | null;
+  slotKey: string;
+  isDragActive: boolean;
+  onDrop: (path: string) => void;
+  onClear: () => void;
+  onZoom: (path: string) => void;
+  onReorder: (fromPos: number) => void;
+  setDragData: (data: { path: string; sourceKey: string } | null) => void;
+  side: "bj" | "pfs";
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const sideColor = side === "bj" ? "#3B82F6" : "#F59E0B";
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setDragOver(true);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    // Check for internal reorder (same slotKey)
+    const fromSlotKey = e.dataTransfer.getData("application/x-slot-key");
+    const fromPos = parseInt(e.dataTransfer.getData("application/x-slot-pos"), 10);
+    if (fromSlotKey === slotKey && !isNaN(fromPos) && fromPos !== position) {
+      onReorder(fromPos);
+    } else {
+      // Cross-color or cross-side drop
+      const droppedPath = e.dataTransfer.getData("text/plain");
+      if (droppedPath) onDrop(droppedPath);
+    }
+  };
+
+  return (
+    <div
+      draggable={!!path}
+      onDragStart={(e) => {
+        if (path) {
+          e.dataTransfer.setData("text/plain", path);
+          e.dataTransfer.setData("application/x-slot-key", slotKey);
+          e.dataTransfer.setData("application/x-slot-pos", String(position));
+          setDragData({ path, sourceKey: slotKey });
+        }
+      }}
+      onDragEnd={() => setDragData(null)}
+      onDragOver={handleDragOver}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+      className={`
+        relative aspect-square rounded-xl border-2 transition-all flex flex-col items-center justify-center
+        ${path
+          ? dragOver
+            ? "border-text-primary ring-2 ring-text-primary/20 scale-[1.03] cursor-grab"
+            : `border-[${sideColor}]/40 bg-bg-primary cursor-grab active:cursor-grabbing`
+          : dragOver
+            ? `border-[${sideColor}] bg-[${sideColor}]/10 scale-[1.03]`
+            : isDragActive
+              ? `border-dashed border-[${sideColor}]/60 bg-[${sideColor}]/5`
+              : "border-dashed border-border bg-bg-secondary/50"
+        }
+      `}
+      style={path ? { borderColor: dragOver ? undefined : `${sideColor}66` } : (dragOver ? { borderColor: sideColor, backgroundColor: `${sideColor}1A` } : (isDragActive ? { borderColor: `${sideColor}99`, backgroundColor: `${sideColor}0D` } : {}))}
+    >
+      {/* Position badge */}
+      <span className={`absolute top-1 start-1 z-10 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold shadow-sm ${
+        path ? "text-white" : "bg-border text-text-secondary"
+      }`} style={path ? { backgroundColor: sideColor } : {}}>
+        {position + 1}
+      </span>
+
+      {path ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={getThumbSrc(path)}
+            alt={`Position ${position + 1}`}
+            className="h-full w-full object-cover rounded-[10px]"
+            loading="lazy"
+            draggable={false}
+          />
+          {/* Clear button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onClear(); }}
+            className="absolute top-1 end-1 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#EF4444] text-white shadow-sm transition-transform hover:scale-110"
+            aria-label={`Retirer position ${position + 1}`}
+          >
+            <XIcon className="h-3 w-3" />
+          </button>
+          {/* Zoom */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onZoom(path); }}
+            className="absolute bottom-1 right-1 h-6 w-6 rounded-md bg-black/50 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+            aria-label="Zoom"
+          >
+            <ZoomIcon className="h-3.5 w-3.5" />
+          </button>
+          {/* External indicator */}
+          {isExternal(path) && (
+            <span className="absolute bottom-1 start-1 rounded bg-[#F59E0B] px-1 py-0.5 text-[8px] font-bold text-white leading-none">
+              PFS
+            </span>
+          )}
+        </>
+      ) : (
+        <div className="flex flex-col items-center gap-1 text-text-secondary pointer-events-none">
+          <PlusIcon className="h-5 w-5 opacity-40" />
+          <span className="text-[9px] font-medium opacity-60">Position {position + 1}</span>
+        </div>
+      )}
+    </div>
   );
 }

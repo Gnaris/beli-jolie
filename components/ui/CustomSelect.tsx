@@ -122,11 +122,11 @@ export default function CustomSelect({
   const menu = open && mounted && (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-[9990]" onClick={() => setOpen(false)} />
+      <div className="fixed inset-0 z-[10000]" onClick={() => setOpen(false)} />
       {/* Menu */}
       <div
         ref={menuRef}
-        className="fixed z-[9991]"
+        className="fixed z-[10001]"
         style={{
           top: menuPos.top,
           left: menuPos.left,

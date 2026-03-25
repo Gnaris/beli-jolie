@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { revalidateTag } from "next/cache";
 import { emitProductEvent } from "@/lib/product-events";
-import { syncProductToPfs } from "@/lib/pfs-reverse-sync";
+import { syncProductToPfs, stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -23,6 +23,8 @@ interface LiveSyncSelections {
   description: "bj" | "pfs";
   category: "bj" | "pfs";
   compositions: "bj" | "pfs";
+  season?: "bj" | "pfs";
+  manufacturingCountry?: "bj" | "pfs";
   variants: Record<string, "bj" | "pfs" | "add">;
 }
 
@@ -53,6 +55,10 @@ interface PfsData {
   categoryName?: string;
   variants: PfsVariantData[];
   compositions: PfsCompositionData[];
+  seasonId?: string | null;
+  seasonName?: string | null;
+  manufacturingCountryId?: string | null;
+  manufacturingCountryName?: string | null;
 }
 
 interface BjData {
@@ -61,6 +67,8 @@ interface BjData {
   categoryId: string;
   variants: PfsVariantData[];
   compositions: PfsCompositionData[];
+  seasonId?: string | null;
+  manufacturingCountryId?: string | null;
 }
 
 // ─────────────────────────────────────────────
@@ -90,7 +98,7 @@ export async function applyPfsLiveSync(
       changesApplied++;
     }
     if (selections.description === "pfs" && pfsData.description) {
-      updateData.description = pfsData.description;
+      updateData.description = stripDimensionsSuffix(pfsData.description);
       changesApplied++;
     }
     if (selections.category === "pfs") {
@@ -126,6 +134,28 @@ export async function applyPfsLiveSync(
         })),
       });
       changesApplied++;
+    }
+
+    // Update season if PFS selected
+    if (selections.season === "pfs" && pfsData.seasonId) {
+      await prisma.product.update({
+        where: { id: productId },
+        data: { seasonId: pfsData.seasonId },
+      });
+      changesApplied++;
+    } else if (selections.season === "bj") {
+      needsReverseSyncToPfs = true;
+    }
+
+    // Update manufacturing country if PFS selected
+    if (selections.manufacturingCountry === "pfs" && pfsData.manufacturingCountryId) {
+      await prisma.product.update({
+        where: { id: productId },
+        data: { manufacturingCountryId: pfsData.manufacturingCountryId },
+      });
+      changesApplied++;
+    } else if (selections.manufacturingCountry === "bj") {
+      needsReverseSyncToPfs = true;
     }
 
     // Update variants based on selections

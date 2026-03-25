@@ -10,6 +10,7 @@ interface PfsSyncButtonProps {
   pfsSyncStatus: "synced" | "pending" | "failed" | null;
   pfsSyncError: string | null;
   pfsSyncedAt: string | null;
+  mappingIssues?: string[];
 }
 
 export default function PfsSyncButton({
@@ -17,6 +18,7 @@ export default function PfsSyncButton({
   pfsProductId,
   pfsSyncStatus,
   pfsSyncError,
+  mappingIssues,
 }: PfsSyncButtonProps) {
   const [checking, setChecking] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -104,6 +106,19 @@ export default function PfsSyncButton({
     setModalOpen(false);
     cachedData.current = null;
   }, []);
+
+  // ── Mappings PFS absents — synchronisation bloquée ──
+  if (mappingIssues && mappingIssues.length > 0) {
+    const tooltip = `Synchronisation PFS impossible.\n\nEntité(s) sans mapping :\n${mappingIssues.map((i) => `• ${i}`).join("\n")}`;
+    return (
+      <span className="inline-flex items-center gap-1.5 animate-fadeIn" title={tooltip}>
+        <span className="badge badge-warning text-[11px]">Sync PFS impossible</span>
+        <span className="text-[10px] text-text-muted cursor-help">
+          — {mappingIssues.length} entité{mappingIssues.length > 1 ? "s" : ""} non mappée{mappingIssues.length > 1 ? "s" : ""}
+        </span>
+      </span>
+    );
+  }
 
   // ── "Create on PFS" state ──
   if (notOnPfs) {

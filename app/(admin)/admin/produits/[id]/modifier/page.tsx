@@ -25,6 +25,9 @@ export default async function ModifierProduitPage({
     prisma.product.findUnique({
       where: { id },
       include: {
+        category: true,
+        manufacturingCountry: true,
+        season: true,
         colors: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
           include: {
@@ -35,7 +38,7 @@ export default async function ModifierProduitPage({
             },
             variantSizes: {
               orderBy: { size: { position: "asc" } },
-              include: { size: true },
+              include: { size: { include: { pfsMappings: { select: { pfsSizeRef: true } } } } },
             },
             packColorLines: {
               orderBy: { position: "asc" },
@@ -126,6 +129,7 @@ export default async function ModifierProduitPage({
     packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
     discountType:  (pc.discountType ?? "") as "" | "PERCENT" | "AMOUNT",
     discountValue: pc.discountValue != null ? String(pc.discountValue) : "",
+    pfsColorRef:   pc.pfsColorRef ?? "",
   }));
 
   // Build group key for each ProductColor (colorId + ordered sub-color names — order matters)
@@ -175,6 +179,54 @@ export default async function ModifierProduitPage({
   }
   const initialColorImages: ColorImageState[] = [...colorImageMap.values()];
 
+  // ── Vérification des mappings PFS ────────────────────────────────────────────
+  const mappingIssues: string[] = [];
+
+  if (!product.category?.pfsCategoryId) {
+    mappingIssues.push(`Catégorie "${product.category?.name ?? '?'}" non mappée`);
+  }
+  for (const c of product.compositions) {
+    if (!c.composition.pfsCompositionRef) {
+      mappingIssues.push(`Composition "${c.composition.name}" non mappée`);
+    }
+  }
+  const _seenColorIds = new Set<string>();
+  const _seenSizeIds = new Set<string>();
+  for (const variant of product.colors) {
+    if (variant.colorId && variant.color && !_seenColorIds.has(variant.colorId)) {
+      _seenColorIds.add(variant.colorId);
+      if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" non mappée`);
+    }
+    for (const sc of variant.subColors) {
+      if (!_seenColorIds.has(sc.colorId)) {
+        _seenColorIds.add(sc.colorId);
+        if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" non mappée`);
+      }
+    }
+    for (const pcl of variant.packColorLines) {
+      for (const c of pcl.colors) {
+        if (!_seenColorIds.has(c.colorId)) {
+          _seenColorIds.add(c.colorId);
+          if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" non mappée`);
+        }
+      }
+    }
+    for (const vs of variant.variantSizes) {
+      if (!_seenSizeIds.has(vs.sizeId)) {
+        _seenSizeIds.add(vs.sizeId);
+        if (!vs.size.pfsMappings || vs.size.pfsMappings.length === 0) {
+          mappingIssues.push(`Taille "${vs.size.name}" non mappée`);
+        }
+      }
+    }
+  }
+  if (product.manufacturingCountry && !product.manufacturingCountry.pfsCountryRef) {
+    mappingIssues.push(`Pays "${product.manufacturingCountry.name}" non mappé`);
+  }
+  if (product.season && !product.season.pfsSeasonRef) {
+    mappingIssues.push(`Saison "${product.season.name}" non mappée`);
+  }
+
   return (
     <div className="max-w-[1600px] mx-auto space-y-8">
       <div>
@@ -200,6 +252,7 @@ export default async function ModifierProduitPage({
                 pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
                 pfsSyncError={product.pfsSyncError}
                 pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
+                mappingIssues={mappingIssues}
               />
             </div>
           </div>
@@ -223,7 +276,7 @@ export default async function ModifierProduitPage({
 
       <ProductForm
         categories={categories}
-        availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage }))}
+        availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage, pfsColorRef: c.pfsColorRef }))}
         availableSizes={sizes.map((s) => ({ id: s.id, name: s.name, categoryIds: s.categories.map((c) => c.categoryId) }))}
         availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
         availableCountries={manufacturingCountries}

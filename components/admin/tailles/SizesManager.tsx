@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { createSize, updateSize, deleteSize } from "@/app/actions/admin/sizes";
+import { createSize, updateSize, deleteSize, toggleSizePfsMapping } from "@/app/actions/admin/sizes";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
+import { usePfsAttributes } from "@/components/admin/MarketplaceMappingSection";
+import PfsSizeMultiSelect from "@/components/pfs/PfsSizeMultiSelect";
 
 interface SizeItem {
   id: string;
@@ -34,20 +36,38 @@ export default function SizesManager({
   // Create form
   const [newName, setNewName] = useState("");
   const [newCategoryIds, setNewCategoryIds] = useState<string[]>([]);
+  const [newPfsSizeRefs, setNewPfsSizeRefs] = useState<Set<string>>(new Set());
 
   // Edit state
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editCategoryIds, setEditCategoryIds] = useState<string[]>([]);
 
+  // PFS data for size mapping
+  const { data: pfsData, loading: pfsLoading, error: pfsError, retry: pfsRetry } = usePfsAttributes();
+
+  function toggleNewPfsSize(ref: string) {
+    setNewPfsSizeRefs((prev) => {
+      const next = new Set(prev);
+      if (next.has(ref)) next.delete(ref);
+      else next.add(ref);
+      return next;
+    });
+  }
 
   function handleCreate() {
     if (!newName.trim()) return;
+    const selectedPfsRefs = [...newPfsSizeRefs];
     startTransition(async () => {
       try {
-        await createSize(newName, newCategoryIds);
+        const created = await createSize(newName, newCategoryIds);
+        // Apply PFS size mappings after creation
+        for (const ref of selectedPfsRefs) {
+          await toggleSizePfsMapping(created.id, ref);
+        }
         setNewName("");
         setNewCategoryIds([]);
+        setNewPfsSizeRefs(new Set());
         toast.success(`Taille « ${newName.trim()} » créée.`);
         window.location.reload();
       } catch (err: unknown) {
@@ -131,7 +151,7 @@ export default function SizesManager({
 
         {/* Category checkboxes for new size */}
         {categories.length > 0 && (
-          <div>
+          <div className="mb-4">
             <p className="text-xs text-text-secondary mb-2 font-[family-name:var(--font-roboto)]">
               Associer aux catégories :
             </p>
@@ -157,6 +177,56 @@ export default function SizesManager({
             </div>
           </div>
         )}
+
+        {/* PFS Size Mapping */}
+        <div className="border border-border rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 bg-bg-secondary border-b border-border flex items-center justify-between">
+            <p className="text-xs font-semibold text-text-secondary font-[family-name:var(--font-roboto)] uppercase tracking-wider">
+              Mapping Marketplaces
+            </p>
+            <span className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)]">Optionnel</span>
+          </div>
+          <div className="p-4">
+            <p className="text-xs font-medium text-text-primary font-[family-name:var(--font-roboto)] mb-2 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" />
+              Paris Fashion Shop
+            </p>
+            {pfsLoading ? (
+              <div className="flex items-center gap-2 text-text-secondary text-sm font-[family-name:var(--font-roboto)]">
+                <div className="animate-spin h-4 w-4 border-2 border-text-secondary border-t-transparent rounded-full shrink-0" />
+                Chargement…
+              </div>
+            ) : pfsError ? (
+              <div className="space-y-1">
+                <p className="text-xs text-red-500 font-[family-name:var(--font-roboto)]">
+                  Mapping non disponible
+                </p>
+                <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)] break-all">
+                  {pfsError}
+                </p>
+                <button
+                  type="button"
+                  onClick={pfsRetry}
+                  className="text-xs text-text-secondary hover:text-text-primary underline font-[family-name:var(--font-roboto)] transition-colors"
+                >
+                  Réessayer
+                </button>
+              </div>
+            ) : pfsData?.sizes ? (
+              <PfsSizeMultiSelect
+                pfsSizes={pfsData.sizes}
+                selected={newPfsSizeRefs}
+                onToggle={toggleNewPfsSize}
+                disabled={false}
+                className="w-full max-w-sm"
+              />
+            ) : (
+              <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                Aucune taille PFS disponible
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Sizes list */}

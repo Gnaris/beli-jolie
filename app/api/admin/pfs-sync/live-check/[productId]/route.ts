@@ -20,6 +20,7 @@ import {
   findOrCreateCountry,
   findOrCreateSeason,
 } from "@/lib/pfs-sync";
+import { stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
 
 // ─────────────────────────────────────────────
 // GET — Fetch live PFS data for a product and compare with BJ
@@ -130,11 +131,11 @@ export async function GET(
   // 3. Map PFS data to comparison format
   const pfsRef = variantDetails[0]?.reference ?? product.reference;
 
-  // Filter active variants early
-  const activeVariants = variantDetails.filter((v) => v.is_active);
-  if (activeVariants.length === 0 && !refDetails) {
+  // Process all variants, marking inactive ones
+  const allVariants = variantDetails;
+  if (allVariants.length === 0 && !refDetails) {
     return NextResponse.json(
-      { error: "Aucune variante active trouvée sur PFS" },
+      { error: "Aucune variante trouvée sur PFS" },
       { status: 404 }
     );
   }
@@ -209,6 +210,7 @@ export async function GET(
     packQuantity: number | null;
     sizeName: string | null;
     isPrimary: boolean;
+    isActive: boolean;
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | null;
   }> = [];
@@ -220,7 +222,7 @@ export async function GET(
     refDetails?.product?.default_color,
   );
 
-  for (const v of activeVariants) {
+  for (const v of allVariants) {
     const weight = v.weight ?? 0;
 
     let discountType: "PERCENT" | "AMOUNT" | null = null;
@@ -248,11 +250,12 @@ export async function GET(
         subColors: [],
         unitPrice: v.price_sale.unit.value,
         weight,
-        stock: v.stock_qty,
+        stock: v.is_active ? v.stock_qty : 0,
         saleType: "UNIT",
         packQuantity: null,
         sizeName: v.item.size || null,
         isPrimary: false,
+        isActive: v.is_active,
         discountType,
         discountValue,
       });
@@ -277,11 +280,12 @@ export async function GET(
         subColors: [],
         unitPrice: v.price_sale.unit.value,
         weight,
-        stock: v.stock_qty,
+        stock: v.is_active ? v.stock_qty : 0,
         saleType: "PACK",
         packQuantity: packQty,
         sizeName: pack.sizes?.[0]?.size || null,
         isPrimary: false,
+        isActive: v.is_active,
         discountType,
         discountValue,
       });
@@ -326,9 +330,9 @@ export async function GET(
     });
   }
 
-  // Name & description from PFS
+  // Name & description from PFS (strip dimensions suffix added by reverse sync)
   const pfsName = refDetails?.product?.label?.fr ?? bjRef;
-  const pfsDescription = refDetails?.product?.description?.fr ?? "";
+  const pfsDescription = stripDimensionsSuffix(refDetails?.product?.description?.fr ?? "");
 
   // 4. Format BJ data
   const bjFormatted = {

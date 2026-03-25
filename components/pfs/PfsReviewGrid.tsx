@@ -398,7 +398,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       const ok = await confirm({
         type: "danger",
         title: "Refuser ce produit ?",
-        message: "Ce produit ne sera pas importé dans Beli Jolie.",
+        message: "Ce produit ne sera pas importé dans la Boutique.",
         confirmLabel: "Refuser",
         cancelLabel: "Annuler",
       });
@@ -506,7 +506,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
     const ok = await confirm({
       type: "danger",
       title: `Refuser ${count} produit(s) ?`,
-      message: "Ces produits ne seront pas importés dans Beli Jolie. Cette action est irréversible.",
+      message: "Ces produits ne seront pas importés dans la Boutique. Cette action est irréversible.",
       confirmLabel: "Refuser tout",
       cancelLabel: "Annuler",
     });

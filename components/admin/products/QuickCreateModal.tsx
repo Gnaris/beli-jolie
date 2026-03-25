@@ -14,6 +14,7 @@ import {
 } from "@/app/actions/admin/quick-create";
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
+import MarketplaceMappingSection, { type MappableEntityType } from "@/components/admin/MarketplaceMappingSection";
 
 export type QuickCreateType = "category" | "subcategory" | "composition" | "color" | "tag" | "country" | "season";
 
@@ -22,9 +23,7 @@ interface QuickCreateModalProps {
   open: boolean;
   onClose: () => void;
   onCreated: (item: { id: string; name: string; hex?: string | null; subCategories?: { id: string; name: string }[] }) => void;
-  /** Required when type === "subcategory" */
   categoryId?: string;
-  /** Pre-fill the French name field when opening */
   defaultName?: string;
 }
 
@@ -48,6 +47,7 @@ const PLACEHOLDERS: Record<QuickCreateType, string> = {
   season:      "Ex: Printemps/Été 2026…",
 };
 
+const MAPPABLE_TYPES: Set<string> = new Set(["category", "color", "composition", "country", "season"]);
 const RTL = ["ar"];
 
 export default function QuickCreateModal({
@@ -63,6 +63,12 @@ export default function QuickCreateModal({
   const [error, setError] = useState("");
   const backdrop = useBackdropClose(onClose);
 
+  // Marketplace mapping state
+  const [pfsRef, setPfsRef] = useState("");
+  const [pfsCategoryId, setPfsCategoryId] = useState("");
+  const [pfsCategoryGender, setPfsCategoryGender] = useState<string | null>(null);
+  const [pfsCategoryFamilyId, setPfsCategoryFamilyId] = useState<string | null>(null);
+
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
@@ -73,6 +79,10 @@ export default function QuickCreateModal({
       setPatternFile(null);
       setPatternPreview(null);
       setError("");
+      setPfsRef("");
+      setPfsCategoryId("");
+      setPfsCategoryGender(null);
+      setPfsCategoryFamilyId(null);
     }
   }, [open, defaultName]);
 
@@ -96,6 +106,12 @@ export default function QuickCreateModal({
     setPatternPreview(URL.createObjectURL(file));
   }
 
+  function handlePfsCategoryChange(catId: string, gender: string | null, familyId: string | null) {
+    setPfsCategoryId(catId);
+    setPfsCategoryGender(gender);
+    setPfsCategoryFamilyId(familyId);
+  }
+
   async function handleCreate() {
     const frName = names["fr"]?.trim();
     if (!frName) { setError("Le nom en français est requis."); return; }
@@ -104,20 +120,19 @@ export default function QuickCreateModal({
     try {
       let result: { id: string; name: string; hex?: string | null; patternImage?: string | null; subCategories?: { id: string; name: string }[] };
       if (type === "category") {
-        result = await createCategoryQuick(names);
+        result = await createCategoryQuick(names, pfsCategoryId || null, pfsCategoryGender, pfsCategoryFamilyId);
       } else if (type === "subcategory") {
         if (!categoryId) throw new Error("Catégorie parente requise.");
         result = await createSubCategoryQuick(names, categoryId);
       } else if (type === "composition") {
-        result = await createCompositionQuick(names);
+        result = await createCompositionQuick(names, pfsRef || null);
       } else if (type === "tag") {
         result = await createTagQuick(names);
       } else if (type === "country") {
-        result = await createManufacturingCountryQuick(names);
+        result = await createManufacturingCountryQuick(names, undefined, pfsRef || null);
       } else if (type === "season") {
-        result = await createSeasonQuick(names);
+        result = await createSeasonQuick(names, pfsRef || null);
       } else {
-        // Upload pattern image if needed
         let patternPath: string | null = null;
         if (colorMode === "pattern") {
           if (!patternFile) { setError("Veuillez uploader une image motif."); setLoading(false); return; }
@@ -128,11 +143,7 @@ export default function QuickCreateModal({
           if (!res.ok) throw new Error(data.error || "Erreur upload motif.");
           patternPath = data.path;
         }
-        result = await createColorQuick(
-          names,
-          colorMode === "hex" ? hex : null,
-          colorMode === "pattern" ? patternPath : null,
-        );
+        result = await createColorQuick(names, colorMode === "hex" ? hex : null, colorMode === "pattern" ? patternPath : null, pfsRef || null);
       }
       onCreated(result);
       onClose();
@@ -146,199 +157,206 @@ export default function QuickCreateModal({
   if (!mounted || !open) return null;
 
   const frName = names["fr"]?.trim() ?? "";
+  const hasMappableType = MAPPABLE_TYPES.has(type);
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
       onMouseDown={backdrop.onMouseDown}
       onMouseUp={backdrop.onMouseUp}
     >
       <div
-        className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-[0_20px_60px_rgba(0,0,0,0.4)] space-y-5 max-h-[90vh] overflow-y-auto"
+        className={`bg-white rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.3)] flex flex-col max-h-[90vh] ${hasMappableType ? "w-full max-w-[780px]" : "w-full max-w-lg"}`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between">
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] shrink-0">
           <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
             {TITLES[type]}
           </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-[#9CA3AF] hover:text-[#1A1A1A] transition-colors rounded-lg p-1"
-          >
+          <button type="button" onClick={onClose} className="text-[#9CA3AF] hover:text-[#1A1A1A] transition-colors rounded-lg p-1">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        {/* Locale name fields */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-              Le nom en français est obligatoire. Les autres langues sont optionnelles.
-            </p>
-            <TranslateButton
-              text={frName}
-              onTranslated={(t) => setNames((prev) => ({ ...prev, ...t }))}
-              disabled={!frName}
-            />
-          </div>
+        {/* ── Body: two columns if mappable ── */}
+        <div className={`flex-1 overflow-y-auto ${hasMappableType ? "flex min-h-0" : ""}`}>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {VALID_LOCALES.map((locale) => {
-              const isRtl = RTL.includes(locale);
-              const isFr = locale === "fr";
-              return (
-                <div key={locale}>
-                  <label className="block text-xs font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1">
-                    {LOCALE_FULL_NAMES[locale]}{isFr && <span className="text-[#EF4444] ml-0.5">*</span>}
-                  </label>
-                  <input
-                    type="text"
-                    value={names[locale] ?? ""}
-                    onChange={(e) => setName(locale, e.target.value)}
-                    autoFocus={isFr}
-                    placeholder={isFr ? PLACEHOLDERS[type] : ""}
-                    dir={isRtl ? "rtl" : "ltr"}
-                    className="field-input w-full text-sm"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && isFr) { e.preventDefault(); handleCreate(); }
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
+          {/* ── LEFT: Création ── */}
+          <div className={`p-6 space-y-5 ${hasMappableType ? "flex-1 min-w-0 overflow-y-auto" : ""}`}>
 
-        {/* Color type toggle + picker */}
-        {type === "color" && (
-          <div className="space-y-4">
-            {/* Toggle hex / motif */}
-            <div>
-              <label className="block text-xs font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-2 uppercase tracking-wider">
-                Type de couleur
-              </label>
-              <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setColorMode("hex")}
-                  className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
-                    colorMode === "hex"
-                      ? "bg-[#1A1A1A] text-white"
-                      : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
-                  }`}
-                >
-                  Couleur unie
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setColorMode("pattern")}
-                  className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
-                    colorMode === "pattern"
-                      ? "bg-[#1A1A1A] text-white"
-                      : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
-                  }`}
-                >
-                  Motif / Image
-                </button>
+            {/* Traductions */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
+                  Nom & traductions
+                </p>
+                <TranslateButton
+                  text={frName}
+                  onTranslated={(t) => setNames((prev) => ({ ...prev, ...t }))}
+                  disabled={!frName}
+                />
+              </div>
+
+              {/* FR field — prominent */}
+              <div>
+                <label className="block text-xs font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1">
+                  Français <span className="text-[#EF4444]">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={names["fr"] ?? ""}
+                  onChange={(e) => setName("fr", e.target.value)}
+                  autoFocus
+                  placeholder={PLACEHOLDERS[type]}
+                  className="field-input w-full"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); handleCreate(); }
+                  }}
+                />
+              </div>
+
+              {/* Other locales — compact grid */}
+              <div className="grid grid-cols-2 gap-2.5">
+                {VALID_LOCALES.filter((l) => l !== "fr").map((locale) => (
+                  <div key={locale}>
+                    <label className="block text-[10px] font-semibold text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-0.5 uppercase">
+                      {LOCALE_FULL_NAMES[locale]}
+                    </label>
+                    <input
+                      type="text"
+                      value={names[locale] ?? ""}
+                      onChange={(e) => setName(locale, e.target.value)}
+                      dir={RTL.includes(locale) ? "rtl" : "ltr"}
+                      className="field-input w-full text-sm"
+                      placeholder={LOCALE_FULL_NAMES[locale]}
+                    />
+                  </div>
+                ))}
               </div>
             </div>
 
-            {colorMode === "hex" ? (
-              /* Hex color picker */
-              <div>
-                <label className="block text-sm font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1.5">
-                  Couleur hex
-                </label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={hex}
-                    onChange={(e) => setHex(e.target.value)}
-                    className="w-10 h-10 rounded-lg border border-[#E5E5E5] cursor-pointer p-0.5 shrink-0"
-                  />
-                  <input
-                    type="text"
-                    value={hex}
-                    onChange={(e) => setHex(e.target.value)}
-                    placeholder="#9CA3AF"
-                    className="field-input flex-1"
-                  />
-                </div>
-                <div
-                  className="mt-2 h-8 rounded-lg border border-[#E5E5E5]"
-                  style={{ backgroundColor: hex }}
-                />
-              </div>
-            ) : (
-              /* Pattern image uploader */
-              <div>
-                <label className="block text-sm font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1.5">
-                  Image du motif
-                </label>
-                <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-2">
-                  PNG, JPG ou WebP · max 500 KB
+            {/* Color-specific: type toggle + picker */}
+            {type === "color" && (
+              <div className="space-y-3">
+                <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
+                  Apparence
                 </p>
-                <label
-                  className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-[#E5E5E5] rounded-xl cursor-pointer hover:border-[#1A1A1A] transition-colors overflow-hidden relative"
-                >
-                  {patternPreview ? (
-                    <div
-                      className="absolute inset-0 bg-cover bg-center"
-                      style={{ backgroundImage: `url(${patternPreview})` }}
-                    >
-                      <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                        <span className="text-white text-xs font-medium font-[family-name:var(--font-roboto)]">
-                          Changer l&apos;image
-                        </span>
+                <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setColorMode("hex")}
+                    className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
+                      colorMode === "hex" ? "bg-[#1A1A1A] text-white" : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                    }`}
+                  >
+                    Couleur unie
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setColorMode("pattern")}
+                    className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
+                      colorMode === "pattern" ? "bg-[#1A1A1A] text-white" : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                    }`}
+                  >
+                    Motif / Image
+                  </button>
+                </div>
+
+                {colorMode === "hex" ? (
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={hex}
+                      onChange={(e) => setHex(e.target.value)}
+                      className="w-10 h-10 rounded-lg border border-[#E5E5E5] cursor-pointer p-0.5 shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={hex}
+                      onChange={(e) => setHex(e.target.value)}
+                      placeholder="#9CA3AF"
+                      className="field-input w-28 font-mono text-sm"
+                    />
+                    <div className="flex-1 h-10 rounded-lg border border-[#E5E5E5]" style={{ backgroundColor: hex }} />
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center h-28 border-2 border-dashed border-[#E5E5E5] rounded-xl cursor-pointer hover:border-[#1A1A1A] transition-colors overflow-hidden relative">
+                    {patternPreview ? (
+                      <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${patternPreview})` }}>
+                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                          <span className="text-white text-xs font-medium font-[family-name:var(--font-roboto)]">Changer</span>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <>
-                      <svg className="w-8 h-8 text-[#9CA3AF] mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-                      </svg>
-                      <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-                        Cliquez pour uploader
-                      </span>
-                    </>
-                  )}
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={handlePatternFileChange}
-                    className="sr-only"
-                  />
-                </label>
+                    ) : (
+                      <>
+                        <svg className="w-7 h-7 text-[#9CA3AF] mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                        </svg>
+                        <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">PNG, JPG, WebP · max 500 KB</span>
+                      </>
+                    )}
+                    <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePatternFileChange} className="sr-only" />
+                  </label>
+                )}
               </div>
             )}
           </div>
-        )}
 
-        {error && (
-          <p className="text-sm text-[#DC2626] font-[family-name:var(--font-roboto)]">{error}</p>
-        )}
+          {/* ── Separator + RIGHT: Mapping ── */}
+          {hasMappableType && (
+            <>
+              <div className="w-px bg-[#E5E5E5] shrink-0" />
 
-        {/* Actions */}
-        <div className="flex gap-3 pt-1">
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={loading || !frName}
-            className="flex-1 bg-[#1A1A1A] hover:bg-black text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)]"
-          >
-            {loading ? "Création…" : "Créer"}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 border border-[#E5E5E5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
-          >
-            Annuler
-          </button>
+              <div className="w-[300px] shrink-0 p-6 overflow-y-auto">
+                <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide mb-4">
+                  Mapping Marketplaces
+                </p>
+
+                {type === "category" ? (
+                  <MarketplaceMappingSection
+                    entityType="category"
+                    pfsCategoryId={pfsCategoryId}
+                    onPfsCategoryChange={handlePfsCategoryChange}
+                  />
+                ) : (
+                  <MarketplaceMappingSection
+                    entityType={type as "color" | "composition" | "country" | "season"}
+                    pfsRef={pfsRef}
+                    onPfsRefChange={setPfsRef}
+                  />
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── Footer ── */}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-[#E5E5E5] shrink-0">
+          {error ? (
+            <p className="text-xs text-[#DC2626] font-[family-name:var(--font-roboto)] flex-1 mr-4">{error}</p>
+          ) : (
+            <div />
+          )}
+          <div className="flex gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2 border border-[#E5E5E5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] text-sm font-medium rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={loading || !frName}
+              className="px-5 py-2 bg-[#1A1A1A] hover:bg-black text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)]"
+            >
+              {loading ? "Création…" : "Créer"}
+            </button>
+          </div>
         </div>
       </div>
     </div>,
