@@ -6,6 +6,7 @@ import Link from "next/link";
 import PfsMappingTab from "@/components/pfs/PfsMappingTab";
 import CustomSelect from "@/components/ui/CustomSelect";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 
 // ─────────────────────────────────────────────
 // Types
@@ -865,6 +866,9 @@ export default function PfsSyncPage() {
                       ...prev,
                       categories: [...prev.categories, { id: entity.id, name: entity.name }],
                     }));
+                    const updated = [...editCategories];
+                    updated[idx] = { ...updated[idx], bjEntityId: entity.id };
+                    setEditCategories(updated);
                   }}
                 />
               ))}
@@ -893,6 +897,9 @@ export default function PfsSyncPage() {
                         patternImage: null,
                       }],
                     }));
+                    const updated = [...editColors];
+                    updated[idx] = { ...updated[idx], bjEntityId: entity.id };
+                    setEditColors(updated);
                   }}
                 />
               ))}
@@ -923,6 +930,9 @@ export default function PfsSyncPage() {
                     ...prev,
                     compositions: [...prev.compositions, { id: entity.id, name: entity.name }],
                   }));
+                  const updated = [...editCompositions];
+                  updated[idx] = { ...updated[idx], bjEntityId: entity.id };
+                  setEditCompositions(updated);
                 }}
               />
             ))}
@@ -951,6 +961,9 @@ export default function PfsSyncPage() {
                     ...prev,
                     countries: [...prev.countries, { id: entity.id, name: entity.name, isoCode: null }],
                   }));
+                  const updated = [...editCountries];
+                  updated[idx] = { ...updated[idx], bjEntityId: entity.id };
+                  setEditCountries(updated);
                 }}
               />
             ))}
@@ -979,6 +992,9 @@ export default function PfsSyncPage() {
                     ...prev,
                     seasons: [...prev.seasons, { id: entity.id, name: entity.name }],
                   }));
+                  const updated = [...editSeasons];
+                  updated[idx] = { ...updated[idx], bjEntityId: entity.id };
+                  setEditSeasons(updated);
                 }}
               />
             ))}
@@ -1348,6 +1364,7 @@ function CompactEntityCard({
         open={showModal}
         onClose={() => setShowModal(false)}
         onCreated={(entity) => onEntityCreated(entity)}
+        defaultName={pfsName}
       />
     </div>
   );
@@ -1435,6 +1452,7 @@ function CompactColorCard({
           onEntityCreated(entity);
           setShowModal(false);
         }}
+        defaultName={color.pfsName}
       />
     </div>
   );
@@ -1528,6 +1546,7 @@ function CreateSizeModal({
   onSave: (updated: EditableSize) => void;
   onClose: () => void;
 }) {
+  const backdrop = useBackdropClose(onClose);
   const [name, setName] = useState(size.name);
   const [bjCategoryIds, setBjCategoryIds] = useState<string[]>(size.bjCategoryIds);
   const [pfsSizeRefs, setPfsSizeRefs] = useState<string[]>(size.pfsSizeRefs);
@@ -1549,7 +1568,8 @@ function CreateSizeModal({
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60"
-      onClick={onClose}
+      onMouseDown={backdrop.onMouseDown}
+      onMouseUp={backdrop.onMouseUp}
     >
       <div
         className="bg-bg-primary border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Image from "next/image";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 
 interface CartItem {
   id: string;
@@ -64,10 +65,13 @@ export default function CartModal({ userId, userName, onClose }: Props) {
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  const backdrop = useBackdropClose(onClose);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
+      onMouseDown={backdrop.onMouseDown}
+      onMouseUp={backdrop.onMouseUp}
       role="dialog"
       aria-modal="true"
       aria-label={`Panier de ${userName}`}

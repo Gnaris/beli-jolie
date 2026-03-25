@@ -6,10 +6,15 @@ import { useCallback } from "react";
 // Types
 // ─────────────────────────────────────────────
 
+export interface StagedPackColorLine {
+  colors: { colorId: string; colorRef: string; colorName: string }[];
+}
+
 export interface StagedVariantData {
   colorId: string;
   colorRef: string;
   colorName: string;
+  packColorLines?: StagedPackColorLine[];
   unitPrice: number;
   weight: number;
   stock: number;

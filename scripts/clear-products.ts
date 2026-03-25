@@ -129,6 +129,29 @@ async function main() {
   console.log(`  Size                : ${sizes.count}`);
 
   console.log("\n✅ Tout a été supprimé.");
+
+  // Revalidate Next.js cache so sidebar warnings update immediately
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const secret = process.env.NEXTAUTH_SECRET;
+  if (secret) {
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/revalidate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret,
+          tags: ["products", "categories", "colors", "tags", "compositions"],
+        }),
+      });
+      if (res.ok) {
+        console.log("🔄 Cache Next.js revalidé.");
+      } else {
+        console.warn("⚠️  Revalidation échouée (serveur non démarré ?):", res.status);
+      }
+    } catch {
+      console.warn("⚠️  Impossible de revalider le cache (serveur non démarré ?).");
+    }
+  }
 }
 
 main()

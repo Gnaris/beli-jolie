@@ -289,7 +289,7 @@ export default function PfsEditVariantsModal({
   const nextTempId = () => `tmp-${++tempIdRef.current}`;
 
   const [variants, setVariants] = useState<(StagedVariantData & { _tempId: string })[]>(
-    () => product.variants.map((v) => ({ ...v, subColors: v.subColors ? [...v.subColors] : [], _tempId: nextTempId() }))
+    () => product.variants.map((v) => ({ ...v, subColors: v.subColors ? [...v.subColors] : [], packColorLines: v.packColorLines ? [...v.packColorLines] : [], _tempId: nextTempId() }))
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

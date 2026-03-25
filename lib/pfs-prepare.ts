@@ -49,11 +49,16 @@ export interface StagedSubColor {
   patternImage: string | null;
 }
 
+export interface StagedPackColorLine {
+  colors: { colorId: string; colorRef: string; colorName: string }[];
+}
+
 export interface StagedVariantData {
   colorId: string;
   colorRef: string;
   colorName: string;
   subColors?: StagedSubColor[];
+  packColorLines?: StagedPackColorLine[];
   unitPrice: number;
   weight: number;
   stock: number;
@@ -282,17 +287,38 @@ async function prepareSingleProduct(
           discountValue,
         });
       } else if (v.type === "PACK" && v.packs && v.packs.length > 0) {
-        const pack = v.packs[0];
-        const colorId = await findOrCreateColor(
-          pack.color.reference,
-          pack.color.value,
-          pack.color.labels,
+        // Use first pack for main color (required for ProductColor.colorId)
+        const firstPack = v.packs[0];
+        const mainColorId = await findOrCreateColor(
+          firstPack.color.reference,
+          firstPack.color.value,
+          firstPack.color.labels,
         );
-        if (!colorId) {
-          addLog(`  ⚠️ Couleur non liée: "${pack.color.labels?.fr || pack.color.reference}" — variante PACK ignorée`);
+        if (!mainColorId) {
+          addLog(`  ⚠️ Couleur non liée: "${firstPack.color.labels?.fr || firstPack.color.reference}" — variante PACK ignorée`);
           continue;
         }
-        const packQty = detail?.pieces ?? pack.sizes?.[0]?.qty ?? v.pieces ?? 1;
+
+        // Collect ALL pack colors into PackColorLines
+        const packColorLines: StagedPackColorLine[] = [];
+        for (const pack of v.packs) {
+          const packColorId = await findOrCreateColor(
+            pack.color.reference,
+            pack.color.value,
+            pack.color.labels,
+          );
+          if (packColorId) {
+            packColorLines.push({
+              colors: [{
+                colorId: packColorId,
+                colorRef: pack.color.reference,
+                colorName: pack.color.labels?.fr || pack.color.reference,
+              }],
+            });
+          }
+        }
+
+        const packQty = detail?.pieces ?? firstPack.sizes?.[0]?.qty ?? v.pieces ?? 1;
         const pfsPrice = v.price_sale.unit.value;
         const bjPrice = pfsPrice;
 
@@ -304,15 +330,16 @@ async function prepareSingleProduct(
         }
 
         variants.push({
-          colorId,
-          colorRef: pack.color.reference,
-          colorName: pack.color.labels?.fr || pack.color.reference,
+          colorId: mainColorId,
+          colorRef: firstPack.color.reference,
+          colorName: firstPack.color.labels?.fr || firstPack.color.reference,
+          packColorLines,
           unitPrice: bjPrice,
           weight,
           stock: v.stock_qty,
           saleType: "PACK",
           packQuantity: packQty,
-          sizeName: pack.sizes?.[0]?.size || null,
+          sizeName: firstPack.sizes?.[0]?.size || null,
           isPrimary: false,
           discountType,
           discountValue,
@@ -1036,6 +1063,29 @@ async function createProductChildren(
     });
     createdVariants.push({ ...created, colorRef: v.colorRef });
     console.log(`[CREATE_CHILDREN] Created variant id=${created.id} colorId=${created.colorId} colorRef=${v.colorRef}`);
+
+    // Create PackColorLine records for PACK variants
+    if (v.saleType === "PACK" && v.packColorLines && v.packColorLines.length > 0) {
+      for (let lineIdx = 0; lineIdx < v.packColorLines.length; lineIdx++) {
+        const line = v.packColorLines[lineIdx];
+        const packColorLine = await prisma.packColorLine.create({
+          data: {
+            productColorId: created.id,
+            position: lineIdx,
+          },
+        });
+        for (let colorIdx = 0; colorIdx < line.colors.length; colorIdx++) {
+          await prisma.packColorLineColor.create({
+            data: {
+              packColorLineId: packColorLine.id,
+              colorId: line.colors[colorIdx].colorId,
+              position: colorIdx,
+            },
+          });
+        }
+      }
+      console.log(`[CREATE_CHILDREN] Created ${v.packColorLines.length} PackColorLines for variant ${created.id}`);
+    }
 
     // Create VariantSize record if PFS provided a size
     if (v.sizeName) {

@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import ColorSwatch from "@/components/ui/ColorSwatch";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 
 interface AvailableColor {
   id: string;       // ProductColor ID (variant), not Color model ID
@@ -154,6 +155,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
     setNewColorPatternFile(null);
     setNewColorPatternPreview(null);
   }, [resetVariantAttrs]);
+
+  const backdropColorModal = useBackdropClose(closeColorModal);
 
   // Lock body scroll when modal is open
   useEffect(() => {
@@ -1001,7 +1004,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
 
       {/* Color selection modal (portal) */}
       {colorModalIdx !== null && createPortal(
-        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-4" onClick={closeColorModal}>
+        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-4" onMouseDown={backdropColorModal.onMouseDown} onMouseUp={backdropColorModal.onMouseUp}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
           <div
             className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden"

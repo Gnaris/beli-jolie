@@ -5,6 +5,7 @@ import ImageDropzone from "./ImageDropzone";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import ColorSwatch from "@/components/ui/ColorSwatch";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 
 // ─────────────────────────────────────────────
 // Exported types
@@ -260,6 +261,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
   const cancel = useCallback(() => {
     setOpen(false);
   }, []);
+  const backdropColorPicker = useBackdropClose(cancel);
 
   useEffect(() => {
     if (open) setTimeout(() => searchRef.current?.focus(), 50);
@@ -430,7 +432,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, onCre
 
       {/* Modal */}
       {open && createPortal(
-        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onClick={cancel}>
+        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onMouseDown={backdropColorPicker.onMouseDown} onMouseUp={backdropColorPicker.onMouseUp}>
           {/* Backdrop */}
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
           {/* Panel — wide two-column layout */}
@@ -741,6 +743,7 @@ interface ImageGalleryModalProps {
 
 function ImageGalleryModal({ open, onClose, images, colorName, colorHex }: ImageGalleryModalProps) {
   const [idx, setIdx] = useState(0);
+  const backdrop = useBackdropClose(onClose);
 
   const prev = useCallback(() => setIdx((i) => (i === 0 ? images.length - 1 : i - 1)), [images.length]);
   const next = useCallback(() => setIdx((i) => (i === images.length - 1 ? 0 : i + 1)), [images.length]);
@@ -761,7 +764,8 @@ function ImageGalleryModal({ open, onClose, images, colorName, colorHex }: Image
   const modal = (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={backdrop.onMouseDown}
+      onMouseUp={backdrop.onMouseUp}
     >
       <div className="relative bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col" style={{ width: 560, maxWidth: "95vw" }}>
         {/* Header */}
@@ -846,6 +850,7 @@ interface ImageManagerModalProps {
 
 function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, onSetPrimary }: ImageManagerModalProps) {
   const { confirm: confirmDialog } = useConfirm();
+  const backdrop = useBackdropClose(onClose);
   const colorImagesRef = useRef(colorImages);
   colorImagesRef.current = colorImages;
 
@@ -1058,7 +1063,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   if (!open) return null;
 
   const modal = (
-    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto" onMouseDown={backdrop.onMouseDown} onMouseUp={backdrop.onMouseUp}>
       <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl mt-8 mb-8 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5]">

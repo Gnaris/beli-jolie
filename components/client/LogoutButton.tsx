@@ -4,11 +4,13 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { signOut } from "next-auth/react";
 import { useTranslations } from "next-intl";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 
 export default function LogoutButton() {
   const t = useTranslations("nav");
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const backdrop = useBackdropClose(() => setOpen(false));
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -40,7 +42,8 @@ export default function LogoutButton() {
       {open && mounted && createPortal(
         <div
           className="fixed inset-0 z-[9999] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setOpen(false)}
+          onMouseDown={backdrop.onMouseDown}
+          onMouseUp={backdrop.onMouseUp}
         >
           <div
             className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-fadeIn"

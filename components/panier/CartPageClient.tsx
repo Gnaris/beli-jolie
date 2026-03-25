@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 import { removeFromCart, updateCartItem, clearCart } from "@/app/actions/client/cart";
 
 // ─────────────────────────────────────────────
@@ -193,6 +194,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
   const [isPending, startTransition] = useTransition();
   const [showClearModal, setShowClearModal] = useState(false);
   const [showMinError, setShowMinError] = useState(false);
+  const backdropClearModal = useBackdropClose(() => setShowClearModal(false));
 
   function handleClearCart() {
     startTransition(async () => {
@@ -296,7 +298,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
       {/* ── Modal confirmation vider panier ── */}
       {showClearModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowClearModal(false)} />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onMouseDown={backdropClearModal.onMouseDown} onMouseUp={backdropClearModal.onMouseUp} />
           <div className="relative bg-bg-primary rounded-2xl shadow-xl p-7 max-w-sm w-full border border-border">
             <div className="flex flex-col items-center text-center gap-4">
               <div className="w-12 h-12 rounded-full bg-error/10 flex items-center justify-center">

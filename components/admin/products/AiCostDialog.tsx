@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 
 interface AiCostDialogProps {
   estimatedCostUsd: number;
@@ -11,13 +12,15 @@ interface AiCostDialogProps {
 
 export default function AiCostDialog({ estimatedCostUsd, onConfirm, onCancel }: AiCostDialogProps) {
   const [mounted, setMounted] = useState(false);
+  const backdrop = useBackdropClose(onCancel);
   useEffect(() => { setMounted(true); }, []);
   if (!mounted) return null;
 
   return createPortal(
     <div
       className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onCancel}
+      onMouseDown={backdrop.onMouseDown}
+      onMouseUp={backdrop.onMouseUp}
       role="dialog"
       aria-modal="true"
       aria-label="Générer avec l'IA"

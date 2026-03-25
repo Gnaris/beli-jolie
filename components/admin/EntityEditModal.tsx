@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
 
@@ -48,6 +49,7 @@ export default function EntityEditModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const firstInputRef = useRef<HTMLInputElement>(null);
+  const backdrop = useBackdropClose(onClose);
 
   // Reset form when modal opens with new data
   useEffect(() => {
@@ -140,7 +142,8 @@ export default function EntityEditModal({
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
+        onMouseDown={backdrop.onMouseDown}
+        onMouseUp={backdrop.onMouseUp}
       />
 
       {/* Panel */}

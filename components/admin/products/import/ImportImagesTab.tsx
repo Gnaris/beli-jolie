@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import ColorSwatch from "@/components/ui/ColorSwatch";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 
 type Step = "upload" | "preview" | "uploading" | "done";
 type ConflictStrategy = "replace" | "next_available" | "skip";
@@ -202,6 +203,8 @@ export default function ImportImagesTab() {
     setNewColorPatternFile(null);
     setNewColorPatternPreview(null);
   }, []);
+
+  const backdropColorModal = useBackdropClose(closeColorModal);
 
   // Lock body scroll when modal is open
   useEffect(() => {
@@ -969,7 +972,7 @@ export default function ImportImagesTab() {
       )}
       {/* Color selection modal (portal) */}
       {colorModalOpen && createPortal(
-        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-4" onClick={closeColorModal}>
+        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-4" onMouseDown={backdropColorModal.onMouseDown} onMouseUp={backdropColorModal.onMouseUp}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
           <div
             className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden"

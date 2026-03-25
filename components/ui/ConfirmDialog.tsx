@@ -72,6 +72,7 @@ function ConfirmModal({
   const [closing, setClosing] = useState(false);
   const [mounted, setMounted] = useState(false);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const mouseDownOnBackdrop = useRef(false);
 
   useEffect(() => { setMounted(true); }, []);
   const c = CONFIG[opts.type ?? "danger"];
@@ -94,7 +95,8 @@ function ConfirmModal({
   const modal = (
     <div
       ref={backdropRef}
-      onClick={(e) => { if (e.target === backdropRef.current) resolve(false); }}
+      onMouseDown={(e) => { mouseDownOnBackdrop.current = e.target === backdropRef.current; }}
+      onMouseUp={(e) => { if (e.target === backdropRef.current && mouseDownOnBackdrop.current) resolve(false); mouseDownOnBackdrop.current = false; }}
       className={`fixed inset-0 z-[10000] flex items-center justify-center p-4 transition-all duration-200 ${
         closing ? "bg-black/0" : "bg-black/40"
       }`}

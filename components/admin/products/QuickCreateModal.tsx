@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 import {
   createCategoryQuick,
   createSubCategoryQuick,
@@ -23,6 +24,8 @@ interface QuickCreateModalProps {
   onCreated: (item: { id: string; name: string; hex?: string | null; subCategories?: { id: string; name: string }[] }) => void;
   /** Required when type === "subcategory" */
   categoryId?: string;
+  /** Pre-fill the French name field when opening */
+  defaultName?: string;
 }
 
 const TITLES: Record<QuickCreateType, string> = {
@@ -48,7 +51,7 @@ const PLACEHOLDERS: Record<QuickCreateType, string> = {
 const RTL = ["ar"];
 
 export default function QuickCreateModal({
-  type, open, onClose, onCreated, categoryId,
+  type, open, onClose, onCreated, categoryId, defaultName,
 }: QuickCreateModalProps) {
   const [mounted, setMounted] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -58,19 +61,20 @@ export default function QuickCreateModal({
   const [patternPreview, setPatternPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const backdrop = useBackdropClose(onClose);
 
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (open) {
-      setNames({});
+      setNames(defaultName ? { fr: defaultName } : {});
       setHex("#9CA3AF");
       setColorMode("hex");
       setPatternFile(null);
       setPatternPreview(null);
       setError("");
     }
-  }, [open]);
+  }, [open, defaultName]);
 
   function setName(locale: string, value: string) {
     setNames((prev) => ({ ...prev, [locale]: value }));
@@ -146,7 +150,8 @@ export default function QuickCreateModal({
   return createPortal(
     <div
       className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onClose}
+      onMouseDown={backdrop.onMouseDown}
+      onMouseUp={backdrop.onMouseUp}
     >
       <div
         className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-[0_20px_60px_rgba(0,0,0,0.4)] space-y-5 max-h-[90vh] overflow-y-auto"

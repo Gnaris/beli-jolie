@@ -50,7 +50,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <AdminEmailWrapper>
-    <div id="admin-theme-wrapper" className={`min-h-screen bg-bg-secondary flex${isDarkMode ? " admin-dark" : ""}`}>
+    <div id="admin-theme-wrapper" suppressHydrationWarning className={`min-h-screen bg-bg-secondary flex${isDarkMode ? " admin-dark" : ""}`}>
 
       {/* ===== SIDEBAR - fixed left (desktop) ===== */}
       <aside className="w-[260px] shrink-0 bg-bg-primary border-r border-border hidden lg:flex flex-col fixed top-0 left-0 h-screen z-40">

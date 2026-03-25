@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { StagedProductFull, StagedImageGroup } from "./PfsProductDetailModal";
 import ColorSwatch from "@/components/ui/ColorSwatch";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 
 // ─────────────────────────────────────────────
 // Props
@@ -125,6 +126,7 @@ function ImageZoom({
   alt: string;
   onClose: () => void;
 }) {
+  const backdrop = useBackdropClose(onClose);
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -139,7 +141,8 @@ function ImageZoom({
       aria-modal="true"
       aria-label="Zoom image"
       className="fixed inset-0 z-[65] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={onClose}
+      onMouseDown={backdrop.onMouseDown}
+      onMouseUp={backdrop.onMouseUp}
     >
       <button
         onClick={onClose}

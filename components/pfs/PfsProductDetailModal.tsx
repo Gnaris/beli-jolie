@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useBackdropClose } from "@/hooks/useBackdropClose";
 import PfsEditInfoModal from "./PfsEditInfoModal";
 import PfsEditVariantsModal from "./PfsEditVariantsModal";
 import PfsEditImagesModal from "./PfsEditImagesModal";
@@ -21,6 +22,10 @@ export interface StagedSubColor {
   patternImage: string | null;
 }
 
+export interface StagedPackColorLine {
+  colors: { colorId: string; colorRef: string; colorName: string }[];
+}
+
 export interface StagedVariantData {
   colorId: string;
   colorRef: string;
@@ -28,6 +33,7 @@ export interface StagedVariantData {
   colorHex?: string | null;
   colorPatternImage?: string | null;
   subColors?: StagedSubColor[];
+  packColorLines?: StagedPackColorLine[];
   unitPrice: number;
   weight: number;
   stock: number;
@@ -283,10 +289,12 @@ function ImageZoom({
   alt: string;
   onClose: () => void;
 }) {
+  const backdrop = useBackdropClose(onClose);
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={onClose}
+      onMouseDown={backdrop.onMouseDown}
+      onMouseUp={backdrop.onMouseUp}
     >
       <button
         onClick={onClose}
@@ -320,6 +328,7 @@ export default function PfsProductDetailModal({
   const [product, setProduct] = useState<StagedProductFull | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const backdrop = useBackdropClose(onClose);
 
   // Image zoom state
   const [zoomSrc, setZoomSrc] = useState<string | null>(null);
@@ -468,7 +477,7 @@ export default function PfsProductDetailModal({
   return (
     <>
       {/* ── Main overlay ── */}
-      <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 backdrop-blur-sm p-4 sm:p-8" onClick={onClose}>
+      <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 backdrop-blur-sm p-4 sm:p-8" onMouseDown={backdrop.onMouseDown} onMouseUp={backdrop.onMouseUp}>
         <div
           className="relative w-full max-w-4xl rounded-2xl bg-bg-primary shadow-2xl"
           onClick={(e) => e.stopPropagation()}
