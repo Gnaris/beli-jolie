@@ -393,6 +393,24 @@ export async function GET(
     }
   }
 
+  // Ensure all PFS variants have an image group (even with 0 images)
+  for (const v of pfsVariants) {
+    const alreadyExists = pfsImageGroups.some(g =>
+      (v.colorId && g.colorId === v.colorId) ||
+      (!v.colorId && g.colorName === v.colorName)
+    );
+    if (!alreadyExists) {
+      pfsImageGroups.push({
+        colorId: v.colorId,
+        colorName: v.colorName,
+        colorHex: v.colorHex ?? null,
+        colorPatternImage: v.colorPatternImage ?? null,
+        subColors: v.subColors ?? [],
+        paths: [],
+      });
+    }
+  }
+
   // Debug: log final PFS image groups
   console.log("[LIVE_CHECK] PFS image groups:", pfsImageGroups.map(g => `${g.colorName}(${g.colorId || "no-id"}) x${g.paths.length}`).join(", "));
 

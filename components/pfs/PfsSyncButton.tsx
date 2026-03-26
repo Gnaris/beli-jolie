@@ -61,13 +61,11 @@ export default function PfsSyncButton({
       const data = await res.json();
       cachedData.current = data;
 
-      if (data.hasDifferences) {
-        setModalOpen(true);
-      } else {
+      // Always open modal so the user can manage images even when fields are identical
+      setModalOpen(true);
+      if (!data.hasDifferences) {
         setNoDiffs(true);
         setSyncStatus("synced");
-        // Auto-hide after 3s
-        setTimeout(() => setNoDiffs(false), 3000);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -105,7 +103,11 @@ export default function PfsSyncButton({
   const handleModalClose = useCallback(() => {
     setModalOpen(false);
     cachedData.current = null;
-  }, []);
+    // Auto-hide "synchronisé" badge after 3s
+    if (noDiffs) {
+      setTimeout(() => setNoDiffs(false), 3000);
+    }
+  }, [noDiffs]);
 
   // ── Mappings PFS absents — synchronisation bloquée ──
   if (mappingIssues && mappingIssues.length > 0) {

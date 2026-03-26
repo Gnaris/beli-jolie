@@ -3,9 +3,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import ColorSwatch from "@/components/ui/ColorSwatch";
-import { applyPfsLiveSync, applyLiveImageChanges } from "@/app/actions/admin/pfs-live-sync";
+import { applyPfsLiveSync, applyLiveImageChanges, applyPfsImageChanges } from "@/app/actions/admin/pfs-live-sync";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import type { QuickCreateType } from "@/components/admin/products/QuickCreateModal";
+import { updateColorPfsRef, getColorsForLinking } from "@/app/actions/admin/colors";
+import CustomSelect from "@/components/ui/CustomSelect";
 
 // ─────────────────────────────────────────────
 // Types
@@ -531,8 +533,50 @@ export default function PfsLiveCompareModal({
   });
   const [imageSlots, setImageSlots] = useState<Record<string, (string | null)[]>>({});
   const [initialBjSlots, setInitialBjSlots] = useState<Record<string, (string | null)[]>>({});
+  const [initialPfsSlots, setInitialPfsSlots] = useState<Record<string, (string | null)[]>>({});
+  // Map PFS slot key → pfsColorRef for upload
+  const [pfsKeyToColorRef, setPfsKeyToColorRef] = useState<Record<string, string>>({});
   const [zoomSrc, setZoomSrc] = useState<string | null>(null);
   const [dragData, setDragData] = useState<{ path: string; sourceKey: string; sourcePos: number } | null>(null);
+
+  // ── Link existing color state ──
+  const [linkColorKey, setLinkColorKey] = useState<string | null>(null); // variant key being linked
+  const [linkColorPfsRef, setLinkColorPfsRef] = useState<string | null>(null);
+  const [linkBjColors, setLinkBjColors] = useState<{ id: string; name: string; hex: string | null; patternImage: string | null; pfsColorRef: string | null }[]>([]);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkSaving, setLinkSaving] = useState(false);
+
+  const openLinkColor = useCallback(async (variantKey: string, pfsColorRef: string | null) => {
+    setLinkColorKey(variantKey);
+    setLinkColorPfsRef(pfsColorRef);
+    setLinkLoading(true);
+    try {
+      const colors = await getColorsForLinking();
+      setLinkBjColors(colors);
+    } catch {
+      setLinkBjColors([]);
+    }
+    setLinkLoading(false);
+  }, []);
+
+  const handleLinkColor = useCallback(async (colorId: string) => {
+    if (!linkColorPfsRef) return;
+    setLinkSaving(true);
+    try {
+      await updateColorPfsRef(colorId, linkColorPfsRef);
+      setLinkColorKey(null);
+      // Re-fetch data to pick up the mapping
+      const res = await fetch(`/api/admin/pfs-sync/live-check/${productId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setExisting(data.existing);
+        setPfs(data.pfs);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erreur");
+    }
+    setLinkSaving(false);
+  }, [linkColorPfsRef, productId]);
 
   // ── Quick Create modal state ──
   const [quickCreate, setQuickCreate] = useState<{
@@ -635,6 +679,8 @@ export default function PfsLiveCompareModal({
       initSlots[key] = slots;
       initBj[key] = [...slots];
     }
+    const initPfs: Record<string, (string | null)[]> = {};
+    const keyToRef: Record<string, string> = {};
     for (const group of data.pfs.imagesByColor ?? []) {
       const key = `pfs::${group.colorId}::${group.colorName}`;
       const slots: (string | null)[] = [null, null, null, null, null];
@@ -642,9 +688,20 @@ export default function PfsLiveCompareModal({
         slots[i] = group.paths[i];
       }
       initSlots[key] = slots;
+      initPfs[key] = [...slots];
+      // Find matching PFS variant to get pfsColorRef
+      const pfsVariant = data.pfs.variants.find(v =>
+        (group.colorId && v.colorId === group.colorId) ||
+        (!group.colorId && v.colorName === group.colorName)
+      );
+      if (pfsVariant?.pfsColorRef) {
+        keyToRef[key] = pfsVariant.pfsColorRef;
+      }
     }
     setImageSlots(initSlots);
     setInitialBjSlots(initBj);
+    setInitialPfsSlots(initPfs);
+    setPfsKeyToColorRef(keyToRef);
   }, []);
 
   // ── Fetch data (only if no initialData) ──
@@ -789,6 +846,48 @@ export default function PfsLiveCompareModal({
     return result;
   }, [imageSlots]);
 
+  // ── Check if PFS images changed ──
+  const hasPfsImageChanges = useCallback(() => {
+    for (const [key, slots] of Object.entries(imageSlots)) {
+      if (!key.startsWith("pfs::")) continue;
+      const initial = initialPfsSlots[key];
+      if (!initial) {
+        if (slots.some(s => s !== null)) return true;
+        continue;
+      }
+      for (let i = 0; i < slots.length; i++) {
+        if (slots[i] !== (initial[i] ?? null)) return true;
+      }
+    }
+    for (const key of Object.keys(initialPfsSlots)) {
+      if (!imageSlots[key]) return true;
+    }
+    return false;
+  }, [imageSlots, initialPfsSlots]);
+
+  // ── Build PFS image final & initial state for server ──
+  const buildPfsImageStates = useCallback(() => {
+    const final: Array<{ colorRef: string; slots: Array<string | null> }> = [];
+    const initial: Array<{ colorRef: string; slots: Array<string | null> }> = [];
+
+    const allKeys = new Set([
+      ...Object.keys(imageSlots).filter(k => k.startsWith("pfs::")),
+      ...Object.keys(initialPfsSlots),
+    ]);
+
+    for (const key of allKeys) {
+      const colorRef = pfsKeyToColorRef[key];
+      if (!colorRef) {
+        console.warn("[buildPfsImageStates] No colorRef for key:", key, "available refs:", pfsKeyToColorRef);
+        continue;
+      }
+
+      final.push({ colorRef, slots: imageSlots[key] ?? [null, null, null, null, null] });
+      initial.push({ colorRef, slots: initialPfsSlots[key] ?? [null, null, null, null, null] });
+    }
+    return { final, initial };
+  }, [imageSlots, initialPfsSlots, pfsKeyToColorRef]);
+
   // ── Apply changes ──
   const handleApply = useCallback(async () => {
     if (!existing || !pfs) return;
@@ -840,13 +939,46 @@ export default function PfsLiveCompareModal({
         }
       }
 
-      const totalApplied = result.changesApplied + imageApplied;
+      // 3. Apply PFS image changes (BJ → PFS push) if any
+      let pfsImageApplied = 0;
+      let pfsImageError: string | undefined;
+      const hasPfsImgChanges = hasPfsImageChanges();
+      const { final: pfsFinal, initial: pfsInitial } = buildPfsImageStates();
+      console.log("[Apply] hasPfsImageChanges:", hasPfsImgChanges, "pfsFinal:", JSON.stringify(pfsFinal));
+      if (hasPfsImgChanges && pfsFinal.length > 0) {
+        try {
+          const pfsImgResult = await applyPfsImageChanges(productId, pfsFinal, pfsInitial);
+          console.log("[Apply] pfsImgResult:", JSON.stringify(pfsImgResult));
+          pfsImageApplied = pfsImgResult.applied;
+          if (!pfsImgResult.success) {
+            pfsImageError = pfsImgResult.error;
+          }
+        } catch (pfsImgErr) {
+          console.error("[Apply] PFS Image exception:", pfsImgErr);
+          pfsImageError = pfsImgErr instanceof Error ? pfsImgErr.message : String(pfsImgErr);
+        }
+      }
+
+      const totalApplied = result.changesApplied + imageApplied + pfsImageApplied;
       if (result.success) {
-        setSuccess(`${totalApplied} modification${totalApplied > 1 ? "s" : ""} appliquée${totalApplied > 1 ? "s" : ""} avec succès`);
-        setTimeout(() => {
-          router.refresh();
-          onClose();
-        }, 1500);
+        if (pfsImageError) {
+          setError(`Synchronisation partielle (${totalApplied} ok) — Images PFS : ${pfsImageError}`);
+          setTimeout(() => window.location.reload(), 2000);
+        } else {
+          // Build a meaningful message
+          const parts: string[] = [];
+          if (result.changesApplied > 0) parts.push(`${result.changesApplied} champ${result.changesApplied > 1 ? "s" : ""}`);
+          if (imageApplied > 0) parts.push(`${imageApplied} image${imageApplied > 1 ? "s" : ""} BJ`);
+          if (pfsImageApplied > 0) parts.push(`${pfsImageApplied} image${pfsImageApplied > 1 ? "s" : ""} PFS`);
+          const msg = parts.length > 0
+            ? `${parts.join(", ")} — synchronisé avec succès`
+            : "Aucune modification à appliquer";
+          setSuccess(msg);
+          setTimeout(() => {
+            onClose();
+            window.location.reload();
+          }, 1500);
+        }
       } else {
         setError(result.error ?? "Erreur inconnue");
       }
@@ -855,13 +987,12 @@ export default function PfsLiveCompareModal({
     } finally {
       setApplying(false);
     }
-  }, [productId, selections, existing, pfs, router, onClose, hasBjImageChanges, buildBjImageFinalState]);
+  }, [productId, selections, existing, pfs, router, onClose, hasBjImageChanges, buildBjImageFinalState, hasPfsImageChanges, buildPfsImageStates]);
 
   // ── Count changes ──
-  const countChanges = useCallback(() => {
+  const changesCount = useMemo(() => {
     if (!existing || !pfs) return 0;
     let count = 0;
-    // Count all selections on differing fields (both directions)
     if (existing.name !== pfs.name) count++;
     if (existing.description !== pfs.description) count++;
     if (existing.categoryId !== pfs.categoryId) count++;
@@ -872,22 +1003,21 @@ export default function PfsLiveCompareModal({
       if (val === "pfs" || val === "add") count++;
     }
     const varMatches = matchVariants(existing.variants, pfs.variants);
-    // Count BJ variant selections on differing fields (both sides exist)
     for (const m of varMatches) {
       if (m.isDifferent && m.onlyIn === "both" && (selections.variants[m.key] === "bj" || !selections.variants[m.key])) {
         count++;
       }
     }
-    // Count BJ-only variants selected to push to PFS
     for (const m of varMatches) {
       if (m.onlyIn === "bj" && selections.variants[m.key] === "bj") {
         count++;
       }
     }
-    // Count image changes
+    // Image changes
     if (hasBjImageChanges()) count++;
+    if (hasPfsImageChanges()) count++;
     return count;
-  }, [existing, pfs, selections, hasBjImageChanges]);
+  }, [existing, pfs, selections, imageSlots, initialBjSlots, hasBjImageChanges, initialPfsSlots, hasPfsImageChanges]);
 
   // ── Detect unmapped PFS attributes selected for sync ──
   const unmappedPfsIssues = useMemo(() => {
@@ -920,8 +1050,6 @@ export default function PfsLiveCompareModal({
     + (existing && pfs && normalizeComps(existing.compositions) !== normalizeComps(pfs.compositions) ? 1 : 0)
     + (existing && pfs && existing.seasonId !== pfs.seasonId && !!pfs.seasonName ? 1 : 0)
     + (existing && pfs && existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName ? 1 : 0);
-  const changesCount = countChanges();
-
   return (
     <>
       {/* ── Main overlay ── */}
@@ -1251,9 +1379,61 @@ export default function PfsLiveCompareModal({
                               return (
                               <div className="flex flex-col gap-1.5">
                                 {unmappedColor && (
-                                  <span className="text-[11px] text-amber-600 dark:text-amber-400">
-                                    Couleur non mappée — liez-la d&apos;abord dans Paramètres &gt; Correspondances PFS
-                                  </span>
+                                  <div className="flex flex-col gap-1.5">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                                        Couleur « {pfsV?.colorName} » non mappée
+                                      </span>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); openQuickCreate("color", pfsV?.colorName ?? "", { pfsRef: pfsV?.pfsColorRef ?? undefined }); }}
+                                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-[#F59E0B]/10 text-[#D97706] hover:bg-[#F59E0B]/20 transition-colors border border-[#F59E0B]/30"
+                                      >
+                                        <PlusIcon className="h-3 w-3" />
+                                        Créer
+                                      </button>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); openLinkColor(match.key, pfsV?.pfsColorRef ?? null); }}
+                                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors border border-blue-500/30"
+                                      >
+                                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                                        Lier
+                                      </button>
+                                    </div>
+                                    {linkColorKey === match.key && (
+                                      <div className="flex items-center gap-2 p-2 rounded-lg bg-bg-primary border border-border" onClick={(e) => e.stopPropagation()}>
+                                        {linkLoading ? (
+                                          <span className="text-[11px] text-text-secondary">Chargement...</span>
+                                        ) : (
+                                          <>
+                                            <CustomSelect
+                                              value=""
+                                              onChange={(val) => { if (val) handleLinkColor(val); }}
+                                              disabled={linkSaving}
+                                              size="sm"
+                                              searchable
+                                              className="flex-1 min-w-[180px]"
+                                              aria-label="Choisir une couleur existante"
+                                              options={[
+                                                { value: "", label: "— Choisir une couleur —" },
+                                                ...linkBjColors
+                                                  .filter((c) => !c.pfsColorRef)
+                                                  .map((c) => ({
+                                                    value: c.id,
+                                                    label: c.name,
+                                                  })),
+                                              ]}
+                                            />
+                                            <button
+                                              onClick={() => setLinkColorKey(null)}
+                                              className="text-text-secondary hover:text-text-primary p-1"
+                                            >
+                                              <XMarkIcon className="h-3.5 w-3.5" />
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
                                 <div className="flex items-center gap-1.5">
                                 <button
@@ -1516,21 +1696,19 @@ export default function PfsLiveCompareModal({
                     <button onClick={onClose} className="btn-secondary min-w-[100px]">
                       Fermer
                     </button>
-                    {changesCount > 0 && (
-                      <button
-                        onClick={handleApply}
-                        disabled={applying || unmappedPfsIssues.length > 0}
-                        className="btn-primary min-w-0 sm:min-w-[180px] bg-[#22C55E] hover:bg-[#16A34A] border-[#22C55E] disabled:opacity-50"
-                        title={unmappedPfsIssues.length > 0 ? "Créez d'abord les attributs manquants" : undefined}
-                      >
-                        {applying ? (
-                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white" />
-                        ) : (
-                          <CheckIcon className="h-4 w-4" />
-                        )}
-                        {applying ? "Synchronisation..." : `Synchroniser ${changesCount} modification${changesCount > 1 ? "s" : ""}`}
-                      </button>
-                    )}
+                    <button
+                      onClick={handleApply}
+                      disabled={applying || unmappedPfsIssues.length > 0}
+                      className="btn-primary min-w-0 sm:min-w-[180px] bg-[#22C55E] hover:bg-[#16A34A] border-[#22C55E] disabled:opacity-50"
+                      title={unmappedPfsIssues.length > 0 ? "Créez d'abord les attributs manquants" : undefined}
+                    >
+                      {applying ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white" />
+                      ) : (
+                        <CheckIcon className="h-4 w-4" />
+                      )}
+                      {applying ? "Synchronisation..." : changesCount > 0 ? `Synchroniser ${changesCount} modification${changesCount > 1 ? "s" : ""}` : "Synchroniser"}
+                    </button>
                   </div>
                 </div>
               </div>

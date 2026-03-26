@@ -457,6 +457,13 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
   // Quick-create color modal
   const [showQuickCreate, setShowQuickCreate] = useState(false);
 
+  // Colors created inline (not yet in parent options)
+  const [localCreatedColors, setLocalCreatedColors] = useState<AvailableColor[]>([]);
+  const allOptions = (() => {
+    const ids = new Set(options.map((o) => o.id));
+    return [...options, ...localCreatedColors.filter((c) => !ids.has(c.id))];
+  })();
+
   // Marketplace mapping state
   const [showMapping, setShowMapping] = useState(false);
   const [pfsData, setPfsData] = useState<PfsMappingData | null>(null);
@@ -501,7 +508,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
         }
         // Add new mapping
         if (pfsRef) {
-          const opt = options.find((o) => o.id === colorId);
+          const opt = allOptions.find((o) => o.id === colorId);
           next.existingMappings[pfsRef] = { colorId, colorName: opt?.name || "" };
         }
         return next;
@@ -551,8 +558,8 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
   }, [open]);
 
   const filtered = search.trim()
-    ? options.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()))
-    : options;
+    ? allOptions.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : allOptions;
 
   const draftIds = new Set(draft.map((s) => s.colorId));
 
@@ -624,13 +631,14 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
 
   function handleQuickColorCreated(item: { id: string; name: string; hex?: string | null }) {
     setDraft((prev) => [...prev, { colorId: item.id, colorName: item.name, colorHex: item.hex ?? "#9CA3AF" }]);
+    setLocalCreatedColors((prev) => [...prev, { id: item.id, name: item.name, hex: item.hex ?? null }]);
     setShowQuickCreate(false);
   }
 
   // Build display for the trigger button
   const displayName = selected.map((s) => s.colorName).join(" / ");
   const selectedSegments = selected.map((s) => {
-    const opt = options.find((o) => o.id === s.colorId);
+    const opt = allOptions.find((o) => o.id === s.colorId);
     return { hex: s.colorHex, patternImage: opt?.patternImage ?? null };
   });
 
@@ -708,7 +716,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                   {/* Chips row */}
                   <div className="flex items-center gap-2 flex-wrap">
                     {draft.map((s, i) => {
-                      const opt = options.find((o) => o.id === s.colorId);
+                      const opt = allOptions.find((o) => o.id === s.colorId);
                       return (
                         <div
                           key={s.colorId}
@@ -810,7 +818,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
 
                   {/* Single-color PFS status */}
                   {draft.length === 1 && (() => {
-                    const mainOpt = options.find((o) => o.id === draft[0].colorId);
+                    const mainOpt = allOptions.find((o) => o.id === draft[0].colorId);
                     const autoRef = mainOpt?.pfsColorRef;
                     if (!autoRef) return null;
                     return (
@@ -844,7 +852,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                       >
                         <div className="flex -space-x-0.5">
                           {combo.colors.slice(0, 3).map((c, ci) => {
-                            const optC = options.find((o) => o.id === c.colorId);
+                            const optC = allOptions.find((o) => o.id === c.colorId);
                             return <ColorSwatch key={ci} hex={c.colorHex} patternImage={optC?.patternImage ?? null} size={12} rounded="full" border />;
                           })}
                         </div>

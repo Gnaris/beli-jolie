@@ -159,6 +159,20 @@ export async function updateProductColorPfsRef(productColorId: string, pfsColorR
   // et un revalidate provoquerait un remount du composant
 }
 
+/**
+ * Get all colors for linking in PFS comparison modal.
+ * Returns colors sorted by name, with their current pfsColorRef.
+ */
+export async function getColorsForLinking(): Promise<
+  { id: string; name: string; hex: string | null; patternImage: string | null; pfsColorRef: string | null }[]
+> {
+  await requireAdmin();
+  return prisma.color.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
+  });
+}
+
 export async function deleteColor(id: string) {
   await requireAdmin();
   const count = await prisma.productColor.count({ where: { colorId: id } });
