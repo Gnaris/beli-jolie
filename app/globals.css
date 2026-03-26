@@ -312,6 +312,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 .field-input::placeholder { color: var(--color-text-muted); }
 .field-input:disabled { background-color: var(--color-bg-secondary); color: var(--color-text-muted); cursor: not-allowed; }
+.field-error { border-color: #EF4444 !important; }
+.field-error:focus { border-color: #EF4444 !important; box-shadow: 0 0 0 2px rgba(239,68,68,0.12) !important; }
 
 .field-label {
   display: block;

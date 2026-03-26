@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { applyPfsLiveSync, applyLiveImageChanges } from "@/app/actions/admin/pfs-live-sync";
+import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
+import type { QuickCreateType } from "@/components/admin/products/QuickCreateModal";
 
 // ─────────────────────────────────────────────
 // Types
@@ -34,12 +36,15 @@ interface VariantData {
   isActive?: boolean;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
+  pfsColorRef?: string | null;
+  pfsColorRefLabel?: string | null;
 }
 
 interface CompositionData {
   compositionId: string;
   name: string;
   percentage: number;
+  pfsRef?: string;
 }
 
 interface ProductData {
@@ -67,6 +72,11 @@ interface ProductData {
   manufacturingCountryName?: string | null;
   seasonId?: string | null;
   seasonName?: string | null;
+  pfsSeasonRef?: string | null;
+  pfsCountryRef?: string | null;
+  pfsCategoryPfsId?: string | null;
+  pfsCategoryGender?: string | null;
+  pfsCategoryFamilyId?: string | null;
 }
 
 interface CompareSelections {
@@ -93,8 +103,8 @@ interface PfsLiveCompareModalProps {
 // ─────────────────────────────────────────────
 
 function variantGroupKey(v: VariantData): string {
-  const subNames = (v.subColors ?? []).map((sc) => sc.colorName).join(",");
-  return `${v.colorId}::${subNames}::${v.saleType}`;
+  const subIds = (v.subColors ?? []).map((sc) => sc.colorId).join(",");
+  return `${v.colorId}::${subIds}::${v.saleType}`;
 }
 
 function formatDiscount(type: "PERCENT" | "AMOUNT" | null, value: number | null): string {
@@ -116,6 +126,11 @@ function getSubSegs(v: VariantData) {
     hex: sc.hex ?? null,
     patternImage: sc.patternImage ?? null,
   }));
+}
+
+/** Normalize compositions for comparison: strip pfsRef which only exists on PFS side */
+function normalizeComps(comps: CompositionData[]): string {
+  return JSON.stringify(comps.map(c => ({ compositionId: c.compositionId, name: c.name, percentage: c.percentage })));
 }
 
 function isExternal(path: string): boolean {
@@ -183,6 +198,16 @@ function ZoomIcon({ className }: { className?: string }) {
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
       <line x1="11" y1="8" x2="11" y2="14" />
       <line x1="8" y1="11" x2="14" y2="11" />
+    </svg>
+  );
+}
+
+function WarningIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
     </svg>
   );
 }
@@ -380,17 +405,67 @@ interface VariantMatch {
   pfsDisabled: boolean;
 }
 
+function variantIsDiff(bj: VariantData, pfs: VariantData): boolean {
+  return Math.abs(bj.unitPrice - pfs.unitPrice) > 0.01
+    || bj.stock !== pfs.stock
+    || Math.abs(bj.weight - pfs.weight) > 0.01
+    || bj.discountType !== pfs.discountType
+    || bj.discountValue !== pfs.discountValue
+    || (bj.sizeName ?? bj.size) !== (pfs.sizeName ?? pfs.size);
+}
+
 function matchVariants(bjVariants: VariantData[], pfsVariants: VariantData[]): VariantMatch[] {
   const matches: VariantMatch[] = [];
+  const usedBj = new Set<number>();
+  const usedPfs = new Set<number>();
+
+  // ── Step 1: match BJ variants that have an explicit pfsColorRef override ──
+  // This covers: multi-color UNIT (subColors + pfsColorRef) AND PACK (packColorLines with pfsColorRef)
+  for (let bi = 0; bi < bjVariants.length; bi++) {
+    const bj = bjVariants[bi];
+    // Only process variants with an explicit per-variant PFS color override
+    if (!bj.pfsColorRef) continue;
+
+    const pi = pfsVariants.findIndex((pfs, idx) =>
+      !usedPfs.has(idx) && pfs.pfsColorRef === bj.pfsColorRef && pfs.saleType === bj.saleType
+    );
+
+    usedBj.add(bi);
+    const pfsArr = pi >= 0 ? [pfsVariants[pi]] : [];
+    if (pi >= 0) usedPfs.add(pi);
+
+    const pfsV = pfsArr[0];
+    const isDiff = pfsArr.length === 0 || (pfsV ? variantIsDiff(bj, pfsV) : true);
+    const pfsDisabled = pfsArr.length > 0 && pfsArr.every((v) => v.isActive === false);
+
+    matches.push({
+      key: variantGroupKey(bj),
+      bjVariants: [bj],
+      pfsVariants: pfsArr,
+      colorName: bj.colorName,
+      colorHex: bj.colorHex ?? null,
+      colorPatternImage: bj.colorPatternImage ?? null,
+      subColors: bj.subColors,
+      onlyIn: pfsArr.length > 0 ? "both" : "bj",
+      isDifferent: isDiff,
+      pfsDisabled,
+    });
+  }
+
+  // ── Step 2: match remaining variants by colorId (existing logic) ──
   const bjByKey = new Map<string, VariantData[]>();
   const pfsByKey = new Map<string, VariantData[]>();
 
-  for (const v of bjVariants) {
+  for (let bi = 0; bi < bjVariants.length; bi++) {
+    if (usedBj.has(bi)) continue;
+    const v = bjVariants[bi];
     const key = variantGroupKey(v);
     if (!bjByKey.has(key)) bjByKey.set(key, []);
     bjByKey.get(key)!.push(v);
   }
-  for (const v of pfsVariants) {
+  for (let pi = 0; pi < pfsVariants.length; pi++) {
+    if (usedPfs.has(pi)) continue;
+    const v = pfsVariants[pi];
     const key = variantGroupKey(v);
     if (!pfsByKey.has(key)) pfsByKey.set(key, []);
     pfsByKey.get(key)!.push(v);
@@ -406,9 +481,7 @@ function matchVariants(bjVariants: VariantData[], pfsVariants: VariantData[]): V
     const isDiff = bj.length === 0 || pfs.length === 0 || bj.some((b, i) => {
       const p = pfs[i];
       if (!p) return true;
-      return b.unitPrice !== p.unitPrice || b.stock !== p.stock || b.weight !== p.weight
-        || b.discountType !== p.discountType || b.discountValue !== p.discountValue
-        || (b.sizeName ?? b.size) !== (p.sizeName ?? p.size);
+      return variantIsDiff(b, p);
     });
 
     const pfsDisabled = pfs.length > 0 && pfs.every((v) => v.isActive === false);
@@ -461,8 +534,62 @@ export default function PfsLiveCompareModal({
   const [zoomSrc, setZoomSrc] = useState<string | null>(null);
   const [dragData, setDragData] = useState<{ path: string; sourceKey: string; sourcePos: number } | null>(null);
 
+  // ── Quick Create modal state ──
+  const [quickCreate, setQuickCreate] = useState<{
+    type: QuickCreateType;
+    defaultName: string;
+    defaultPfsRef?: string;
+    defaultPfsCategoryId?: string;
+    defaultPfsCategoryGender?: string;
+    defaultPfsCategoryFamilyId?: string;
+  } | null>(null);
+
+  const openQuickCreate = useCallback((
+    type: QuickCreateType,
+    name: string,
+    opts?: { pfsRef?: string; pfsCategoryId?: string; pfsCategoryGender?: string; pfsCategoryFamilyId?: string },
+  ) => {
+    setQuickCreate({
+      type,
+      defaultName: name,
+      defaultPfsRef: opts?.pfsRef || undefined,
+      defaultPfsCategoryId: opts?.pfsCategoryId || undefined,
+      defaultPfsCategoryGender: opts?.pfsCategoryGender || undefined,
+      defaultPfsCategoryFamilyId: opts?.pfsCategoryFamilyId || undefined,
+    });
+  }, []);
+
+  const handleQuickCreated = useCallback(async () => {
+    setQuickCreate(null);
+    // Re-fetch data to pick up newly created entity
+    try {
+      const res = await fetch(`/api/admin/pfs-sync/live-check/${productId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setExisting(data.existing);
+      setPfs(data.pfs);
+    } catch { /* ignore */ }
+  }, [productId]);
+
   // ── Initialize selections from data ──
   const initSelectionsFromData = useCallback((data: { existing: ProductData; pfs: ProductData }) => {
+    // Deduplicate PFS image groups by colorId+colorName (defensive against stale cache)
+    if (data.pfs.imagesByColor && data.pfs.imagesByColor.length > 0) {
+      const seen = new Map<string, typeof data.pfs.imagesByColor[0]>();
+      for (const g of data.pfs.imagesByColor) {
+        const dedupKey = `${g.colorId}::${g.colorName}`;
+        if (seen.has(dedupKey)) {
+          // Merge paths into existing group
+          const existing = seen.get(dedupKey)!;
+          for (const p of g.paths) {
+            if (!existing.paths.includes(p)) existing.paths.push(p);
+          }
+        } else {
+          seen.set(dedupKey, { ...g, paths: [...g.paths] });
+        }
+      }
+      data = { ...data, pfs: { ...data.pfs, imagesByColor: Array.from(seen.values()) } };
+    }
     setExisting(data.existing);
     setPfs(data.pfs);
 
@@ -583,7 +710,10 @@ export default function PfsLiveCompareModal({
   const handleClearSlot = useCallback((slotKey: string, position: number) => {
     setImageSlots((prev) => {
       const slots = [...(prev[slotKey] ?? [null, null, null, null, null])];
-      slots[position] = null;
+      // Remove image and shift remaining images down to fill the gap
+      slots.splice(position, 1);
+      // Pad back to 5 slots
+      while (slots.length < 5) slots.push(null);
       return { ...prev, [slotKey]: slots };
     });
   }, []);
@@ -598,29 +728,26 @@ export default function PfsLiveCompareModal({
     });
   }, []);
 
-  /** Move image from one slot to another (cross-color or cross-side). Swaps if target is occupied. */
+  /** Copy image to another color group (first empty slot). Source stays unchanged. */
   const handleMoveImage = useCallback((
     targetKey: string,
-    targetPos: number,
+    _targetPos: number,
     imagePath: string,
-    sourceKey: string,
-    sourcePos: number,
+    _sourceKey: string,
+    _sourcePos: number,
   ) => {
-    console.log("[DnD] handleMoveImage", { targetKey, targetPos, sourceKey, sourcePos, imagePath: imagePath?.substring(0, 50) });
+    console.log("[DnD] handleCopyImage", { targetKey, _sourceKey, imagePath: imagePath?.substring(0, 50) });
     setImageSlots((prev) => {
       const newSlots = { ...prev };
-      const sourceSlots = [...(newSlots[sourceKey] ?? [null, null, null, null, null])];
-      const targetSlots = sourceKey === targetKey ? sourceSlots : [...(newSlots[targetKey] ?? [null, null, null, null, null])];
+      const targetSlots = [...(newSlots[targetKey] ?? [null, null, null, null, null])];
 
-      // Swap: put target's existing image in source position
-      const existingTarget = targetSlots[targetPos];
-      targetSlots[targetPos] = imagePath;
-      sourceSlots[sourcePos] = existingTarget;
+      // Find first empty slot in target group
+      const firstEmpty = targetSlots.findIndex(s => s === null);
+      if (firstEmpty === -1) return prev; // No room, ignore drop
 
-      newSlots[sourceKey] = sourceSlots;
-      if (sourceKey !== targetKey) {
-        newSlots[targetKey] = targetSlots;
-      }
+      // Copy image to first empty slot (source stays unchanged)
+      targetSlots[firstEmpty] = imagePath;
+      newSlots[targetKey] = targetSlots;
       return newSlots;
     });
   }, []);
@@ -738,7 +865,7 @@ export default function PfsLiveCompareModal({
     if (existing.name !== pfs.name) count++;
     if (existing.description !== pfs.description) count++;
     if (existing.categoryId !== pfs.categoryId) count++;
-    if (JSON.stringify(existing.compositions) !== JSON.stringify(pfs.compositions)) count++;
+    if (normalizeComps(existing.compositions) !== normalizeComps(pfs.compositions)) count++;
     if (existing.seasonId !== pfs.seasonId && !!pfs.seasonName) count++;
     if (existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName) count++;
     for (const [, val] of Object.entries(selections.variants)) {
@@ -762,6 +889,27 @@ export default function PfsLiveCompareModal({
     return count;
   }, [existing, pfs, selections, hasBjImageChanges]);
 
+  // ── Detect unmapped PFS attributes selected for sync ──
+  const unmappedPfsIssues = useMemo(() => {
+    if (!pfs) return [];
+    const issues: string[] = [];
+    if (selections.category === "pfs" && pfs.categoryName && !pfs.categoryId) {
+      issues.push(`Catégorie "${pfs.categoryName}"`);
+    }
+    if (selections.compositions === "pfs") {
+      for (const c of pfs.compositions) {
+        if (!c.compositionId) issues.push(`Composition "${c.name}"`);
+      }
+    }
+    if (selections.season === "pfs" && pfs.seasonName && !pfs.seasonId) {
+      issues.push(`Saison "${pfs.seasonName}"`);
+    }
+    if (selections.manufacturingCountry === "pfs" && pfs.manufacturingCountryName && !pfs.manufacturingCountryId) {
+      issues.push(`Pays "${pfs.manufacturingCountryName}"`);
+    }
+    return issues;
+  }, [selections, pfs]);
+
   if (!open) return null;
 
   const variantMatches = existing && pfs ? matchVariants(existing.variants, pfs.variants) : [];
@@ -769,7 +917,7 @@ export default function PfsLiveCompareModal({
     + (existing && pfs && existing.name !== pfs.name ? 1 : 0)
     + (existing && pfs && existing.description !== pfs.description ? 1 : 0)
     + (existing && pfs && existing.categoryId !== pfs.categoryId ? 1 : 0)
-    + (existing && pfs && JSON.stringify(existing.compositions) !== JSON.stringify(pfs.compositions) ? 1 : 0)
+    + (existing && pfs && normalizeComps(existing.compositions) !== normalizeComps(pfs.compositions) ? 1 : 0)
     + (existing && pfs && existing.seasonId !== pfs.seasonId && !!pfs.seasonName ? 1 : 0)
     + (existing && pfs && existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName ? 1 : 0);
   const changesCount = countChanges();
@@ -860,63 +1008,102 @@ export default function PfsLiveCompareModal({
           {existing && pfs && !loading && !success && (
             <div className="flex flex-col gap-4 p-5 sm:p-6 pb-0">
 
-              {/* ─── Name ─── */}
-              <CompareField
-                label="Nom"
-                bjValue={existing.name}
-                pfsValue={pfs.name}
-                isDifferent={existing.name !== pfs.name}
-                selected={selections.name}
-                onSelect={(s) => updateSelection("name", s)}
-              />
-
-              {/* ─── Description ─── */}
-              <CompareField
-                label="Description"
-                bjValue={existing.description}
-                pfsValue={pfs.description}
-                isDifferent={existing.description !== pfs.description}
-                selected={selections.description}
-                onSelect={(s) => updateSelection("description", s)}
-                renderValue={(val) => (
-                  <p className="text-sm text-text-primary leading-relaxed line-clamp-5 whitespace-pre-wrap">
-                    {val == null || val === "" ? <span className="text-text-secondary italic">Vide</span> : String(val)}
-                  </p>
-                )}
-              />
-
-              {/* ─── Category ─── */}
-              {pfs.categoryName && (
+              {/* ─── Name (only if different) ─── */}
+              {existing.name !== pfs.name && (
                 <CompareField
-                  label="Catégorie"
-                  bjValue={existing.categoryName}
-                  pfsValue={pfs.categoryName}
-                  isDifferent={existing.categoryId !== pfs.categoryId}
-                  selected={selections.category}
-                  onSelect={(s) => updateSelection("category", s)}
+                  label="Nom"
+                  bjValue={existing.name}
+                  pfsValue={pfs.name}
+                  isDifferent={true}
+                  selected={selections.name}
+                  onSelect={(s) => updateSelection("name", s)}
+                />
+              )}
+
+              {/* ─── Description (only if different) ─── */}
+              {existing.description !== pfs.description && (
+                <CompareField
+                  label="Description"
+                  bjValue={existing.description}
+                  pfsValue={pfs.description}
+                  isDifferent={true}
+                  selected={selections.description}
+                  onSelect={(s) => updateSelection("description", s)}
                   renderValue={(val) => (
-                    <span className="badge badge-neutral text-xs">{String(val)}</span>
+                    <p className="text-sm text-text-primary leading-relaxed line-clamp-5 whitespace-pre-wrap">
+                      {val == null || val === "" ? <span className="text-text-secondary italic">Vide</span> : String(val)}
+                    </p>
                   )}
                 />
               )}
 
-              {/* ─── Compositions ─── */}
-              {pfs.compositions.length > 0 && (
+              {/* ─── Category (only if different) ─── */}
+              {pfs.categoryName && existing.categoryId !== pfs.categoryId && (
+                <CompareField
+                  label="Catégorie"
+                  bjValue={existing.categoryName}
+                  pfsValue={pfs.categoryName}
+                  isDifferent={true}
+                  selected={selections.category}
+                  onSelect={(s) => updateSelection("category", s)}
+                  renderValue={(val, side) => (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="badge badge-neutral text-xs">{String(val)}</span>
+                      {side === "pfs" && !pfs.categoryId && (
+                        <>
+                          <span className="badge badge-warning text-[10px]">Non créé</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openQuickCreate("category", pfs.categoryName, {
+                                pfsCategoryId: pfs.pfsCategoryPfsId ?? undefined,
+                                pfsCategoryGender: pfs.pfsCategoryGender ?? undefined,
+                                pfsCategoryFamilyId: pfs.pfsCategoryFamilyId ?? undefined,
+                              });
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-[#F59E0B]/10 text-[#D97706] hover:bg-[#F59E0B]/20 transition-colors border border-[#F59E0B]/30"
+                          >
+                            <PlusIcon className="h-3 w-3" />
+                            Créer cette catégorie
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                />
+              )}
+
+              {/* ─── Compositions (only if different) ─── */}
+              {pfs.compositions.length > 0 && normalizeComps(existing.compositions) !== normalizeComps(pfs.compositions) && (
                 <CompareField
                   label="Compositions"
                   bjValue={existing.compositions}
                   pfsValue={pfs.compositions}
-                  isDifferent={JSON.stringify(existing.compositions) !== JSON.stringify(pfs.compositions)}
+                  isDifferent={true}
                   selected={selections.compositions}
                   onSelect={(s) => updateSelection("compositions", s)}
-                  renderValue={(val) => {
+                  renderValue={(val, side) => {
                     const comps = val as CompositionData[];
                     if (!comps || comps.length === 0) return <span className="text-text-secondary italic text-sm">Aucune</span>;
                     return (
                       <div className="flex flex-wrap gap-1.5">
                         {comps.map((c, i) => (
-                          <span key={`${c.compositionId}-${i}`} className="badge badge-neutral text-xs">
-                            {c.name} — {c.percentage}%
+                          <span key={`${c.compositionId}-${i}`} className="inline-flex items-center gap-1.5 flex-wrap">
+                            <span className="badge badge-neutral text-xs">
+                              {c.name} — {c.percentage}%
+                            </span>
+                            {side === "pfs" && !c.compositionId && (
+                              <>
+                                <span className="badge badge-warning text-[10px]">Non créé</span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); openQuickCreate("composition", c.name, { pfsRef: c.pfsRef }); }}
+                                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-[#F59E0B]/10 text-[#D97706] hover:bg-[#F59E0B]/20 transition-colors border border-[#F59E0B]/30"
+                                >
+                                  <PlusIcon className="h-3 w-3" />
+                                  Créer
+                                </button>
+                              </>
+                            )}
                           </span>
                         ))}
                       </div>
@@ -925,39 +1112,81 @@ export default function PfsLiveCompareModal({
                 />
               )}
 
-              {/* ─── Saison ─── */}
+              {/* ─── Saison (only if different) ─── */}
+              {existing.seasonId !== pfs.seasonId && !!pfs.seasonName && (
               <CompareField
                 label="Saison"
                 bjValue={existing.seasonName}
                 pfsValue={pfs.seasonName}
-                isDifferent={existing.seasonId !== pfs.seasonId && !!pfs.seasonName}
+                isDifferent={true}
                 selected={selections.season}
                 onSelect={(s) => updateSelection("season", s)}
-                renderValue={(val) => (
-                  <span className="badge badge-neutral text-xs">{val ? String(val) : "Non défini"}</span>
+                renderValue={(val, side) => (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="badge badge-neutral text-xs">{val ? String(val) : "Non défini"}</span>
+                    {side === "pfs" && pfs.seasonName && !pfs.seasonId && (
+                      <>
+                        <span className="badge badge-warning text-[10px]">Non créé</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openQuickCreate("season", pfs.seasonName!, { pfsRef: pfs.pfsSeasonRef ?? undefined }); }}
+                          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-[#F59E0B]/10 text-[#D97706] hover:bg-[#F59E0B]/20 transition-colors border border-[#F59E0B]/30"
+                        >
+                          <PlusIcon className="h-3 w-3" />
+                          Créer cette saison
+                        </button>
+                      </>
+                    )}
+                  </div>
                 )}
               />
+              )}
 
-              {/* ─── Pays de fabrication ─── */}
+              {/* ─── Pays de fabrication (only if different) ─── */}
+              {existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName && (
               <CompareField
                 label="Pays de fabrication"
                 bjValue={existing.manufacturingCountryName}
                 pfsValue={pfs.manufacturingCountryName}
-                isDifferent={existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName}
+                isDifferent={true}
                 selected={selections.manufacturingCountry}
                 onSelect={(s) => updateSelection("manufacturingCountry", s)}
-                renderValue={(val) => (
-                  <span className="badge badge-neutral text-xs">{val ? String(val) : "Non défini"}</span>
+                renderValue={(val, side) => (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="badge badge-neutral text-xs">{val ? String(val) : "Non défini"}</span>
+                    {side === "pfs" && pfs.manufacturingCountryName && !pfs.manufacturingCountryId && (
+                      <>
+                        <span className="badge badge-warning text-[10px]">Non créé</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openQuickCreate("country", pfs.manufacturingCountryName!, { pfsRef: pfs.pfsCountryRef ?? undefined }); }}
+                          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium bg-[#F59E0B]/10 text-[#D97706] hover:bg-[#F59E0B]/20 transition-colors border border-[#F59E0B]/30"
+                        >
+                          <PlusIcon className="h-3 w-3" />
+                          Créer ce pays
+                        </button>
+                      </>
+                    )}
+                  </div>
                 )}
               />
+              )}
 
-              {/* ─── Variants ─── */}
+              {/* ─── "All identical" message ─── */}
+              {totalDiffs === 0 && (
+                <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/5 p-4 text-center">
+                  <CheckIcon className="h-6 w-6 text-[#22C55E] mx-auto mb-2" />
+                  <p className="text-sm font-medium text-[#22C55E]">Tous les champs sont identiques</p>
+                  <p className="text-xs text-text-secondary mt-1">Les images sont affichées ci-dessous pour comparaison.</p>
+                </div>
+              )}
+
+              {/* ─── Variants (only non-identical) ─── */}
+              {variantMatches.filter(m => m.isDifferent || m.onlyIn !== "both").length > 0 && (
               <div className="rounded-xl border border-border p-4 bg-bg-secondary/30">
                 <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)] mb-3">
                   Variantes
                 </h4>
                 <div className="space-y-3">
-                  {variantMatches.map((match) => {
+                  {variantMatches.filter(m => m.isDifferent || m.onlyIn !== "both").map((match) => {
                     const sel = selections.variants[match.key] ?? "bj";
                     const bjV = match.bjVariants[0];
                     const pfsV = match.pfsVariants[0];
@@ -993,6 +1222,11 @@ export default function PfsLiveCompareModal({
                             <span className={`badge text-[10px] ${source.saleType === "PACK" ? "badge-purple" : "badge-neutral"}`}>
                               {source.saleType}{source.saleType === "PACK" && source.packQuantity ? ` ×${source.packQuantity}` : ""}
                             </span>
+                            {bjV?.pfsColorRef && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600 animate-pulse">
+                                PFS : {bjV.pfsColorRefLabel ?? bjV.pfsColorRef}
+                              </span>
+                            )}
                             {match.onlyIn === "pfs" && (
                               <span className="badge badge-success text-[10px]">Nouveau (PFS)</span>
                             )}
@@ -1012,14 +1246,25 @@ export default function PfsLiveCompareModal({
 
                           {/* Action buttons */}
                           <div className="flex items-center gap-2 shrink-0">
-                            {match.onlyIn === "pfs" && (
-                              <div className="flex items-center gap-1.5">
+                            {match.onlyIn === "pfs" && (() => {
+                              const unmappedColor = !pfsV?.colorId;
+                              return (
+                              <div className="flex flex-col gap-1.5">
+                                {unmappedColor && (
+                                  <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                                    Couleur non mappée — liez-la d&apos;abord dans Paramètres &gt; Correspondances PFS
+                                  </span>
+                                )}
+                                <div className="flex items-center gap-1.5">
                                 <button
                                   onClick={() => updateVariantSelection(match.key, "add")}
+                                  disabled={unmappedColor}
                                   className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium border transition-all min-h-[36px] ${
-                                    sel === "add"
-                                      ? "bg-[#22C55E] text-white border-[#22C55E]"
-                                      : "bg-bg-secondary text-text-secondary border-border hover:bg-border"
+                                    unmappedColor
+                                      ? "opacity-50 cursor-not-allowed bg-bg-secondary text-text-secondary border-border"
+                                      : sel === "add"
+                                        ? "bg-[#22C55E] text-white border-[#22C55E]"
+                                        : "bg-bg-secondary text-text-secondary border-border hover:bg-border"
                                   }`}
                                 >
                                   <PlusIcon className="h-3.5 w-3.5" />
@@ -1036,8 +1281,10 @@ export default function PfsLiveCompareModal({
                                   <XMarkIcon className="h-3.5 w-3.5" />
                                   Ignorer
                                 </button>
+                                </div>
                               </div>
-                            )}
+                              );
+                            })()}
                             {match.onlyIn === "bj" && (
                               <div className="flex items-center gap-1.5">
                                 <button
@@ -1116,20 +1363,17 @@ export default function PfsLiveCompareModal({
                       </div>
                     );
                   })}
-                  {variantMatches.length === 0 && (
-                    <p className="text-sm text-text-secondary py-2">Aucune variante</p>
-                  )}
                 </div>
               </div>
+              )}
 
-              {/* ─── Images — Drag & Drop ─── */}
-              {(existing.imagesByColor?.length > 0 || pfs.imagesByColor?.length > 0) && (
-                <div className="rounded-xl border border-border p-4 bg-bg-secondary/30">
+              {/* ─── Images — Drag & Drop (always shown) ─── */}
+              <div className="rounded-xl border border-border p-4 bg-bg-secondary/30">
                   <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)] mb-1">
                     Images
                   </h4>
                   <p className="text-[11px] text-text-secondary mb-4">
-                    Glissez-déposez les images entre couleurs et côtés (les images sont échangées). Modifications côté Boutique sauvegardées automatiquement.
+                    Glissez-déposez pour copier les images entre couleurs et côtés (position automatique au premier slot vide). Cliquez ✕ pour supprimer.
                   </p>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1142,9 +1386,12 @@ export default function PfsLiveCompareModal({
                         {existing.imagesByColor?.map((group) => {
                           const key = `bj::${group.colorId}::${group.colorName}`;
                           const slots = imageSlots[key] ?? [null, null, null, null, null];
+                          // Find matching BJ variant for PFS color ref
+                          const matchingBjVariant = existing.variants.find(v => v.colorId === group.colorId);
+                          const fullName = [group.colorName, ...(group.subColors ?? []).map(sc => sc.colorName)].join(", ");
                           return (
                             <div key={key} className="rounded-xl border border-[#3B82F6]/20 bg-[#3B82F6]/5 p-3">
-                              <div className="flex items-center gap-1.5 mb-2">
+                              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                                 <ColorSwatch
                                   hex={group.colorHex}
                                   patternImage={group.colorPatternImage}
@@ -1153,7 +1400,12 @@ export default function PfsLiveCompareModal({
                                   rounded="full"
                                   border
                                 />
-                                <span className="text-xs font-medium text-[#3B82F6]">{group.colorName}</span>
+                                <span className="text-xs font-medium text-[#3B82F6]">{fullName}</span>
+                                {matchingBjVariant?.pfsColorRef && (
+                                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600">
+                                    PFS : {matchingBjVariant.pfsColorRefLabel ?? matchingBjVariant.pfsColorRef}
+                                  </span>
+                                )}
                               </div>
                               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                                 {slots.map((slotPath, pos) => (
@@ -1190,9 +1442,12 @@ export default function PfsLiveCompareModal({
                         {pfs.imagesByColor?.map((group) => {
                           const key = `pfs::${group.colorId}::${group.colorName}`;
                           const slots = imageSlots[key] ?? [null, null, null, null, null];
+                          // Find matching PFS variant for French label
+                          const matchingPfsVariant = pfs.variants.find(v => v.colorId === group.colorId);
+                          const pfsLabel = matchingPfsVariant?.pfsColorRefLabel ?? group.colorName;
                           return (
                             <div key={key} className="rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-3">
-                              <div className="flex items-center gap-1.5 mb-2">
+                              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                                 <ColorSwatch
                                   hex={group.colorHex}
                                   patternImage={group.colorPatternImage}
@@ -1201,7 +1456,7 @@ export default function PfsLiveCompareModal({
                                   rounded="full"
                                   border
                                 />
-                                <span className="text-xs font-medium text-[#D97706]">{group.colorName}</span>
+                                <span className="text-xs font-medium text-[#D97706]">{pfsLabel}</span>
                               </div>
                               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                                 {slots.map((slotPath, pos) => (
@@ -1230,37 +1485,53 @@ export default function PfsLiveCompareModal({
                     </div>
                   </div>
                 </div>
-              )}
 
               {/* ─── Footer (sticky) ─── */}
-              <div className="sticky bottom-0 -mx-5 sm:-mx-6 mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border bg-bg-primary px-5 sm:px-6 py-4 rounded-b-2xl">
-                <div className="text-sm text-text-secondary">
-                  {changesCount > 0 ? (
-                    <span>
-                      <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} — les choix Boutique seront poussés vers PFS
-                    </span>
-                  ) : (
-                    <span>Aucune modification sélectionnée</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={onClose} className="btn-secondary min-w-[100px]">
-                    Fermer
-                  </button>
-                  {changesCount > 0 && (
-                    <button
-                      onClick={handleApply}
-                      disabled={applying}
-                      className="btn-primary min-w-0 sm:min-w-[180px] bg-[#22C55E] hover:bg-[#16A34A] border-[#22C55E] disabled:opacity-50"
-                    >
-                      {applying ? (
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white" />
-                      ) : (
-                        <CheckIcon className="h-4 w-4" />
-                      )}
-                      {applying ? "Synchronisation..." : `Synchroniser ${changesCount} modification${changesCount > 1 ? "s" : ""}`}
+              <div className="sticky bottom-0 -mx-5 sm:-mx-6 mt-2 flex flex-col gap-3 border-t border-border bg-bg-primary px-5 sm:px-6 py-4 rounded-b-2xl">
+                {unmappedPfsIssues.length > 0 && (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-[#F59E0B]/40 bg-[#F59E0B]/5 p-3">
+                    <WarningIcon className="h-4 w-4 text-[#F59E0B] shrink-0 mt-0.5" />
+                    <div className="text-xs text-text-secondary">
+                      <p className="font-medium text-[#D97706] mb-1">Synchronisation impossible — attribut(s) non créé(s) dans la boutique :</p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        {unmappedPfsIssues.map((issue, i) => (
+                          <li key={i}>{issue}</li>
+                        ))}
+                      </ul>
+                      <p className="mt-1.5 text-text-muted">Utilisez les boutons «&nbsp;Créer&nbsp;» ci-dessus pour créer les attributs manquants.</p>
+                    </div>
+                  </div>
+                )}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="text-sm text-text-secondary">
+                    {changesCount > 0 ? (
+                      <span>
+                        <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} — les choix Boutique seront poussés vers PFS
+                      </span>
+                    ) : (
+                      <span>Aucune modification sélectionnée</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button onClick={onClose} className="btn-secondary min-w-[100px]">
+                      Fermer
                     </button>
-                  )}
+                    {changesCount > 0 && (
+                      <button
+                        onClick={handleApply}
+                        disabled={applying || unmappedPfsIssues.length > 0}
+                        className="btn-primary min-w-0 sm:min-w-[180px] bg-[#22C55E] hover:bg-[#16A34A] border-[#22C55E] disabled:opacity-50"
+                        title={unmappedPfsIssues.length > 0 ? "Créez d'abord les attributs manquants" : undefined}
+                      >
+                        {applying ? (
+                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white" />
+                        ) : (
+                          <CheckIcon className="h-4 w-4" />
+                        )}
+                        {applying ? "Synchronisation..." : `Synchroniser ${changesCount} modification${changesCount > 1 ? "s" : ""}`}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1289,6 +1560,21 @@ export default function PfsLiveCompareModal({
             onClick={(e) => e.stopPropagation()}
           />
         </div>
+      )}
+
+      {/* ── Quick Create Modal (for unmapped PFS attributes) ── */}
+      {quickCreate && (
+        <QuickCreateModal
+          type={quickCreate.type}
+          open={true}
+          onClose={() => setQuickCreate(null)}
+          onCreated={handleQuickCreated}
+          defaultName={quickCreate.defaultName}
+          defaultPfsRef={quickCreate.defaultPfsRef}
+          defaultPfsCategoryId={quickCreate.defaultPfsCategoryId}
+          defaultPfsCategoryGender={quickCreate.defaultPfsCategoryGender}
+          defaultPfsCategoryFamilyId={quickCreate.defaultPfsCategoryFamilyId}
+        />
       )}
     </>
   );
@@ -1342,7 +1628,8 @@ function LiveImageSlot({
       onDragEnd={() => setDragData(null)}
       onDragOver={(e) => {
         e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
+        const dd = dragDataRef.current;
+        e.dataTransfer.dropEffect = dd && dd.sourceKey !== slotKey ? "copy" : "move";
         setDragOver(true);
       }}
       onDragLeave={() => setDragOver(false)}

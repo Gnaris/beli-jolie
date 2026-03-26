@@ -221,6 +221,30 @@ export async function placeOrder(
   const orderItems: OrderItemPDF[] = cart.items.map((item) => {
     const unitPrice = computeUnitPrice(item.variant);
     const imgKey = `${item.variant.productId}__${item.variant.colorId}`;
+
+    // Build variant snapshot for legal traceability (survives variant deletion)
+    const variantSnapshot = JSON.stringify({
+      productName: item.variant.product.name,
+      productRef: item.variant.product.reference,
+      categoryName: item.variant.product.category?.name ?? null,
+      colorName: item.variant.color?.name ?? null,
+      colorHex: item.variant.color?.hex ?? null,
+      subColors: item.variant.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [],
+      saleType: item.variant.saleType,
+      packQuantity: item.variant.packQuantity,
+      weight: item.variant.weight,
+      unitPriceOriginal: item.variant.unitPrice,
+      discountType: item.variant.discountType ?? null,
+      discountValue: item.variant.discountValue ?? null,
+      sizes: item.variant.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({
+        name: vs.size.name,
+        quantity: vs.quantity,
+      })),
+      packColorLines: item.variant.packColorLines?.map((line: { colors: { color: { name: string } }[] }) => ({
+        colors: line.colors.map((c) => c.color.name),
+      })) ?? [],
+    });
+
     return {
       productName: item.variant.product.name,
       productRef:  item.variant.product.reference,
@@ -244,6 +268,7 @@ export async function placeOrder(
       unitPrice,
       quantity:    item.quantity,
       lineTotal:   unitPrice * item.quantity,
+      variantSnapshot,
     };
   });
 
@@ -302,6 +327,7 @@ export async function placeOrder(
           unitPrice:   item.unitPrice,
           quantity:    item.quantity,
           lineTotal:   item.lineTotal,
+          variantSnapshot: item.variantSnapshot ?? null,
         })),
       },
     },

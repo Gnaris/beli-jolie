@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, computeTotalPrice } from "./ColorVariantManager";
+import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, packDisplayName, packDisplayHex, computeTotalPrice } from "./ColorVariantManager";
 import { createProduct, updateProduct, saveProductTranslations } from "@/app/actions/admin/products";
 import { createSize } from "@/app/actions/admin/sizes";
 import { forcePfsSync } from "@/app/actions/admin/pfs-reverse-sync";
@@ -13,6 +13,7 @@ import CustomSelect from "@/components/ui/CustomSelect";
 import AiCostDialog from "./AiCostDialog";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
+import { useProductFormHeader } from "./ProductFormHeaderContext";
 
 interface Category {
   id: string;
@@ -336,6 +337,24 @@ export default function ProductForm({
     initialData?.status === "SYNCING" ? "OFFLINE" : (initialData?.status ?? "OFFLINE")
   );
 
+  // ── Sync header badges via context ────────────────────────────────────
+  const { updateHeader } = useProductFormHeader();
+  const headerStockState = useMemo((): "ok" | "partial_out" | "all_out" => {
+    const withStock = variants.filter(v => v.stock !== "" && v.stock !== undefined);
+    const outOfStock = withStock.filter(v => parseInt(v.stock) === 0);
+    if (withStock.length > 0 && outOfStock.length === withStock.length) return "all_out";
+    if (outOfStock.length > 0) return "partial_out";
+    return "ok";
+  }, [variants]);
+  useEffect(() => {
+    updateHeader({ productStatus, stockState: headerStockState });
+  }, [productStatus, headerStockState, updateHeader]);
+  useEffect(() => {
+    // Completeness depends on many fields — separate effect
+    updateHeader({ isIncomplete: getCompletenessErrors().length > 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reference, name, description, categoryId, compositions, variants, colorImages]);
+
   // ── Unsaved changes guard ─────────────────────────────────────────────
   const router = useRouter();
   const { confirm: confirmDialog } = useConfirm();
@@ -412,28 +431,41 @@ export default function ProductForm({
   const hasUnsavedChanges = snapshotReady.current && initialSnapshot.current !== null && buildSnapshot() !== initialSnapshot.current;
 
   // ── Sync colorImages when variant colors change ───────────────────────
-  // One ColorImageState per color group (colorId + sub-colors), shared across UNIT/PACK variants
+  // One ColorImageState per color group: UNIT shares by colorId+sub-colors, PACK gets one per variant
+  // Uses fingerprint (includes packColorLines content) so effect re-runs when colors change
   const variantColorKey = variants
-    .filter((v) => v.colorId)
-    .map((v) => variantGroupKeyFromState(v))
+    .map((v) => variantColorFingerprint(v))
+    .filter(Boolean)
     .sort()
     .join("|");
   useEffect(() => {
     // Build unique groups: groupKey → display info
     const groupMap = new Map<string, { colorId: string; name: string; hex: string }>();
     for (const v of variants) {
-      if (!v.colorId) continue;
-      const gk = variantGroupKeyFromState(v);
-      if (!groupMap.has(gk)) {
-        const allNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)];
-        groupMap.set(gk, { colorId: v.colorId, name: allNames.join(" / "), hex: v.colorHex });
+      if (v.saleType === "PACK") {
+        // Each PACK variant gets its own image group
+        if (v.packColorLines.length === 0) continue;
+        const gk = imageGroupKeyFromVariant(v);
+        if (!groupMap.has(gk)) {
+          groupMap.set(gk, {
+            colorId: v.packColorLines[0]?.colors[0]?.colorId ?? "",
+            name: packDisplayName(v),
+            hex: packDisplayHex(v),
+          });
+        }
+      } else {
+        // UNIT: group by colorId + sub-colors
+        if (!v.colorId) continue;
+        const gk = variantGroupKeyFromState(v);
+        if (!groupMap.has(gk)) {
+          const allNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)];
+          groupMap.set(gk, { colorId: v.colorId, name: allNames.join(" / "), hex: v.colorHex });
+        }
       }
     }
     setColorImages((prev) => {
-      // Keep entries whose group still exists or that have uploaded images
-      const filtered = prev.filter((ci) =>
-        groupMap.has(ci.groupKey) || ci.uploadedPaths.length > 0
-      );
+      // Keep only entries whose variant still exists
+      const filtered = prev.filter((ci) => groupMap.has(ci.groupKey));
       // Update existing entries with latest display name/hex/colorId
       const updated = filtered.map((ci) => {
         const info = groupMap.get(ci.groupKey);
@@ -613,6 +645,22 @@ export default function ProductForm({
       !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId)
     );
   }, [localSizes, categoryId]);
+
+  // Per-variant field errors for red highlighting (price/weight/stock/sizes)
+  const variantErrors = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const v of variants) {
+      const errs = new Set<string>();
+      const price = parseFloat(v.unitPrice);
+      if (isNaN(price) || price <= 0) errs.add("price");
+      const w = parseFloat(v.weight);
+      if (isNaN(w) || w <= 0) errs.add("weight");
+      if (v.stock === "" || v.stock === undefined || v.stock === null) errs.add("stock");
+      if (v.sizeEntries.length === 0) errs.add("sizes");
+      if (errs.size > 0) map.set(v.tempId, errs);
+    }
+    return map;
+  }, [variants]);
 
   // Locales that have at least a name filled (green dot)
   const filledLocales = new Set<string>(
@@ -846,12 +894,14 @@ export default function ProductForm({
         const price = parseFloat(v.unitPrice);
         if (isNaN(price) || price <= 0)
           errors.push(`Variante "${label}" : prix/unité invalide`);
+        if (v.stock === "" || v.stock === undefined || v.stock === null)
+          errors.push(`Variante "${label}" : stock non renseigné`);
+        if (v.sizeEntries.length === 0)
+          errors.push(`Variante "${label}" : aucune taille`);
         if (v.saleType === "PACK") {
           const qty = parseInt(v.packQuantity);
           if (isNaN(qty) || qty < 1)
             errors.push(`Variante "${label}" : quantité paquet invalide`);
-          if (v.sizeEntries.length === 0)
-            errors.push(`Variante "${label}" : aucune taille`);
           for (const se of v.sizeEntries) {
             const seQty = parseInt(se.quantity);
             if (isNaN(seQty) || seQty <= 0)
@@ -876,6 +926,16 @@ export default function ProductForm({
   function isOutOfStock(): boolean {
     const withStock = variants.filter(v => v.stock !== "" && v.stock !== undefined);
     return withStock.length > 0 && withStock.every(v => parseInt(v.stock) === 0);
+  }
+
+  // Variante avec prix, poids ou stock manquant → bloque la synchro PFS
+  function hasVariantsWithMissingPriceWeightOrStock(): boolean {
+    return variants.some(v => {
+      const price = parseFloat(v.unitPrice);
+      const w = parseFloat(v.weight);
+      const stockNotSet = v.stock === "" || v.stock === undefined || v.stock === null;
+      return (isNaN(price) || price <= 0) || (isNaN(w) || w <= 0) || stockNotSet || v.sizeEntries.length === 0;
+    });
   }
 
   // ── Submit ───────────────────────────────────────────────────────────
@@ -994,11 +1054,13 @@ export default function ProductForm({
         pfsColorRef:   v.pfsColorRef || null,
       })),
       imagePaths: colorImages.map((ci) => {
-        const v = variants.find((vr) => variantGroupKeyFromState(vr) === ci.groupKey);
+        const vIdx = variants.findIndex((vr) => imageGroupKeyFromVariant(vr) === ci.groupKey);
+        const v = vIdx >= 0 ? variants[vIdx] : undefined;
         return {
           colorId: ci.colorId,
           subColorIds: v ? v.subColors.map((sc) => sc.colorId) : [],
           variantDbId: v?.dbId ?? undefined,
+          variantIndex: vIdx >= 0 ? vIdx : undefined,
           paths: ci.uploadedPaths,
           orders: ci.orders,
         };
@@ -1038,23 +1100,35 @@ export default function ProductForm({
 
         // ── After successful save: offer PFS sync ──
         if (mode === "edit" && productId) {
-          const okSync = await confirmDialog({
-            type: "info",
-            title: "Synchronisation PFS",
-            message: isIncomplete
-              ? "Les modifications ont été enregistrées. Le produit est incomplet, mais vous pouvez quand même synchroniser avec PFS. Voulez-vous continuer ?"
-              : "Les modifications ont été enregistrées avec succès. Voulez-vous synchroniser ce produit avec PFS ?",
-            confirmLabel: "Synchroniser avec PFS",
-            cancelLabel: "Plus tard",
-          });
-          if (okSync) {
-            try {
-              const result = await forcePfsSync(productId);
-              if (!result.success) {
-                setError(`Erreur de synchronisation PFS : ${result.error}`);
+          const variantsHaveMissingData = hasVariantsWithMissingPriceWeightOrStock();
+
+          if (variantsHaveMissingData) {
+            await confirmDialog({
+              type: "warning",
+              title: "Synchronisation PFS impossible",
+              message: "Certaines variantes sont incomplètes (prix, poids ou stock manquant). Complétez toutes les variantes avant de synchroniser avec PFS.",
+              confirmLabel: "Compris",
+              cancelLabel: "Fermer",
+            });
+          } else {
+            const okSync = await confirmDialog({
+              type: "info",
+              title: "Synchronisation PFS",
+              message: isIncomplete
+                ? "Les modifications ont été enregistrées. Le produit est incomplet, mais vous pouvez quand même synchroniser avec PFS. Voulez-vous continuer ?"
+                : "Les modifications ont été enregistrées avec succès. Voulez-vous synchroniser ce produit avec PFS ?",
+              confirmLabel: "Synchroniser avec PFS",
+              cancelLabel: "Plus tard",
+            });
+            if (okSync) {
+              try {
+                const result = await forcePfsSync(productId);
+                if (!result.success) {
+                  setError(`Erreur de synchronisation PFS : ${result.error}`);
+                }
+              } catch {
+                setError("Erreur lors de la synchronisation PFS.");
               }
-            } catch {
-              setError("Erreur lors de la synchronisation PFS.");
             }
           }
         }
@@ -1070,51 +1144,6 @@ export default function ProductForm({
 
         {/* ── Informations du produit ── */}
         <div className="space-y-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="font-[family-name:var(--font-poppins)] text-xl font-bold text-[#1A1A1A]">
-              Informations du produit
-            </h2>
-            {/* Statut en ligne / hors ligne */}
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-[family-name:var(--font-roboto)] ${
-              productStatus === "ONLINE"
-                ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-                : "bg-[#F7F7F8] text-[#6B6B6B] border border-[#E5E5E5]"
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${productStatus === "ONLINE" ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
-              {productStatus === "ONLINE" ? "En ligne" : "Hors ligne"}
-            </span>
-            {/* Badge Incomplet */}
-            {productStatus !== "ONLINE" && getCompletenessErrors().length > 0 && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-[family-name:var(--font-roboto)] bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-                </svg>
-                Incomplet
-              </span>
-            )}
-            {/* Badges rupture de stock */}
-            {(() => {
-              const withStock = variants.filter(v => v.stock !== "" && v.stock !== undefined);
-              const outOfStock = withStock.filter(v => parseInt(v.stock) === 0);
-              if (withStock.length > 0 && outOfStock.length === withStock.length) {
-                return (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-[family-name:var(--font-roboto)] bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626]" />
-                    Rupture de stock
-                  </span>
-                );
-              }
-              if (outOfStock.length > 0) {
-                return (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-[family-name:var(--font-roboto)] bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#EA580C]" />
-                    Rupture de variant
-                  </span>
-                );
-              }
-              return null;
-            })()}
-          </div>
 
           {/* Row 1 : Bloc principal (left) + Bloc mots clés (right) */}
           <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
@@ -1196,7 +1225,7 @@ export default function ProductForm({
               {/* Référence (always FR, not locale-dependent) */}
               <Field label="Référence produit *" hint="Ex: BJ-COL-001">
                 <input type="text" value={reference} onChange={(e) => setReference(e.target.value.toUpperCase())}
-                  placeholder="BJ-COL-001" className="field-input" required />
+                  placeholder="BJ-COL-001" className={`field-input${!reference.trim() ? " field-error" : ""}`} required />
               </Field>
 
               {/* Non-FR hint + missing translation warning */}
@@ -1231,7 +1260,7 @@ export default function ProductForm({
                   value={activeName}
                   onChange={(e) => setActiveName(e.target.value)}
                   placeholder={activeLocale === "fr" ? "Collier sautoir doré" : `Nom en ${LOCALE_LABELS[activeLocale]}…`}
-                  className="field-input"
+                  className={`field-input${activeLocale === "fr" && !name.trim() ? " field-error" : ""}`}
                   required={activeLocale === "fr"}
                 />
               </div>
@@ -1247,15 +1276,17 @@ export default function ProductForm({
                       className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
                     >+ Créer</button>
                   </div>
-                  <CustomSelect
-                    value={categoryId}
-                    onChange={(v) => { setCategoryId(v); setSubCategoryIds([]); }}
-                    options={[
-                      { value: "", label: "— Sélectionner —" },
-                      ...localCategories.map((cat) => ({ value: cat.id, label: cat.name })),
-                    ]}
-                    placeholder="— Sélectionner —"
-                  />
+                  <div className={!categoryId ? "rounded-lg ring-1 ring-[#EF4444]" : ""}>
+                    <CustomSelect
+                      value={categoryId}
+                      onChange={(v) => { setCategoryId(v); setSubCategoryIds([]); }}
+                      options={[
+                        { value: "", label: "— Sélectionner —" },
+                        ...localCategories.map((cat) => ({ value: cat.id, label: cat.name })),
+                      ]}
+                      placeholder="— Sélectionner —"
+                    />
+                  </div>
                 </div>
 
                 {/* Sous-catégories */}
@@ -1350,7 +1381,7 @@ export default function ProductForm({
                   onChange={(e) => setActiveDescription(e.target.value)}
                   rows={4}
                   placeholder={activeLocale === "fr" ? "Description commerciale du produit…" : `Description en ${LOCALE_LABELS[activeLocale]}…`}
-                  className="field-input resize-none"
+                  className={`field-input resize-none${activeLocale === "fr" && !description.trim() ? " field-error" : ""}`}
                   required={activeLocale === "fr"}
                 />
               </div>
@@ -1403,7 +1434,9 @@ export default function ProductForm({
             </div>
 
             {/* ── BLOC COMPOSITION ── */}
-            <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+            <div className={`bg-white border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
+              compositions.length === 0 || Math.abs(totalPct - 100) > 0.5 ? "border-[#EF4444]" : "border-[#E5E5E5]"
+            }`}>
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">Composition</p>
@@ -1506,6 +1539,7 @@ export default function ProductForm({
             categoryId={categoryId}
             allCategories={categories.map((c) => ({ id: c.id, name: c.name }))}
             onQuickCreateSize={handleQuickCreateSize}
+            variantErrors={variantErrors}
           />
         </section>
 

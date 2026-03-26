@@ -67,7 +67,7 @@ export interface ProductInput {
   categoryId: string;
   subCategoryIds: string[];
   colors: ColorInput[];
-  imagePaths?: { colorId: string; subColorIds?: string[]; variantDbId?: string; paths: string[]; orders?: number[] }[]; // images grouped per variant
+  imagePaths?: { colorId: string; subColorIds?: string[]; variantDbId?: string; variantIndex?: number; paths: string[]; orders?: number[] }[]; // images grouped per variant
   compositions: CompositionInput[];
   similarProductIds: string[];
   tagNames: string[];
@@ -109,12 +109,22 @@ function validateVariants(colors: ColorInput[]): void {
     }
   }
 
-  // PACK variants: must have exactly one color line
+  // PACK variants: must have exactly one color line + packQuantity >= 1
   for (const c of colors) {
     if (c.saleType === "PACK") {
       if (c.packColorLines.length !== 1) {
         throw new Error("Un paquet doit avoir exactement une ligne de couleur.");
       }
+      if (c.packQuantity == null || c.packQuantity < 1) {
+        throw new Error("Un paquet doit avoir une quantité d'au moins 1.");
+      }
+    }
+  }
+
+  // UNIT variants: max 1 size entry
+  for (const c of colors) {
+    if (c.saleType === "UNIT" && c.sizeEntries.length > 1) {
+      throw new Error("Une variante à l'unité ne peut avoir qu'une seule taille.");
     }
   }
 }
@@ -240,26 +250,38 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     const imageData: { productId: string; colorId: string; productColorId: string; path: string; order: number }[] = [];
     const usedVariantIds = new Set<string>();
     for (const group of input.imagePaths) {
-      if (group.paths.length === 0 || !group.colorId) continue;
-      // Match variant by colorId + ordered subColorIds (order matters)
-      const groupSubIds = group.subColorIds ?? [];
+      if (group.paths.length === 0) continue;
       let matched: { id: string; colorId: string | null } | undefined;
-      for (let i = 0; i < input.colors.length; i++) {
-        const cv = createdVariants[i];
-        if (!cv || usedVariantIds.has(cv.id)) continue;
-        if (cv.colorId !== group.colorId) continue;
-        const inputSubs = input.colors[i].subColorIds ?? [];
-        if (inputSubs.length !== groupSubIds.length) continue;
-        if (inputSubs.every((s, j) => s === groupSubIds[j])) {
-          matched = cv;
-          break;
+      // Try match by variantIndex first (reliable for PACK and new variants)
+      if (group.variantIndex != null && createdVariants[group.variantIndex]) {
+        matched = createdVariants[group.variantIndex];
+      }
+      // Fallback: match by colorId + ordered subColorIds (UNIT variants)
+      if (!matched && group.colorId) {
+        const groupSubIds = group.subColorIds ?? [];
+        for (let i = 0; i < input.colors.length; i++) {
+          const cv = createdVariants[i];
+          if (!cv || usedVariantIds.has(cv.id)) continue;
+          if (cv.colorId !== group.colorId) continue;
+          const inputSubs = input.colors[i].subColorIds ?? [];
+          if (inputSubs.length !== groupSubIds.length) continue;
+          if (inputSubs.every((s, j) => s === groupSubIds[j])) {
+            matched = cv;
+            break;
+          }
         }
       }
       if (!matched) continue;
       usedVariantIds.add(matched.id);
+      // For PACK, colorId may be empty — use the first packColorLine color or fallback
+      const effectiveColorId = group.colorId
+        || input.colors[group.variantIndex ?? -1]?.packColorLines?.[0]?.colorIds?.[0]
+        || matched.colorId
+        || "";
+      if (!effectiveColorId) continue; // Cannot create image without a colorId FK
       group.paths.forEach((path, idx) => {
         const order = group.orders?.[idx] ?? idx;
-        imageData.push({ productId: product.id, colorId: group.colorId, productColorId: matched!.id, path, order });
+        imageData.push({ productId: product.id, colorId: effectiveColorId, productColorId: matched!.id, path, order });
       });
     }
     if (imageData.length > 0) {
@@ -561,12 +583,18 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       const usedVariantIds = new Set<string>();
       for (const group of input.imagePaths) {
         if (group.paths.length === 0) continue;
+        let variant: { id: string; colorId: string | null } | undefined;
         // Try direct match by variantDbId first
-        let variant = group.variantDbId
+        variant = group.variantDbId
           ? currentVariants.find((v) => v.id === group.variantDbId)
           : undefined;
-        // Fallback: match by colorId + ordered subColorIds (order matters)
-        if (!variant) {
+        // Try match by variantIndex (reliable for PACK and newly created variants)
+        if (!variant && group.variantIndex != null && variantIdMap[group.variantIndex]) {
+          const mappedId = variantIdMap[group.variantIndex].variantId;
+          variant = currentVariants.find((v) => v.id === mappedId);
+        }
+        // Fallback: match by colorId + ordered subColorIds (UNIT variants)
+        if (!variant && group.colorId) {
           const groupSubIds = group.subColorIds ?? [];
           variant = currentVariants.find((v) => {
             if (usedVariantIds.has(v.id)) return false;
@@ -578,9 +606,15 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         }
         if (!variant) continue;
         usedVariantIds.add(variant.id);
+        // For PACK, colorId may be empty — derive from packColorLines or variant
+        const effectiveColorId = group.colorId
+          || input.colors[group.variantIndex ?? -1]?.packColorLines?.[0]?.colorIds?.[0]
+          || variant.colorId
+          || "";
+        if (!effectiveColorId) continue; // Cannot create image without a colorId FK
         group.paths.forEach((path, idx) => {
           const order = group.orders?.[idx] ?? idx;
-          imageData.push({ productId: id, colorId: group.colorId, productColorId: variant!.id, path, order });
+          imageData.push({ productId: id, colorId: effectiveColorId, productColorId: variant!.id, path, order });
         });
       }
       if (imageData.length > 0) {

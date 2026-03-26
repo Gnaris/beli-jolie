@@ -7,6 +7,8 @@ import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes } from "@/lib/cached-data";
 import PfsSyncButton from "@/components/pfs/PfsSyncButton";
+import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
+import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 
@@ -133,8 +135,10 @@ export default async function ModifierProduitPage({
   }));
 
   // Build group key for each ProductColor (colorId + ordered sub-color names — order matters)
-  function editGroupKey(pc: { colorId: string | null; subColors: { color: { name: string } }[] }): string {
-    if (!pc.colorId) return ""; // PACK variants have no colorId — no image group
+  // PACK variants use pack::<dbId> to match imageGroupKeyFromVariant()
+  function editGroupKey(pc: { id: string; colorId: string | null; saleType: string; subColors: { color: { name: string } }[] }): string {
+    if (pc.saleType === "PACK") return `pack::${pc.id}`;
+    if (!pc.colorId) return "";
     if (pc.subColors.length === 0) return pc.colorId;
     return `${pc.colorId}::${pc.subColors.map(sc => sc.color.name).join(",")}`;
   }
@@ -150,19 +154,33 @@ export default async function ModifierProduitPage({
   for (const img of colorImagesDb) {
     const pcId = img.productColorId ?? img.colorId;
     const gk = dbIdToGroupKey.get(pcId) ?? img.colorId;
+    if (!gk) continue; // skip unmapped entries
     if (!colorImageMap.has(gk)) {
       const colorMeta = img.productColorId
         ? product.colors.find((pc) => pc.id === img.productColorId)
         : product.colors.find((pc) => pc.colorId === img.colorId);
-      // Build full display name (main + sub-colors)
-      const allNames = colorMeta
-        ? [colorMeta.color?.name ?? img.colorId, ...colorMeta.subColors.map((sc) => sc.color.name)]
-        : [img.colorId];
+      // Build full display name (main + sub-colors, or pack color lines)
+      let allNames: string[];
+      let displayHex = "#9CA3AF";
+      if (colorMeta?.saleType === "PACK") {
+        // PACK: build name from packColorLines
+        allNames = colorMeta.packColorLines.map((pcl) =>
+          pcl.colors.map((c) => c.color.name).join(" + ")
+        );
+        if (allNames.length === 0) allNames = ["Paquet"];
+        const firstColor = colorMeta.packColorLines[0]?.colors[0]?.color;
+        if (firstColor?.hex) displayHex = firstColor.hex;
+      } else {
+        allNames = colorMeta
+          ? [colorMeta.color?.name ?? img.colorId, ...colorMeta.subColors.map((sc) => sc.color.name)]
+          : [img.colorId];
+        displayHex = colorMeta?.color?.hex ?? "#9CA3AF";
+      }
       colorImageMap.set(gk, {
         groupKey:      gk,
         colorId:       img.colorId,
         colorName:     allNames.join(" / "),
-        colorHex:      colorMeta?.color?.hex ?? "#9CA3AF",
+        colorHex:      displayHex,
         imagePreviews: [],
         uploadedPaths: [],
         orders:        [],
@@ -227,53 +245,71 @@ export default async function ModifierProduitPage({
     mappingIssues.push(`Saison "${product.season.name}" non mappée`);
   }
 
+  // ── Initial header state ─────────────────────────────────────────────────
+  const initialProductStatus = (product.status === "SYNCING" ? "OFFLINE" : product.status) as "OFFLINE" | "ONLINE" | "ARCHIVED";
+  const variantsWithStock = product.colors.filter(c => c.stock !== null && c.stock !== undefined);
+  const outOfStockCount = variantsWithStock.filter(c => c.stock === 0).length;
+  const initialStockState: StockState =
+    variantsWithStock.length > 0 && outOfStockCount === variantsWithStock.length ? "all_out" :
+    outOfStockCount > 0 ? "partial_out" : "ok";
+  const initialIsIncomplete =
+    !product.reference?.trim() || !product.name?.trim() ||
+    !product.description?.trim() || !product.categoryId ||
+    product.compositions.length === 0 || product.colors.length === 0;
+  const initialHeaderState: ProductFormHeaderState = {
+    productStatus: initialProductStatus,
+    isIncomplete: initialIsIncomplete,
+    stockState: initialStockState,
+  };
+
   return (
-    <div className="max-w-[1600px] mx-auto space-y-8">
-      <div>
-        <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-2">
-          <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
-          <span>/</span>
-          <span className="text-text-secondary truncate max-w-xs">{product.name}</span>
-          <span>/</span>
-          <span className="text-text-secondary">Modifier</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="page-title">
-              Modifier le produit
-            </h1>
-            <div className="flex items-center gap-3 mt-1 flex-wrap">
-              <p className="text-base text-text-muted font-[family-name:var(--font-roboto)]">
-                Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
-              </p>
-              <PfsSyncButton
-                productId={product.id}
-                pfsProductId={product.pfsProductId}
-                pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
-                pfsSyncError={product.pfsSyncError}
-                pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
-                mappingIssues={mappingIssues}
-              />
+    <ProductEditWrapper
+      initial={initialHeaderState}
+      staticHeader={
+        <>
+          <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-2">
+            <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
+            <span>/</span>
+            <span className="text-text-secondary truncate max-w-xs">{product.name}</span>
+            <span>/</span>
+            <span className="text-text-secondary">Modifier</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="page-title">Modifier le produit</h1>
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                <p className="text-base text-text-muted font-[family-name:var(--font-roboto)]">
+                  Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
+                </p>
+                <PfsSyncButton
+                  productId={product.id}
+                  pfsProductId={product.pfsProductId}
+                  pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
+                  pfsSyncError={product.pfsSyncError}
+                  pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
+                  mappingIssues={mappingIssues}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/produits/${product.id}`}
+                target="_blank"
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]"
+                title="Voir côté client"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Voir
+              </Link>
+              <RefreshButton href={`/admin/produits/${product.id}/modifier`} />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/produits/${product.id}`}
-              target="_blank"
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]"
-              title="Voir côté client"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              Voir
-            </Link>
-            <RefreshButton href={`/admin/produits/${product.id}/modifier`} />
-          </div>
-        </div>
-      </div>
-
+        </>
+      }
+    >
       <ProductForm
         categories={categories}
         availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage, pfsColorRef: c.pfsColorRef }))}
@@ -317,6 +353,6 @@ export default async function ModifierProduitPage({
           seasonId: product.seasonId ?? "",
         }}
       />
-    </div>
+    </ProductEditWrapper>
   );
 }

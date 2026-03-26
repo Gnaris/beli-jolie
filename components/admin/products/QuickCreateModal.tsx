@@ -25,6 +25,10 @@ interface QuickCreateModalProps {
   onCreated: (item: { id: string; name: string; hex?: string | null; subCategories?: { id: string; name: string }[] }) => void;
   categoryId?: string;
   defaultName?: string;
+  defaultPfsRef?: string;
+  defaultPfsCategoryId?: string;
+  defaultPfsCategoryGender?: string;
+  defaultPfsCategoryFamilyId?: string;
 }
 
 const TITLES: Record<QuickCreateType, string> = {
@@ -51,7 +55,8 @@ const MAPPABLE_TYPES: Set<string> = new Set(["category", "color", "composition",
 const RTL = ["ar"];
 
 export default function QuickCreateModal({
-  type, open, onClose, onCreated, categoryId, defaultName,
+  type, open, onClose, onCreated, categoryId, defaultName, defaultPfsRef,
+  defaultPfsCategoryId, defaultPfsCategoryGender, defaultPfsCategoryFamilyId,
 }: QuickCreateModalProps) {
   const [mounted, setMounted] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -79,12 +84,12 @@ export default function QuickCreateModal({
       setPatternFile(null);
       setPatternPreview(null);
       setError("");
-      setPfsRef("");
-      setPfsCategoryId("");
-      setPfsCategoryGender(null);
-      setPfsCategoryFamilyId(null);
+      setPfsRef(defaultPfsRef ?? "");
+      setPfsCategoryId(defaultPfsCategoryId ?? "");
+      setPfsCategoryGender(defaultPfsCategoryGender ?? null);
+      setPfsCategoryFamilyId(defaultPfsCategoryFamilyId ?? null);
     }
-  }, [open, defaultName]);
+  }, [open, defaultName, defaultPfsRef, defaultPfsCategoryId, defaultPfsCategoryGender, defaultPfsCategoryFamilyId]);
 
   function setName(locale: string, value: string) {
     setNames((prev) => ({ ...prev, [locale]: value }));
@@ -312,7 +317,7 @@ export default function QuickCreateModal({
 
               <div className="w-[300px] shrink-0 p-6 overflow-y-auto">
                 <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide mb-4">
-                  Mapping Marketplaces
+                  Correspondances Marketplaces
                 </p>
 
                 {type === "category" ? (

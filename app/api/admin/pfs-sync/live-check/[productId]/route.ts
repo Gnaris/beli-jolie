@@ -21,6 +21,7 @@ import {
   findOrCreateSeason,
 } from "@/lib/pfs-sync";
 import { stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
+import { pfsGetCategories, pfsGetColors, type PfsAttributeCategory } from "@/lib/pfs-api-write";
 
 // ─────────────────────────────────────────────
 // GET — Fetch live PFS data for a product and compare with BJ
@@ -51,7 +52,16 @@ export async function GET(
             },
             orderBy: { position: "asc" },
           },
-          variantSizes: { select: { size: { select: { name: true } } } },
+          variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
+          packColorLines: {
+            include: {
+              colors: {
+                include: { color: { select: { id: true, name: true, hex: true, patternImage: true } } },
+                orderBy: { position: "asc" },
+              },
+            },
+            orderBy: { position: "asc" },
+          },
           images: {
             select: { id: true, path: true, order: true },
             orderBy: { order: "asc" },
@@ -101,10 +111,16 @@ export async function GET(
   let variantDetails: PfsVariantDetail[] = [];
   let refDetails: PfsCheckReferenceResponse | null = null;
 
+  let pfsAllCategories: PfsAttributeCategory[] = [];
+  // Reference → French label map for all PFS colors (used to display friendly names)
+  const pfsColorLabelMap = new Map<string, string>();
+
   try {
-    const [variantsResult, refResult] = await Promise.allSettled([
+    const [variantsResult, refResult, categoriesResult, colorsResult] = await Promise.allSettled([
       pfsGetVariants(product.pfsProductId!),
       pfsCheckReference(product.reference),
+      pfsGetCategories(),
+      pfsGetColors(),
     ]);
 
     variantDetails = variantsResult.status === "fulfilled"
@@ -114,6 +130,16 @@ export async function GET(
     refDetails = refResult.status === "fulfilled"
       ? refResult.value
       : null;
+
+    pfsAllCategories = categoriesResult.status === "fulfilled"
+      ? categoriesResult.value
+      : [];
+
+    if (colorsResult.status === "fulfilled") {
+      for (const c of colorsResult.value) {
+        if (c.reference && c.labels?.fr) pfsColorLabelMap.set(c.reference, c.labels.fr);
+      }
+    }
   } catch (err) {
     return NextResponse.json(
       { error: `Erreur API PFS: ${err instanceof Error ? err.message : String(err)}` },
@@ -141,12 +167,27 @@ export async function GET(
   }
   const bjRef = stripVersionSuffix(pfsRef);
 
-  // Category — always create if missing so it appears in comparison
+  // Category — resolve French label from PFS categories API, fallback to hardcoded map
   let pfsCategoryName = "";
   let pfsCategoryId = "";
-  if (refDetails?.product?.category?.reference) {
+  let pfsCategoryPfsId = "";
+  let pfsCategoryGender = "";
+  let pfsCategoryFamilyId = "";
+  if (refDetails?.product?.category) {
     const rawCatRef = refDetails.product.category.reference;
-    pfsCategoryName = parsePfsCategoryRef(rawCatRef);
+    const pfsProductCatId = refDetails.product.category.id;
+
+    // Try to get French label + metadata from PFS categories API
+    const matchedPfsCat = pfsAllCategories.find(c => c.id === pfsProductCatId);
+    if (matchedPfsCat) {
+      pfsCategoryName = matchedPfsCat.labels?.fr || parsePfsCategoryRef(rawCatRef);
+      pfsCategoryPfsId = matchedPfsCat.id;
+      pfsCategoryGender = matchedPfsCat.gender || "";
+      pfsCategoryFamilyId = typeof matchedPfsCat.family === "object" ? matchedPfsCat.family.id : (matchedPfsCat.family || "");
+    } else {
+      pfsCategoryName = parsePfsCategoryRef(rawCatRef);
+    }
+
     try {
       pfsCategoryId = await findOrCreateCategory(
         pfsCategoryName,
@@ -161,15 +202,15 @@ export async function GET(
   }
 
   // Compositions
-  const pfsCompositions: Array<{ compositionId: string; name: string; percentage: number }> = [];
+  const pfsCompositions: Array<{ compositionId: string; name: string; percentage: number; pfsRef: string }> = [];
   if (refDetails?.product?.material_composition) {
     for (const mat of refDetails.product.material_composition) {
       const frName = mat.labels?.fr || mat.reference;
       try {
         const compositionId = await findOrCreateComposition(frName, mat.labels) ?? "";
-        pfsCompositions.push({ compositionId, name: frName, percentage: mat.percentage });
+        pfsCompositions.push({ compositionId, name: frName, percentage: mat.percentage, pfsRef: mat.reference });
       } catch {
-        pfsCompositions.push({ compositionId: "", name: frName, percentage: mat.percentage });
+        pfsCompositions.push({ compositionId: "", name: frName, percentage: mat.percentage, pfsRef: mat.reference });
       }
     }
   }
@@ -213,6 +254,8 @@ export async function GET(
     isActive: boolean;
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | null;
+    pfsColorRef: string | null;
+    pfsColorRefLabel: string | null;
   }> = [];
 
   // Detect default color
@@ -258,6 +301,8 @@ export async function GET(
         isActive: v.is_active,
         discountType,
         discountValue,
+        pfsColorRef: v.item.color.reference,
+        pfsColorRefLabel: v.item.color.labels?.fr ?? pfsColorLabelMap.get(v.item.color.reference) ?? null,
       });
     } else if (v.type === "PACK" && v.packs && v.packs.length > 0) {
       const pack = v.packs[0];
@@ -288,6 +333,8 @@ export async function GET(
         isActive: v.is_active,
         discountType,
         discountValue,
+        pfsColorRef: pack.color.reference,
+        pfsColorRefLabel: pack.color.labels?.fr ?? pfsColorLabelMap.get(pack.color.reference) ?? null,
       });
     }
   }
@@ -316,19 +363,38 @@ export async function GET(
   }> = [];
 
   for (const [colorRef, urls] of pfsImagesByColor) {
-    // Find matching variant for this color
+    // Find matching variant by pfsColorRef (exact), fallback to colorName includes
     const matchingVariant = pfsVariants.find((v) =>
+      v.pfsColorRef?.toLowerCase() === colorRef.toLowerCase()
+    ) ?? pfsVariants.find((v) =>
       v.colorName.toLowerCase().includes(colorRef.toLowerCase())
+      || colorRef.toLowerCase().includes(v.colorName.toLowerCase())
     );
-    pfsImageGroups.push({
-      colorId: matchingVariant?.colorId ?? "",
-      colorName: matchingVariant?.colorName ?? colorRef,
-      colorHex: matchingVariant?.colorHex ?? null,
-      colorPatternImage: matchingVariant?.colorPatternImage ?? null,
-      subColors: [],
-      paths: urls.map((u) => fullSizeImageUrl(u)),
-    });
+
+    const resolvedColorId = matchingVariant?.colorId ?? "";
+    const resolvedColorName = matchingVariant?.colorName ?? colorRef;
+
+    // Merge into existing group if same colorId already exists (avoid duplicates)
+    const existingGroup = pfsImageGroups.find(g =>
+      (resolvedColorId && g.colorId === resolvedColorId) ||
+      (!resolvedColorId && g.colorName === resolvedColorName)
+    );
+    if (existingGroup) {
+      existingGroup.paths.push(...urls.map((u) => fullSizeImageUrl(u)));
+    } else {
+      pfsImageGroups.push({
+        colorId: resolvedColorId,
+        colorName: resolvedColorName,
+        colorHex: matchingVariant?.colorHex ?? null,
+        colorPatternImage: matchingVariant?.colorPatternImage ?? null,
+        subColors: [],
+        paths: urls.map((u) => fullSizeImageUrl(u)),
+      });
+    }
   }
+
+  // Debug: log final PFS image groups
+  console.log("[LIVE_CHECK] PFS image groups:", pfsImageGroups.map(g => `${g.colorName}(${g.colorId || "no-id"}) x${g.paths.length}`).join(", "));
 
   // Name & description from PFS (strip dimensions suffix added by reverse sync)
   const pfsName = refDetails?.product?.label?.fr ?? bjRef;
@@ -344,28 +410,69 @@ export async function GET(
     categoryName: product.category.name,
     isBestSeller: product.isBestSeller,
     status: product.status,
-    variants: product.colors.map((pc) => ({
-      id: pc.id,
-      colorId: pc.color?.id ?? pc.colorId ?? "",
-      colorName: pc.color?.name ?? "",
-      colorHex: pc.color?.hex ?? null,
-      colorPatternImage: pc.color?.patternImage ?? null,
-      subColors: pc.subColors.map((sc) => ({
-        colorId: sc.color.id,
-        colorName: sc.color.name,
-        hex: sc.color.hex,
-        patternImage: sc.color.patternImage,
-      })),
-      unitPrice: pc.unitPrice,
-      weight: pc.weight,
-      stock: pc.stock,
-      saleType: pc.saleType,
-      packQuantity: pc.packQuantity,
-      sizeName: pc.variantSizes?.[0]?.size.name ?? null,
-      isPrimary: pc.isPrimary,
-      discountType: pc.discountType,
-      discountValue: pc.discountValue,
-    })),
+    variants: product.colors.map((pc) => {
+      // For PACKs (colorId=null), use first packColorLine's first color as representative
+      let effectiveColorId = pc.color?.id ?? pc.colorId ?? "";
+      let effectiveColorName = pc.color?.name ?? "";
+      let effectiveColorHex = pc.color?.hex ?? null;
+      let effectiveColorPatternImage = pc.color?.patternImage ?? null;
+
+      if (pc.saleType === "PACK" && !effectiveColorId && pc.packColorLines?.length > 0) {
+        const firstLine = pc.packColorLines[0];
+        const firstColor = firstLine.colors?.[0]?.color;
+        if (firstColor) {
+          effectiveColorId = firstColor.id;
+          effectiveColorName = firstColor.name;
+          effectiveColorHex = firstColor.hex ?? null;
+          effectiveColorPatternImage = firstColor.patternImage ?? null;
+        }
+      }
+
+      // For PACK variants, DB stores total pack price (unitPrice × totalQty).
+      // PFS uses per-unit price, so normalize BJ to per-unit for comparison.
+      let displayUnitPrice = pc.unitPrice;
+      if (pc.saleType === "PACK") {
+        const totalQty = pc.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || pc.packQuantity || 1;
+        displayUnitPrice = Math.round((pc.unitPrice / totalQty) * 100) / 100;
+      }
+
+      // For PACK with no main colorId, expose remaining packColorLine colors as subColors (display only)
+      const packLineSubColors = pc.saleType === "PACK" && !pc.colorId && (pc.packColorLines?.[0]?.colors?.length ?? 0) > 1
+        ? pc.packColorLines[0].colors.slice(1).map((c) => ({
+            colorId: c.color.id,
+            colorName: c.color.name,
+            hex: c.color.hex ?? null,
+            patternImage: c.color.patternImage ?? null,
+          }))
+        : [];
+
+      return {
+        id: pc.id,
+        colorId: effectiveColorId,
+        colorName: effectiveColorName,
+        colorHex: effectiveColorHex,
+        colorPatternImage: effectiveColorPatternImage,
+        subColors: packLineSubColors.length > 0
+          ? packLineSubColors
+          : pc.subColors.map((sc) => ({
+              colorId: sc.color.id,
+              colorName: sc.color.name,
+              hex: sc.color.hex,
+              patternImage: sc.color.patternImage,
+            })),
+        unitPrice: displayUnitPrice,
+        weight: pc.weight,
+        stock: pc.stock,
+        saleType: pc.saleType,
+        packQuantity: pc.packQuantity,
+        sizeName: pc.variantSizes?.[0]?.size.name ?? null,
+        isPrimary: pc.isPrimary,
+        discountType: pc.discountType,
+        discountValue: pc.discountValue,
+        pfsColorRef: pc.pfsColorRef ?? null,
+        pfsColorRefLabel: pc.pfsColorRef ? (pfsColorLabelMap.get(pc.pfsColorRef) ?? null) : null,
+      };
+    }),
     imagesByColor: (() => {
       const groups = new Map<string, {
         colorId: string;
@@ -378,22 +485,47 @@ export async function GET(
       }>();
 
       for (const pc of product.colors) {
-        if (!pc.colorId || !pc.color) continue;
-        const subKey = pc.subColors.map((sc) => sc.color.name).join(",");
-        const groupKey = `${pc.color.id}::${subKey}`;
+        // Resolve effective color for PACK variants (colorId=null → use first packColorLine color)
+        let effectiveColorId = pc.colorId ?? "";
+        let effectiveColorName = pc.color?.name ?? "";
+        let effectiveColorHex = pc.color?.hex ?? null;
+        let effectiveColorPatternImage = pc.color?.patternImage ?? null;
+        let effectiveSubColors = pc.subColors.map((sc) => ({
+          colorId: sc.color.id,
+          colorName: sc.color.name,
+          hex: sc.color.hex,
+          patternImage: sc.color.patternImage,
+        }));
+
+        if (!effectiveColorId && pc.saleType === "PACK" && pc.packColorLines?.length > 0) {
+          const firstLine = pc.packColorLines[0];
+          const firstColor = firstLine.colors?.[0]?.color;
+          if (firstColor) {
+            effectiveColorId = firstColor.id;
+            effectiveColorName = firstColor.name;
+            effectiveColorHex = firstColor.hex ?? null;
+            effectiveColorPatternImage = firstColor.patternImage ?? null;
+            // Use remaining packColorLine colors as subColors
+            effectiveSubColors = firstLine.colors.slice(1).map((c) => ({
+              colorId: c.color.id,
+              colorName: c.color.name,
+              hex: c.color.hex ?? null,
+              patternImage: c.color.patternImage ?? null,
+            }));
+          }
+        }
+
+        if (!effectiveColorId) continue; // Skip if still no color
+        const subKey = effectiveSubColors.map((sc) => sc.colorName).join(",");
+        const groupKey = `${effectiveColorId}::${subKey}`;
 
         if (!groups.has(groupKey)) {
           groups.set(groupKey, {
-            colorId: pc.color.id,
-            colorName: pc.color.name,
-            colorHex: pc.color.hex,
-            colorPatternImage: pc.color.patternImage,
-            subColors: pc.subColors.map((sc) => ({
-              colorId: sc.color.id,
-              colorName: sc.color.name,
-              hex: sc.color.hex,
-              patternImage: sc.color.patternImage,
-            })),
+            colorId: effectiveColorId,
+            colorName: effectiveColorName,
+            colorHex: effectiveColorHex,
+            colorPatternImage: effectiveColorPatternImage,
+            subColors: effectiveSubColors,
             paths: [],
             images: [],
           });
@@ -438,6 +570,11 @@ export async function GET(
     manufacturingCountryName: pfsCountryName || null,
     seasonId: pfsSeasonId || null,
     seasonName: pfsSeasonName || null,
+    pfsSeasonRef: refDetails?.product?.collection?.reference || null,
+    pfsCountryRef: refDetails?.product?.country_of_manufacture || null,
+    pfsCategoryPfsId: pfsCategoryPfsId || null,
+    pfsCategoryGender: pfsCategoryGender || null,
+    pfsCategoryFamilyId: pfsCategoryFamilyId || null,
   };
 
   // 5. Compute differences
@@ -452,7 +589,10 @@ export async function GET(
   if (pfsCategoryName && (pfsCategoryId ? bjFormatted.categoryId !== pfsCategoryId : bjFormatted.categoryName !== pfsCategoryName)) {
     differences.push({ field: "category", pfsValue: pfsFormatted.categoryName, bjValue: bjFormatted.categoryName });
   }
-  if (JSON.stringify(bjFormatted.compositions) !== JSON.stringify(pfsFormatted.compositions) && pfsFormatted.compositions.length > 0) {
+  // Compare compositions: strip pfsRef (only on PFS side) to avoid false positives
+  const bjCompsNorm = bjFormatted.compositions.map(c => ({ compositionId: c.compositionId, name: c.name, percentage: c.percentage }));
+  const pfsCompsNorm = pfsFormatted.compositions.map(c => ({ compositionId: c.compositionId, name: c.name, percentage: c.percentage }));
+  if (JSON.stringify(bjCompsNorm) !== JSON.stringify(pfsCompsNorm) && pfsFormatted.compositions.length > 0) {
     differences.push({ field: "compositions", pfsValue: pfsFormatted.compositions, bjValue: bjFormatted.compositions });
   }
 

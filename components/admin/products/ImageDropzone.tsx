@@ -11,7 +11,6 @@ interface ImageDropzoneProps {
   onRemoveAtPosition: (position: number) => void;
   onSwapPositions: (fromPos: number, toPos: number) => void;
   onCrossColorDrop?: (sourceGroupKey: string, sourcePos: number, targetPos: number) => void;
-  onConfirmReplace?: (position: number) => Promise<boolean>;
   uploading: boolean;
   uploadingPosition?: number | null;
 }
@@ -27,7 +26,6 @@ export default function ImageDropzone({
   onRemoveAtPosition,
   onSwapPositions,
   onCrossColorDrop,
-  onConfirmReplace,
   uploading,
   uploadingPosition,
 }: ImageDropzoneProps) {
@@ -43,25 +41,16 @@ export default function ImageDropzone({
     return { src: previews[idx], arrayIndex: idx };
   }
 
-  // Check if position is occupied and ask for confirmation if needed
-  async function confirmIfOccupied(pos: number): Promise<boolean> {
-    const existing = getImageAtPosition(pos);
-    if (!existing) return true; // empty slot, no confirm needed
-    if (!onConfirmReplace) return true; // no confirm handler, proceed
-    return onConfirmReplace(pos);
-  }
-
-  // File input handler for a specific position
-  async function handleFileChange(pos: number, files: FileList | null) {
+  // File input handler — position is auto-assigned by parent
+  function handleFileChange(pos: number, files: FileList | null) {
     if (!files || files.length === 0) return;
     const file = Array.from(files).find((f) => f.type.startsWith("image/"));
     if (!file) return;
-    const ok = await confirmIfOccupied(pos);
-    if (ok) onAddAtPosition(file, pos);
+    onAddAtPosition(file, pos);
   }
 
   // Drag & drop from OS
-  async function handleSlotDrop(e: React.DragEvent, pos: number) {
+  function handleSlotDrop(e: React.DragEvent, pos: number) {
     e.preventDefault();
     e.stopPropagation();
 
@@ -86,13 +75,12 @@ export default function ImageDropzone({
       } catch { /* ignore parse errors */ }
     }
 
-    // External file drop
+    // External file drop — position is auto-assigned by parent
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       const file = Array.from(files).find((f) => f.type.startsWith("image/"));
       if (!file) return;
-      const ok = await confirmIfOccupied(pos);
-      if (ok) onAddAtPosition(file, pos);
+      onAddAtPosition(file, pos);
     }
   }
 

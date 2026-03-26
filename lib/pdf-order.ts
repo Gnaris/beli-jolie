@@ -43,6 +43,7 @@ export interface OrderItemPDF {
   unitPrice:   number;
   quantity:    number;
   lineTotal:   number;
+  variantSnapshot?: string | null; // JSON: full variant details snapshot for legal traceability
 }
 
 export interface OrderPDFData {

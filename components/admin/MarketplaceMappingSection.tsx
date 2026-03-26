@@ -181,6 +181,22 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
   const [catGender, setCatGender] = useState("");
   const [catFamilyId, setCatFamilyId] = useState("");
 
+  // Auto-resolve gender/family when pfsCategoryId is pre-filled (e.g., from PFS sync quick-create)
+  useEffect(() => {
+    if (props.entityType === "category" && pfsData && !catGender) {
+      const { pfsCategoryId } = props as CategoryProps;
+      if (pfsCategoryId) {
+        const matched = pfsData.categories.find(c => c.id === pfsCategoryId);
+        if (matched) {
+          setCatGender(matched.gender);
+          const famId = typeof matched.family === "string" ? matched.family : matched.family?.id;
+          if (famId) setCatFamilyId(famId);
+        }
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pfsData]);
+
   /* ── Loading / error states ── */
 
   if (loading) {
@@ -198,7 +214,7 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
     return (
       <div className="border border-dashed border-border rounded-xl p-4 space-y-2">
         <p className="text-xs font-medium text-red-500 font-[family-name:var(--font-roboto)]">
-          Mapping marketplace non disponible
+          Correspondance marketplace non disponible
         </p>
         {error && (
           <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)] break-all">
@@ -221,7 +237,7 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
       {/* Section header */}
       <div className="px-4 py-2.5 bg-bg-secondary border-b border-border flex items-center justify-between">
         <p className="text-xs font-semibold text-text-secondary font-[family-name:var(--font-roboto)] uppercase tracking-wider">
-          Mapping Marketplaces
+          Correspondances Marketplaces
         </p>
         <span className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)]">Optionnel</span>
       </div>
@@ -286,7 +302,7 @@ function PfsMapping({
         className="w-full"
         aria-label="Couleur PFS"
         options={[
-          { value: "", label: "— Aucun mapping —" },
+          { value: "", label: "— Aucune correspondance —" },
           ...pfsData.colors.map((pc) => ({
             value: pc.reference,
             label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
@@ -314,7 +330,7 @@ function PfsMapping({
         className="w-full"
         aria-label="Composition PFS"
         options={[
-          { value: "", label: "— Aucun mapping —" },
+          { value: "", label: "— Aucune correspondance —" },
           ...pfsData.compositions.map((pc) => ({
             value: pc.reference,
             label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
@@ -336,7 +352,7 @@ function PfsMapping({
         className="w-full"
         aria-label="Pays PFS"
         options={[
-          { value: "", label: "— Aucun mapping —" },
+          { value: "", label: "— Aucune correspondance —" },
           ...pfsData.countries.map((pc) => ({
             value: pc.reference,
             label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
@@ -358,7 +374,7 @@ function PfsMapping({
         className="w-full"
         aria-label="Collection PFS"
         options={[
-          { value: "", label: "— Aucun mapping —" },
+          { value: "", label: "— Aucune correspondance —" },
           ...pfsData.collections.map((pc) => ({
             value: pc.reference,
             label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,

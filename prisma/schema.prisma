@@ -664,6 +664,8 @@ model OrderItem {
   quantity    Int
   lineTotal   Float
 
+  variantSnapshot String? @db.Text // JSON: snapshot complet de la variante pour traçabilité légale
+
   createdAt DateTime @default(now())
 
   @@index([orderId])

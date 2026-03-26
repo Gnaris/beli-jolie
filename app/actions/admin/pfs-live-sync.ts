@@ -8,7 +8,7 @@ import { emitProductEvent } from "@/lib/product-events";
 import { syncProductToPfs, stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
 import { processProductImage, getImagePaths } from "@/lib/image-processor";
 import { downloadImage } from "@/lib/pfs-sync";
-import { unlink } from "fs/promises";
+import { unlink, readFile } from "fs/promises";
 import path from "path";
 
 async function requireAdmin() {
@@ -176,22 +176,52 @@ export async function applyPfsLiveSync(
       const colorId = parts[0];
       const saleType = parts[parts.length - 1] as "UNIT" | "PACK";
 
-      // Find matching PFS variant
+      // Find matching PFS variant — prefer exact match by colorId + saleType + sizeName
       const pfsVariant = pfsData.variants.find(
         (v) => v.colorId === colorId && v.saleType === saleType
       );
-      if (!pfsVariant) continue;
+      if (!pfsVariant || !pfsVariant.colorId) continue;
 
       if (action === "pfs") {
-        const existingVariant = await prisma.productColor.findFirst({
-          where: { productId, colorId, saleType },
-        });
+        // For PACK variants, colorId is null in DB — match by packColorLine colors + size
+        let existingVariant;
+        if (saleType === "PACK") {
+          const candidates = await prisma.productColor.findMany({
+            where: {
+              productId,
+              saleType: "PACK",
+              ...(colorId ? { packColorLines: { some: { colors: { some: { colorId } } } } } : {}),
+            },
+            include: { variantSizes: { select: { size: { select: { name: true } } } } },
+          });
+          // Disambiguate by matching size name if available
+          existingVariant = pfsVariant.sizeName
+            ? candidates.find(c => c.variantSizes.some(vs => vs.size.name === pfsVariant.sizeName)) ?? candidates[0]
+            : candidates[0];
+        } else {
+          existingVariant = await prisma.productColor.findFirst({
+            where: { productId, colorId, saleType },
+          });
+        }
 
         if (existingVariant) {
+          // For PACK variants, BJ stores total pack price (unitPrice × totalQty),
+          // but PFS sends per-unit price. Convert accordingly.
+          let priceForDb = pfsVariant.unitPrice;
+          if (saleType === "PACK") {
+            const existingWithSizes = await prisma.productColor.findUnique({
+              where: { id: existingVariant.id },
+              select: { variantSizes: { select: { quantity: true } }, packQuantity: true },
+            });
+            const totalQty = existingWithSizes?.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0)
+              || existingWithSizes?.packQuantity || pfsVariant.packQuantity || 1;
+            priceForDb = Math.round(pfsVariant.unitPrice * totalQty * 100) / 100;
+          }
+
           await prisma.productColor.update({
             where: { id: existingVariant.id },
             data: {
-              unitPrice: pfsVariant.unitPrice,
+              unitPrice: priceForDb,
               weight: pfsVariant.weight,
               stock: pfsVariant.stock,
               packQuantity: pfsVariant.packQuantity,
@@ -202,11 +232,23 @@ export async function applyPfsLiveSync(
           changesApplied++;
         }
       } else if (action === "add") {
+        // Block import if color is not mapped to a BJ color
+        if (!pfsVariant.colorId) {
+          console.warn(`[PFS_LIVE_SYNC] Skipping add for unmapped color "${pfsVariant.colorName}"`);
+          continue;
+        }
+
+        // For new PACK variants, BJ stores total pack price (unitPrice × packQty)
+        const addPrice = saleType === "PACK"
+          ? Math.round(pfsVariant.unitPrice * (pfsVariant.packQuantity || 1) * 100) / 100
+          : pfsVariant.unitPrice;
+
         const createdVariant = await prisma.productColor.create({
           data: {
             productId,
-            colorId: pfsVariant.colorId,
-            unitPrice: pfsVariant.unitPrice,
+            // PACK variants store colorId as null; colors are in packColorLines
+            colorId: saleType === "PACK" ? null : pfsVariant.colorId,
+            unitPrice: addPrice,
             weight: pfsVariant.weight,
             stock: pfsVariant.stock,
             saleType: pfsVariant.saleType,
@@ -225,7 +267,17 @@ export async function applyPfsLiveSync(
             update: {},
           });
           await prisma.variantSize.create({
-            data: { productColorId: createdVariant.id, sizeId: sizeRecord.id, quantity: 1 },
+            data: { productColorId: createdVariant.id, sizeId: sizeRecord.id, quantity: pfsVariant.packQuantity ?? 1 },
+          });
+        }
+
+        // PACK: create PackColorLine with the resolved BJ color
+        if (saleType === "PACK" && pfsVariant.colorId) {
+          const line = await prisma.packColorLine.create({
+            data: { productColorId: createdVariant.id, position: 0 },
+          });
+          await prisma.packColorLineColor.create({
+            data: { packColorLineId: line.id, colorId: pfsVariant.colorId, position: 0 },
           });
         }
 
@@ -354,10 +406,20 @@ export async function applyLiveImageChanges(
       const { colorId, slots } = group;
       if (!colorId) continue;
 
-      // Find a ProductColor for this colorId
-      const variant = await prisma.productColor.findFirst({
+      // Find a ProductColor for this colorId — check direct colorId first, then packColorLines
+      let variant = await prisma.productColor.findFirst({
         where: { productId, colorId },
       });
+      // PACK variants have colorId=null, colors are in packColorLines
+      if (!variant) {
+        variant = await prisma.productColor.findFirst({
+          where: {
+            productId,
+            saleType: "PACK",
+            packColorLines: { some: { colors: { some: { colorId } } } },
+          },
+        });
+      }
       console.log(`[IMG_SYNC] Processing colorId=${colorId} variant=${variant?.id ?? "NONE"}`);
 
       for (let position = 0; position < slots.length; position++) {
@@ -369,9 +431,9 @@ export async function applyLiveImageChanges(
         if (!isExternal) {
           // Local BJ image — find existing record by path
           const existingImg = pathToImage.get(slotPath);
-          if (existingImg) {
+          if (existingImg && !usedImageIds.has(existingImg.id)) {
+            // First occurrence — update existing record
             usedImageIds.add(existingImg.id);
-            // Check if colorId or order changed
             const needsUpdate =
               existingImg.colorId !== colorId ||
               existingImg.order !== position ||
@@ -389,6 +451,29 @@ export async function applyLiveImageChanges(
               applied++;
             } else {
               console.log(`[IMG_SYNC]   OK slot ${position}: ${existingImg.id} (no change)`);
+            }
+          } else if (existingImg) {
+            // Duplicate reference — image was copied to another color group
+            // Read the original large file and create a new copy
+            console.log(`[IMG_SYNC]   COPY slot ${position}: duplicating ${slotPath.split("/").pop()} for colorId=${colorId}`);
+            try {
+              const largePath = path.join(process.cwd(), "public", slotPath);
+              const buffer = await readFile(largePath);
+              const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              const result = await processProductImage(buffer, "public/uploads/products", filename);
+              await prisma.productColorImage.create({
+                data: {
+                  productId,
+                  colorId,
+                  productColorId: variant?.id ?? null,
+                  path: result.dbPath,
+                  order: position,
+                },
+              });
+              console.log(`[IMG_SYNC]   COPIED slot ${position}: ${result.dbPath.split("/").pop()}`);
+              applied++;
+            } catch (copyErr) {
+              console.error(`[IMG_SYNC]   COPY FAILED slot ${position}:`, copyErr);
             }
           } else {
             console.warn(`[IMG_SYNC]   SKIP slot ${position}: local path not found in DB: ${slotPath.split("/").pop()}`);

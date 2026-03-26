@@ -6,8 +6,9 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
-import { fetchPfsColorsForMapping, updateColorPfsRef } from "@/app/actions/admin/colors";
+import { fetchPfsColorsForMapping, updateColorPfsRef, updateProductColorPfsRef } from "@/app/actions/admin/colors";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
+import { usePfsAttributes } from "@/components/admin/MarketplaceMappingSection";
 
 // ─────────────────────────────────────────────
 // Exported types
@@ -93,6 +94,7 @@ interface Props {
   categoryId?: string;
   allCategories?: { id: string; name: string }[];
   onQuickCreateSize?: (name: string, categoryIds: string[]) => Promise<AvailableSize>;
+  variantErrors?: Map<string, Set<string>>;
 }
 
 // ─────────────────────────────────────────────
@@ -149,7 +151,7 @@ function buildVariantDuplicateKey(v: VariantState): string {
     .join(",");
 
   if (v.saleType === "UNIT") {
-    const subColorKey = v.subColors.map((sc) => sc.colorName).join(",");
+    const subColorKey = v.subColors.map((sc) => sc.colorId).join(",");
     return `UNIT::${v.colorId}::${subColorKey}::${sizeKey}`;
   }
   // PACK: single color line composition + packQuantity
@@ -172,10 +174,48 @@ function findDuplicateVariantTempIds(variants: VariantState[]): Set<string> {
   return duplicates;
 }
 
-/** Unique key for a color+sub-colors combination. */
-export function variantGroupKeyFromState(v: { colorId: string; subColors: { colorName: string }[] }): string {
+/** Unique key for a color+sub-colors combination. Uses colorId (not name) to avoid collisions. */
+export function variantGroupKeyFromState(v: { colorId: string; subColors: { colorId: string }[] }): string {
   if (v.subColors.length === 0) return v.colorId;
-  return `${v.colorId}::${v.subColors.map(sc => sc.colorName).join(",")}`;
+  return `${v.colorId}::${v.subColors.map(sc => sc.colorId).join(",")}`;
+}
+
+/** Image group key — works for both UNIT and PACK variants.
+ *  UNIT: same as variantGroupKeyFromState (colorId + sub-colors)
+ *  PACK: pack::<dbId or tempId> since each pack variant has its own images */
+export function imageGroupKeyFromVariant(v: VariantState): string {
+  if (v.saleType === "PACK") return `pack::${v.dbId || v.tempId}`;
+  return variantGroupKeyFromState(v);
+}
+
+/** Fingerprint of a variant's color state — changes when colors change.
+ *  Used as useEffect dependency to detect color edits on both UNIT and PACK. */
+export function variantColorFingerprint(v: VariantState): string {
+  if (v.saleType === "PACK") {
+    const pclKey = v.packColorLines
+      .map((pcl) => pcl.colors.map((c) => c.colorId).join("+"))
+      .join("|");
+    return `pack::${v.dbId || v.tempId}::${pclKey}`;
+  }
+  if (!v.colorId) return "";
+  return variantGroupKeyFromState(v);
+}
+
+/** Display name for a PACK variant's color composition */
+export function packDisplayName(v: VariantState): string {
+  if (v.packColorLines.length === 0) return "Paquet (sans couleur)";
+  const names = v.packColorLines.map((pcl) => pcl.colors.map((c) => c.colorName).join(" + "));
+  return names.join(" / ");
+}
+
+/** First hex from a PACK variant's color lines */
+export function packDisplayHex(v: VariantState): string {
+  for (const pcl of v.packColorLines) {
+    for (const c of pcl.colors) {
+      if (c.colorHex && c.colorHex !== "#9CA3AF") return c.colorHex;
+    }
+  }
+  return "#9CA3AF";
 }
 
 function defaultVariant(): VariantState {
@@ -325,7 +365,7 @@ function PfsColorDropdown({
                 <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                Retirer le mapping
+                Retirer la correspondance
               </button>
             )}
             {filtered.length === 0 ? (
@@ -387,7 +427,7 @@ function PfsColorDropdown({
 // MultiColorSelect — modal-based multi-select (first = main, rest = sub-colors)
 // With drag & drop reordering + remove in the selection zone
 // ─────────────────────────────────────────────
-function MultiColorSelect({ selected, options, onChange, existingVariants, editingGroupKey, pfsColorRef, onPfsColorRefChange, usedPfsColorRefs, onCreateColor }: {
+function MultiColorSelect({ selected, options, onChange, existingVariants, editingGroupKey, pfsColorRef, pfsColorRefLabel, onPfsColorRefChange, usedPfsColorRefs, onCreateColor }: {
   selected: { colorId: string; colorName: string; colorHex: string }[];
   options: AvailableColor[];
   onChange: (colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) => void;
@@ -396,6 +436,8 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
   editingGroupKey?: string;
   /** Per-variant PFS color override (multi-color only) */
   pfsColorRef?: string;
+  /** French label for the PFS color reference (display only) */
+  pfsColorRefLabel?: string;
   onPfsColorRefChange?: (ref: string) => void;
   /** PFS color refs already used by other variants in this product */
   usedPfsColorRefs?: Map<string, string>; // pfsRef → variantLabel
@@ -422,6 +464,14 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
   const [pfsSaving, setPfsSaving] = useState<string | null>(null); // colorId being saved
   // Per-variant PFS color override for multi-color combos
   const [draftPfsColorRef, setDraftPfsColorRef] = useState(pfsColorRef ?? "");
+
+  // Auto-load PFS data when multi-color is selected (mapping becomes mandatory)
+  useEffect(() => {
+    if (draft.length > 1 && !pfsData && !pfsLoading) {
+      loadPfsData();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.length]);
 
   async function loadPfsData() {
     if (pfsData) { setShowMapping(true); return; }
@@ -471,11 +521,17 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
     setOpen(true);
   }, [selected, pfsColorRef]);
 
+  // Multi-color requires a PFS color mapping before confirming
+  const multiColorMissingPfs = draft.length > 1 && !draftPfsColorRef;
+
   const confirm = useCallback(() => {
-    // Pass pfsColorRef through onChange so both updates happen in a single setState
+    if (draft.length > 1 && !draftPfsColorRef) return;
     onChange(draft, draft.length > 1 ? draftPfsColorRef : undefined);
+    if (draft.length > 1 && onPfsColorRefChange) {
+      onPfsColorRefChange(draftPfsColorRef);
+    }
     setOpen(false);
-  }, [draft, draftPfsColorRef, onChange]);
+  }, [draft, draftPfsColorRef, onChange, onPfsColorRefChange]);
 
   const cancel = useCallback(() => {
     setOpen(false);
@@ -589,12 +645,22 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
           <span className="text-[#9CA3AF] flex-1 italic">— Couleur</span>
         ) : (
           <>
-            {selectedSegments.length === 1 ? (
-              <ColorSwatch hex={selectedSegments[0].hex} patternImage={selectedSegments[0].patternImage} size={14} rounded="full" />
-            ) : (
-              <ColorSwatch hex={selectedSegments[0]?.hex} patternImage={selectedSegments[0]?.patternImage} subColors={selectedSegments.slice(1)} size={14} rounded="full" />
+            {/* Left side: swatch + color name */}
+            <span className="flex items-center gap-1.5 flex-1 min-w-0">
+              {selectedSegments.length === 1 ? (
+                <ColorSwatch hex={selectedSegments[0].hex} patternImage={selectedSegments[0].patternImage} size={14} rounded="full" />
+              ) : (
+                <ColorSwatch hex={selectedSegments[0]?.hex} patternImage={selectedSegments[0]?.patternImage} subColors={selectedSegments.slice(1)} size={14} rounded="full" />
+              )}
+              <span className="truncate text-[11px]">{displayName}</span>
+            </span>
+            {/* Right side: PFS badge + arrow */}
+            {selected.length > 1 && pfsColorRef && (
+              <span className="flex-none inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600 shrink-0 whitespace-nowrap">
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-300 animate-pulse shrink-0" />
+                Paris Fashion Shop : {pfsColorRefLabel || pfsColorRef}
+              </span>
             )}
-            <span className="flex-1 truncate text-[11px]">{displayName}</span>
           </>
         )}
         <svg className="w-3 h-3 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -884,7 +950,11 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
 
             {/* ── Footer ── */}
             <div className="flex items-center justify-between px-6 py-3.5 border-t border-[#E5E5E5] bg-white rounded-b-2xl shrink-0">
-              {matchingCombo ? (
+              {multiColorMissingPfs ? (
+                <span className="text-xs text-[#EF4444] bg-[#FEF2F2] border border-[#FECACA] px-3 py-1 rounded-lg font-[family-name:var(--font-roboto)]">
+                  Correspondance couleur PFS obligatoire pour une combinaison multi-couleurs
+                </span>
+              ) : matchingCombo ? (
                 <span className="text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] px-3 py-1 rounded-lg font-[family-name:var(--font-roboto)]">
                   Combinaison déjà utilisée ({matchingCombo.saleTypes.join(" + ")})
                 </span>
@@ -900,8 +970,8 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                   Annuler
                 </button>
                 <button type="button" onClick={confirm}
-                  className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-xl hover:bg-[#333] transition-colors disabled:opacity-50"
-                  disabled={draft.length === 0}
+                  className="px-5 py-2 text-sm font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-xl hover:bg-[#333] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={draft.length === 0 || multiColorMissingPfs}
                 >
                   Valider
                 </button>
@@ -1041,12 +1111,32 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   colorImagesRef.current = colorImages;
 
   function findVariantByGroupKey(groupKey: string): VariantState | undefined {
-    return variants.find((v) => variantGroupKeyFromState(v) === groupKey);
+    return variants.find((v) => imageGroupKeyFromVariant(v) === groupKey);
   }
 
   function getSwatchSegments(groupKey: string): { main: { hex?: string | null; patternImage?: string | null }; subs: { hex?: string | null; patternImage?: string | null }[] } {
     const v = findVariantByGroupKey(groupKey);
     if (!v) return { main: { hex: "#9CA3AF" }, subs: [] };
+    // PACK: build swatches from packColorLines — deduplicate unique colors
+    if (v.saleType === "PACK") {
+      const seen = new Set<string>();
+      const unique: { colorId: string; colorHex: string }[] = [];
+      for (const pcl of v.packColorLines) {
+        for (const c of pcl.colors) {
+          if (!seen.has(c.colorId)) { seen.add(c.colorId); unique.push(c); }
+        }
+      }
+      if (unique.length === 0) return { main: { hex: "#9CA3AF" }, subs: [] };
+      const first = unique[0];
+      const firstOpt = availableColors.find((c) => c.id === first.colorId);
+      const main = { hex: first.colorHex || firstOpt?.hex, patternImage: firstOpt?.patternImage ?? null };
+      const subs = unique.slice(1).map((sc) => {
+        const scOpt = availableColors.find((c) => c.id === sc.colorId);
+        return { hex: sc.colorHex || scOpt?.hex, patternImage: scOpt?.patternImage ?? null };
+      });
+      return { main, subs };
+    }
+    // UNIT
     const mainOpt = availableColors.find((c) => c.id === v.colorId);
     const main = { hex: v.colorHex || mainOpt?.hex, patternImage: mainOpt?.patternImage ?? null };
     const subs = v.subColors.map((sc) => {
@@ -1058,26 +1148,23 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
 
   const [uploadingSlots, setUploadingSlots] = useState<Record<string, number | null>>({});
 
-  async function handleAddImageAtPosition(groupKey: string, file: File, position: number) {
+  async function handleAddImageAtPosition(groupKey: string, file: File, _position: number) {
     const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
     if (!state) return;
-    const existingIdx = state.orders.indexOf(position);
+
+    // Auto-assign to the smallest free position
+    const usedPositions = new Set(state.orders);
+    let position = 0;
+    while (usedPositions.has(position)) position++;
+    if (position >= 5) return; // Max 5 images reached
+
     const blob = URL.createObjectURL(file);
     setUploadingSlots((prev) => ({ ...prev, [groupKey]: position }));
 
-    if (existingIdx !== -1) {
-      onChange(colorImagesRef.current.map((c) => {
-        if (c.groupKey !== groupKey) return c;
-        const newPreviews = [...c.imagePreviews];
-        newPreviews[existingIdx] = blob;
-        return { ...c, imagePreviews: newPreviews, uploading: true };
-      }));
-    } else {
-      onChange(colorImagesRef.current.map((c) => c.groupKey === groupKey
-        ? { ...c, imagePreviews: [...c.imagePreviews, blob], orders: [...c.orders, position], uploading: true }
-        : c
-      ));
-    }
+    onChange(colorImagesRef.current.map((c) => c.groupKey === groupKey
+      ? { ...c, imagePreviews: [...c.imagePreviews, blob], orders: [...c.orders, position], uploading: true }
+      : c
+    ));
 
     let path = "";
     const fd = new FormData(); fd.append("image", file);
@@ -1092,9 +1179,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     if (!path) {
       onChange(colorImagesRef.current.map((c) => {
         if (c.groupKey !== groupKey) return c;
-        if (existingIdx !== -1) {
-          return { ...c, uploading: false };
-        }
         return {
           ...c,
           imagePreviews: c.imagePreviews.filter((p) => p !== blob),
@@ -1107,11 +1191,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
 
     onChange(colorImagesRef.current.map((c) => {
       if (c.groupKey !== groupKey) return c;
-      if (existingIdx !== -1) {
-        const newPaths = [...c.uploadedPaths];
-        newPaths[existingIdx] = path;
-        return { ...c, uploadedPaths: newPaths, uploading: false };
-      }
       return { ...c, uploadedPaths: [...c.uploadedPaths, path], uploading: false };
     }));
   }
@@ -1132,7 +1211,10 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
         ...c,
         imagePreviews: c.imagePreviews.filter((_, j) => j !== idx),
         uploadedPaths: c.uploadedPaths.filter((_, j) => j !== idx),
-        orders: c.orders.filter((_, j) => j !== idx),
+        // Remove position and shift all higher positions down by 1 to keep them compact
+        orders: c.orders
+          .filter((_, j) => j !== idx)
+          .map((o) => (o > position ? o - 1 : o)),
       };
     }));
   }
@@ -1140,6 +1222,8 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   function handleSwapPositions(groupKey: string, fromPos: number, toPos: number) {
     onChange(colorImages.map((c) => {
       if (c.groupKey !== groupKey) return c;
+      // Only swap if both positions have images (no gap creation)
+      if (!c.orders.includes(fromPos) || !c.orders.includes(toPos)) return c;
       const newOrders = c.orders.map((o) => {
         if (o === fromPos) return toPos;
         if (o === toPos) return fromPos;
@@ -1149,7 +1233,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     }));
   }
 
-  function handleCrossColorDrop(sourceGroupKey: string, sourcePos: number, targetGroupKey: string, targetPos: number) {
+  function handleCrossColorDrop(sourceGroupKey: string, sourcePos: number, targetGroupKey: string, _targetPos: number) {
     const srcState = colorImagesRef.current.find((c) => c.groupKey === sourceGroupKey);
     if (!srcState) return;
     const srcIdx = srcState.orders.indexOf(sourcePos);
@@ -1160,24 +1244,20 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
 
     onChange(colorImagesRef.current.map((c) => {
       if (c.groupKey === sourceGroupKey) {
-        // Remove from source
+        // Remove from source and compact remaining positions
         const newPreviews = c.imagePreviews.filter((_, i) => i !== srcIdx);
         const newPaths = c.uploadedPaths.filter((_, i) => i !== srcIdx);
-        const newOrders = c.orders.filter((_, i) => i !== srcIdx);
+        const newOrders = c.orders
+          .filter((_, i) => i !== srcIdx)
+          .map((o) => (o > sourcePos ? o - 1 : o));
         return { ...c, imagePreviews: newPreviews, uploadedPaths: newPaths, orders: newOrders };
       }
       if (c.groupKey === targetGroupKey) {
-        // Check if target slot is occupied — if so, append at next free slot
-        const existingIdx = c.orders.indexOf(targetPos);
-        let finalPos = targetPos;
-        if (existingIdx !== -1) {
-          // Find first free position (0-4)
-          const usedPositions = new Set(c.orders);
-          for (let p = 0; p < 5; p++) {
-            if (!usedPositions.has(p)) { finalPos = p; break; }
-          }
-          if (finalPos === targetPos && existingIdx !== -1) return c; // All slots full
-        }
+        // Auto-assign to smallest free position
+        const usedPositions = new Set(c.orders);
+        let finalPos = 0;
+        while (usedPositions.has(finalPos) && finalPos < 5) finalPos++;
+        if (finalPos >= 5) return c; // Target is full
         return {
           ...c,
           imagePreviews: [...c.imagePreviews, srcPreview],
@@ -1294,12 +1374,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
                 onRemoveAtPosition={(pos) => handleRemoveImageAtPosition(cimg.groupKey, pos)}
                 onSwapPositions={(from, to) => handleSwapPositions(cimg.groupKey, from, to)}
                 onCrossColorDrop={(srcGroupKey, srcPos, targetPos) => handleCrossColorDrop(srcGroupKey, srcPos, cimg.groupKey, targetPos)}
-                onConfirmReplace={(pos) => confirmDialog({
-                  type: "warning",
-                  title: "Remplacer l'image ?",
-                  message: `La position ${pos + 1} contient déjà une image. Voulez-vous la remplacer ?`,
-                  confirmLabel: "Remplacer",
-                })}
                 uploading={cimg.uploading}
                 uploadingPosition={uploadingSlots[cimg.groupKey] ?? null}
               />
@@ -1598,6 +1672,7 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
 interface QuickAddColorLine {
   id: string;
   colors: { colorId: string; colorName: string; colorHex: string }[];
+  pfsColorRef?: string;
 }
 
 interface QuickAddModalProps {
@@ -1618,6 +1693,16 @@ function QuickAddModal({
   categoryId, onCreateColor, onQuickCreateSize, allCategories, onConfirm,
 }: QuickAddModalProps) {
   const backdrop = useBackdropClose(onClose);
+
+  // PFS color labels (cached globally — no extra network call)
+  const { data: pfsAttrData } = usePfsAttributes();
+  const pfsColorLabels = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of pfsAttrData?.colors ?? []) {
+      if (c.reference && c.labels?.fr) map.set(c.reference, c.labels.fr);
+    }
+    return map;
+  }, [pfsAttrData]);
 
   // Color lines — each line becomes one variant
   const [colorLines, setColorLines] = useState<QuickAddColorLine[]>([
@@ -1708,8 +1793,8 @@ function QuickAddModal({
     setColorLines((prev) => prev.filter((l) => l.id !== lineId));
   }
 
-  function updateColorLine(lineId: string, colors: { colorId: string; colorName: string; colorHex: string }[]) {
-    setColorLines((prev) => prev.map((l) => l.id === lineId ? { ...l, colors } : l));
+  function updateColorLine(lineId: string, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRef?: string) {
+    setColorLines((prev) => prev.map((l) => l.id === lineId ? { ...l, colors, pfsColorRef } : l));
   }
 
   function addExistingCombo(combo: typeof existingCombos[0]) {
@@ -1778,7 +1863,7 @@ function QuickAddModal({
         packQuantity: saleType === "PACK" ? (sizeEntries.length > 1 ? String(sizeEntries.length) : "1") : "",
         discountType,
         discountValue,
-        pfsColorRef: "",
+        pfsColorRef: line.pfsColorRef || "",
       };
     });
     onConfirm(newVariants);
@@ -1837,9 +1922,11 @@ function QuickAddModal({
                   <MultiColorSelect
                     selected={line.colors}
                     options={availableColors}
-                    onChange={(colors) => updateColorLine(line.id, colors)}
+                    onChange={(colors, pfsRef) => updateColorLine(line.id, colors, pfsRef)}
                     existingVariants={existingVariants}
                     onCreateColor={onCreateColor}
+                    pfsColorRef={line.pfsColorRef}
+                    pfsColorRefLabel={line.pfsColorRef ? (pfsColorLabels.get(line.pfsColorRef) ?? undefined) : undefined}
                   />
                 </div>
                 {colorLines.length > 1 && (
@@ -2107,8 +2194,20 @@ export default function ColorVariantManager({
   categoryId,
   allCategories,
   onQuickCreateSize,
+  variantErrors,
 }: Props) {
   const { confirm: confirmDialog } = useConfirm();
+
+  // PFS color labels (reference → French label) for button display — cached globally
+  const { data: pfsAttrData } = usePfsAttributes();
+  const pfsColorLabels = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of pfsAttrData?.colors ?? []) {
+      if (c.reference && c.labels?.fr) map.set(c.reference, c.labels.fr);
+    }
+    return map;
+  }, [pfsAttrData]);
+
   const [showImageModal, setShowImageModal] = useState(false);
   const [galleryState, setGalleryState] = useState<{ images: string[]; colorName: string; colorHex: string } | null>(null);
 
@@ -2199,13 +2298,18 @@ export default function ColorVariantManager({
   }
 
   // ── Pack color line management ─────────────────────────────────────────────
-  function updatePackColorLine(variantTempId: string, colors: { colorId: string; colorName: string; colorHex: string }[]) {
+  function updatePackColorLine(variantTempId: string, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) {
     const v = variants.find((x) => x.tempId === variantTempId);
     if (!v) return;
     const line = v.packColorLines[0] ?? { tempId: uid(), colors: [] };
-    updateVariant(variantTempId, {
+    const patch: Partial<VariantState> = {
       packColorLines: [{ ...line, colors }],
-    });
+    };
+    // Handle PFS color ref override for multi-color pack lines
+    if (pfsColorRefOverride !== undefined) {
+      patch.pfsColorRef = pfsColorRefOverride;
+    }
+    updateVariant(variantTempId, patch);
   }
 
   // ── Size modal save ─────────────────────────────────────────────────────
@@ -2310,8 +2414,184 @@ export default function ColorVariantManager({
         </div>
       ) : (
         <div className="space-y-3">
-          {/* ── Variants TABLE ── */}
-          <div className="border border-[#E5E5E5] rounded-xl overflow-hidden">
+          {/* ── Variants CARDS (mobile only) ── */}
+          <div className="block md:hidden border border-[#E5E5E5] rounded-xl overflow-hidden divide-y divide-[#F0F0F0]">
+            {/* Mobile bulk bar */}
+            <div className={`px-3 py-2 flex items-center gap-2 ${showBulkRow ? "bg-[#F0FDF4]" : "bg-[#FAFAFA]"}`}>
+              <input type="checkbox"
+                checked={selectedIds.size === variants.length && variants.length > 0}
+                onChange={(e) => {
+                  if (e.target.checked) setSelectedIds(new Set(variants.map((v) => v.tempId)));
+                  else setSelectedIds(new Set());
+                }}
+                className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0"
+              />
+              <span className={`text-[10px] font-[family-name:var(--font-roboto)] flex-1 ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
+                {showBulkRow ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}` : "Tout sélectionner"}
+              </span>
+              {showBulkRow && (
+                <div className="flex items-center gap-1.5">
+                  <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice}
+                    onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
+                    className="w-16 border border-[#86EFAC] bg-white px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-[family-name:var(--font-roboto)]" />
+                  <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock}
+                    onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
+                    className="w-14 border border-[#86EFAC] bg-white px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-[family-name:var(--font-roboto)]" />
+                  <button type="button" onClick={applyBulk}
+                    className="p-1 rounded text-[#16A34A] hover:bg-[#DCFCE7] transition-colors">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Variant cards */}
+            {sortedVariants.map((v) => {
+              const isSelected  = selectedIds.has(v.tempId);
+              const isDuplicate = duplicateTempIds.has(v.tempId);
+              const isUnit = v.saleType === "UNIT";
+              const vErrs = variantErrors?.get(v.tempId);
+
+              return (
+                <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
+                  {/* Row 1: checkbox + type + delete */}
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={isSelected}
+                      onChange={(e) => {
+                        const next = new Set(selectedIds);
+                        if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
+                        setSelectedIds(next);
+                      }}
+                      className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
+                    <CustomSelect
+                      value={v.saleType}
+                      onChange={(val) => {
+                        if (val === "PACK" && v.saleType === "UNIT") {
+                          updateVariant(v.tempId, { saleType: "PACK", colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [], packColorLines: [{ tempId: uid(), colors: [] }], packQuantity: "1" });
+                        } else if (val === "UNIT" && v.saleType === "PACK") {
+                          updateVariant(v.tempId, { saleType: "UNIT", packColorLines: [], packQuantity: "", sizeEntries: v.sizeEntries.slice(0, 1) });
+                        }
+                      }}
+                      options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
+                      size="sm" className="w-[75px]" />
+                    <div className="flex-1" />
+                    {variants.length > 1 && (
+                      <button type="button" onClick={() => removeVariant(v.tempId)} title="Supprimer"
+                        className="p-1 text-[#9CA3AF] hover:text-[#EF4444] transition-colors">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Row 2: color */}
+                  {isUnit ? (
+                    <MultiColorSelect
+                      selected={v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }, ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }))] : []}
+                      options={availableColors}
+                      onChange={(colors, pfsRef) => handleMultiColorChange(new Set([v.tempId]), colors, pfsRef)}
+                      existingVariants={variants}
+                      editingGroupKey={variantGroupKeyFromState(v)}
+                      pfsColorRef={v.pfsColorRef}
+                      pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
+                      onPfsColorRefChange={async (ref) => {
+                        if (v.dbId) { try { await updateProductColorPfsRef(v.dbId, ref || null); } catch (err) { console.error("[PFS] Failed to save pfsColorRef:", err); } }
+                      }}
+                      usedPfsColorRefs={(() => {
+                        const map = new Map<string, string>();
+                        for (const ov of variants) {
+                          if (ov.tempId === v.tempId || !ov.colorId) continue;
+                          if (ov.subColors.length > 0 && ov.pfsColorRef) { map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ")); }
+                        }
+                        return map;
+                      })()}
+                      onCreateColor={onQuickCreateColor}
+                    />
+                  ) : (
+                    <MultiColorSelect
+                      selected={v.packColorLines[0]?.colors ?? []}
+                      options={availableColors}
+                      onChange={(colors, pfsRef) => updatePackColorLine(v.tempId, colors, pfsRef)}
+                      pfsColorRef={v.pfsColorRef}
+                      pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
+                      onPfsColorRefChange={async (ref) => {
+                        if (v.dbId) { try { await updateProductColorPfsRef(v.dbId, ref || null); } catch (err) { console.error("[PFS] Failed to save pfsColorRef:", err); } }
+                      }}
+                      usedPfsColorRefs={(() => {
+                        const map = new Map<string, string>();
+                        for (const ov of variants) {
+                          if (ov.tempId === v.tempId || !ov.colorId) continue;
+                          if (ov.subColors.length > 0 && ov.pfsColorRef) { map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ")); }
+                        }
+                        return map;
+                      })()}
+                      onCreateColor={onQuickCreateColor}
+                    />
+                  )}
+
+                  {/* Row 3: prix / stock / poids */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1 font-[family-name:var(--font-roboto)]">Prix/u</p>
+                      <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
+                        onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                        className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-[#E5E5E5]"} bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]`} />
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1 font-[family-name:var(--font-roboto)]">Stock</p>
+                      <input type="number" min="0" step="1" value={v.stock} placeholder="0"
+                        onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
+                        className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-[#E5E5E5]"} bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]`} />
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1 font-[family-name:var(--font-roboto)]">Poids</p>
+                      <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.000"
+                        onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
+                        className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-[#E5E5E5]"} bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]`} />
+                    </div>
+                  </div>
+
+                  {/* Row 4: tailles + total + remise */}
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[9px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1 font-[family-name:var(--font-roboto)]">Tailles</p>
+                      <button type="button" onClick={() => setSizeModalVariantId(v.tempId)}
+                        className={`w-full flex items-center gap-1.5 bg-white border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-[#E5E5E5]"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px]`}>
+                        {renderSizeSummary(v)}
+                        <svg className="w-3 h-3 text-[#9CA3AF] shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="shrink-0">
+                      <p className="text-[9px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1 font-[family-name:var(--font-roboto)]">Total</p>
+                      <div className="text-xs pt-1.5">{renderTotalPrice(v)}</div>
+                    </div>
+                    <div className="shrink-0">
+                      <p className="text-[9px] uppercase tracking-wider text-[#9CA3AF] font-semibold mb-1 font-[family-name:var(--font-roboto)]">Remise</p>
+                      <div className="flex gap-1 items-center">
+                        <CustomSelect value={v.discountType}
+                          onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
+                          options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
+                          size="sm" className="w-[50px]" />
+                        {v.discountType && (
+                          <input type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
+                            onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
+                            className="w-12 border border-[#E5E5E5] bg-white px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Variants TABLE (desktop only) ── */}
+          <div className="hidden md:block border border-[#E5E5E5] rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs font-[family-name:var(--font-roboto)]">
                 <thead>
@@ -2412,6 +2692,7 @@ export default function ColorVariantManager({
                     const isSelected  = selectedIds.has(v.tempId);
                     const isDuplicate = duplicateTempIds.has(v.tempId);
                     const isUnit = v.saleType === "UNIT";
+                    const vErrs = variantErrors?.get(v.tempId);
                     const colorDisplayName = isUnit
                       ? ([v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ") || "Sans couleur")
                       : (v.packColorLines[0]?.colors?.map((c) => c.colorName).join(" + ") || "Aucune couleur");
@@ -2480,20 +2761,28 @@ export default function ColorVariantManager({
                               existingVariants={variants}
                               editingGroupKey={variantGroupKeyFromState(v)}
                               pfsColorRef={v.pfsColorRef}
-                              onPfsColorRefChange={(ref) => updateVariant(v.tempId, { pfsColorRef: ref })}
+                              pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
+                              onPfsColorRefChange={async (ref) => {
+                                // Immediate DB save for existing variants (dbId present)
+                                if (v.dbId) {
+                                  try {
+                                    await updateProductColorPfsRef(v.dbId, ref || null);
+                                  } catch (err) {
+                                    console.error("[PFS] Failed to save pfsColorRef:", err);
+                                  }
+                                }
+                                // React state is already updated via onChange -> handleMultiColorChange
+                              }}
                               usedPfsColorRefs={(() => {
                                 const map = new Map<string, string>();
                                 for (const ov of variants) {
                                   if (ov.tempId === v.tempId || !ov.colorId) continue;
-                                  // For multi-color: use variant pfsColorRef override
-                                  const ref = ov.subColors.length > 0
-                                    ? ov.pfsColorRef
-                                    : availableColors.find((c) => c.id === ov.colorId)?.pfsColorRef ?? "";
-                                  if (ref) {
-                                    const label = ov.subColors.length > 0
-                                      ? [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ")
-                                      : ov.colorName;
-                                    map.set(ref, label);
+                                  // Only block PFS refs used by OTHER multi-color variant overrides.
+                                  // Single-color variants use Color.pfsColorRef (not variant override),
+                                  // and PFS allows multiple variants to share the same color ref.
+                                  if (ov.subColors.length > 0 && ov.pfsColorRef) {
+                                    const label = [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ");
+                                    map.set(ov.pfsColorRef, label);
                                   }
                                 }
                                 return map;
@@ -2504,7 +2793,29 @@ export default function ColorVariantManager({
                             <MultiColorSelect
                               selected={v.packColorLines[0]?.colors ?? []}
                               options={availableColors}
-                              onChange={(colors) => updatePackColorLine(v.tempId, colors)}
+                              onChange={(colors, pfsRef) => updatePackColorLine(v.tempId, colors, pfsRef)}
+                              pfsColorRef={v.pfsColorRef}
+                              pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
+                              onPfsColorRefChange={async (ref) => {
+                                if (v.dbId) {
+                                  try {
+                                    await updateProductColorPfsRef(v.dbId, ref || null);
+                                  } catch (err) {
+                                    console.error("[PFS] Failed to save pfsColorRef:", err);
+                                  }
+                                }
+                              }}
+                              usedPfsColorRefs={(() => {
+                                const map = new Map<string, string>();
+                                for (const ov of variants) {
+                                  if (ov.tempId === v.tempId || !ov.colorId) continue;
+                                  if (ov.subColors.length > 0 && ov.pfsColorRef) {
+                                    const label = [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ");
+                                    map.set(ov.pfsColorRef, label);
+                                  }
+                                }
+                                return map;
+                              })()}
                               onCreateColor={onQuickCreateColor}
                             />
                           )}
@@ -2517,7 +2828,7 @@ export default function ColorVariantManager({
                             value={v.unitPrice}
                             placeholder="0.00"
                             onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
-                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                            className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-[#E5E5E5]"} bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]`}
                           />
                         </td>
 
@@ -2526,7 +2837,7 @@ export default function ColorVariantManager({
                           <button
                             type="button"
                             onClick={() => setSizeModalVariantId(v.tempId)}
-                            className="w-full flex items-center gap-1.5 bg-white border border-[#E5E5E5] px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px] max-w-[200px]"
+                            className={`w-full flex items-center gap-1.5 bg-white border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-[#E5E5E5]"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px] max-w-[200px]`}
                             title={v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ") : "Ajouter des tailles"}
                           >
                             {renderSizeSummary(v)}
@@ -2548,7 +2859,7 @@ export default function ColorVariantManager({
                             value={v.stock}
                             placeholder="0"
                             onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
-                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                            className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-[#E5E5E5]"} bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]`}
                           />
                         </td>
 
@@ -2559,7 +2870,7 @@ export default function ColorVariantManager({
                             value={v.weight}
                             placeholder="0.000"
                             onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
-                            className="w-full border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+                            className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-[#E5E5E5]"} bg-white px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]`}
                           />
                         </td>
 

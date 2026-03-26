@@ -4,14 +4,11 @@
  * Non-blocking: called after DB save, runs in background.
  * Updates Product.pfsSyncStatus to track progress.
  *
- * Flow:
- *  1. Load product with all relations (colors, compositions, images)
- *  2. If no pfsProductId → create product on PFS
- *  3. Sync product data (label, description, category, compositions)
- *  4. Sync variants (create new, update existing, delete removed)
- *  5. Sync images (WebP → JPEG conversion, upload to PFS)
- *  6. Sync status (ONLINE→READY_FOR_SALE, OFFLINE→DRAFT, ARCHIVED→ARCHIVED)
- *  7. Update pfsSyncStatus = "synced" on success, "failed" on error
+ * Optimized: diff-based sync — only calls PFS endpoints for fields that actually changed.
+ * - Product metadata: only translate + update if name/desc/category/etc differ
+ * - Variants: batch create, diff-based update, selective delete
+ * - Images: parallel upload (pool of 3), only new/changed images
+ * - Status: only update if changed
  */
 
 import { prisma } from "@/lib/prisma";
@@ -31,12 +28,23 @@ import {
   type PfsVariantUpdateData,
   type PfsStatus,
 } from "@/lib/pfs-api-write";
-import { pfsGetVariants, pfsCheckReference } from "@/lib/pfs-api";
+import { pfsGetVariants, pfsCheckReference, type PfsCheckReferenceResponse, type PfsVariantDetail } from "@/lib/pfs-api";
 import sharp from "sharp";
-import { readFile } from "fs/promises";
+import { readFile, stat } from "fs/promises";
 import path from "path";
 
 // Prices are sent as-is to PFS (no markup)
+
+/**
+ * Get the per-unit price for PFS.
+ * In the DB, PACK variants store unitPrice = totalPackPrice (unitPrice × totalQty).
+ * PFS expects the per-unit price, so we divide back by total quantity for PACKs.
+ */
+function getPfsUnitPrice(variant: FullProduct["colors"][number]): number {
+  if (variant.saleType !== "PACK") return variant.unitPrice;
+  const totalQty = variant.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || variant.packQuantity || 1;
+  return Math.round((variant.unitPrice / totalQty) * 100) / 100;
+}
 
 // Default values for PFS product creation
 const PFS_DEFAULTS = {
@@ -75,6 +83,7 @@ export function triggerPfsSync(productId: string): void {
 
 /**
  * Core sync logic. Call via triggerPfsSync() for non-blocking behavior.
+ * Diff-based: only pushes changed fields to PFS.
  */
 export async function syncProductToPfs(productId: string): Promise<void> {
   // Mark as pending
@@ -91,36 +100,62 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     // Vérification des mappings PFS (bloque la sync si une entité n'est pas mappée)
     validatePfsMappings(product);
 
-    // 2. Create or update product on PFS
+    // 2. Create product on PFS if new — full sync required
     let pfsProductId = product.pfsProductId;
     if (!pfsProductId) {
       pfsProductId = await createProductOnPfs(product);
-    } else {
-      await updateProductOnPfs(pfsProductId, product);
+      // New product → full sync (create all variants, upload all images, set status)
+      await syncVariants(pfsProductId, product, null);
+      await syncImages(pfsProductId, product, null);
+      await syncStatus(pfsProductId, product.status, null);
+      // Mark as synced
+      await prisma.product.update({
+        where: { id: productId },
+        data: { pfsProductId, pfsSyncStatus: "synced", pfsSyncError: null, pfsSyncedAt: new Date() },
+      });
+      console.log(`[PFS Reverse Sync] ✅ Product ${product.reference} CREATED on PFS (${pfsProductId})`);
+      return;
     }
 
-    // 3. Sync variants
-    await syncVariants(pfsProductId, product);
+    // 3. Existing product — fetch PFS state for diff (parallel)
+    const [pfsRefData, pfsVariantsResp] = await Promise.all([
+      pfsCheckReference(product.reference).catch(() => null),
+      pfsGetVariants(pfsProductId).catch(() => ({ data: [] as PfsVariantDetail[] })),
+    ]);
+    const pfsVariants = pfsVariantsResp.data ?? [];
 
-    // 3b. Set default_color AFTER variants exist on PFS
-    // (PFS validates that default_color matches an existing variant's color)
+    let apiCalls = 0;
+
+    // 4. Diff product metadata — only update if changed
+    const metadataChanged = await diffAndUpdateMetadata(pfsProductId, product, pfsRefData);
+    if (metadataChanged) apiCalls += metadataChanged;
+
+    // 5. Diff variants
+    const variantCalls = await syncVariants(pfsProductId, product, pfsVariants);
+    apiCalls += variantCalls;
+
+    // 5b. Set default_color only if needed
     const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
     const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant) : null;
-    if (primaryColorRef) {
+    const currentDefault = pfsRefData?.product?.default_color;
+    if (primaryColorRef && primaryColorRef !== currentDefault) {
       try {
         await pfsUpdateProduct(pfsProductId, { default_color: primaryColorRef });
+        apiCalls++;
       } catch (err) {
         console.warn(`[PFS Reverse Sync] Failed to set default_color:`, err);
       }
     }
 
-    // 4. Sync images
-    await syncImages(pfsProductId, product);
+    // 6. Diff images
+    const imageCalls = await syncImages(pfsProductId, product, pfsRefData);
+    apiCalls += imageCalls;
 
-    // 5. Sync status
-    await syncStatus(pfsProductId, product.status);
+    // 7. Diff status
+    const statusChanged = await syncStatus(pfsProductId, product.status, pfsRefData);
+    if (statusChanged) apiCalls++;
 
-    // 6. Mark as synced
+    // 8. Mark as synced
     await prisma.product.update({
       where: { id: productId },
       data: {
@@ -131,7 +166,7 @@ export async function syncProductToPfs(productId: string): Promise<void> {
       },
     });
 
-    console.log(`[PFS Reverse Sync] ✅ Product ${product.reference} synced to PFS (${pfsProductId})`);
+    console.log(`[PFS Reverse Sync] ✅ Product ${product.reference} synced (${apiCalls} API call${apiCalls !== 1 ? "s" : ""})`);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error(`[PFS Reverse Sync] ❌ Product ${productId} failed:`, errorMsg);
@@ -147,7 +182,7 @@ export async function syncProductToPfs(productId: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────
-// Load product with all needed relations
+// Full Product type (loaded from DB)
 // ─────────────────────────────────────────────
 
 interface FullProduct {
@@ -165,7 +200,7 @@ interface FullProduct {
   category: { id: string; name: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null };
   colors: {
     id: string;
-    colorId: string;
+    colorId: string | null; // null for PACK variants
     pfsColorRef: string | null; // Override couleur PFS pour variantes multi-couleur
     pfsVariantId: string | null;
     unitPrice: number;
@@ -240,16 +275,15 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
             },
             orderBy: { position: "asc" as const },
           },
-          images: { select: { id: true, path: true, order: true }, orderBy: { order: "asc" as const } },
+          images: {
+            select: { id: true, path: true, order: true },
+            orderBy: { order: "asc" as const },
+          },
         },
         orderBy: { createdAt: "asc" as const },
       },
       compositions: {
-        select: {
-          compositionId: true,
-          percentage: true,
-          composition: { select: { id: true, name: true, pfsCompositionRef: true } },
-        },
+        select: { compositionId: true, percentage: true, composition: { select: { id: true, name: true, pfsCompositionRef: true } } },
       },
       manufacturingCountry: { select: { id: true, name: true, isoCode: true, pfsCountryRef: true } },
       season: { select: { id: true, name: true, pfsSeasonRef: true } },
@@ -287,7 +321,7 @@ export function stripDimensionsSuffix(description: string): string {
 }
 
 // ─────────────────────────────────────────────
-// Create product on PFS
+// Create product on PFS (first sync only)
 // ─────────────────────────────────────────────
 
 async function createProductOnPfs(product: FullProduct): Promise<string> {
@@ -347,107 +381,221 @@ async function createProductOnPfs(product: FullProduct): Promise<string> {
 }
 
 // ─────────────────────────────────────────────
-// Update product data on PFS
+// Diff & update product metadata
+// Returns number of API calls made, or 0 if nothing changed
 // ─────────────────────────────────────────────
 
-async function updateProductOnPfs(pfsProductId: string, product: FullProduct): Promise<void> {
-  // Append dimensions to description if product has any
+async function diffAndUpdateMetadata(
+  pfsProductId: string,
+  product: FullProduct,
+  pfsRefData: PfsCheckReferenceResponse | null,
+): Promise<number> {
+  if (!pfsRefData?.product) {
+    // Can't diff without PFS data → force full update
+    return await forceUpdateMetadata(pfsProductId, product);
+  }
+
+  const pfs = pfsRefData.product;
   const descriptionWithDims = product.description + buildDimensionsSuffix(product);
 
-  // Use PFS AI translation API for labels
-  const translated = await pfsTranslate(product.name, descriptionWithDims);
-  const label = translated.productName;
-  const description = translated.productDescription;
+  // Compare fields
+  const pfsDescFr = pfs.description?.fr ?? "";
+  const pfsNameFr = pfs.label?.fr ?? "";
+  const bjCategoryId = product.category.pfsCategoryId;
+  const pfsCategoryId = pfs.category?.id;
+  const bjCountry = product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode ?? PFS_DEFAULTS.country_of_manufacture;
+  const pfsCountry = pfs.country_of_manufacture ?? "";
+  const bjSeason = product.season?.pfsSeasonRef ?? PFS_DEFAULTS.season_name;
+  const pfsSeason = pfs.collection?.reference ?? "";
 
-  // Use category's PFS gender/family if available, otherwise fallback to defaults
+  // Compare compositions
+  const bjComps = product.compositions
+    .filter((c) => c.composition.pfsCompositionRef)
+    .map((c) => `${c.composition.pfsCompositionRef}:${c.percentage}`)
+    .sort()
+    .join(",");
+  const pfsComps = (pfs.material_composition ?? [])
+    .map((c) => `${c.reference}:${c.percentage}`)
+    .sort()
+    .join(",");
+
+  // Normalize: trim whitespace before comparing to avoid unnecessary translate calls
+  const nameChanged = pfsNameFr.trim() !== product.name.trim();
+  const descChanged = stripDimensionsSuffix(pfsDescFr).trim() !== product.description.trim();
+  const categoryChanged = bjCategoryId !== pfsCategoryId;
+  const countryChanged = bjCountry !== pfsCountry;
+  const seasonChanged = bjSeason !== pfsSeason;
+  const compositionsChanged = bjComps !== pfsComps;
+
+  if (!nameChanged && !descChanged && !categoryChanged && !countryChanged && !seasonChanged && !compositionsChanged) {
+    console.log(`[PFS Reverse Sync] Metadata unchanged — skipping`);
+    return 0;
+  }
+
+  const changedFields = [
+    nameChanged && "name",
+    descChanged && "description",
+    categoryChanged && "category",
+    countryChanged && "country",
+    seasonChanged && "season",
+    compositionsChanged && "compositions",
+  ].filter(Boolean);
+  console.log(`[PFS Reverse Sync] Metadata changed: ${changedFields.join(", ")}`);
+
+  // Name or description changed → need translation
+  let apiCalls = 0;
+  const updates: PfsProductUpdateData = {};
+
+  if (nameChanged || descChanged) {
+    const translated = await pfsTranslate(product.name, descriptionWithDims);
+    updates.label = translated.productName;
+    updates.description = translated.productDescription;
+    apiCalls++; // translate call
+  }
+
+  if (categoryChanged) {
+    updates.category = bjCategoryId!;
+    const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
+    const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;
+    const genderLabels: Record<string, string> = { WOMAN: "Femme", MAN: "Homme", KID: "Enfant", SUPPLIES: "Fournitures" };
+    updates.gender_label = genderLabels[gender] ?? PFS_DEFAULTS.gender_label;
+    updates.family = family;
+  }
+
+  if (countryChanged) {
+    updates.country_of_manufacture = bjCountry;
+  }
+
+  if (seasonChanged) {
+    updates.season_name = bjSeason;
+  }
+
+  if (compositionsChanged) {
+    const compositionArray = product.compositions
+      .filter((c) => c.composition.pfsCompositionRef)
+      .map((c) => ({ id: c.composition.pfsCompositionRef!, value: c.percentage }));
+    if (compositionArray.length > 0) {
+      updates.material_composition = compositionArray;
+    }
+  }
+
+  await pfsUpdateProduct(pfsProductId, updates);
+  apiCalls++; // update call
+  return apiCalls;
+}
+
+/** Fallback: force full metadata update when PFS state is unknown */
+async function forceUpdateMetadata(pfsProductId: string, product: FullProduct): Promise<number> {
+  const descriptionWithDims = product.description + buildDimensionsSuffix(product);
+  const translated = await pfsTranslate(product.name, descriptionWithDims);
+
   const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
   const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;
   const genderLabels: Record<string, string> = { WOMAN: "Femme", MAN: "Homme", KID: "Enfant", SUPPLIES: "Fournitures" };
-  const genderLabel = genderLabels[gender] ?? PFS_DEFAULTS.gender_label;
 
   const updates: PfsProductUpdateData = {
-    label,
-    description,
+    label: translated.productName,
+    description: translated.productDescription,
     category: product.category.pfsCategoryId!,
     family,
-    gender_label: genderLabel,
+    gender_label: genderLabels[gender] ?? PFS_DEFAULTS.gender_label,
   };
 
-  // Country of manufacture
   const countryRef = product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode;
-  if (countryRef) {
-    updates.country_of_manufacture = countryRef;
-  }
+  if (countryRef) updates.country_of_manufacture = countryRef;
+  if (product.season?.pfsSeasonRef) updates.season_name = product.season.pfsSeasonRef;
 
-  // Season
-  if (product.season?.pfsSeasonRef) {
-    updates.season_name = product.season.pfsSeasonRef;
-  }
-
-  // Compositions as array (works on PATCH)
   const compositionArray = product.compositions
     .filter((c) => c.composition.pfsCompositionRef)
     .map((c) => ({ id: c.composition.pfsCompositionRef!, value: c.percentage }));
-  if (compositionArray.length > 0) {
-    updates.material_composition = compositionArray;
-  }
-
-  // NOTE: default_color is NOT sent here — it's set after syncVariants()
-  // because PFS validates that default_color matches an existing variant's color,
-  // and variants may not exist yet at this point.
+  if (compositionArray.length > 0) updates.material_composition = compositionArray;
 
   await pfsUpdateProduct(pfsProductId, updates);
+  return 2; // translate + update
 }
 
 // ─────────────────────────────────────────────
-// Sync variants
+// Sync variants (diff-based, batched create)
+// Returns number of API calls made
 // ─────────────────────────────────────────────
 
-async function syncVariants(pfsProductId: string, product: FullProduct): Promise<void> {
-  // Get existing PFS variants
-  let existingPfsVariants: { id: string; type: string; item?: { color: { reference: string }; size: string }; packs?: { color: { reference: string }; sizes: { size: string }[] }[] }[] = [];
-  try {
-    const resp = await pfsGetVariants(pfsProductId);
-    existingPfsVariants = resp.data ?? [];
-  } catch {
-    // Product may be new with no variants yet
+// Helper: resolve BJ size → PFS size reference (use first M2M mapping, fallback to name)
+const getSizeRef = (vs: { size: { name: string; pfsMappings: { pfsSizeRef: string }[] } }) =>
+  vs.size.pfsMappings[0]?.pfsSizeRef || vs.size.name || "TU";
+
+async function syncVariants(
+  pfsProductId: string,
+  product: FullProduct,
+  existingPfsVariants: PfsVariantDetail[] | null,
+): Promise<number> {
+  let apiCalls = 0;
+
+  // Fetch existing PFS variants if not provided (new product case)
+  let pfsVariants: PfsVariantDetail[] = [];
+  if (existingPfsVariants === null) {
+    try {
+      const resp = await pfsGetVariants(pfsProductId);
+      pfsVariants = resp.data ?? [];
+      apiCalls++;
+    } catch {
+      // Product may be new with no variants yet
+    }
+  } else {
+    pfsVariants = existingPfsVariants;
   }
 
-  // Build a lookup of existing PFS variants by SKU key (color+size) for duplicate detection
-  // This handles the case where a previous sync created the variant on PFS but failed
-  // to save pfsVariantId back to BJ (crash, timeout, etc.)
-  const pfsVariantBySkuKey = new Map<string, string>(); // "COLOR_SIZE" → pfsVariantId
-  for (const v of existingPfsVariants) {
+  // Build a lookup of existing PFS variants by SKU key for duplicate detection
+  // ITEM: "COLOR_SIZE", PACK: "COLOR1+COLOR2_SIZE1,SIZE2" (ordered composition)
+  const pfsVariantBySkuKey = new Map<string, string>();
+  for (const v of pfsVariants) {
     if (v.type === "ITEM" && v.item?.color?.reference && v.item.size) {
       pfsVariantBySkuKey.set(`${v.item.color.reference}_${v.item.size}`, v.id);
-    } else if (v.type === "PACK" && v.packs?.[0]) {
-      // For PACK, use the first pack entry's color + size as the SKU key
-      const firstPack = v.packs[0];
-      if (firstPack.color?.reference && firstPack.sizes?.[0]?.size) {
-        pfsVariantBySkuKey.set(`${firstPack.color.reference}_${firstPack.sizes[0].size}`, v.id);
+    } else if (v.type === "PACK" && v.packs && v.packs.length > 0) {
+      // Use ALL pack colors in order + all sizes to avoid collisions between different PACKs
+      const packColorRefs = v.packs.map(p => p.color?.reference).filter(Boolean).join("+");
+      const packSizes = v.packs.flatMap(p => p.sizes?.map(s => s.size) ?? []).sort().join(",");
+      if (packColorRefs) {
+        pfsVariantBySkuKey.set(`PACK::${packColorRefs}_${packSizes || "TU"}`, v.id);
       }
     }
   }
 
-  const existingPfsIds = new Set(existingPfsVariants.map((v) => v.id));
+  const existingPfsIds = new Set(pfsVariants.map((v) => v.id));
 
-  // Build a map of PFS variant ID → color reference for change detection
+  // Build maps of PFS variant ID → color reference + size fingerprint for change detection
   const pfsVariantColorMap = new Map<string, string>();
-  for (const v of existingPfsVariants) {
+  const pfsVariantSizeFingerprint = new Map<string, string>();
+  for (const v of pfsVariants) {
     if (v.item?.color?.reference) {
       pfsVariantColorMap.set(v.id, v.item.color.reference);
+      pfsVariantSizeFingerprint.set(v.id, v.item.size || "TU");
+    } else if (v.packs?.[0]?.color?.reference) {
+      pfsVariantColorMap.set(v.id, v.packs[0].color.reference);
+      const allSizes = v.packs!.flatMap(p => p.sizes?.map(s => s.size) ?? []);
+      pfsVariantSizeFingerprint.set(v.id, allSizes.length > 0 ? [...allSizes].sort().join(",") : "TU");
     }
   }
 
-  // Detect color changes: if a BJ variant has a pfsVariantId but the color ref
-  // on PFS doesn't match the current BJ color ref, we need to delete + recreate
-  // (PFS PATCH does not support changing a variant's color)
+  // Build PFS variant lookup by ID for price/stock/weight diff
+  const pfsVariantById = new Map<string, PfsVariantDetail>();
+  for (const v of pfsVariants) pfsVariantById.set(v.id, v);
+
+  // Detect color or size changes: PFS PATCH does not support changing color or size,
+  // so we need to delete + recreate the variant
   const colorChangedVariants = new Set<string>();
   for (const c of product.colors) {
     if (c.pfsVariantId && existingPfsIds.has(c.pfsVariantId)) {
       const pfsColorRef = pfsVariantColorMap.get(c.pfsVariantId);
       const bjColorRef = getEffectiveColorRef(c);
       if (pfsColorRef && bjColorRef && pfsColorRef !== bjColorRef) {
+        colorChangedVariants.add(c.id);
+        continue;
+      }
+      const pfsSizeFp = pfsVariantSizeFingerprint.get(c.pfsVariantId);
+      const bjSizes = c.variantSizes.length > 0
+        ? c.variantSizes.map(vs => getSizeRef(vs)).sort().join(",")
+        : "TU";
+      if (pfsSizeFp && bjSizes && pfsSizeFp !== bjSizes) {
         colorChangedVariants.add(c.id);
       }
     }
@@ -465,18 +613,17 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
       .map((c) => c.pfsVariantId)
       .filter(Boolean)
   );
-  const pfsVariantsToDelete = existingPfsVariants.filter((v) => !pfsIdsInBj.has(v.id));
+  const pfsVariantsToDelete = pfsVariants.filter((v) => !pfsIdsInBj.has(v.id));
 
-  // Log color-changed variants for debugging
   if (colorChangedVariants.size > 0) {
-    console.log(`[PFS Reverse Sync] ${colorChangedVariants.size} variant(s) with color change detected — will delete + recreate on PFS`);
+    console.log(`[PFS Reverse Sync] ${colorChangedVariants.size} variant(s) with color/size change — will delete + recreate`);
   }
 
   // Delete removed variants from PFS
   for (const v of pfsVariantsToDelete) {
     try {
       await pfsDeleteVariant(v.id);
-      // Remove from SKU lookup so we don't accidentally re-link a deleted variant
+      apiCalls++;
       for (const [key, id] of pfsVariantBySkuKey) {
         if (id === v.id) pfsVariantBySkuKey.delete(key);
       }
@@ -485,12 +632,11 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
     }
   }
 
-  // Helper: resolve BJ size → PFS size reference (use first M2M mapping, fallback to name)
-  const getSizeRef = (vs: { size: { name: string; pfsMappings: { pfsSizeRef: string }[] } }) =>
-    vs.size.pfsMappings[0]?.pfsSizeRef || vs.size.name || "TU";
-
-  // Create new variants
+  // ── Batch create new variants ──
   if (bjVariantsToCreate.length > 0) {
+    const batchItems: { variant: typeof bjVariantsToCreate[number]; pfsData: PfsVariantCreateData }[] = [];
+    const relinked: string[] = [];
+
     for (const variant of bjVariantsToCreate) {
       // ── UNIT variant ──
       if (variant.saleType === "UNIT") {
@@ -501,75 +647,64 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
         }
 
         const sizeRef = variant.variantSizes[0] ? getSizeRef(variant.variantSizes[0]) : "TU";
-
-        // Check if this color+size already exists on PFS (orphaned from a previous failed sync)
         const skuKey = `${colorRef}_${sizeRef}`;
         const existingPfsId = pfsVariantBySkuKey.get(skuKey);
+
         if (existingPfsId) {
-          console.log(`[PFS Reverse Sync] Found existing PFS variant ${existingPfsId} for ${skuKey} — linking instead of creating`);
-          await prisma.productColor.update({
-            where: { id: variant.id },
-            data: { pfsVariantId: existingPfsId },
-          });
-          // Also patch it with current BJ values
+          console.log(`[PFS Reverse Sync] Re-linking existing PFS variant ${existingPfsId} for ${skuKey}`);
+          await prisma.productColor.update({ where: { id: variant.id }, data: { pfsVariantId: existingPfsId } });
+          relinked.push(existingPfsId);
+          // Will be updated in the diff-based update below (added to bjVariantsWithPfsId equivalent)
           try {
             await pfsPatchVariants([{
               variant_id: existingPfsId,
-              price_eur_ex_vat: variant.unitPrice,
+              price_eur_ex_vat: getPfsUnitPrice(variant),
               stock_qty: variant.stock ?? 0,
               weight: variant.weight,
               is_active: (variant.stock ?? 0) > 0,
             }]);
+            apiCalls++;
           } catch (err) {
             console.warn(`[PFS Reverse Sync] Failed to patch re-linked variant ${existingPfsId}:`, err);
           }
           continue;
         }
 
-        const pfsVariant: PfsVariantCreateData = {
-          type: "ITEM",
-          color: colorRef,
-          size: sizeRef,
-          price_eur_ex_vat: variant.unitPrice,
-          weight: variant.weight,
-          stock_qty: variant.stock ?? 0,
-          is_active: (variant.stock ?? 0) > 0,
-        };
-
-        try {
-          const { variantIds } = await pfsCreateVariants(pfsProductId, [pfsVariant]);
-          if (variantIds[0]) {
-            await prisma.productColor.update({
-              where: { id: variant.id },
-              data: { pfsVariantId: variantIds[0] },
-            });
-          } else {
-            console.warn(`[PFS Reverse Sync] PFS returned no ID for UNIT variant ${variant.color?.name} (${skuKey}) — may be a duplicate SKU`);
-          }
-        } catch (err) {
-          console.warn(`[PFS Reverse Sync] Failed to create UNIT variant for ${variant.color?.name}:`, err);
-        }
+        batchItems.push({
+          variant,
+          pfsData: {
+            type: "ITEM",
+            color: colorRef,
+            size: sizeRef,
+            price_eur_ex_vat: getPfsUnitPrice(variant),
+            weight: variant.weight,
+            stock_qty: variant.stock ?? 0,
+            is_active: (variant.stock ?? 0) > 0,
+          },
+        });
       }
 
       // ── PACK variant ──
       if (variant.saleType === "PACK") {
-        // Build packs[] by crossing PackColorLine colors × VariantSizes
         const packEntries: { color: string; size: string; qty: number }[] = [];
 
-        // Collect all colors from the single PackColorLine composition
         const packColors: { ref: string; name: string }[] = [];
-        for (const line of variant.packColorLines) {
-          for (const c of line.colors) {
-            if (c.color.pfsColorRef) {
-              packColors.push({ ref: c.color.pfsColorRef, name: c.color.name });
+        const variantOverrideRef = variant.pfsColorRef;
+        if (variantOverrideRef) {
+          const label = variant.packColorLines[0]?.colors.map(c => c.color.name).join(" / ") || variant.color?.name || "Pack";
+          packColors.push({ ref: variantOverrideRef, name: label });
+        } else {
+          for (const line of variant.packColorLines) {
+            for (const c of line.colors) {
+              if (c.color.pfsColorRef) {
+                packColors.push({ ref: c.color.pfsColorRef, name: c.color.name });
+              }
             }
           }
-        }
-
-        // Fallback: if no PackColorLines, use effective color ref
-        const fallbackRef = getEffectiveColorRef(variant);
-        if (packColors.length === 0 && fallbackRef) {
-          packColors.push({ ref: fallbackRef, name: variant.color.name });
+          const fallbackRef = getEffectiveColorRef(variant);
+          if (packColors.length === 0 && fallbackRef) {
+            packColors.push({ ref: fallbackRef, name: variant.color?.name || "Pack" });
+          }
         }
 
         if (packColors.length === 0) {
@@ -577,205 +712,321 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
           continue;
         }
 
-        // Cross-product: each color × each size
         const variantSizes = variant.variantSizes.length > 0
           ? variant.variantSizes
           : [{ size: { name: "TU", pfsMappings: [{ pfsSizeRef: "TU" }] }, quantity: variant.packQuantity ?? 1 }];
 
         for (const pc of packColors) {
           for (const vs of variantSizes) {
-            packEntries.push({
-              color: pc.ref,
-              size: getSizeRef(vs),
-              qty: vs.quantity,
-            });
+            packEntries.push({ color: pc.ref, size: getSizeRef(vs), qty: vs.quantity });
           }
         }
 
-        // Main color/size for the variant header
+        // PFS API uses first color + first size as the variant's main identifiers
         const mainColorRef = packColors[0].ref;
         const mainSizeRef = variantSizes[0] ? getSizeRef(variantSizes[0]) : "TU";
 
-        // Check if this PACK already exists on PFS (orphaned from a previous failed sync)
-        const packSkuKey = `${mainColorRef}_${mainSizeRef}`;
+        // SKU key uses ALL colors in order + all sizes to avoid collisions between different PACKs
+        const packColorKey = packColors.map(pc => pc.ref).join("+");
+        const packSizeKey = variantSizes.map(vs => getSizeRef(vs)).sort().join(",") || "TU";
+        const packSkuKey = `PACK::${packColorKey}_${packSizeKey}`;
         const existingPackPfsId = pfsVariantBySkuKey.get(packSkuKey);
         if (existingPackPfsId) {
-          console.log(`[PFS Reverse Sync] Found existing PFS PACK variant ${existingPackPfsId} for ${packSkuKey} — linking instead of creating`);
-          await prisma.productColor.update({
-            where: { id: variant.id },
-            data: { pfsVariantId: existingPackPfsId },
-          });
+          console.log(`[PFS Reverse Sync] Re-linking existing PFS PACK variant ${existingPackPfsId} for ${packSkuKey}`);
+          await prisma.productColor.update({ where: { id: variant.id }, data: { pfsVariantId: existingPackPfsId } });
+          relinked.push(existingPackPfsId);
           try {
             await pfsPatchVariants([{
               variant_id: existingPackPfsId,
-              price_eur_ex_vat: variant.unitPrice,
+              price_eur_ex_vat: getPfsUnitPrice(variant),
               stock_qty: variant.stock ?? 0,
               weight: variant.weight,
               is_active: (variant.stock ?? 0) > 0,
             }]);
+            apiCalls++;
           } catch (err) {
             console.warn(`[PFS Reverse Sync] Failed to patch re-linked PACK variant ${existingPackPfsId}:`, err);
           }
           continue;
         }
 
-        const pfsVariant: PfsVariantCreateData = {
-          type: "PACK",
-          color: mainColorRef,
-          size: mainSizeRef,
-          price_eur_ex_vat: variant.unitPrice,
-          weight: variant.weight,
-          stock_qty: variant.stock ?? 0,
-          is_active: (variant.stock ?? 0) > 0,
-          packs: packEntries,
-        };
+        batchItems.push({
+          variant,
+          pfsData: {
+            type: "PACK",
+            color: mainColorRef,
+            size: mainSizeRef,
+            price_eur_ex_vat: getPfsUnitPrice(variant),
+            weight: variant.weight,
+            stock_qty: variant.stock ?? 0,
+            is_active: (variant.stock ?? 0) > 0,
+            packs: packEntries,
+          },
+        });
+      }
+    }
 
-        try {
-          const { variantIds } = await pfsCreateVariants(pfsProductId, [pfsVariant]);
-          if (variantIds[0]) {
+    // Batch create all new variants in a single API call
+    if (batchItems.length > 0) {
+      try {
+        const { variantIds } = await pfsCreateVariants(pfsProductId, batchItems.map(b => b.pfsData));
+        apiCalls++;
+        // Link returned IDs to BJ variants
+        for (let i = 0; i < batchItems.length; i++) {
+          if (variantIds[i]) {
             await prisma.productColor.update({
-              where: { id: variant.id },
-              data: { pfsVariantId: variantIds[0] },
+              where: { id: batchItems[i].variant.id },
+              data: { pfsVariantId: variantIds[i] },
             });
           } else {
-            console.warn(`[PFS Reverse Sync] PFS returned no ID for PACK variant ${variant.id} (${packSkuKey}) — may be a duplicate SKU`);
+            console.warn(`[PFS Reverse Sync] PFS returned no ID for variant ${batchItems[i].variant.id}`);
           }
-        } catch (err) {
-          console.warn(`[PFS Reverse Sync] Failed to create PACK variant ${variant.id}:`, err);
+        }
+        console.log(`[PFS Reverse Sync] Batch created ${variantIds.filter(Boolean).length}/${batchItems.length} variant(s) in 1 call`);
+      } catch (err) {
+        console.warn(`[PFS Reverse Sync] Batch create failed, falling back to individual creates:`, err);
+        // Fallback: create one by one
+        for (const item of batchItems) {
+          try {
+            const { variantIds } = await pfsCreateVariants(pfsProductId, [item.pfsData]);
+            apiCalls++;
+            if (variantIds[0]) {
+              await prisma.productColor.update({
+                where: { id: item.variant.id },
+                data: { pfsVariantId: variantIds[0] },
+              });
+            }
+          } catch (err2) {
+            console.warn(`[PFS Reverse Sync] Failed to create variant ${item.variant.id}:`, err2);
+          }
         }
       }
     }
   }
 
-  // Update existing variants
+  // ── Diff-based update of existing variants ──
   if (bjVariantsWithPfsId.length > 0) {
-    const updates: PfsVariantUpdateData[] = bjVariantsWithPfsId
-      .filter((v) => v.pfsVariantId)
-      .map((v) => {
-        const update: PfsVariantUpdateData = {
-          variant_id: v.pfsVariantId!,
-          price_eur_ex_vat: v.unitPrice,
-          stock_qty: v.stock ?? 0,
-          weight: v.weight,
-          is_active: (v.stock ?? 0) > 0,
-        };
+    const updates: PfsVariantUpdateData[] = [];
 
-        // Discount
-        if (v.discountType && v.discountValue) {
-          update.discount_type = v.discountType;
-          update.discount_value = v.discountValue;
-        } else {
-          update.discount_type = null;
-          update.discount_value = null;
+    for (const v of bjVariantsWithPfsId) {
+      if (!v.pfsVariantId) continue;
+
+      const pfsV = pfsVariantById.get(v.pfsVariantId);
+      const bjPrice = getPfsUnitPrice(v);
+      const bjStock = v.stock ?? 0;
+      const bjWeight = v.weight;
+      const bjActive = bjStock > 0;
+      const bjDiscType = v.discountType ?? null;
+      const bjDiscValue = v.discountValue ?? null;
+
+      // Compare with PFS current values
+      if (pfsV) {
+        const pfsPrice = pfsV.price_sale.unit.value;
+        const pfsStock = pfsV.stock_qty;
+        const pfsWeight = pfsV.weight ?? 0;
+        const pfsActive = pfsV.is_active;
+        const pfsDiscType = pfsV.discount?.type ?? null;
+        const pfsDiscValue = pfsV.discount?.value ?? null;
+
+        const priceMatch = Math.abs(bjPrice - pfsPrice) < 0.01;
+        const stockMatch = bjStock === pfsStock;
+        const weightMatch = Math.abs(bjWeight - pfsWeight) < 0.01;
+        const activeMatch = bjActive === pfsActive;
+        const discountMatch = bjDiscType === pfsDiscType && bjDiscValue === pfsDiscValue;
+
+        if (priceMatch && stockMatch && weightMatch && activeMatch && discountMatch) {
+          continue; // No changes for this variant
         }
+      }
 
-        return update;
-      });
+      const update: PfsVariantUpdateData = {
+        variant_id: v.pfsVariantId,
+        price_eur_ex_vat: bjPrice,
+        stock_qty: bjStock,
+        weight: bjWeight,
+        is_active: bjActive,
+      };
+
+      if (bjDiscType && bjDiscValue) {
+        update.discount_type = bjDiscType;
+        update.discount_value = bjDiscValue;
+      } else {
+        update.discount_type = null;
+        update.discount_value = null;
+      }
+
+      updates.push(update);
+    }
 
     if (updates.length > 0) {
       try {
         await pfsPatchVariants(updates);
+        apiCalls++;
+        console.log(`[PFS Reverse Sync] Patched ${updates.length}/${bjVariantsWithPfsId.length} changed variant(s)`);
       } catch (err) {
         console.warn("[PFS Reverse Sync] Failed to patch variants:", err);
       }
+    } else {
+      console.log(`[PFS Reverse Sync] All ${bjVariantsWithPfsId.length} existing variant(s) unchanged — skipping patch`);
     }
   }
+
+  return apiCalls;
 }
 
 // ─────────────────────────────────────────────
-// Sync images (WebP → JPEG)
+// Sync images (WebP → JPEG, parallel upload, diff-based)
+// Returns number of API calls made
 // ─────────────────────────────────────────────
 
-async function syncImages(pfsProductId: string, product: FullProduct): Promise<void> {
+async function syncImages(
+  pfsProductId: string,
+  product: FullProduct,
+  pfsRefData: PfsCheckReferenceResponse | null,
+): Promise<number> {
   const log = (msg: string) => console.log(`[PFS Images] ${msg}`);
+  let apiCalls = 0;
 
-  // Get existing PFS images to know which slots to delete
-  const pfsImagesByColor = new Map<string, number>(); // colorRef → number of images on PFS
-  try {
-    const pfsData = await pfsCheckReference(product.reference);
-    if (pfsData.product?.images) {
-      for (const [colorRef, imgs] of Object.entries(pfsData.product.images)) {
-        const count = Array.isArray(imgs) ? imgs.length : (imgs ? 1 : 0);
-        pfsImagesByColor.set(colorRef, count);
-      }
+  // Get existing PFS images
+  const pfsImagesByColor = new Map<string, string[]>(); // colorRef → image URLs
+  if (pfsRefData?.product?.images) {
+    for (const [colorRef, imgs] of Object.entries(pfsRefData.product.images)) {
+      const urls = Array.isArray(imgs) ? imgs : (imgs ? [imgs] : []);
+      pfsImagesByColor.set(colorRef, urls);
     }
-    log(`PFS état actuel: ${pfsImagesByColor.size} couleur(s) — ${[...pfsImagesByColor.entries()].map(([c, n]) => `${c}:${n} img`).join(", ") || "aucune"}`);
-  } catch (err) {
-    log(`⚠ Impossible de récupérer les images PFS existantes: ${err instanceof Error ? err.message : err}`);
+  } else {
+    // No PFS data available, try to fetch
+    try {
+      const data = await pfsCheckReference(product.reference);
+      apiCalls++;
+      if (data.product?.images) {
+        for (const [colorRef, imgs] of Object.entries(data.product.images)) {
+          const urls = Array.isArray(imgs) ? imgs : (imgs ? [imgs] : []);
+          pfsImagesByColor.set(colorRef, urls);
+        }
+      }
+    } catch {
+      log("⚠ Cannot fetch PFS images state");
+    }
   }
 
   // Group BJ images by color reference
-  const imagesByColor = new Map<string, { path: string; order: number }[]>();
+  const bjImagesByColor = new Map<string, { path: string; order: number }[]>();
+  let skippedNoRef = 0;
 
   for (const variant of product.colors) {
-    const colorRef = getEffectiveColorRef(variant);
+    let colorRef = getEffectiveColorRef(variant);
+    // PACK fallback: derive colorRef from packColorLines if no direct color
+    if (!colorRef && variant.saleType === "PACK") {
+      for (const line of variant.packColorLines) {
+        for (const c of line.colors) {
+          if (c.color.pfsColorRef) { colorRef = c.color.pfsColorRef; break; }
+        }
+        if (colorRef) break;
+      }
+    }
     if (!colorRef) {
-      log(`⚠ Variante ${variant.id} (${variant.color?.name}) sans pfsColorRef — images ignorées`);
+      skippedNoRef++;
       continue;
     }
-
     for (const img of variant.images) {
-      if (!imagesByColor.has(colorRef)) {
-        imagesByColor.set(colorRef, []);
+      if (!bjImagesByColor.has(colorRef)) {
+        bjImagesByColor.set(colorRef, []);
       }
-      imagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
+      bjImagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
     }
   }
 
-  log(`BJ état actuel: ${imagesByColor.size} couleur(s) — ${[...imagesByColor.entries()].map(([c, imgs]) => `${c}:${imgs.length} img`).join(", ") || "aucune"}`);
+  const hasAnyMappedVariant = bjImagesByColor.size > 0 || skippedNoRef < product.colors.length;
 
-  // Upload BJ images + delete removed slots
-  for (const [colorRef, images] of imagesByColor) {
+  // Collect all upload/delete tasks
+  const uploadTasks: { colorRef: string; slot: number; imgPath: string }[] = [];
+  const deleteTasks: { colorRef: string; slot: number }[] = [];
+
+  for (const [colorRef, images] of bjImagesByColor) {
     const sorted = images.sort((a, b) => a.order - b.order);
+    const pfsUrls = pfsImagesByColor.get(colorRef) ?? [];
 
+    // Compare: only upload if slot count differs or image changed
+    // We use file modification time as a heuristic for change detection
     for (let i = 0; i < sorted.length; i++) {
-      const img = sorted[i];
-      try {
-        log(`📤 Upload ${colorRef} slot ${i + 1} ← ${img.path}`);
-        const jpegBuffer = await convertToJpeg(img.path);
-        log(`   Converti en JPEG: ${(jpegBuffer.length / 1024).toFixed(0)} Ko`);
-        await pfsUploadImage(pfsProductId, jpegBuffer, i + 1, colorRef, `image_${i + 1}.jpg`);
-        log(`   ✅ Upload OK`);
-      } catch (err) {
-        log(`   ❌ Upload ÉCHOUÉ: ${err instanceof Error ? err.message : err}`);
+      const needsUpload = i >= pfsUrls.length || await imageChanged(sorted[i].path);
+      if (needsUpload) {
+        uploadTasks.push({ colorRef, slot: i + 1, imgPath: sorted[i].path });
       }
     }
 
-    // Delete slots that existed on PFS but no longer exist in BJ
-    const pfsCount = pfsImagesByColor.get(colorRef) ?? 0;
-    if (pfsCount > sorted.length) {
-      log(`🗑 ${colorRef}: PFS a ${pfsCount} images, BJ en a ${sorted.length} → suppression slots ${sorted.length + 1} à ${pfsCount}`);
+    // Delete extra PFS slots
+    for (let slot = sorted.length + 1; slot <= pfsUrls.length; slot++) {
+      deleteTasks.push({ colorRef, slot });
     }
-    for (let slot = sorted.length + 1; slot <= pfsCount; slot++) {
-      try {
-        log(`   🗑 DELETE ${colorRef} slot ${slot}`);
-        await pfsDeleteImage(pfsProductId, slot, colorRef);
-        log(`   ✅ Suppression OK`);
-      } catch (err) {
-        log(`   ❌ Suppression ÉCHOUÉE: ${err instanceof Error ? err.message : err}`);
-      }
-    }
-    // Mark this color as handled
     pfsImagesByColor.delete(colorRef);
   }
 
-  // Delete all images for colors that no longer exist in BJ
-  if (pfsImagesByColor.size > 0) {
-    log(`🗑 Couleurs orphelines sur PFS (supprimées côté BJ): ${[...pfsImagesByColor.keys()].join(", ")}`);
-  }
-  for (const [colorRef, count] of pfsImagesByColor) {
-    for (let slot = 1; slot <= count; slot++) {
-      try {
-        log(`   🗑 DELETE orphan ${colorRef} slot ${slot}`);
-        await pfsDeleteImage(pfsProductId, slot, colorRef);
-        log(`   ✅ Suppression OK`);
-      } catch (err) {
-        log(`   ❌ Suppression ÉCHOUÉE: ${err instanceof Error ? err.message : err}`);
+  // Delete orphaned PFS color images (colors removed from BJ)
+  if (pfsImagesByColor.size > 0 && hasAnyMappedVariant) {
+    for (const [colorRef, urls] of pfsImagesByColor) {
+      for (let slot = 1; slot <= urls.length; slot++) {
+        deleteTasks.push({ colorRef, slot });
       }
     }
   }
 
-  log(`Sync images terminée pour ${pfsProductId}`);
+  if (uploadTasks.length === 0 && deleteTasks.length === 0) {
+    log("Images unchanged — skipping");
+    return apiCalls;
+  }
+
+  log(`${uploadTasks.length} upload(s), ${deleteTasks.length} delete(s) needed`);
+
+  // Execute deletes (sequential, usually few)
+  for (const task of deleteTasks) {
+    try {
+      await pfsDeleteImage(pfsProductId, task.slot, task.colorRef);
+      apiCalls++;
+    } catch (err) {
+      log(`❌ DELETE ${task.colorRef} slot ${task.slot} failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // Execute uploads in parallel (pool of 3)
+  const POOL_SIZE = 3;
+  for (let i = 0; i < uploadTasks.length; i += POOL_SIZE) {
+    const batch = uploadTasks.slice(i, i + POOL_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (task) => {
+        const jpegBuffer = await convertToJpeg(task.imgPath);
+        await pfsUploadImage(pfsProductId, jpegBuffer, task.slot, task.colorRef, `image_${task.slot}.jpg`);
+        return task;
+      })
+    );
+    for (const r of results) {
+      apiCalls++;
+      if (r.status === "rejected") {
+        log(`❌ Upload failed: ${r.reason instanceof Error ? r.reason.message : r.reason}`);
+      }
+    }
+  }
+
+  log(`Sync images done (${apiCalls} API calls)`);
+  return apiCalls;
+}
+
+/**
+ * Heuristic: consider an image "changed" if it was modified recently.
+ * Uses a 10-minute window to account for slow syncs and processing delays.
+ * For first-time syncs (no PFS data / new slot), the caller already forces upload
+ * via the `i >= pfsUrls.length` check — this is only for existing-slot diff.
+ */
+async function imageChanged(imagePath: string): Promise<boolean> {
+  try {
+    const fsPath = path.join(process.cwd(), "public", imagePath);
+    const stats = await stat(fsPath);
+    const ageMs = Date.now() - stats.mtimeMs;
+    return ageMs < 600_000; // Modified in last 10 minutes
+  } catch {
+    return true; // If we can't check, upload it
+  }
 }
 
 /**
@@ -789,10 +1040,15 @@ async function convertToJpeg(imagePath: string): Promise<Buffer> {
 }
 
 // ─────────────────────────────────────────────
-// Sync status
+// Sync status (diff-based)
+// Returns true if status was updated
 // ─────────────────────────────────────────────
 
-async function syncStatus(pfsProductId: string, bjStatus: string): Promise<void> {
+async function syncStatus(
+  pfsProductId: string,
+  bjStatus: string,
+  pfsRefData: PfsCheckReferenceResponse | null,
+): Promise<boolean> {
   const statusMap: Record<string, PfsStatus> = {
     ONLINE: "READY_FOR_SALE",
     OFFLINE: "DRAFT",
@@ -800,9 +1056,17 @@ async function syncStatus(pfsProductId: string, bjStatus: string): Promise<void>
   };
 
   const pfsStatus = statusMap[bjStatus];
-  if (!pfsStatus) return; // SYNCING — don't push
+  if (!pfsStatus) return false; // SYNCING — don't push
+
+  // Compare with current PFS status
+  const currentPfsStatus = pfsRefData?.product?.status;
+  if (currentPfsStatus && currentPfsStatus === pfsStatus) {
+    console.log(`[PFS Reverse Sync] Status unchanged (${pfsStatus}) — skipping`);
+    return false;
+  }
 
   await pfsUpdateStatus([{ id: pfsProductId, status: pfsStatus }]);
+  return true;
 }
 
 // ─────────────────────────────────────────────
@@ -828,8 +1092,6 @@ function validatePfsMappings(product: FullProduct): void {
   const seenColorIds = new Set<string>();
   const seenSizeIds = new Set<string>();
   for (const variant of product.colors) {
-    // Si la variante a un override pfsColorRef (combinaison multi-couleur), pas besoin
-    // de vérifier le mapping de chaque couleur individuelle
     const hasOverride = !!variant.pfsColorRef;
 
     if (!hasOverride && variant.color?.id && !seenColorIds.has(variant.color.id)) {
@@ -848,12 +1110,14 @@ function validatePfsMappings(product: FullProduct): void {
         }
       }
     }
-    for (const pcl of variant.packColorLines) {
-      for (const c of pcl.colors) {
-        if (!seenColorIds.has(c.color.id)) {
-          seenColorIds.add(c.color.id);
-          if (!c.color.pfsColorRef) {
-            issues.push(`Couleur "${c.color.name}" non mappée (pfsColorRef manquant)`);
+    if (!hasOverride) {
+      for (const pcl of variant.packColorLines) {
+        for (const c of pcl.colors) {
+          if (!seenColorIds.has(c.color.id)) {
+            seenColorIds.add(c.color.id);
+            if (!c.color.pfsColorRef) {
+              issues.push(`Couleur "${c.color.name}" non mappée (pfsColorRef manquant)`);
+            }
           }
         }
       }
@@ -880,12 +1144,7 @@ function validatePfsMappings(product: FullProduct): void {
 
   if (issues.length > 0) {
     throw new Error(
-      `Synchronisation impossible — mapping(s) PFS absent(s) :\n• ${issues.join("\n• ")}`
+      `Synchronisation impossible — correspondance(s) PFS absente(s) :\n• ${issues.join("\n• ")}`
     );
   }
 }
-
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
-
