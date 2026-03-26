@@ -243,11 +243,16 @@ function PfsColorDropdown({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      // Ne pas fermer si le clic est dans le trigger OU dans le menu porté
+      if (ref.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -291,6 +296,7 @@ function PfsColorDropdown({
 
       {open && createPortal(
         <div
+          ref={menuRef}
           className="fixed bg-white border border-[#E5E5E5] rounded-lg shadow-2xl z-[9999] max-h-[220px] flex flex-col"
           style={(() => {
             const rect = ref.current?.getBoundingClientRect();
@@ -384,7 +390,7 @@ function PfsColorDropdown({
 function MultiColorSelect({ selected, options, onChange, existingVariants, editingGroupKey, pfsColorRef, onPfsColorRefChange, usedPfsColorRefs, onCreateColor }: {
   selected: { colorId: string; colorName: string; colorHex: string }[];
   options: AvailableColor[];
-  onChange: (colors: { colorId: string; colorName: string; colorHex: string }[]) => void;
+  onChange: (colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) => void;
   existingVariants?: VariantState[];
   /** GroupKey of the variant being edited — excluded from duplicate check */
   editingGroupKey?: string;
@@ -466,13 +472,10 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
   }, [selected, pfsColorRef]);
 
   const confirm = useCallback(() => {
-    onChange(draft);
-    // Propagate PFS color override for multi-color combos
-    if (draft.length > 1 && onPfsColorRefChange) {
-      onPfsColorRefChange(draftPfsColorRef);
-    }
+    // Pass pfsColorRef through onChange so both updates happen in a single setState
+    onChange(draft, draft.length > 1 ? draftPfsColorRef : undefined);
     setOpen(false);
-  }, [draft, draftPfsColorRef, onChange, onPfsColorRefChange]);
+  }, [draft, draftPfsColorRef, onChange]);
 
   const cancel = useCallback(() => {
     setOpen(false);
@@ -714,11 +717,13 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                             currentPfsRef={draftPfsColorRef || null}
                             pfsData={{
                               ...pfsData,
+                              // Pour le variant override, ne bloquer que les refs utilisées par
+                              // d'autres variantes du même produit (pas les mappings Color-level)
                               existingMappings: (() => {
-                                const map: Record<string, { colorId: string; colorName: string }> = { ...pfsData.existingMappings };
+                                const map: Record<string, { colorId: string; colorName: string }> = {};
                                 if (usedPfsColorRefs) {
                                   for (const [ref, label] of usedPfsColorRefs) {
-                                    if (!map[ref]) map[ref] = { colorId: "__other__", colorName: label };
+                                    map[ref] = { colorId: "__other__", colorName: label };
                                   }
                                 }
                                 return map;
@@ -1052,7 +1057,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   }
 
   const [uploadingSlots, setUploadingSlots] = useState<Record<string, number | null>>({});
-  const [rotatingSlots, setRotatingSlots] = useState<Record<string, number | null>>({});
 
   async function handleAddImageAtPosition(groupKey: string, file: File, position: number) {
     const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
@@ -1145,81 +1149,44 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     }));
   }
 
-  async function handleRotateAtPosition(groupKey: string, position: number) {
-    const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
-    if (!state) return;
-    const idx = state.orders.indexOf(position);
-    if (idx === -1) return;
+  function handleCrossColorDrop(sourceGroupKey: string, sourcePos: number, targetGroupKey: string, targetPos: number) {
+    const srcState = colorImagesRef.current.find((c) => c.groupKey === sourceGroupKey);
+    if (!srcState) return;
+    const srcIdx = srcState.orders.indexOf(sourcePos);
+    if (srcIdx === -1 || !srcState.imagePreviews[srcIdx]) return;
 
-    const preview = state.imagePreviews[idx];
-    const uploadedPath = state.uploadedPaths[idx];
-    if (!preview && !uploadedPath) return;
+    const srcPreview = srcState.imagePreviews[srcIdx];
+    const srcPath = srcState.uploadedPaths[srcIdx];
 
-    setRotatingSlots((prev) => ({ ...prev, [groupKey]: position }));
-
-    try {
-      if (preview?.startsWith("blob:")) {
-        const rotatedBlob = await rotateImageClientSide(preview);
-        const newBlobUrl = URL.createObjectURL(rotatedBlob);
-        const fd = new FormData();
-        fd.append("image", rotatedBlob, "rotated.webp");
-        const res = await fetch("/api/admin/products/images", { method: "POST", body: fd });
-        const json = await res.json();
-        if (res.ok && json.path) {
-          onChange(colorImagesRef.current.map((c) => {
-            if (c.groupKey !== groupKey) return c;
-            const newPreviews = [...c.imagePreviews];
-            const newPaths = [...c.uploadedPaths];
-            newPreviews[idx] = newBlobUrl;
-            newPaths[idx] = json.path;
-            return { ...c, imagePreviews: newPreviews, uploadedPaths: newPaths };
-          }));
-        }
-      } else {
-        const pathToRotate = uploadedPath || preview;
-        const cleanPath = pathToRotate.split("?")[0];
-        const res = await fetch("/api/admin/products/images/rotate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imagePath: cleanPath }),
-        });
-        const json = await res.json();
-        if (res.ok && json.cacheBuster) {
-          onChange(colorImagesRef.current.map((c) => {
-            if (c.groupKey !== groupKey) return c;
-            const newPreviews = [...c.imagePreviews];
-            newPreviews[idx] = `${cleanPath}?t=${json.cacheBuster}`;
-            return { ...c, imagePreviews: newPreviews };
-          }));
-        }
+    onChange(colorImagesRef.current.map((c) => {
+      if (c.groupKey === sourceGroupKey) {
+        // Remove from source
+        const newPreviews = c.imagePreviews.filter((_, i) => i !== srcIdx);
+        const newPaths = c.uploadedPaths.filter((_, i) => i !== srcIdx);
+        const newOrders = c.orders.filter((_, i) => i !== srcIdx);
+        return { ...c, imagePreviews: newPreviews, uploadedPaths: newPaths, orders: newOrders };
       }
-    } catch (err) {
-      console.error("[handleRotateAtPosition] Error:", err);
-    }
-
-    setRotatingSlots((prev) => ({ ...prev, [groupKey]: null }));
-  }
-
-  async function rotateImageClientSide(blobUrl: string): Promise<Blob> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.height;
-        canvas.height = img.width;
-        const ctx = canvas.getContext("2d")!;
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(Math.PI / 2);
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("Canvas toBlob failed"));
-        }, "image/webp", 0.9);
-      };
-      img.onerror = reject;
-      img.src = blobUrl;
-    });
+      if (c.groupKey === targetGroupKey) {
+        // Check if target slot is occupied — if so, append at next free slot
+        const existingIdx = c.orders.indexOf(targetPos);
+        let finalPos = targetPos;
+        if (existingIdx !== -1) {
+          // Find first free position (0-4)
+          const usedPositions = new Set(c.orders);
+          for (let p = 0; p < 5; p++) {
+            if (!usedPositions.has(p)) { finalPos = p; break; }
+          }
+          if (finalPos === targetPos && existingIdx !== -1) return c; // All slots full
+        }
+        return {
+          ...c,
+          imagePreviews: [...c.imagePreviews, srcPreview],
+          uploadedPaths: [...c.uploadedPaths, srcPath],
+          orders: [...c.orders, finalPos],
+        };
+      }
+      return c;
+    }));
   }
 
   const totalPhotos = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
@@ -1320,12 +1287,13 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
               </div>
               <ImageDropzone
                 colorIndex={idx}
+                groupKey={cimg.groupKey}
                 previews={cimg.imagePreviews}
                 orders={cimg.orders}
                 onAddAtPosition={(file, pos) => handleAddImageAtPosition(cimg.groupKey, file, pos)}
                 onRemoveAtPosition={(pos) => handleRemoveImageAtPosition(cimg.groupKey, pos)}
                 onSwapPositions={(from, to) => handleSwapPositions(cimg.groupKey, from, to)}
-                onRotateAtPosition={(pos) => handleRotateAtPosition(cimg.groupKey, pos)}
+                onCrossColorDrop={(srcGroupKey, srcPos, targetPos) => handleCrossColorDrop(srcGroupKey, srcPos, cimg.groupKey, targetPos)}
                 onConfirmReplace={(pos) => confirmDialog({
                   type: "warning",
                   title: "Remplacer l'image ?",
@@ -1334,7 +1302,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
                 })}
                 uploading={cimg.uploading}
                 uploadingPosition={uploadingSlots[cimg.groupKey] ?? null}
-                rotatingPosition={rotatingSlots[cimg.groupKey] ?? null}
               />
             </div>
           );
@@ -2209,7 +2176,7 @@ export default function ColorVariantManager({
     onChange(newVariants);
   }
 
-  function handleMultiColorChange(tempIds: Set<string>, colors: { colorId: string; colorName: string; colorHex: string }[]) {
+  function handleMultiColorChange(tempIds: Set<string>, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) {
     if (colors.length === 0) {
       onChange(variants.map((v) => tempIds.has(v.tempId) ? { ...v, colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [], pfsColorRef: "" } : v));
       return;
@@ -2220,12 +2187,13 @@ export default function ColorVariantManager({
       // Check if color combination actually changed — if so, clear pfsColorRef override
       const oldKey = variantGroupKeyFromState(v);
       const newKey = rest.length === 0 ? main.colorId : `${main.colorId}::${rest.map((c) => c.colorName).join(",")}`;
+      const combinationChanged = oldKey !== newKey;
       return {
         ...v,
         colorId: main.colorId, colorName: main.colorName, colorHex: main.colorHex,
         subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
-        // Clear PFS override if combination changed
-        pfsColorRef: oldKey === newKey ? v.pfsColorRef : "",
+        // Use explicit override if provided, otherwise clear if combination changed
+        pfsColorRef: pfsColorRefOverride !== undefined ? pfsColorRefOverride : (combinationChanged ? "" : v.pfsColorRef),
       };
     }));
   }
@@ -2508,7 +2476,7 @@ export default function ColorVariantManager({
                                 ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
                               ] : []}
                               options={availableColors}
-                              onChange={(colors) => handleMultiColorChange(new Set([v.tempId]), colors)}
+                              onChange={(colors, pfsRef) => handleMultiColorChange(new Set([v.tempId]), colors, pfsRef)}
                               existingVariants={variants}
                               editingGroupKey={variantGroupKeyFromState(v)}
                               pfsColorRef={v.pfsColorRef}

@@ -45,6 +45,14 @@ interface Size {
   categories: { category: { name: string } }[];
 }
 
+interface MultiColorVariant {
+  id: string;
+  pfsColorRef: string | null;
+  color: { id: string; name: string; hex: string | null; patternImage: string | null; pfsColorRef: string | null };
+  subColors: { color: { id: string; name: string; hex: string | null; patternImage: string | null }; position: number }[];
+  product: { id: string; name: string; reference: string };
+}
+
 interface MappingData {
   colors: Color[];
   categories: Category[];
@@ -52,6 +60,7 @@ interface MappingData {
   countries: Country[];
   seasons: Season[];
   sizes: Size[];
+  multiColorVariants: MultiColorVariant[];
 }
 
 export default function PfsMappingTab() {
@@ -106,6 +115,7 @@ export default function PfsMappingTab() {
       countries={data.countries}
       seasons={data.seasons}
       sizes={data.sizes}
+      multiColorVariants={data.multiColorVariants ?? []}
     />
   );
 }

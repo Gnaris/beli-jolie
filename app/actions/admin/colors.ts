@@ -145,6 +145,20 @@ export async function fetchPfsColorsForMapping(): Promise<{
   };
 }
 
+/**
+ * Update the PFS color reference override for a ProductColor (variant).
+ * Used for multi-color combinations that need to map to a single PFS color.
+ */
+export async function updateProductColorPfsRef(productColorId: string, pfsColorRef: string | null) {
+  await requireAdmin();
+  await prisma.productColor.update({
+    where: { id: productColorId },
+    data: { pfsColorRef: pfsColorRef || null },
+  });
+  // Pas de revalidateTag ici — le state client se met à jour localement
+  // et un revalidate provoquerait un remount du composant
+}
+
 export async function deleteColor(id: string) {
   await requireAdmin();
   const count = await prisma.productColor.count({ where: { colorId: id } });

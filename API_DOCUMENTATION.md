@@ -142,7 +142,9 @@ Reponse: `{ "success": true }`. Les images couleur ne sont pas supprimees.
 
 ---
 
-## 13. Supprimer image — `DELETE /catalog/products/{id}/image` — **CRASH 500, non fonctionnel**
+## 13. Supprimer image — `DELETE /catalog/products/{id}/image`
+
+**Body JSON** : `{ "color": "FUCHSIA", "slot": 4 }` — supprime l'image au slot donne pour la couleur.
 
 ---
 
@@ -204,7 +206,7 @@ Boucles d'oreilles (`a045J000003KWwDQAW`), Colliers (`a045J000003KWwNQAW`), Brac
 - `material_composition` array sur POST → crash 500 (string OK). Sur PATCH → array OK
 - PATCH variants avec `id` → updated:0 (utiliser `variant_id`)
 - `discounted_price_eur_ex_vat` seul → ignore. `null` → crash 500. Utiliser `discount_type`/`discount_value`
-- DELETE image → crash 500
+- DELETE image → fonctionne avec body JSON `{ color, slot }` (methode DELETE avec body)
 - Suppression produit ne libere pas la reference
 - PACK format sizes imbrique → crash. Utiliser format plat `{ color, size, qty }`
 - Rate limit PATCH variants: 30/min

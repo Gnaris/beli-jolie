@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import ColorSwatch from "@/components/ui/ColorSwatch";
-import { applyPfsLiveSync } from "@/app/actions/admin/pfs-live-sync";
+import { applyPfsLiveSync, applyLiveImageChanges } from "@/app/actions/admin/pfs-live-sync";
 
 // ─────────────────────────────────────────────
 // Types
@@ -60,6 +60,7 @@ interface ProductData {
     colorPatternImage: string | null;
     subColors: SubColorData[];
     paths: string[];
+    images?: Array<{ id: string; path: string; order: number }>;
   }>;
   compositions: CompositionData[];
   manufacturingCountryId?: string | null;
@@ -456,8 +457,9 @@ export default function PfsLiveCompareModal({
     variants: {},
   });
   const [imageSlots, setImageSlots] = useState<Record<string, (string | null)[]>>({});
+  const [initialBjSlots, setInitialBjSlots] = useState<Record<string, (string | null)[]>>({});
   const [zoomSrc, setZoomSrc] = useState<string | null>(null);
-  const [dragData, setDragData] = useState<{ path: string; sourceKey: string } | null>(null);
+  const [dragData, setDragData] = useState<{ path: string; sourceKey: string; sourcePos: number } | null>(null);
 
   // ── Initialize selections from data ──
   const initSelectionsFromData = useCallback((data: { existing: ProductData; pfs: ProductData }) => {
@@ -482,13 +484,29 @@ export default function PfsLiveCompareModal({
 
     // Initialize image slots from both sides
     const initSlots: Record<string, (string | null)[]> = {};
+    const initBj: Record<string, (string | null)[]> = {};
     for (const group of data.existing.imagesByColor ?? []) {
       const key = `bj::${group.colorId}::${group.colorName}`;
       const slots: (string | null)[] = [null, null, null, null, null];
-      for (let i = 0; i < Math.min(group.paths.length, 5); i++) {
-        slots[i] = group.paths[i];
+      // Use images array (with order) if available, otherwise fallback to paths
+      if (group.images && group.images.length > 0) {
+        for (const img of group.images) {
+          const pos = Math.min(img.order, 4);
+          // Avoid overwriting: if slot already taken, find next free slot
+          if (slots[pos] === null) {
+            slots[pos] = img.path;
+          } else {
+            const free = slots.findIndex(s => s === null);
+            if (free !== -1) slots[free] = img.path;
+          }
+        }
+      } else {
+        for (let i = 0; i < Math.min(group.paths.length, 5); i++) {
+          slots[i] = group.paths[i];
+        }
       }
       initSlots[key] = slots;
+      initBj[key] = [...slots];
     }
     for (const group of data.pfs.imagesByColor ?? []) {
       const key = `pfs::${group.colorId}::${group.colorName}`;
@@ -499,6 +517,7 @@ export default function PfsLiveCompareModal({
       initSlots[key] = slots;
     }
     setImageSlots(initSlots);
+    setInitialBjSlots(initBj);
   }, []);
 
   // ── Fetch data (only if no initialData) ──
@@ -561,14 +580,6 @@ export default function PfsLiveCompareModal({
     }));
   }, []);
 
-  const handleDropOnSlot = useCallback((slotKey: string, position: number, imagePath: string) => {
-    setImageSlots((prev) => {
-      const slots = [...(prev[slotKey] ?? [null, null, null, null, null])];
-      slots[position] = imagePath;
-      return { ...prev, [slotKey]: slots };
-    });
-  }, []);
-
   const handleClearSlot = useCallback((slotKey: string, position: number) => {
     setImageSlots((prev) => {
       const slots = [...(prev[slotKey] ?? [null, null, null, null, null])];
@@ -587,6 +598,70 @@ export default function PfsLiveCompareModal({
     });
   }, []);
 
+  /** Move image from one slot to another (cross-color or cross-side). Swaps if target is occupied. */
+  const handleMoveImage = useCallback((
+    targetKey: string,
+    targetPos: number,
+    imagePath: string,
+    sourceKey: string,
+    sourcePos: number,
+  ) => {
+    console.log("[DnD] handleMoveImage", { targetKey, targetPos, sourceKey, sourcePos, imagePath: imagePath?.substring(0, 50) });
+    setImageSlots((prev) => {
+      const newSlots = { ...prev };
+      const sourceSlots = [...(newSlots[sourceKey] ?? [null, null, null, null, null])];
+      const targetSlots = sourceKey === targetKey ? sourceSlots : [...(newSlots[targetKey] ?? [null, null, null, null, null])];
+
+      // Swap: put target's existing image in source position
+      const existingTarget = targetSlots[targetPos];
+      targetSlots[targetPos] = imagePath;
+      sourceSlots[sourcePos] = existingTarget;
+
+      newSlots[sourceKey] = sourceSlots;
+      if (sourceKey !== targetKey) {
+        newSlots[targetKey] = targetSlots;
+      }
+      return newSlots;
+    });
+  }, []);
+
+  // ── Check if BJ images changed ──
+  const hasBjImageChanges = useCallback(() => {
+    // Compare current BJ image slots with initial state
+    for (const [key, slots] of Object.entries(imageSlots)) {
+      if (!key.startsWith("bj::")) continue;
+      const initial = initialBjSlots[key];
+      if (!initial) {
+        // New BJ color group with images
+        if (slots.some(s => s !== null)) return true;
+        continue;
+      }
+      for (let i = 0; i < slots.length; i++) {
+        if (slots[i] !== (initial[i] ?? null)) return true;
+      }
+    }
+    // Check if any initial BJ slot key is missing from current state
+    for (const key of Object.keys(initialBjSlots)) {
+      if (!imageSlots[key]) return true;
+    }
+    return false;
+  }, [imageSlots, initialBjSlots]);
+
+  // ── Build BJ image final state for server ──
+  const buildBjImageFinalState = useCallback(() => {
+    const result: Array<{ colorId: string; slots: Array<string | null> }> = [];
+    for (const [key, slots] of Object.entries(imageSlots)) {
+      if (!key.startsWith("bj::")) continue;
+      // Extract colorId from key: "bj::colorId::colorName"
+      const parts = key.split("::");
+      const colorId = parts[1];
+      if (colorId) {
+        result.push({ colorId, slots });
+      }
+    }
+    return result;
+  }, [imageSlots]);
+
   // ── Apply changes ──
   const handleApply = useCallback(async () => {
     if (!existing || !pfs) return;
@@ -595,6 +670,7 @@ export default function PfsLiveCompareModal({
     setError(null);
 
     try {
+      // 1. Apply field & variant selections
       const result = await applyPfsLiveSync(productId, selections, {
         name: pfs.name,
         description: pfs.description,
@@ -618,9 +694,28 @@ export default function PfsLiveCompareModal({
         manufacturingCountryId: existing.manufacturingCountryId,
       });
 
+      // 2. Apply BJ image changes if any
+      let imageApplied = 0;
+      const hasImgChanges = hasBjImageChanges();
+      console.log("[Apply] hasBjImageChanges:", hasImgChanges);
+      if (hasImgChanges) {
+        const bjFinal = buildBjImageFinalState();
+        console.log("[Apply] bjFinalState:", JSON.stringify(bjFinal));
+        try {
+          const imgResult = await applyLiveImageChanges(productId, bjFinal);
+          console.log("[Apply] imgResult:", JSON.stringify(imgResult));
+          if (!imgResult.success) {
+            console.error("[Apply] Image error:", imgResult.error);
+          }
+          imageApplied = imgResult.applied;
+        } catch (imgErr) {
+          console.error("[Apply] Image exception:", imgErr);
+        }
+      }
+
+      const totalApplied = result.changesApplied + imageApplied;
       if (result.success) {
-        setSuccess(`${result.changesApplied} modification${result.changesApplied > 1 ? "s" : ""} appliquée${result.changesApplied > 1 ? "s" : ""} avec succès`);
-        // Refresh the page after a short delay
+        setSuccess(`${totalApplied} modification${totalApplied > 1 ? "s" : ""} appliquée${totalApplied > 1 ? "s" : ""} avec succès`);
         setTimeout(() => {
           router.refresh();
           onClose();
@@ -633,7 +728,7 @@ export default function PfsLiveCompareModal({
     } finally {
       setApplying(false);
     }
-  }, [productId, selections, existing, pfs, router, onClose]);
+  }, [productId, selections, existing, pfs, router, onClose, hasBjImageChanges, buildBjImageFinalState]);
 
   // ── Count changes ──
   const countChanges = useCallback(() => {
@@ -649,15 +744,23 @@ export default function PfsLiveCompareModal({
     for (const [, val] of Object.entries(selections.variants)) {
       if (val === "pfs" || val === "add") count++;
     }
-    // Count BJ variant selections on differing fields
     const varMatches = matchVariants(existing.variants, pfs.variants);
+    // Count BJ variant selections on differing fields (both sides exist)
     for (const m of varMatches) {
       if (m.isDifferent && m.onlyIn === "both" && (selections.variants[m.key] === "bj" || !selections.variants[m.key])) {
         count++;
       }
     }
+    // Count BJ-only variants selected to push to PFS
+    for (const m of varMatches) {
+      if (m.onlyIn === "bj" && selections.variants[m.key] === "bj") {
+        count++;
+      }
+    }
+    // Count image changes
+    if (hasBjImageChanges()) count++;
     return count;
-  }, [existing, pfs, selections]);
+  }, [existing, pfs, selections, hasBjImageChanges]);
 
   if (!open) return null;
 
@@ -935,6 +1038,32 @@ export default function PfsLiveCompareModal({
                                 </button>
                               </div>
                             )}
+                            {match.onlyIn === "bj" && (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => updateVariantSelection(match.key, "bj")}
+                                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium border transition-all min-h-[36px] ${
+                                    sel === "bj"
+                                      ? "bg-[#F59E0B] text-white border-[#F59E0B]"
+                                      : "bg-bg-secondary text-text-secondary border-border hover:bg-border"
+                                  }`}
+                                >
+                                  <SyncIcon className="h-3.5 w-3.5" />
+                                  Envoyer vers PFS
+                                </button>
+                                <button
+                                  onClick={() => updateVariantSelection(match.key, "pfs")}
+                                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium border transition-all min-h-[36px] ${
+                                    sel === "pfs"
+                                      ? "bg-red-500 text-white border-red-500"
+                                      : "bg-bg-secondary text-text-secondary border-border hover:bg-border"
+                                  }`}
+                                >
+                                  <XMarkIcon className="h-3.5 w-3.5" />
+                                  Ignorer
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -1000,7 +1129,7 @@ export default function PfsLiveCompareModal({
                     Images
                   </h4>
                   <p className="text-[11px] text-text-secondary mb-4">
-                    Glissez les images d&apos;un côté à l&apos;autre ou entre les emplacements. Cliquez sur × pour retirer.
+                    Glissez-déposez les images entre couleurs et côtés (les images sont échangées). Modifications côté Boutique sauvegardées automatiquement.
                   </p>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1033,11 +1162,11 @@ export default function PfsLiveCompareModal({
                                     position={pos}
                                     path={slotPath}
                                     slotKey={key}
-                                    isDragActive={!!dragData}
-                                    onDrop={(path) => handleDropOnSlot(key, pos, path)}
+                                    dragData={dragData}
                                     onClear={() => handleClearSlot(key, pos)}
                                     onZoom={(path) => setZoomSrc(path)}
                                     onReorder={(fromPos) => handleReorderSlot(key, fromPos, pos)}
+                                    onMoveFrom={(imgPath, srcKey, srcPos) => handleMoveImage(key, pos, imgPath, srcKey, srcPos)}
                                     setDragData={setDragData}
                                     side="bj"
                                   />
@@ -1081,11 +1210,11 @@ export default function PfsLiveCompareModal({
                                     position={pos}
                                     path={slotPath}
                                     slotKey={key}
-                                    isDragActive={!!dragData}
-                                    onDrop={(path) => handleDropOnSlot(key, pos, path)}
+                                    dragData={dragData}
                                     onClear={() => handleClearSlot(key, pos)}
                                     onZoom={(path) => setZoomSrc(path)}
                                     onReorder={(fromPos) => handleReorderSlot(key, fromPos, pos)}
+                                    onMoveFrom={(imgPath, srcKey, srcPos) => handleMoveImage(key, pos, imgPath, srcKey, srcPos)}
                                     setDragData={setDragData}
                                     side="pfs"
                                   />
@@ -1173,48 +1302,32 @@ function LiveImageSlot({
   position,
   path,
   slotKey,
-  isDragActive,
-  onDrop,
+  dragData,
   onClear,
   onZoom,
   onReorder,
+  onMoveFrom,
   setDragData,
   side,
 }: {
   position: number;
   path: string | null;
   slotKey: string;
-  isDragActive: boolean;
-  onDrop: (path: string) => void;
+  dragData: { path: string; sourceKey: string; sourcePos: number } | null;
   onClear: () => void;
   onZoom: (path: string) => void;
   onReorder: (fromPos: number) => void;
-  setDragData: (data: { path: string; sourceKey: string } | null) => void;
+  onMoveFrom: (imagePath: string, sourceKey: string, sourcePos: number) => void;
+  setDragData: (data: { path: string; sourceKey: string; sourcePos: number } | null) => void;
   side: "bj" | "pfs";
 }) {
   const [dragOver, setDragOver] = useState(false);
   const sideColor = side === "bj" ? "#3B82F6" : "#F59E0B";
+  const isDragActive = !!dragData;
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    setDragOver(true);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    // Check for internal reorder (same slotKey)
-    const fromSlotKey = e.dataTransfer.getData("application/x-slot-key");
-    const fromPos = parseInt(e.dataTransfer.getData("application/x-slot-pos"), 10);
-    if (fromSlotKey === slotKey && !isNaN(fromPos) && fromPos !== position) {
-      onReorder(fromPos);
-    } else {
-      // Cross-color or cross-side drop
-      const droppedPath = e.dataTransfer.getData("text/plain");
-      if (droppedPath) onDrop(droppedPath);
-    }
-  };
+  // Use ref to always have current dragData in drop handler (avoids stale closure)
+  const dragDataRef = useRef(dragData);
+  dragDataRef.current = dragData;
 
   return (
     <div
@@ -1222,15 +1335,34 @@ function LiveImageSlot({
       onDragStart={(e) => {
         if (path) {
           e.dataTransfer.setData("text/plain", path);
-          e.dataTransfer.setData("application/x-slot-key", slotKey);
-          e.dataTransfer.setData("application/x-slot-pos", String(position));
-          setDragData({ path, sourceKey: slotKey });
+          e.dataTransfer.effectAllowed = "copyMove";
+          setDragData({ path, sourceKey: slotKey, sourcePos: position });
         }
       }}
       onDragEnd={() => setDragData(null)}
-      onDragOver={handleDragOver}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setDragOver(true);
+      }}
       onDragLeave={() => setDragOver(false)}
-      onDrop={handleDrop}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+
+        // Read from ref to guarantee latest value
+        const dd = dragDataRef.current;
+        if (!dd) {
+          console.warn("[LiveImageSlot] drop: dragData is null");
+          return;
+        }
+
+        if (dd.sourceKey === slotKey && dd.sourcePos !== position) {
+          onReorder(dd.sourcePos);
+        } else if (dd.sourceKey !== slotKey) {
+          onMoveFrom(dd.path, dd.sourceKey, dd.sourcePos);
+        }
+      }}
       className={`
         relative aspect-square rounded-xl border-2 transition-all flex flex-col items-center justify-center
         ${path
@@ -1259,7 +1391,7 @@ function LiveImageSlot({
           <img
             src={getThumbSrc(path)}
             alt={`Position ${position + 1}`}
-            className="h-full w-full object-cover rounded-[10px]"
+            className="h-full w-full object-cover rounded-[10px] pointer-events-none select-none"
             loading="lazy"
             draggable={false}
           />

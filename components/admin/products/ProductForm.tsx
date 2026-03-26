@@ -346,10 +346,11 @@ export default function ProductForm({
   const buildSnapshot = useCallback(() => JSON.stringify({
     reference, name, description, categoryId, subCategoryIds,
     variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, packColorLines: v.packColorLines, discountType: v.discountType, discountValue: v.discountValue })),
+    colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, tagNames, isBestSeller,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
     manufacturingCountryId, seasonId,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, compositions, similarProductIds, tagNames, isBestSeller, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId]);
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, tagNames, isBestSeller, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId]);
 
   // Capture snapshot after first effects have settled (colorImages sync etc.)
   useEffect(() => {
@@ -1035,12 +1036,14 @@ export default function ProductForm({
         initialSnapshot.current = buildSnapshot();
         isDirty.current = false;
 
-        // ── After successful save: offer PFS sync (only for complete products) ──
-        if (!isIncomplete && mode === "edit" && productId) {
+        // ── After successful save: offer PFS sync ──
+        if (mode === "edit" && productId) {
           const okSync = await confirmDialog({
             type: "info",
             title: "Synchronisation PFS",
-            message: "Les modifications ont été enregistrées avec succès. Voulez-vous synchroniser ce produit avec PFS ?",
+            message: isIncomplete
+              ? "Les modifications ont été enregistrées. Le produit est incomplet, mais vous pouvez quand même synchroniser avec PFS. Voulez-vous continuer ?"
+              : "Les modifications ont été enregistrées avec succès. Voulez-vous synchroniser ce produit avec PFS ?",
             confirmLabel: "Synchroniser avec PFS",
             cancelLabel: "Plus tard",
           });
@@ -1054,8 +1057,6 @@ export default function ProductForm({
               setError("Erreur lors de la synchronisation PFS.");
             }
           }
-        } else if (isIncomplete) {
-          // No PFS sync for incomplete products — silent (the badge says it all)
         }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");

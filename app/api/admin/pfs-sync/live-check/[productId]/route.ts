@@ -374,6 +374,7 @@ export async function GET(
         colorPatternImage: string | null;
         subColors: Array<{ colorId: string; colorName: string; hex: string | null; patternImage: string | null }>;
         paths: string[];
+        images: Array<{ id: string; path: string; order: number }>;
       }>();
 
       for (const pc of product.colors) {
@@ -394,6 +395,7 @@ export async function GET(
               patternImage: sc.color.patternImage,
             })),
             paths: [],
+            images: [],
           });
         }
 
@@ -401,6 +403,7 @@ export async function GET(
         for (const img of pc.images) {
           if (!group.paths.includes(img.path)) {
             group.paths.push(img.path);
+            group.images.push({ id: img.id, path: img.path, order: img.order });
           }
         }
       }

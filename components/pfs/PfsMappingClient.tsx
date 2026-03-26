@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { updateColorPfsRef } from "@/app/actions/admin/colors";
+import { updateColorPfsRef, updateProductColorPfsRef } from "@/app/actions/admin/colors";
 import { updateCategoryPfsId } from "@/app/actions/admin/categories";
 import { updateCompositionPfsRef } from "@/app/actions/admin/compositions";
 import { updateManufacturingCountryPfsRef } from "@/app/actions/admin/manufacturing-countries";
@@ -50,6 +50,14 @@ interface BjSize {
   name: string;
   pfsMappings: { pfsSizeRef: string }[];
   categories: { category: { name: string } }[];
+}
+
+interface BjMultiColorVariant {
+  id: string;
+  pfsColorRef: string | null;
+  color: { id: string; name: string; hex: string | null; patternImage: string | null; pfsColorRef: string | null };
+  subColors: { color: { id: string; name: string; hex: string | null; patternImage: string | null }; position: number }[];
+  product: { id: string; name: string; reference: string };
 }
 
 interface PfsSize {
@@ -106,11 +114,12 @@ interface Props {
   countries: BjCountry[];
   seasons: BjSeason[];
   sizes: BjSize[];
+  multiColorVariants: BjMultiColorVariant[];
 }
 
-type Tab = "colors" | "categories" | "compositions" | "countries" | "seasons" | "sizes";
+type Tab = "colors" | "categories" | "compositions" | "countries" | "seasons" | "sizes" | "combinations";
 
-export default function PfsMappingClient({ colors: initialColors, categories: initialCategories, compositions: initialCompositions, countries: initialCountries, seasons: initialSeasons, sizes: initialSizes }: Props) {
+export default function PfsMappingClient({ colors: initialColors, categories: initialCategories, compositions: initialCompositions, countries: initialCountries, seasons: initialSeasons, sizes: initialSizes, multiColorVariants: initialMultiColorVariants }: Props) {
   const [tab, setTab] = useState<Tab>("colors");
   const [colors, setColors] = useState(initialColors);
   const [categories, setCategories] = useState(initialCategories);
@@ -118,6 +127,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
   const [countries, setCountries] = useState(initialCountries);
   const [seasons, setSeasons] = useState(initialSeasons);
   const [sizes, setSizes] = useState(initialSizes);
+  const [multiColorVariants, setMultiColorVariants] = useState(initialMultiColorVariants);
 
   const [pfsColors, setPfsColors] = useState<PfsColor[]>([]);
   const [pfsCategories, setPfsCategories] = useState<PfsCategory[]>([]);
@@ -277,6 +287,17 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
     setSaving(null);
   }, []);
 
+  const handleSaveMultiColorRef = useCallback(async (productColorId: string, pfsRef: string | null) => {
+    setSaving(productColorId);
+    try {
+      await updateProductColorPfsRef(productColorId, pfsRef || null);
+      setMultiColorVariants((prev) => prev.map((v) => (v.id === productColorId ? { ...v, pfsColorRef: pfsRef } : v)));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erreur");
+    }
+    setSaving(null);
+  }, []);
+
   // Auto-map sizes: if Boutique size name matches a PFS size reference exactly and has no mappings yet
   const [sizeAutoMapDone, setSizeAutoMapDone] = useState(false);
   useEffect(() => {
@@ -298,6 +319,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
     { key: "countries", label: "Pays", count: countries.length, mapped: countries.filter((c) => c.pfsCountryRef).length },
     { key: "seasons", label: "Saisons", count: seasons.length, mapped: seasons.filter((s) => s.pfsSeasonRef).length },
     { key: "sizes", label: "Tailles", count: sizes.length, mapped: sizes.filter((s) => s.pfsMappings.length > 0).length },
+    ...(multiColorVariants.length > 0 ? [{ key: "combinations" as const, label: "Combinaisons", count: multiColorVariants.length, mapped: multiColorVariants.filter((v) => v.pfsColorRef).length }] : []),
   ];
 
   // Compute used PFS refs to prevent duplicates (a PFS ref can only be linked to ONE Boutique entity)
@@ -313,6 +335,11 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
   const filteredCountries = countries.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
   const filteredSeasons = seasons.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
   const filteredSizes = sizes.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredMultiColor = multiColorVariants.filter((v) => {
+    const q = search.toLowerCase();
+    const colorNames = [v.color.name, ...v.subColors.map((sc) => sc.color.name)].join(" ").toLowerCase();
+    return colorNames.includes(q) || v.product.name.toLowerCase().includes(q) || v.product.reference.toLowerCase().includes(q);
+  });
 
   if (loading) {
     return (
@@ -767,6 +794,98 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
         </div>
       )}
 
+      {/* Multi-color combinations mapping */}
+      {tab === "combinations" && (
+        <div className="space-y-3">
+          <p className="text-sm text-text-secondary">
+            Les variantes avec plusieurs couleurs doivent être liées à une couleur PFS unique pour la synchronisation.
+            Ce mapping est prioritaire sur le mapping individuel de chaque couleur.
+          </p>
+          <div className="card overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="table-header">
+                  <th className="text-left p-3">Produit</th>
+                  <th className="text-left p-3">Combinaison</th>
+                  <th className="text-left p-3">Couleur PFS</th>
+                  <th className="text-left p-3 w-20">Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMultiColor.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-8 text-center text-sm text-text-secondary">
+                      Aucune combinaison multi-couleur trouvée
+                    </td>
+                  </tr>
+                )}
+                {filteredMultiColor.map((variant) => {
+                  const allColors = [variant.color, ...variant.subColors.map((sc) => sc.color)];
+                  const comboLabel = allColors.map((c) => c.name).join(" + ");
+                  const effectiveRef = variant.pfsColorRef || variant.color.pfsColorRef;
+
+                  return (
+                    <tr key={variant.id} className="table-row">
+                      <td className="p-3">
+                        <div className="text-sm font-medium">{variant.product.name}</div>
+                        <div className="text-xs text-text-secondary">{variant.product.reference}</div>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex -space-x-1">
+                            {allColors.map((c, i) => (
+                              <div key={i} title={c.name}>
+                                {c.patternImage ? (
+                                  <div className="w-6 h-6 rounded-full bg-cover bg-center border-2 border-bg-primary" style={{ backgroundImage: `url(${c.patternImage})` }} />
+                                ) : c.hex ? (
+                                  <div className="w-6 h-6 rounded-full border-2 border-bg-primary" style={{ backgroundColor: c.hex }} />
+                                ) : (
+                                  <div className="w-6 h-6 rounded-full border-2 border-bg-primary bg-bg-secondary" />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <span className="text-sm">{comboLabel}</span>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <CustomSelect
+                          value={variant.pfsColorRef ?? ""}
+                          onChange={(val) => handleSaveMultiColorRef(variant.id, val || null)}
+                          disabled={saving === variant.id}
+                          size="sm"
+                          searchable
+                          className="max-w-[280px]"
+                          aria-label={`Couleur PFS pour ${comboLabel}`}
+                          options={[
+                            { value: "", label: effectiveRef ? `— Hérité : ${effectiveRef} —` : "— Non lié —" },
+                            ...pfsColors.map((pc) => ({
+                              value: pc.reference,
+                              label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
+                            })),
+                          ]}
+                        />
+                      </td>
+                      <td className="p-3">
+                        {saving === variant.id ? (
+                          <span className="text-text-secondary text-xs">...</span>
+                        ) : variant.pfsColorRef ? (
+                          <span className="badge badge-success">Override</span>
+                        ) : effectiveRef ? (
+                          <span className="badge badge-info">Hérité</span>
+                        ) : (
+                          <span className="badge badge-warning">Non lié</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Summary */}
       <div className="flex flex-wrap gap-4 text-sm text-text-secondary">
         <span>Couleurs liées : {colors.filter((c) => c.pfsColorRef).length}/{colors.length}</span>
@@ -775,6 +894,9 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
         <span>Pays liés : {countries.filter((c) => c.pfsCountryRef).length}/{countries.length}</span>
         <span>Saisons liées : {seasons.filter((s) => s.pfsSeasonRef).length}/{seasons.length}</span>
         <span>Tailles liées : {sizes.filter((s) => s.pfsMappings.length > 0).length}/{sizes.length}</span>
+        {multiColorVariants.length > 0 && (
+          <span>Combinaisons liées : {multiColorVariants.filter((v) => v.pfsColorRef || v.color.pfsColorRef).length}/{multiColorVariants.length}</span>
+        )}
       </div>
     </div>
   );

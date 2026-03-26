@@ -229,12 +229,25 @@ export async function pfsCreateVariants(
     { data: variants },
   );
 
-  const resp = data as { data?: { id: string }[]; resume?: unknown };
+  const resp = data as {
+    data?: { id?: string; errors?: Record<string, string[]> }[];
+    resume?: { products?: number; errors?: number };
+  };
+
   if (status !== 200) {
     throw new Error(`PFS create variants failed (${status}): ${JSON.stringify(data).slice(0, 300)}`);
   }
 
-  const ids = resp.data?.map((v) => v.id).filter(Boolean) ?? [];
+  // Check for errors reported in resume (PFS can return 200 with errors)
+  if (resp.resume?.errors && resp.resume.errors > 0) {
+    const errorDetails = resp.data
+      ?.filter((v) => v.errors)
+      .map((v) => Object.entries(v.errors!).map(([k, msgs]) => `${k}: ${msgs.join(", ")}`).join("; "))
+      .join(" | ");
+    console.warn(`[PFS] Create variants returned ${resp.resume.errors} error(s): ${errorDetails || JSON.stringify(data).slice(0, 300)}`);
+  }
+
+  const ids = (resp.data?.map((v) => v.id).filter((id): id is string => !!id)) ?? [];
   return { variantIds: ids };
 }
 
@@ -288,6 +301,8 @@ export async function pfsUploadImage(
   formData.append("slot", String(slot));
   formData.append("color", colorRef);
 
+  console.log(`[PFS API] POST /catalog/products/${pfsProductId}/image — slot:${slot} color:${colorRef} file:${filename} size:${(imageBuffer.length / 1024).toFixed(0)}Ko`);
+
   // Don't set Content-Type — let fetch set multipart boundary
   const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/products/${pfsProductId}/image`, {
     method: "POST",
@@ -303,12 +318,41 @@ export async function pfsUploadImage(
   let data: unknown;
   try { data = JSON.parse(text); } catch { data = text; }
 
+  console.log(`[PFS API] POST image response (${res.status}): ${JSON.stringify(data).slice(0, 300)}`);
+
   if (!res.ok) {
     throw new Error(`PFS upload image failed (${res.status}): ${JSON.stringify(data).slice(0, 300)}`);
   }
 
   const resp = data as { image_path?: string; success?: boolean };
   return { imagePath: resp.image_path ?? "" };
+}
+
+// ─────────────────────────────────────────────
+// 6b. Delete image by slot + color
+// ─────────────────────────────────────────────
+
+export async function pfsDeleteImage(
+  pfsProductId: string,
+  slot: number,
+  colorRef: string,
+): Promise<void> {
+  const body = { color: colorRef, slot };
+  console.log(`[PFS API] DELETE /catalog/products/${pfsProductId}/image — body:`, JSON.stringify(body));
+
+  const headers = await getPfsHeaders();
+  const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/products/${pfsProductId}/image`, {
+    method: "DELETE",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const text = await res.text();
+  console.log(`[PFS API] DELETE image response (${res.status}): ${text.slice(0, 300)}`);
+
+  if (!res.ok) {
+    throw new Error(`PFS delete image failed (${res.status}): ${text.slice(0, 300)}`);
+  }
 }
 
 // ─────────────────────────────────────────────

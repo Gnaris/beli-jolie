@@ -8,7 +8,7 @@ export async function GET() {
   if (!session || session.user.role !== "ADMIN")
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
-  const [colors, categories, compositions, countries, seasons, sizes] = await Promise.all([
+  const [colors, categories, compositions, countries, seasons, sizes, multiColorVariants] = await Promise.all([
     prisma.color.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
@@ -37,7 +37,25 @@ export async function GET() {
         categories: { select: { category: { select: { name: true } } } },
       },
     }),
+    // Variantes UNIT avec sous-couleurs (combinaisons multi-couleur)
+    prisma.productColor.findMany({
+      where: {
+        saleType: "UNIT",
+        subColors: { some: {} },
+      },
+      select: {
+        id: true,
+        pfsColorRef: true,
+        color: { select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true } },
+        subColors: {
+          select: { color: { select: { id: true, name: true, hex: true, patternImage: true } }, position: true },
+          orderBy: { position: "asc" },
+        },
+        product: { select: { id: true, name: true, reference: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
 
-  return NextResponse.json({ colors, categories, compositions, countries, seasons, sizes });
+  return NextResponse.json({ colors, categories, compositions, countries, seasons, sizes, multiColorVariants });
 }

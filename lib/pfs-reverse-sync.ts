@@ -22,6 +22,7 @@ import {
   pfsPatchVariants,
   pfsDeleteVariant,
   pfsUploadImage,
+  pfsDeleteImage,
   pfsUpdateStatus,
   pfsTranslate,
   type PfsProductCreateData,
@@ -30,7 +31,7 @@ import {
   type PfsVariantUpdateData,
   type PfsStatus,
 } from "@/lib/pfs-api-write";
-import { pfsGetVariants } from "@/lib/pfs-api";
+import { pfsGetVariants, pfsCheckReference } from "@/lib/pfs-api";
 import sharp from "sharp";
 import { readFile } from "fs/promises";
 import path from "path";
@@ -47,6 +48,15 @@ const PFS_DEFAULTS = {
   country_of_manufacture: "CN",
 };
 
+
+/**
+ * Get the effective PFS color reference for a variant.
+ * ProductColor.pfsColorRef (override for multi-color combos) takes priority
+ * over Color.pfsColorRef (individual color mapping).
+ */
+function getEffectiveColorRef(variant: FullProduct["colors"][number]): string | null {
+  return variant.pfsColorRef || variant.color?.pfsColorRef || null;
+}
 
 // ─────────────────────────────────────────────
 // Main entry point
@@ -91,6 +101,18 @@ export async function syncProductToPfs(productId: string): Promise<void> {
 
     // 3. Sync variants
     await syncVariants(pfsProductId, product);
+
+    // 3b. Set default_color AFTER variants exist on PFS
+    // (PFS validates that default_color matches an existing variant's color)
+    const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
+    const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant) : null;
+    if (primaryColorRef) {
+      try {
+        await pfsUpdateProduct(pfsProductId, { default_color: primaryColorRef });
+      } catch (err) {
+        console.warn(`[PFS Reverse Sync] Failed to set default_color:`, err);
+      }
+    }
 
     // 4. Sync images
     await syncImages(pfsProductId, product);
@@ -144,6 +166,7 @@ interface FullProduct {
   colors: {
     id: string;
     colorId: string;
+    pfsColorRef: string | null; // Override couleur PFS pour variantes multi-couleur
     pfsVariantId: string | null;
     unitPrice: number;
     weight: number;
@@ -191,6 +214,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
         select: {
           id: true,
           colorId: true,
+          pfsColorRef: true,
           pfsVariantId: true,
           unitPrice: true,
           weight: true,
@@ -335,10 +359,18 @@ async function updateProductOnPfs(pfsProductId: string, product: FullProduct): P
   const label = translated.productName;
   const description = translated.productDescription;
 
+  // Use category's PFS gender/family if available, otherwise fallback to defaults
+  const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
+  const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;
+  const genderLabels: Record<string, string> = { WOMAN: "Femme", MAN: "Homme", KID: "Enfant", SUPPLIES: "Fournitures" };
+  const genderLabel = genderLabels[gender] ?? PFS_DEFAULTS.gender_label;
+
   const updates: PfsProductUpdateData = {
     label,
     description,
     category: product.category.pfsCategoryId!,
+    family,
+    gender_label: genderLabel,
   };
 
   // Country of manufacture
@@ -360,11 +392,9 @@ async function updateProductOnPfs(pfsProductId: string, product: FullProduct): P
     updates.material_composition = compositionArray;
   }
 
-  // Set default_color from primary variant
-  const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
-  if (primaryVariant?.color.pfsColorRef) {
-    updates.default_color = primaryVariant.color.pfsColorRef;
-  }
+  // NOTE: default_color is NOT sent here — it's set after syncVariants()
+  // because PFS validates that default_color matches an existing variant's color,
+  // and variants may not exist yet at this point.
 
   await pfsUpdateProduct(pfsProductId, updates);
 }
@@ -375,7 +405,7 @@ async function updateProductOnPfs(pfsProductId: string, product: FullProduct): P
 
 async function syncVariants(pfsProductId: string, product: FullProduct): Promise<void> {
   // Get existing PFS variants
-  let existingPfsVariants: { id: string; type: string; item?: { color: { reference: string }; size: string } }[] = [];
+  let existingPfsVariants: { id: string; type: string; item?: { color: { reference: string }; size: string }; packs?: { color: { reference: string }; sizes: { size: string }[] }[] }[] = [];
   try {
     const resp = await pfsGetVariants(pfsProductId);
     existingPfsVariants = resp.data ?? [];
@@ -383,16 +413,73 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
     // Product may be new with no variants yet
   }
 
+  // Build a lookup of existing PFS variants by SKU key (color+size) for duplicate detection
+  // This handles the case where a previous sync created the variant on PFS but failed
+  // to save pfsVariantId back to BJ (crash, timeout, etc.)
+  const pfsVariantBySkuKey = new Map<string, string>(); // "COLOR_SIZE" → pfsVariantId
+  for (const v of existingPfsVariants) {
+    if (v.type === "ITEM" && v.item?.color?.reference && v.item.size) {
+      pfsVariantBySkuKey.set(`${v.item.color.reference}_${v.item.size}`, v.id);
+    } else if (v.type === "PACK" && v.packs?.[0]) {
+      // For PACK, use the first pack entry's color + size as the SKU key
+      const firstPack = v.packs[0];
+      if (firstPack.color?.reference && firstPack.sizes?.[0]?.size) {
+        pfsVariantBySkuKey.set(`${firstPack.color.reference}_${firstPack.sizes[0].size}`, v.id);
+      }
+    }
+  }
+
   const existingPfsIds = new Set(existingPfsVariants.map((v) => v.id));
-  const bjVariantsWithPfsId = product.colors.filter((c) => c.pfsVariantId && existingPfsIds.has(c.pfsVariantId));
-  const bjVariantsToCreate = product.colors.filter((c) => !c.pfsVariantId || !existingPfsIds.has(c.pfsVariantId));
-  const pfsIdsInBj = new Set(product.colors.map((c) => c.pfsVariantId).filter(Boolean));
+
+  // Build a map of PFS variant ID → color reference for change detection
+  const pfsVariantColorMap = new Map<string, string>();
+  for (const v of existingPfsVariants) {
+    if (v.item?.color?.reference) {
+      pfsVariantColorMap.set(v.id, v.item.color.reference);
+    }
+  }
+
+  // Detect color changes: if a BJ variant has a pfsVariantId but the color ref
+  // on PFS doesn't match the current BJ color ref, we need to delete + recreate
+  // (PFS PATCH does not support changing a variant's color)
+  const colorChangedVariants = new Set<string>();
+  for (const c of product.colors) {
+    if (c.pfsVariantId && existingPfsIds.has(c.pfsVariantId)) {
+      const pfsColorRef = pfsVariantColorMap.get(c.pfsVariantId);
+      const bjColorRef = getEffectiveColorRef(c);
+      if (pfsColorRef && bjColorRef && pfsColorRef !== bjColorRef) {
+        colorChangedVariants.add(c.id);
+      }
+    }
+  }
+
+  const bjVariantsWithPfsId = product.colors.filter(
+    (c) => c.pfsVariantId && existingPfsIds.has(c.pfsVariantId) && !colorChangedVariants.has(c.id)
+  );
+  const bjVariantsToCreate = product.colors.filter(
+    (c) => !c.pfsVariantId || !existingPfsIds.has(c.pfsVariantId) || colorChangedVariants.has(c.id)
+  );
+  const pfsIdsInBj = new Set(
+    product.colors
+      .filter((c) => !colorChangedVariants.has(c.id))
+      .map((c) => c.pfsVariantId)
+      .filter(Boolean)
+  );
   const pfsVariantsToDelete = existingPfsVariants.filter((v) => !pfsIdsInBj.has(v.id));
+
+  // Log color-changed variants for debugging
+  if (colorChangedVariants.size > 0) {
+    console.log(`[PFS Reverse Sync] ${colorChangedVariants.size} variant(s) with color change detected — will delete + recreate on PFS`);
+  }
 
   // Delete removed variants from PFS
   for (const v of pfsVariantsToDelete) {
     try {
       await pfsDeleteVariant(v.id);
+      // Remove from SKU lookup so we don't accidentally re-link a deleted variant
+      for (const [key, id] of pfsVariantBySkuKey) {
+        if (id === v.id) pfsVariantBySkuKey.delete(key);
+      }
     } catch (err) {
       console.warn(`[PFS Reverse Sync] Failed to delete variant ${v.id}:`, err);
     }
@@ -407,13 +494,37 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
     for (const variant of bjVariantsToCreate) {
       // ── UNIT variant ──
       if (variant.saleType === "UNIT") {
-        const colorRef = variant.color?.pfsColorRef;
+        const colorRef = getEffectiveColorRef(variant);
         if (!colorRef) {
           console.warn(`[PFS Reverse Sync] Skipping UNIT variant ${variant.id}: color "${variant.color?.name}" has no pfsColorRef`);
           continue;
         }
 
         const sizeRef = variant.variantSizes[0] ? getSizeRef(variant.variantSizes[0]) : "TU";
+
+        // Check if this color+size already exists on PFS (orphaned from a previous failed sync)
+        const skuKey = `${colorRef}_${sizeRef}`;
+        const existingPfsId = pfsVariantBySkuKey.get(skuKey);
+        if (existingPfsId) {
+          console.log(`[PFS Reverse Sync] Found existing PFS variant ${existingPfsId} for ${skuKey} — linking instead of creating`);
+          await prisma.productColor.update({
+            where: { id: variant.id },
+            data: { pfsVariantId: existingPfsId },
+          });
+          // Also patch it with current BJ values
+          try {
+            await pfsPatchVariants([{
+              variant_id: existingPfsId,
+              price_eur_ex_vat: variant.unitPrice,
+              stock_qty: variant.stock ?? 0,
+              weight: variant.weight,
+              is_active: (variant.stock ?? 0) > 0,
+            }]);
+          } catch (err) {
+            console.warn(`[PFS Reverse Sync] Failed to patch re-linked variant ${existingPfsId}:`, err);
+          }
+          continue;
+        }
 
         const pfsVariant: PfsVariantCreateData = {
           type: "ITEM",
@@ -432,6 +543,8 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
               where: { id: variant.id },
               data: { pfsVariantId: variantIds[0] },
             });
+          } else {
+            console.warn(`[PFS Reverse Sync] PFS returned no ID for UNIT variant ${variant.color?.name} (${skuKey}) — may be a duplicate SKU`);
           }
         } catch (err) {
           console.warn(`[PFS Reverse Sync] Failed to create UNIT variant for ${variant.color?.name}:`, err);
@@ -453,9 +566,10 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
           }
         }
 
-        // Fallback: if no PackColorLines, use main color
-        if (packColors.length === 0 && variant.color?.pfsColorRef) {
-          packColors.push({ ref: variant.color.pfsColorRef, name: variant.color.name });
+        // Fallback: if no PackColorLines, use effective color ref
+        const fallbackRef = getEffectiveColorRef(variant);
+        if (packColors.length === 0 && fallbackRef) {
+          packColors.push({ ref: fallbackRef, name: variant.color.name });
         }
 
         if (packColors.length === 0) {
@@ -482,6 +596,29 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
         const mainColorRef = packColors[0].ref;
         const mainSizeRef = variantSizes[0] ? getSizeRef(variantSizes[0]) : "TU";
 
+        // Check if this PACK already exists on PFS (orphaned from a previous failed sync)
+        const packSkuKey = `${mainColorRef}_${mainSizeRef}`;
+        const existingPackPfsId = pfsVariantBySkuKey.get(packSkuKey);
+        if (existingPackPfsId) {
+          console.log(`[PFS Reverse Sync] Found existing PFS PACK variant ${existingPackPfsId} for ${packSkuKey} — linking instead of creating`);
+          await prisma.productColor.update({
+            where: { id: variant.id },
+            data: { pfsVariantId: existingPackPfsId },
+          });
+          try {
+            await pfsPatchVariants([{
+              variant_id: existingPackPfsId,
+              price_eur_ex_vat: variant.unitPrice,
+              stock_qty: variant.stock ?? 0,
+              weight: variant.weight,
+              is_active: (variant.stock ?? 0) > 0,
+            }]);
+          } catch (err) {
+            console.warn(`[PFS Reverse Sync] Failed to patch re-linked PACK variant ${existingPackPfsId}:`, err);
+          }
+          continue;
+        }
+
         const pfsVariant: PfsVariantCreateData = {
           type: "PACK",
           color: mainColorRef,
@@ -500,6 +637,8 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
               where: { id: variant.id },
               data: { pfsVariantId: variantIds[0] },
             });
+          } else {
+            console.warn(`[PFS Reverse Sync] PFS returned no ID for PACK variant ${variant.id} (${packSkuKey}) — may be a duplicate SKU`);
           }
         } catch (err) {
           console.warn(`[PFS Reverse Sync] Failed to create PACK variant ${variant.id}:`, err);
@@ -548,12 +687,32 @@ async function syncVariants(pfsProductId: string, product: FullProduct): Promise
 // ─────────────────────────────────────────────
 
 async function syncImages(pfsProductId: string, product: FullProduct): Promise<void> {
-  // Group images by color reference
+  const log = (msg: string) => console.log(`[PFS Images] ${msg}`);
+
+  // Get existing PFS images to know which slots to delete
+  const pfsImagesByColor = new Map<string, number>(); // colorRef → number of images on PFS
+  try {
+    const pfsData = await pfsCheckReference(product.reference);
+    if (pfsData.product?.images) {
+      for (const [colorRef, imgs] of Object.entries(pfsData.product.images)) {
+        const count = Array.isArray(imgs) ? imgs.length : (imgs ? 1 : 0);
+        pfsImagesByColor.set(colorRef, count);
+      }
+    }
+    log(`PFS état actuel: ${pfsImagesByColor.size} couleur(s) — ${[...pfsImagesByColor.entries()].map(([c, n]) => `${c}:${n} img`).join(", ") || "aucune"}`);
+  } catch (err) {
+    log(`⚠ Impossible de récupérer les images PFS existantes: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // Group BJ images by color reference
   const imagesByColor = new Map<string, { path: string; order: number }[]>();
 
   for (const variant of product.colors) {
-    const colorRef = variant.color.pfsColorRef;
-    if (!colorRef) continue;
+    const colorRef = getEffectiveColorRef(variant);
+    if (!colorRef) {
+      log(`⚠ Variante ${variant.id} (${variant.color?.name}) sans pfsColorRef — images ignorées`);
+      continue;
+    }
 
     for (const img of variant.images) {
       if (!imagesByColor.has(colorRef)) {
@@ -563,20 +722,60 @@ async function syncImages(pfsProductId: string, product: FullProduct): Promise<v
     }
   }
 
+  log(`BJ état actuel: ${imagesByColor.size} couleur(s) — ${[...imagesByColor.entries()].map(([c, imgs]) => `${c}:${imgs.length} img`).join(", ") || "aucune"}`);
+
+  // Upload BJ images + delete removed slots
   for (const [colorRef, images] of imagesByColor) {
-    // Sort by order and upload each
     const sorted = images.sort((a, b) => a.order - b.order);
 
     for (let i = 0; i < sorted.length; i++) {
       const img = sorted[i];
       try {
+        log(`📤 Upload ${colorRef} slot ${i + 1} ← ${img.path}`);
         const jpegBuffer = await convertToJpeg(img.path);
+        log(`   Converti en JPEG: ${(jpegBuffer.length / 1024).toFixed(0)} Ko`);
         await pfsUploadImage(pfsProductId, jpegBuffer, i + 1, colorRef, `image_${i + 1}.jpg`);
+        log(`   ✅ Upload OK`);
       } catch (err) {
-        console.warn(`[PFS Reverse Sync] Failed to upload image ${img.path} for ${colorRef}:`, err);
+        log(`   ❌ Upload ÉCHOUÉ: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    // Delete slots that existed on PFS but no longer exist in BJ
+    const pfsCount = pfsImagesByColor.get(colorRef) ?? 0;
+    if (pfsCount > sorted.length) {
+      log(`🗑 ${colorRef}: PFS a ${pfsCount} images, BJ en a ${sorted.length} → suppression slots ${sorted.length + 1} à ${pfsCount}`);
+    }
+    for (let slot = sorted.length + 1; slot <= pfsCount; slot++) {
+      try {
+        log(`   🗑 DELETE ${colorRef} slot ${slot}`);
+        await pfsDeleteImage(pfsProductId, slot, colorRef);
+        log(`   ✅ Suppression OK`);
+      } catch (err) {
+        log(`   ❌ Suppression ÉCHOUÉE: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    // Mark this color as handled
+    pfsImagesByColor.delete(colorRef);
+  }
+
+  // Delete all images for colors that no longer exist in BJ
+  if (pfsImagesByColor.size > 0) {
+    log(`🗑 Couleurs orphelines sur PFS (supprimées côté BJ): ${[...pfsImagesByColor.keys()].join(", ")}`);
+  }
+  for (const [colorRef, count] of pfsImagesByColor) {
+    for (let slot = 1; slot <= count; slot++) {
+      try {
+        log(`   🗑 DELETE orphan ${colorRef} slot ${slot}`);
+        await pfsDeleteImage(pfsProductId, slot, colorRef);
+        log(`   ✅ Suppression OK`);
+      } catch (err) {
+        log(`   ❌ Suppression ÉCHOUÉE: ${err instanceof Error ? err.message : err}`);
       }
     }
   }
+
+  log(`Sync images terminée pour ${pfsProductId}`);
 }
 
 /**
@@ -629,17 +828,23 @@ function validatePfsMappings(product: FullProduct): void {
   const seenColorIds = new Set<string>();
   const seenSizeIds = new Set<string>();
   for (const variant of product.colors) {
-    if (variant.color?.id && !seenColorIds.has(variant.color.id)) {
+    // Si la variante a un override pfsColorRef (combinaison multi-couleur), pas besoin
+    // de vérifier le mapping de chaque couleur individuelle
+    const hasOverride = !!variant.pfsColorRef;
+
+    if (!hasOverride && variant.color?.id && !seenColorIds.has(variant.color.id)) {
       seenColorIds.add(variant.color.id);
       if (!variant.color.pfsColorRef) {
         issues.push(`Couleur "${variant.color.name}" non mappée (pfsColorRef manquant)`);
       }
     }
-    for (const sc of variant.subColors) {
-      if (!seenColorIds.has(sc.color.id)) {
-        seenColorIds.add(sc.color.id);
-        if (!sc.color.pfsColorRef) {
-          issues.push(`Couleur "${sc.color.name}" non mappée (pfsColorRef manquant)`);
+    if (!hasOverride) {
+      for (const sc of variant.subColors) {
+        if (!seenColorIds.has(sc.color.id)) {
+          seenColorIds.add(sc.color.id);
+          if (!sc.color.pfsColorRef) {
+            issues.push(`Couleur "${sc.color.name}" non mappée (pfsColorRef manquant)`);
+          }
         }
       }
     }

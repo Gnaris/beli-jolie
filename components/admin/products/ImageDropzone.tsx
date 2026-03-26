@@ -4,32 +4,32 @@ import { useRef, useState } from "react";
 
 interface ImageDropzoneProps {
   colorIndex: number;
+  groupKey: string;
   previews: string[];
   orders: number[];
   onAddAtPosition: (file: File, position: number) => void;
   onRemoveAtPosition: (position: number) => void;
   onSwapPositions: (fromPos: number, toPos: number) => void;
-  onRotateAtPosition?: (position: number) => void;
+  onCrossColorDrop?: (sourceGroupKey: string, sourcePos: number, targetPos: number) => void;
   onConfirmReplace?: (position: number) => Promise<boolean>;
   uploading: boolean;
   uploadingPosition?: number | null;
-  rotatingPosition?: number | null;
 }
 
 const MAX_IMAGES = 5;
 
 export default function ImageDropzone({
   colorIndex,
+  groupKey,
   previews,
   orders,
   onAddAtPosition,
   onRemoveAtPosition,
   onSwapPositions,
-  onRotateAtPosition,
+  onCrossColorDrop,
   onConfirmReplace,
   uploading,
   uploadingPosition,
-  rotatingPosition,
 }: ImageDropzoneProps) {
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [draggedPos, setDraggedPos] = useState<number | null>(null);
@@ -65,12 +65,25 @@ export default function ImageDropzone({
     e.preventDefault();
     e.stopPropagation();
 
-    // Internal drag (swap positions) — no confirmation needed for swap
+    // Internal drag (same color group — swap positions)
     if (draggedPos !== null) {
       if (draggedPos !== pos) onSwapPositions(draggedPos, pos);
       setDraggedPos(null);
       setDragOverPos(null);
       return;
+    }
+
+    // Cross-color drag (from another color group)
+    const crossData = e.dataTransfer.getData("application/x-image-drag");
+    if (crossData && onCrossColorDrop) {
+      try {
+        const { groupKey: srcGroupKey, pos: srcPos } = JSON.parse(crossData);
+        if (srcGroupKey !== groupKey) {
+          onCrossColorDrop(srcGroupKey, srcPos, pos);
+          setDragOverPos(null);
+          return;
+        }
+      } catch { /* ignore parse errors */ }
     }
 
     // External file drop
@@ -86,20 +99,19 @@ export default function ImageDropzone({
   function handleSlotDragOver(e: React.DragEvent, pos: number) {
     e.preventDefault();
     e.stopPropagation();
-    if (draggedPos !== null && draggedPos !== pos) {
-      setDragOverPos(pos);
-    }
+    setDragOverPos(pos);
   }
 
   function handleSlotDragLeave() {
     setDragOverPos(null);
   }
 
-  // Internal drag start (image reordering)
+  // Internal drag start (image reordering) — also supports cross-color
   function handleImgDragStart(e: React.DragEvent, pos: number) {
     e.stopPropagation();
     setDraggedPos(pos);
     e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("application/x-image-drag", JSON.stringify({ groupKey, pos }));
   }
 
   function handleImgDragEnd() {
@@ -113,7 +125,6 @@ export default function ImageDropzone({
         {Array.from({ length: MAX_IMAGES }, (_, pos) => {
           const img = getImageAtPosition(pos);
           const isUploading = uploading && uploadingPosition === pos;
-          const isRotating = rotatingPosition === pos;
           const isDraggedFrom = draggedPos === pos;
           const isDragOver = dragOverPos === pos;
 
@@ -157,31 +168,6 @@ export default function ImageDropzone({
                     onClick={() => setZoomedSrc(img.src)}
                     className="w-full h-full object-cover cursor-zoom-in"
                   />
-                  {/* Rotation overlay — visible on hover */}
-                  {onRotateAtPosition && (
-                    <div
-                      className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-200 flex items-center justify-center z-20"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        if (!isRotating) onRotateAtPosition(pos);
-                      }}
-                      style={{ cursor: isRotating ? "wait" : "pointer" }}
-                    >
-                      <div className={`w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${isRotating ? "opacity-100" : "hover:bg-white/40 hover:scale-110"}`}>
-                        {isRotating ? (
-                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                        ) : (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12c0-4.14 3.36-7.5 7.5-7.5 2.485 0 4.69 1.21 6.06 3.07L19.5 4.5M19.5 4.5v4h-4M19.5 12c0 4.14-3.36 7.5-7.5 7.5a7.49 7.49 0 01-6.06-3.07L4.5 19.5M4.5 19.5v-4h4" />
-                          </svg>
-                        )}
-                      </div>
-                    </div>
-                  )}
                   {/* Remove button */}
                   <button
                     type="button"
@@ -233,7 +219,7 @@ export default function ImageDropzone({
       </div>
 
       <p className="text-[10px] text-[#9CA3AF] mt-1.5 font-[family-name:var(--font-roboto)]">
-        JPG, PNG, WEBP — max 3 Mo — glissez entre les positions pour réordonner
+        JPG, PNG, WEBP — max 3 Mo — glissez entre les positions pour réordonner ou vers une autre couleur pour déplacer
       </p>
 
       {/* ── Lightbox zoom ─────────────────────────────────────────────── */}
