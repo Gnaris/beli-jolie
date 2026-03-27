@@ -230,77 +230,76 @@ export default function SizesManager({
       </div>
 
       {/* Sizes list */}
-      <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h2 className="text-sm font-semibold text-text-primary font-[family-name:var(--font-poppins)] mb-4">
-          Tailles existantes ({sizes.length})
-        </h2>
+      <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
+        <div className="px-6 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold text-text-primary font-[family-name:var(--font-poppins)]">
+            Tailles existantes ({sizes.length})
+          </h2>
+        </div>
 
         {sizes.length === 0 ? (
-          <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)]">
+          <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] p-6">
             Aucune taille créée.
           </p>
+        ) : editId ? (
+          /* Edit mode - inline form */
+          <div className="p-6 space-y-3">
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="field-input w-full"
+              onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+            />
+            <div className="flex flex-wrap gap-2">
+              {categories.map((cat) => (
+                <label
+                  key={cat.id}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-xs transition-colors ${
+                    editCategoryIds.includes(cat.id)
+                      ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                      : "bg-bg-primary text-text-primary border-border hover:border-[#1A1A1A]"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={editCategoryIds.includes(cat.id)}
+                    onChange={() => toggleCategory(cat.id, editCategoryIds, setEditCategoryIds)}
+                    className="sr-only"
+                  />
+                  {cat.name}
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleUpdate} disabled={isPending} className="btn-primary text-xs">
+                Enregistrer
+              </button>
+              <button onClick={() => setEditId(null)} className="btn-secondary text-xs">
+                Annuler
+              </button>
+            </div>
+          </div>
         ) : (
-          <div className="space-y-2">
-            {sizes.map((size) => (
-              <div
-                key={size.id}
-                className="flex items-start gap-3 p-3 rounded-xl border border-border bg-bg-secondary"
-              >
-                {editId === size.id ? (
-                  /* Edit mode */
-                  <div className="flex-1 space-y-3">
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="field-input w-full"
-                      onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      {categories.map((cat) => (
-                        <label
-                          key={cat.id}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-xs transition-colors ${
-                            editCategoryIds.includes(cat.id)
-                              ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                              : "bg-bg-primary text-text-primary border-border hover:border-[#1A1A1A]"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={editCategoryIds.includes(cat.id)}
-                            onChange={() => toggleCategory(cat.id, editCategoryIds, setEditCategoryIds)}
-                            className="sr-only"
-                          />
-                          {cat.name}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={handleUpdate} disabled={isPending} className="btn-primary text-xs">
-                        Enregistrer
-                      </button>
-                      <button onClick={() => setEditId(null)} className="btn-secondary text-xs">
-                        Annuler
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  /* Display mode */
-                  <>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-text-primary font-[family-name:var(--font-poppins)]">
-                          {size.name}
-                        </span>
-                        {size.variantCount > 0 && (
-                          <span className="badge badge-neutral text-[10px]">
-                            {size.variantCount} variante{size.variantCount > 1 ? "s" : ""}
-                          </span>
-                        )}
-                      </div>
-                      {size.categoryNames.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm font-[family-name:var(--font-roboto)]">
+              <thead>
+                <tr className="bg-bg-secondary border-b border-border">
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Nom</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Catégories</th>
+                  <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Variantes</th>
+                  <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {sizes.map((size) => (
+                  <tr key={size.id} className="hover:bg-bg-secondary/50 transition-colors">
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-text-primary font-[family-name:var(--font-poppins)]">{size.name}</span>
+                    </td>
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      {size.categoryNames.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
                           {size.categoryNames.map((name) => (
                             <span
                               key={name}
@@ -310,33 +309,44 @@ export default function SizesManager({
                             </span>
                           ))}
                         </div>
+                      ) : (
+                        <span className="text-text-muted text-xs">—</span>
                       )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => startEdit(size)}
-                        className="p-2 rounded-lg hover:bg-bg-primary transition-colors"
-                        title="Modifier"
-                      >
-                        <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleDelete(size)}
-                        disabled={size.variantCount > 0}
-                        className="p-2 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                        title={size.variantCount > 0 ? "Utilisée dans des variantes" : "Supprimer"}
-                      >
-                        <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                        </svg>
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {size.variantCount > 0 ? (
+                        <span className="badge badge-neutral text-[10px]">{size.variantCount}</span>
+                      ) : (
+                        <span className="text-text-muted text-xs">0</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <button
+                          onClick={() => startEdit(size)}
+                          className="p-2 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-bg-secondary"
+                          title="Modifier"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDelete(size)}
+                          disabled={size.variantCount > 0}
+                          className="p-2 text-text-muted hover:text-[#EF4444] transition-colors disabled:opacity-30 disabled:cursor-not-allowed rounded-lg hover:bg-bg-secondary"
+                          title={size.variantCount > 0 ? "Utilisée dans des variantes" : "Supprimer"}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

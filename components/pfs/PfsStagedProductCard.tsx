@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
+import ColorSwatch from "@/components/ui/ColorSwatch";
 
 // ─────────────────────────────────────────────
 // Types
@@ -33,6 +34,12 @@ export interface StagedImageGroup {
   paths: string[];
 }
 
+export interface StagedComposition {
+  compositionId: string;
+  name: string;
+  percentage: number;
+}
+
 export interface StagedProduct {
   id: string;
   reference: string;
@@ -43,21 +50,24 @@ export interface StagedProduct {
   isBestSeller: boolean;
   status: "PREPARING" | "READY" | "APPROVED" | "REJECTED" | "ERROR";
   variants: StagedVariantData[];
+  compositions?: StagedComposition[];
   imagesByColor: StagedImageGroup[];
   errorMessage?: string | null;
-  existsInDb?: boolean;
-  existingProductId?: string | null;
-  differences?: Array<{ field: string; stagedValue: unknown; existingValue: unknown }> | null;
   createdProductId?: string | null;
+}
+
+export interface ColorMapEntry {
+  hex: string | null;
+  patternImage: string | null;
 }
 
 interface PfsStagedProductCardProps {
   product: StagedProduct;
   selected: boolean;
+  colorMap: Map<string, ColorMapEntry>;
   onSelect: (id: string) => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
-  onViewDetail: (id: string) => void;
 }
 
 // ─────────────────────────────────────────────
@@ -128,15 +138,6 @@ function XIcon({ className }: { className?: string }) {
   );
 }
 
-function EyeIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
 function StarIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth={1}>
@@ -152,10 +153,10 @@ function StarIcon({ className }: { className?: string }) {
 export default function PfsStagedProductCard({
   product,
   selected,
+  colorMap,
   onSelect,
   onApprove,
   onReject,
-  onViewDetail,
 }: PfsStagedProductCardProps) {
   const { status } = product;
   const isReady = status === "READY";
@@ -171,6 +172,19 @@ export default function PfsStagedProductCard({
     product.imagesByColor.length > 0 && product.imagesByColor[0].paths.length > 0
       ? getThumbSrc(product.imagesByColor[0].paths[0])
       : null;
+
+  // Unique colors from variants
+  const uniqueColors = (() => {
+    const seen = new Set<string>();
+    return product.variants.filter((v) => {
+      if (seen.has(v.colorId)) return false;
+      seen.add(v.colorId);
+      return true;
+    });
+  })();
+
+  // Compositions
+  const compositions = product.compositions ?? [];
 
   const handleSelect = useCallback(() => {
     onSelect(product.id);
@@ -190,14 +204,6 @@ export default function PfsStagedProductCard({
       onReject(product.id);
     },
     [onReject, product.id],
-  );
-
-  const handleViewDetail = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      onViewDetail(product.id);
-    },
-    [onViewDetail, product.id],
   );
 
   return (
@@ -260,18 +266,44 @@ export default function PfsStagedProductCard({
           {product.name}
         </h3>
 
-        {/* Category + Duplicate badge */}
+        {/* Category */}
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="badge badge-neutral w-fit text-xs">{product.categoryName}</span>
-          {product.existsInDb && (
-            <span className="badge badge-warning w-fit text-xs">
-              Existe déjà
-              {product.differences && product.differences.length > 0 && (
-                <span className="ml-1 opacity-75">({product.differences.length} diff.)</span>
-              )}
-            </span>
-          )}
         </div>
+
+        {/* Description (truncated) */}
+        {product.description && (
+          <p className="line-clamp-2 text-xs text-text-secondary leading-relaxed" title={product.description}>
+            {product.description}
+          </p>
+        )}
+
+        {/* Color swatches */}
+        {uniqueColors.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {uniqueColors.map((v) => {
+              const c = colorMap.get(v.colorId);
+              return (
+                <div key={v.colorId} title={v.colorName}>
+                  <ColorSwatch
+                    hex={c?.hex ?? null}
+                    patternImage={c?.patternImage ?? null}
+                    size={20}
+                    rounded="full"
+                    border
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Compositions */}
+        {compositions.length > 0 && (
+          <p className="text-[11px] text-text-secondary leading-snug">
+            {compositions.map((c) => `${c.name} ${c.percentage}%`).join(", ")}
+          </p>
+        )}
 
         {/* Price range + variant count */}
         <div className="flex items-center justify-between text-sm">
@@ -293,7 +325,7 @@ export default function PfsStagedProductCard({
         <div className="mt-auto flex flex-col gap-1.5 pt-2">
           <span className={`${statusCfg.className} text-xs w-fit`}>{statusCfg.label}</span>
 
-          {/* Error message — affiché pour ERROR et READY (tentative d'approbation échouée) */}
+          {/* Error message */}
           {product.errorMessage && (
             <div className="rounded-lg bg-[#EF4444]/8 border border-[#EF4444]/20 px-2.5 py-2 text-xs text-[#EF4444] break-words leading-relaxed">
               {product.errorMessage}
@@ -319,14 +351,6 @@ export default function PfsStagedProductCard({
               title="Refuser"
             >
               <XIcon className="h-4.5 w-4.5" />
-            </button>
-            <button
-              onClick={handleViewDetail}
-              className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg bg-bg-secondary text-text-secondary transition-colors hover:bg-border hover:text-text-primary"
-              aria-label="Voir les détails"
-              title="Voir les détails"
-            >
-              <EyeIcon className="h-4.5 w-4.5" />
             </button>
           </div>
         )}

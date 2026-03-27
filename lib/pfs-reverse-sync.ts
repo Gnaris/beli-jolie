@@ -421,7 +421,9 @@ async function diffAndUpdateMetadata(
 
   // Normalize: trim whitespace before comparing to avoid unnecessary translate calls
   const nameChanged = pfsNameFr.trim() !== product.name.trim();
-  const descChanged = stripDimensionsSuffix(pfsDescFr).trim() !== product.description.trim();
+  const descTextChanged = stripDimensionsSuffix(pfsDescFr).trim() !== product.description.trim();
+  const dimensionsChanged = buildDimensionsSuffix(product) !== (pfsDescFr.match(DIMENSIONS_REGEX)?.[0] ?? "");
+  const descChanged = descTextChanged || dimensionsChanged;
   const categoryChanged = bjCategoryId !== pfsCategoryId;
   const countryChanged = bjCountry !== pfsCountry;
   const seasonChanged = bjSeason !== pfsSeason;
@@ -891,6 +893,7 @@ async function syncImages(
   const pfsImagesByColor = new Map<string, string[]>(); // colorRef → image URLs
   if (pfsRefData?.product?.images) {
     for (const [colorRef, imgs] of Object.entries(pfsRefData.product.images)) {
+      if (colorRef === "DEFAULT") continue;
       const urls = Array.isArray(imgs) ? imgs : (imgs ? [imgs] : []);
       pfsImagesByColor.set(colorRef, urls);
     }
@@ -901,6 +904,7 @@ async function syncImages(
       apiCalls++;
       if (data.product?.images) {
         for (const [colorRef, imgs] of Object.entries(data.product.images)) {
+          if (colorRef === "DEFAULT") continue;
           const urls = Array.isArray(imgs) ? imgs : (imgs ? [imgs] : []);
           pfsImagesByColor.set(colorRef, urls);
         }
@@ -979,11 +983,14 @@ async function syncImages(
 
   log(`${uploadTasks.length} upload(s), ${deleteTasks.length} delete(s) needed`);
 
-  // Execute deletes (sequential, usually few)
+  // Execute deletes sequentially, highest slot first (PFS shifts slots on delete)
+  deleteTasks.sort((a, b) => b.slot - a.slot);
   for (const task of deleteTasks) {
     try {
       await pfsDeleteImage(pfsProductId, task.slot, task.colorRef);
       apiCalls++;
+      const delay = 1000 + Math.floor(Math.random() * 2000);
+      await new Promise(r => setTimeout(r, delay));
     } catch (err) {
       log(`❌ DELETE ${task.colorRef} slot ${task.slot} failed: ${err instanceof Error ? err.message : err}`);
     }

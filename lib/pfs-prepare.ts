@@ -156,21 +156,15 @@ async function prepareSingleProduct(
   try {
     addLog(`▶ ${bjRef} — "${pfsProduct.labels?.fr || "?"}" — préparation...`);
 
-    // Check if product already exists in DB by reference
+    // Skip products that already exist in DB by reference
     const existingProduct = await prisma.product.findFirst({
       where: { reference: bjRef },
-      include: {
-        colors: {
-          include: {
-            color: true,
-            subColors: { include: { color: true } },
-            images: true,
-          },
-        },
-        compositions: { include: { composition: true } },
-        category: true,
-      },
+      select: { id: true },
     });
+    if (existingProduct) {
+      addLog(`  ⏭ ${bjRef} — existe déjà en BDD, ignoré`);
+      return { status: "error" as const, reference: bjRef, error: "Produit déjà existant" };
+    }
 
     // Fetch details
     const { variantDetails, refDetails } = await fetchProductDetails(pfsProduct);
@@ -410,90 +404,6 @@ async function prepareSingleProduct(
       }
     }
 
-    // ── Duplicate detection ──
-    let existsInDb = false;
-    let existingProductId: string | null = null;
-    let differences: Array<{ field: string; stagedValue: unknown; existingValue: unknown }> | null = null;
-
-    if (existingProduct) {
-      existsInDb = true;
-      existingProductId = existingProduct.id;
-      differences = [];
-
-      // Compare name
-      if (existingProduct.name !== nameFr) {
-        differences.push({ field: "name", stagedValue: nameFr, existingValue: existingProduct.name });
-      }
-
-      // Compare description (strip dimensions suffix to avoid false differences)
-      const bjDescClean = stripDimensionsSuffix(existingProduct.description || "");
-      const pfsDescClean = stripDimensionsSuffix(descriptionFr);
-      if (bjDescClean !== pfsDescClean) {
-        differences.push({ field: "description", stagedValue: pfsDescClean, existingValue: bjDescClean });
-      }
-
-      // Compare category
-      if (existingProduct.categoryId !== categoryId) {
-        differences.push({
-          field: "category",
-          stagedValue: categoryName,
-          existingValue: existingProduct.category?.name || "",
-        });
-      }
-
-      // Compare isBestSeller
-      const stagedBestSeller = pfsProduct.is_star === 1;
-      if (existingProduct.isBestSeller !== stagedBestSeller) {
-        differences.push({ field: "isBestSeller", stagedValue: stagedBestSeller, existingValue: existingProduct.isBestSeller });
-      }
-
-      // Compare variant count
-      const existingVariantCount = existingProduct.colors.length;
-      if (existingVariantCount !== variants.length) {
-        differences.push({ field: "variantCount", stagedValue: variants.length, existingValue: existingVariantCount });
-      }
-
-      // Compare colors (check if sync has colors that don't exist in app)
-      const existingColorNames = new Set(existingProduct.colors.map(c => c.color?.name).filter(Boolean) as string[]);
-      const stagedColorNames = variants.map(v => v.colorName);
-      const newColors = stagedColorNames.filter(cn => !existingColorNames.has(cn));
-      if (newColors.length > 0) {
-        differences.push({ field: "newColors", stagedValue: newColors, existingValue: [...existingColorNames] });
-      }
-
-      // Compare prices (check each matching variant)
-      for (const sv of variants) {
-        const matchingExisting = existingProduct.colors.find(c => c.color?.name === sv.colorName);
-        if (matchingExisting) {
-          if (Math.abs(matchingExisting.unitPrice - sv.unitPrice) > 0.01) {
-            differences.push({
-              field: `price_${sv.colorName}`,
-              stagedValue: sv.unitPrice,
-              existingValue: matchingExisting.unitPrice,
-            });
-          }
-          if (matchingExisting.stock !== sv.stock) {
-            differences.push({
-              field: `stock_${sv.colorName}`,
-              stagedValue: sv.stock,
-              existingValue: matchingExisting.stock,
-            });
-          }
-        }
-      }
-
-      // Compare compositions
-      const existingCompNames = existingProduct.compositions.map(c => c.composition.name).sort();
-      const stagedCompNames = compositions.map(c => c.name).sort();
-      if (JSON.stringify(existingCompNames) !== JSON.stringify(stagedCompNames)) {
-        differences.push({ field: "compositions", stagedValue: stagedCompNames, existingValue: existingCompNames });
-      }
-
-      if (differences.length === 0) differences = null;
-
-      addLog(`  ⚠️ ${bjRef} — existe déjà en BDD${differences ? ` (${differences.length} différence(s))` : " (identique)"}`);
-    }
-
     // ── Create PfsStagedProduct (status: PREPARING) ──
     const staged = await prisma.pfsStagedProduct.upsert({
       where: {
@@ -518,9 +428,7 @@ async function prepareSingleProduct(
         compositions: compositions as unknown as import("@prisma/client").Prisma.InputJsonValue,
         translations: translations as unknown as import("@prisma/client").Prisma.InputJsonValue,
         imagesByColor: [] as unknown as import("@prisma/client").Prisma.InputJsonValue,
-        existsInDb,
-        existingProductId,
-        differences: differences as unknown as import("@prisma/client").Prisma.InputJsonValue,
+        pfsProductStatus: pfsProduct.status || null,
         status: "PREPARING",
         errorMessage: null,
       },
@@ -542,9 +450,7 @@ async function prepareSingleProduct(
         compositions: compositions as unknown as import("@prisma/client").Prisma.InputJsonValue,
         translations: translations as unknown as import("@prisma/client").Prisma.InputJsonValue,
         imagesByColor: [] as unknown as import("@prisma/client").Prisma.InputJsonValue,
-        existsInDb,
-        existingProductId,
-        differences: differences as unknown as import("@prisma/client").Prisma.InputJsonValue,
+        pfsProductStatus: pfsProduct.status || null,
         status: "PREPARING",
       },
     });
@@ -896,7 +802,10 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
   const imageGroups = staged.imagesByColor as unknown as StagedImageGroup[];
   const tagNames = (staged.tags as unknown as string[]) ?? [];
 
-  console.log(`[APPROVE] stagedId=${stagedId} existsInDb=${staged.existsInDb} existingProductId=${staged.existingProductId}`);
+  // Determine BJ status based on PFS product status
+  const bjStatus = staged.pfsProductStatus === "READY_FOR_SALE" ? "ONLINE" : "OFFLINE";
+
+  console.log(`[APPROVE] stagedId=${stagedId} pfsStatus=${staged.pfsProductStatus} → bjStatus=${bjStatus}`);
   console.log(`[APPROVE] variants count=${variants.length}:`, variants.map(v => `${v.colorName}(${v.colorId}/${v.colorRef}/${v.saleType})`));
   console.log(`[APPROVE] imageGroups count=${imageGroups.length}:`, imageGroups.map(g => `${g.colorName}(${g.colorId}/${g.colorRef})`));
 
@@ -916,6 +825,49 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
       data: { categoryId: resolvedCategoryId },
     });
     staged.categoryId = resolvedCategoryId;
+  }
+
+  // Verify all variant colors still exist (may have been deleted/recreated between prepare and approve)
+  const variantColorIds = [...new Set(variants.map((v) => v.colorId))];
+  const existingColorRows = await prisma.color.findMany({
+    where: { id: { in: variantColorIds } },
+    select: { id: true },
+  });
+  const existingColorIdSet = new Set(existingColorRows.map((c) => c.id));
+  const hasMissingColors = variantColorIds.some((id) => !existingColorIdSet.has(id));
+  if (hasMissingColors) {
+    let updated = false;
+    for (const v of variants) {
+      if (!existingColorIdSet.has(v.colorId)) {
+        // Re-resolve color from name/reference via PfsMapping or DB lookup
+        const resolvedId = await findOrCreateColor(v.colorRef, "", { fr: v.colorName });
+        if (resolvedId) {
+          v.colorId = resolvedId;
+          updated = true;
+        } else {
+          throw new Error(`Couleur non liée: "${v.colorName}" (${v.colorRef}). Liez-la dans /admin/pfs/mapping.`);
+        }
+      }
+    }
+    // Also re-resolve colors in imageGroups
+    for (const g of imageGroups) {
+      if (!existingColorIdSet.has(g.colorId)) {
+        const resolvedId = await findOrCreateColor(g.colorRef, "", { fr: g.colorName });
+        if (resolvedId) {
+          g.colorId = resolvedId;
+          updated = true;
+        }
+      }
+    }
+    if (updated) {
+      await prisma.pfsStagedProduct.update({
+        where: { id: stagedId },
+        data: {
+          variants: variants as unknown as import("@prisma/client").Prisma.InputJsonValue,
+          imagesByColor: imageGroups as unknown as import("@prisma/client").Prisma.InputJsonValue,
+        },
+      });
+    }
   }
 
   // Re-resolve manufacturing country if deleted
@@ -940,75 +892,8 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
     }
   }
 
-  // Check if product already exists
-  const existing = await prisma.product.findFirst({
-    where: {
-      OR: [
-        { reference: staged.reference },
-        { pfsProductId: staged.pfsProductId },
-      ],
-    },
-    select: { id: true },
-  });
-
-  // Subcategory connection for the many-to-many relation
+  // Subcategory connection
   const subCategoryIds = (staged.subCategoryIds as unknown as string[]) ?? [];
-  const subCategoryConnect = subCategoryIds.length > 0
-    ? { set: subCategoryIds.map((id) => ({ id })) }
-    : { set: [] as { id: string }[] };
-
-  if (existing) {
-    // Update existing inside a transaction to prevent partial corruption
-    const productId = existing.id;
-
-    await prisma.$transaction(async (tx) => {
-      // Delete images before colors (FK constraint: ProductColorImage → ProductColor)
-      await tx.productColorImage.deleteMany({ where: { productId } });
-      // Delete children in parallel (safe: no FK between them)
-      await Promise.all([
-        tx.productComposition.deleteMany({ where: { productId } }),
-        tx.productColor.deleteMany({ where: { productId } }),
-        tx.productTranslation.deleteMany({ where: { productId } }),
-        tx.productTag.deleteMany({ where: { productId } }),
-      ]);
-      // Update product fields
-      await tx.product.update({
-        where: { id: productId },
-        data: {
-          name: staged.name,
-          description: staged.description,
-          categoryId: staged.categoryId,
-          subCategories: subCategoryConnect,
-          pfsProductId: staged.pfsProductId,
-          isBestSeller: staged.isBestSeller,
-          manufacturingCountryId: staged.manufacturingCountryId || null,
-          seasonId: staged.seasonId || null,
-          status: "ONLINE",
-        },
-      });
-    });
-
-    await createProductChildren(productId, variants, compositions, translations, imageGroups, tagNames);
-
-    await prisma.pfsStagedProduct.update({
-      where: { id: stagedId },
-      data: { status: "APPROVED", createdProductId: productId, errorMessage: null },
-    });
-
-    // Update job counters
-    await prisma.pfsPrepareJob.update({
-      where: { id: staged.prepareJobId },
-      data: { approvedProducts: { increment: 1 } },
-    });
-
-    // Invalidate product caches so pages show updated data immediately
-    revalidateTag("products", "default");
-    revalidatePath("/admin/produits");
-    revalidatePath(`/admin/produits/${productId}/modifier`);
-    revalidatePath(`/produits/${productId}`);
-
-    return { productId };
-  }
 
   // Create new product
   const product = await prisma.product.create({
@@ -1022,7 +907,7 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
       isBestSeller: staged.isBestSeller,
       manufacturingCountryId: staged.manufacturingCountryId || null,
       seasonId: staged.seasonId || null,
-      status: "ONLINE",
+      status: bjStatus,
     },
   });
 
@@ -1359,274 +1244,6 @@ async function deleteStagingImage(dbPath: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────
-// Compare selections types
-// ─────────────────────────────────────────────
-
-export interface CompareSelections {
-  name: "bj" | "pfs";
-  description: "bj" | "pfs";
-  category: "bj" | "pfs";
-  compositions: "bj" | "pfs";
-  season?: "bj" | "pfs";
-  manufacturingCountry?: "bj" | "pfs";
-  variants: Record<string, "bj" | "pfs" | "add">;
-  // Image slots: key = colorGroupKey (colorId::subNames), value = array of 5 slots (path or null)
-  imageSlots: Record<string, (string | null)[]>;
-}
-
-/**
- * Apply compare selections to a staged product before approval.
- * For fields where the user chose "bj", overwrite the staged product
- * with the existing BJ product values so that the approve function
- * will write back the same data (no change).
- *
- * For variants/images, merge based on per-key selections:
- * - "bj": keep existing BJ variant/image (overwrite staged with BJ data)
- * - "pfs": use PFS data (keep staged as-is)
- * - "add": new from PFS (keep staged + mark as addition)
- */
-async function applyCompareSelections(
-  stagedId: string,
-  selections: CompareSelections,
-): Promise<void> {
-  const staged = await prisma.pfsStagedProduct.findUnique({ where: { id: stagedId } });
-  if (!staged || !staged.existingProductId) return;
-  const existingProductId = staged.existingProductId;
-
-  // Fetch the existing BJ product with full relations
-  const existing = await prisma.product.findUnique({
-    where: { id: existingProductId },
-    include: {
-      category: { select: { id: true, name: true } },
-      colors: {
-        include: {
-          color: { select: { id: true, name: true, hex: true, patternImage: true } },
-          subColors: {
-            include: {
-              color: { select: { id: true, name: true, hex: true, patternImage: true } },
-            },
-            orderBy: { position: "asc" },
-          },
-          variantSizes: { select: { size: { select: { name: true } } } },
-          images: {
-            select: { path: true, order: true },
-            orderBy: { order: "asc" },
-          },
-        },
-        orderBy: { createdAt: "asc" },
-      },
-      compositions: {
-        include: { composition: { select: { id: true, name: true } } },
-      },
-      manufacturingCountry: { select: { id: true, name: true } },
-      season: { select: { id: true, name: true } },
-    },
-  });
-  if (!existing) return;
-
-  const updateData: Record<string, unknown> = {};
-
-  // Simple fields
-  if (selections.name === "bj") updateData.name = existing.name;
-  if (selections.description === "bj") updateData.description = existing.description;
-  if (selections.category === "bj") {
-    updateData.categoryId = existing.categoryId;
-    updateData.categoryName = existing.category.name;
-  }
-  if (selections.season === "bj") {
-    updateData.seasonId = existing.seasonId;
-    updateData.seasonName = existing.season?.name ?? null;
-  }
-  if (selections.manufacturingCountry === "bj") {
-    updateData.manufacturingCountryId = existing.manufacturingCountryId;
-    updateData.manufacturingCountryName = existing.manufacturingCountry?.name ?? null;
-  }
-
-  // Compositions
-  if (selections.compositions === "bj") {
-    updateData.compositions = existing.compositions.map((c) => ({
-      compositionId: c.compositionId,
-      name: c.composition.name,
-      percentage: c.percentage,
-    }));
-  }
-
-  // Variants — build merged list
-  const stagedVariants = (typeof staged.variants === "string"
-    ? JSON.parse(staged.variants) : staged.variants ?? []) as StagedVariantData[];
-  const stagedImages = (typeof staged.imagesByColor === "string"
-    ? JSON.parse(staged.imagesByColor) : staged.imagesByColor ?? []) as StagedImageGroup[];
-
-  // Build BJ variants in staged format
-  const bjVariants: StagedVariantData[] = existing.colors.map((pc) => ({
-    colorId: pc.color?.id ?? "",
-    colorRef: pc.color?.name.toUpperCase().replace(/\s+/g, "_") ?? "",
-    colorName: pc.color?.name ?? "",
-    subColors: pc.subColors.map((sc) => ({
-      colorId: sc.color.id,
-      colorName: sc.color.name,
-      hex: sc.color.hex,
-      patternImage: sc.color.patternImage,
-    })),
-    unitPrice: pc.unitPrice,
-    weight: pc.weight,
-    stock: pc.stock,
-    saleType: pc.saleType as "UNIT" | "PACK",
-    packQuantity: pc.packQuantity,
-    sizeName: pc.variantSizes?.[0]?.size.name ?? null,
-    isPrimary: pc.isPrimary,
-    discountType: pc.discountType as "PERCENT" | "AMOUNT" | null,
-    discountValue: pc.discountValue,
-  }));
-
-  // Build BJ image groups
-  const bjImageGroups = new Map<string, StagedImageGroup>();
-  for (const pc of existing.colors) {
-    if (!pc.color) continue;
-    const subNames = pc.subColors.map((sc) => sc.color.name).join(",");
-    const key = `${pc.color.id}::${subNames}`;
-    if (!bjImageGroups.has(key)) {
-      bjImageGroups.set(key, {
-        colorRef: pc.color.name.toUpperCase().replace(/\s+/g, "_"),
-        colorName: pc.color.name,
-        colorId: pc.color.id,
-        paths: [],
-      });
-    }
-    const group = bjImageGroups.get(key)!;
-    for (const img of pc.images) {
-      if (!group.paths.includes(img.path)) group.paths.push(img.path);
-    }
-  }
-
-  // Merge variants based on selections
-  const variantKey = (v: StagedVariantData) => {
-    const subNames = (v.subColors ?? []).map((sc) => sc.colorName).join(",");
-    return `${v.colorId}::${subNames}::${v.saleType}`;
-  };
-
-  const bjByKey = new Map<string, StagedVariantData[]>();
-  for (const v of bjVariants) {
-    const k = variantKey(v);
-    if (!bjByKey.has(k)) bjByKey.set(k, []);
-    bjByKey.get(k)!.push(v);
-  }
-  const pfsByKey = new Map<string, StagedVariantData[]>();
-  for (const v of stagedVariants) {
-    const k = variantKey(v);
-    if (!pfsByKey.has(k)) pfsByKey.set(k, []);
-    pfsByKey.get(k)!.push(v);
-  }
-
-  const mergedVariants: StagedVariantData[] = [];
-  const processedKeys = new Set<string>();
-
-  // Process selections
-  for (const [key, choice] of Object.entries(selections.variants)) {
-    processedKeys.add(key);
-    if (choice === "bj") {
-      const bjVars = bjByKey.get(key);
-      if (bjVars) {
-        mergedVariants.push(...bjVars);
-      }
-      // If "bj" selected but variant doesn't exist in BJ → skip (user chose to ignore this PFS variant)
-    } else if (choice === "pfs" || choice === "add") {
-      const pfsVars = pfsByKey.get(key);
-      if (pfsVars) mergedVariants.push(...pfsVars);
-    }
-  }
-
-  // Add any unprocessed BJ variants (not in selections → keep BJ)
-  for (const [key, vars] of bjByKey) {
-    if (!processedKeys.has(key)) mergedVariants.push(...vars);
-  }
-
-  updateData.variants = mergedVariants;
-
-  // Build images from imageSlots — convert slot arrays back to StagedImageGroup format
-  const mergedImages: StagedImageGroup[] = [];
-  const processedColorIds = new Set<string>();
-
-  for (const [key, slots] of Object.entries(selections.imageSlots)) {
-    // Extract colorId from key (format: "colorId::subNames" or "colorRef::subNames" when colorId was empty)
-    const [rawColorId] = key.split("::");
-
-    // Find matching color info from BJ or staged data
-    const bjGroup = bjImageGroups.get(key);
-    // Try exact colorId match, then case-insensitive colorRef match (handles PFS
-    // prepare bug where colorId="" and key falls back to colorRef like "SILVER")
-    const stagedGroup = stagedImages.find((g) => g.colorId === rawColorId)
-      ?? stagedImages.find((g) => g.colorRef.toLowerCase() === rawColorId.toLowerCase());
-    const sourceGroup = bjGroup ?? stagedGroup;
-
-    // Resolve the actual database colorId — rawColorId might be a PFS colorRef
-    // string (e.g. "SILVER") instead of a UUID when PFS prepare had a case mismatch
-    let resolvedColorId = rawColorId;
-    if (sourceGroup?.colorId) {
-      resolvedColorId = sourceGroup.colorId;
-    }
-    // If still not a valid DB ID, try to find from merged variants
-    if (!resolvedColorId || resolvedColorId === sourceGroup?.colorRef) {
-      const matchVar = mergedVariants.find((v) =>
-        v.colorRef.toLowerCase() === rawColorId.toLowerCase()
-        || v.colorName.toLowerCase() === rawColorId.toLowerCase()
-      );
-      if (matchVar) resolvedColorId = matchVar.colorId;
-    }
-
-    processedColorIds.add(resolvedColorId);
-    // Also track the raw key to avoid double-processing
-    processedColorIds.add(rawColorId);
-
-    // Preserve slot positions — keep original order from the 5-slot array
-    const paths: string[] = [];
-    const orders: number[] = [];
-    for (let i = 0; i < slots.length; i++) {
-      if (slots[i]) {
-        paths.push(slots[i]!);
-        orders.push(i);
-      }
-    }
-    if (paths.length === 0) continue;
-
-    mergedImages.push({
-      colorRef: sourceGroup?.colorRef ?? rawColorId,
-      colorName: sourceGroup?.colorName ?? rawColorId,
-      colorId: resolvedColorId,
-      paths,
-      orders,
-    });
-  }
-
-  // Fallback: for any PFS variant being added whose color isn't in imageSlots,
-  // include the original PFS staged images
-  for (const [vKey, choice] of Object.entries(selections.variants)) {
-    if (choice !== "pfs" && choice !== "add") continue;
-    const pfsVars = pfsByKey.get(vKey);
-    if (!pfsVars || pfsVars.length === 0) continue;
-    const varColorId = pfsVars[0].colorId;
-    const varColorRef = pfsVars[0].colorRef;
-    // Check if already processed (by colorId, colorRef, or colorName)
-    if (processedColorIds.has(varColorId) || processedColorIds.has(varColorRef)) continue;
-    processedColorIds.add(varColorId);
-    // Find PFS images for this color (by colorId or case-insensitive colorRef)
-    const pfsImgGroup = stagedImages.find((g) => g.colorId === varColorId)
-      ?? stagedImages.find((g) => g.colorRef.toLowerCase() === varColorRef.toLowerCase());
-    if (pfsImgGroup && pfsImgGroup.paths.length > 0) {
-      mergedImages.push({ ...pfsImgGroup, colorId: varColorId });
-    }
-  }
-
-  updateData.imagesByColor = mergedImages;
-
-  // Update the staged product with merged data
-  await prisma.pfsStagedProduct.update({
-    where: { id: stagedId },
-    data: updateData,
-  });
-}
-
-// ─────────────────────────────────────────────
 // Bulk operations
 // ─────────────────────────────────────────────
 
@@ -1634,7 +1251,6 @@ const BULK_CONCURRENCY = 5;
 
 export async function bulkApproveStagedProducts(
   ids: string[],
-  selections?: CompareSelections,
 ): Promise<{ results: { id: string; productId?: string; error?: string }[] }> {
   const results: { id: string; productId?: string; error?: string }[] = [];
 
@@ -1642,10 +1258,6 @@ export async function bulkApproveStagedProducts(
     const batch = ids.slice(i, i + BULK_CONCURRENCY);
     const batchResults = await Promise.allSettled(
       batch.map(async (id) => {
-        // If selections are provided (single product compare flow), apply them first
-        if (selections) {
-          await applyCompareSelections(id, selections);
-        }
         const { productId } = await approveStagedProduct(id);
         return { id, productId };
       }),

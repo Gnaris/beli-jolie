@@ -215,15 +215,14 @@ export default function ProductCard({
     <article className="group card card-hover overflow-hidden flex flex-col animate-zoom-fade">
       {/* Image */}
       <Link href={`/produits/${id}`} className="block">
-        <div className="bg-bg-tertiary relative overflow-hidden">
+        <div className="bg-bg-tertiary relative overflow-hidden aspect-square">
           {image ? (
             <Image
               src={image}
               alt={tp(name)}
-              width={400}
-              height={400}
-              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-              className="w-full h-auto block transition-transform duration-300 group-hover:scale-[1.04]"
+              fill
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
               loading="lazy"
             />
           ) : (
@@ -385,6 +384,28 @@ export default function ProductCard({
           )}
 
           <div className="flex items-center gap-2">
+            {/* Selected color indicator */}
+            {displayed && (() => {
+              const mainHex = displayed.hex ?? "#9CA3AF";
+              let swatchStyle: React.CSSProperties;
+              if (displayed.patternImage) {
+                swatchStyle = { backgroundImage: `url(${displayed.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
+              } else if (displayed.subColors && displayed.subColors.length > 0) {
+                const allHexes = [mainHex, ...displayed.subColors.map(sc => sc.hex)];
+                const seg = 360 / allHexes.length;
+                const stops = allHexes.map((hex, i) => `${hex} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
+                swatchStyle = { background: `conic-gradient(${stops})` };
+              } else {
+                swatchStyle = { backgroundColor: mainHex };
+              }
+              return (
+                <div
+                  className="w-7 h-7 rounded-full border-2 border-text-primary shrink-0"
+                  style={swatchStyle}
+                  title={tp(displayed.name)}
+                />
+              );
+            })()}
             <div className="flex items-center border border-border rounded-lg overflow-hidden">
               <button
                 type="button"

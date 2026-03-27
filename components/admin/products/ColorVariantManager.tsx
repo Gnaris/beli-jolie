@@ -9,6 +9,7 @@ import { useBackdropClose } from "@/hooks/useBackdropClose";
 import { fetchPfsColorsForMapping, updateColorPfsRef, updateProductColorPfsRef } from "@/app/actions/admin/colors";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import { usePfsAttributes } from "@/components/admin/MarketplaceMappingSection";
+import PfsSizeMultiSelect from "@/components/pfs/PfsSizeMultiSelect";
 
 // ─────────────────────────────────────────────
 // Exported types
@@ -93,7 +94,7 @@ interface Props {
   onQuickCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
   categoryId?: string;
   allCategories?: { id: string; name: string }[];
-  onQuickCreateSize?: (name: string, categoryIds: string[]) => Promise<AvailableSize>;
+  onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
   variantErrors?: Map<string, Set<string>>;
 }
 
@@ -181,10 +182,27 @@ export function variantGroupKeyFromState(v: { colorId: string; subColors: { colo
 }
 
 /** Image group key — works for both UNIT and PACK variants.
- *  UNIT: same as variantGroupKeyFromState (colorId + sub-colors)
- *  PACK: pack::<dbId or tempId> since each pack variant has its own images */
+ *  Variants with the same color composition share images regardless of saleType.
+ *  UNIT: colorId + sub-colors
+ *  PACK: if all lines have the same color combo → same key as UNIT with those colors
+ *        otherwise (mixed lines) → unique key per variant */
 export function imageGroupKeyFromVariant(v: VariantState): string {
-  if (v.saleType === "PACK") return `pack::${v.dbId || v.tempId}`;
+  if (v.saleType === "PACK") {
+    if (v.packColorLines.length === 0) return `pack::${v.dbId || v.tempId}`;
+    // Get color signature of each line
+    const lineSignatures = v.packColorLines.map(pcl =>
+      pcl.colors.map(c => c.colorId).join(",")
+    );
+    // All lines must have the same color composition
+    const allSame = lineSignatures.every(sig => sig === lineSignatures[0]);
+    if (allSame && v.packColorLines[0].colors.length > 0) {
+      const colors = v.packColorLines[0].colors;
+      if (colors.length === 1) return colors[0].colorId;
+      return `${colors[0].colorId}::${colors.slice(1).map(c => c.colorId).join(",")}`;
+    }
+    // Mixed colors per line → unique key
+    return `pack::${v.dbId || v.tempId}`;
+  }
   return variantGroupKeyFromState(v);
 }
 
@@ -1110,9 +1128,10 @@ interface ImageManagerModalProps {
   variants: VariantState[];
   availableColors: AvailableColor[];
   onSetPrimary: (variantTempId: string) => void;
+  pfsColorLabels: Map<string, string>;
 }
 
-function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, onSetPrimary }: ImageManagerModalProps) {
+function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, onSetPrimary, pfsColorLabels }: ImageManagerModalProps) {
   const { confirm: confirmDialog } = useConfirm();
   const backdrop = useBackdropClose(onClose);
   const colorImagesRef = useRef(colorImages);
@@ -1356,6 +1375,10 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
             </p>
           ) : colorImages.map((cimg, idx) => {
             const seg = getSwatchSegments(cimg.groupKey);
+            const imgVariant = findVariantByGroupKey(cimg.groupKey);
+            const hasMultiColors = imgVariant && (imgVariant.subColors.length > 0 || imgVariant.saleType === "PACK");
+            const imgPfsRef = imgVariant?.pfsColorRef;
+            const imgPfsLabel = imgPfsRef ? pfsColorLabels.get(imgPfsRef) : undefined;
             return (
             <div key={cimg.groupKey} className="border border-[#E5E5E5] rounded-xl p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -1372,6 +1395,12 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
                 <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
                   ({cimg.imagePreviews.length}/5)
                 </span>
+                {hasMultiColors && imgPfsRef && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600 whitespace-nowrap">
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-300 animate-pulse shrink-0" />
+                    PFS : {imgPfsLabel || imgPfsRef}
+                  </span>
+                )}
               </div>
               <ImageDropzone
                 colorIndex={idx}
@@ -1418,7 +1447,7 @@ interface SizeModalProps {
   categoryId?: string;
   allCategories?: { id: string; name: string }[];
   onSave: (entries: SizeEntryState[]) => void;
-  onQuickCreateSize?: (name: string, categoryIds: string[]) => Promise<AvailableSize>;
+  onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
 }
 
 function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCategories, onSave, onQuickCreateSize }: SizeModalProps) {
@@ -1429,6 +1458,8 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
   const [newSizeCatIds, setNewSizeCatIds] = useState<Set<string>>(categoryId ? new Set([categoryId]) : new Set());
   const [createSaving, setCreateSaving] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [newPfsSizeRefs, setNewPfsSizeRefs] = useState<Set<string>>(new Set());
+  const { data: pfsData, loading: pfsLoading } = usePfsAttributes();
 
   // Reset draft when variant changes
   useEffect(() => {
@@ -1476,15 +1507,20 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
 
   async function handleCreateSize() {
     if (!newSizeName.trim() || !onQuickCreateSize) return;
+    if (newPfsSizeRefs.size === 0) {
+      setCreateError("Au moins un mapping PFS est requis.");
+      return;
+    }
     setCreateSaving(true);
     setCreateError("");
     try {
-      const created = await onQuickCreateSize(newSizeName.trim(), Array.from(newSizeCatIds));
+      const created = await onQuickCreateSize(newSizeName.trim(), Array.from(newSizeCatIds), Array.from(newPfsSizeRefs));
       // Auto-add to draft
       if (!(isUnit && draft.length >= 1)) {
         setDraft((prev) => [...prev, { tempId: uid(), sizeId: created.id, sizeName: created.name, quantity: "1" }]);
       }
       setNewSizeName("");
+      setNewPfsSizeRefs(new Set());
       setShowCreate(false);
     } catch (e: unknown) {
       setCreateError(e instanceof Error ? e.message : "Erreur");
@@ -1635,11 +1671,34 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
                       </div>
                     </div>
                   )}
+                  {/* PFS size mapping (mandatory) */}
+                  <div>
+                    <p className="text-[11px] text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1.5">
+                      Mapping PFS <span className="text-[#EF4444]">*</span>
+                    </p>
+                    {pfsLoading ? (
+                      <p className="text-xs text-[#9CA3AF]">Chargement des tailles PFS…</p>
+                    ) : pfsData?.sizes ? (
+                      <PfsSizeMultiSelect
+                        pfsSizes={pfsData.sizes}
+                        selected={newPfsSizeRefs}
+                        onToggle={(ref) => {
+                          const next = new Set(newPfsSizeRefs);
+                          if (next.has(ref)) next.delete(ref); else next.add(ref);
+                          setNewPfsSizeRefs(next);
+                        }}
+                        disabled={false}
+                        className="w-full"
+                      />
+                    ) : (
+                      <p className="text-xs text-[#9CA3AF]">Tailles PFS non disponibles</p>
+                    )}
+                  </div>
                   {createError && <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)]">{createError}</p>}
                   <div className="flex gap-2">
-                    <button type="button" onClick={handleCreateSize} disabled={createSaving || !newSizeName.trim()}
+                    <button type="button" onClick={handleCreateSize} disabled={createSaving || !newSizeName.trim() || newPfsSizeRefs.size === 0}
                       className="btn-primary text-xs disabled:opacity-50">{createSaving ? "Création..." : "Créer"}</button>
-                    <button type="button" onClick={() => { setShowCreate(false); setCreateError(""); }}
+                    <button type="button" onClick={() => { setShowCreate(false); setCreateError(""); setNewPfsSizeRefs(new Set()); }}
                       className="btn-secondary text-xs">Annuler</button>
                   </div>
                 </div>
@@ -1691,7 +1750,7 @@ interface QuickAddModalProps {
   availableSizes: AvailableSize[];
   categoryId?: string;
   onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
-  onQuickCreateSize?: (name: string, categoryIds: string[]) => Promise<AvailableSize>;
+  onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
   allCategories?: { id: string; name: string }[];
   onConfirm: (variants: VariantState[]) => void;
 }
@@ -1733,6 +1792,7 @@ function QuickAddModal({
   const [newSizeCatIds, setNewSizeCatIds] = useState<Set<string>>(categoryId ? new Set([categoryId]) : new Set());
   const [sizeCreateSaving, setSizeCreateSaving] = useState(false);
   const [sizeCreateError, setSizeCreateError] = useState("");
+  const [newPfsSizeRefs2, setNewPfsSizeRefs2] = useState<Set<string>>(new Set());
 
   // Lock body scroll
   useEffect(() => {
@@ -1832,14 +1892,19 @@ function QuickAddModal({
 
   async function handleCreateSize() {
     if (!newSizeName.trim() || !onQuickCreateSize) return;
+    if (newPfsSizeRefs2.size === 0) {
+      setSizeCreateError("Au moins un mapping PFS est requis.");
+      return;
+    }
     setSizeCreateSaving(true);
     setSizeCreateError("");
     try {
-      const created = await onQuickCreateSize(newSizeName.trim(), Array.from(newSizeCatIds));
+      const created = await onQuickCreateSize(newSizeName.trim(), Array.from(newSizeCatIds), Array.from(newPfsSizeRefs2));
       if (!(saleType === "UNIT" && sizeEntries.length >= 1)) {
         setSizeEntries((prev) => [...prev, { tempId: uid(), sizeId: created.id, sizeName: created.name, quantity: "1" }]);
       }
       setNewSizeName("");
+      setNewPfsSizeRefs2(new Set());
       setShowSizeCreate(false);
     } catch (e: unknown) {
       setSizeCreateError(e instanceof Error ? e.message : "Erreur");
@@ -2146,11 +2211,32 @@ function QuickAddModal({
                             ))}
                           </div>
                         )}
+                        {/* PFS size mapping (mandatory) */}
+                        <div>
+                          <p className="text-[11px] text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1">
+                            Mapping PFS <span className="text-[#EF4444]">*</span>
+                          </p>
+                          {pfsAttrData?.sizes ? (
+                            <PfsSizeMultiSelect
+                              pfsSizes={pfsAttrData.sizes}
+                              selected={newPfsSizeRefs2}
+                              onToggle={(ref) => {
+                                const next = new Set(newPfsSizeRefs2);
+                                if (next.has(ref)) next.delete(ref); else next.add(ref);
+                                setNewPfsSizeRefs2(next);
+                              }}
+                              disabled={false}
+                              className="w-full"
+                            />
+                          ) : (
+                            <p className="text-xs text-[#9CA3AF]">Chargement…</p>
+                          )}
+                        </div>
                         {sizeCreateError && <p className="text-xs text-[#EF4444]">{sizeCreateError}</p>}
                         <div className="flex gap-2">
-                          <button type="button" onClick={handleCreateSize} disabled={sizeCreateSaving || !newSizeName.trim()}
+                          <button type="button" onClick={handleCreateSize} disabled={sizeCreateSaving || !newSizeName.trim() || newPfsSizeRefs2.size === 0}
                             className="btn-primary text-xs disabled:opacity-50">{sizeCreateSaving ? "..." : "Créer"}</button>
-                          <button type="button" onClick={() => { setShowSizeCreate(false); setSizeCreateError(""); }}
+                          <button type="button" onClick={() => { setShowSizeCreate(false); setSizeCreateError(""); setNewPfsSizeRefs2(new Set()); }}
                             className="btn-secondary text-xs">Annuler</button>
                         </div>
                       </div>
@@ -2477,9 +2563,15 @@ export default function ColorVariantManager({
                       value={v.saleType}
                       onChange={(val) => {
                         if (val === "PACK" && v.saleType === "UNIT") {
-                          updateVariant(v.tempId, { saleType: "PACK", colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [], packColorLines: [{ tempId: uid(), colors: [] }], packQuantity: "1" });
+                          const migratedColors: { colorId: string; colorName: string; colorHex: string }[] = [];
+                          if (v.colorId) migratedColors.push({ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex });
+                          v.subColors.forEach((sc) => migratedColors.push({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }));
+                          updateVariant(v.tempId, { saleType: "PACK", colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [], packColorLines: [{ tempId: uid(), colors: migratedColors }], packQuantity: "1" });
                         } else if (val === "UNIT" && v.saleType === "PACK") {
-                          updateVariant(v.tempId, { saleType: "UNIT", packColorLines: [], packQuantity: "", sizeEntries: v.sizeEntries.slice(0, 1) });
+                          const firstLine = v.packColorLines[0];
+                          const firstColor = firstLine?.colors[0];
+                          const restoredSub = (firstLine?.colors.slice(1) ?? []).map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex }));
+                          updateVariant(v.tempId, { saleType: "UNIT", colorId: firstColor?.colorId ?? "", colorName: firstColor?.colorName ?? "", colorHex: firstColor?.colorHex ?? "#9CA3AF", subColors: restoredSub, packColorLines: [], packQuantity: "", sizeEntries: v.sizeEntries.slice(0, 1) });
                         }
                       }}
                       options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
@@ -2512,7 +2604,12 @@ export default function ColorVariantManager({
                         const map = new Map<string, string>();
                         for (const ov of variants) {
                           if (ov.tempId === v.tempId || !ov.colorId) continue;
-                          if (ov.subColors.length > 0 && ov.pfsColorRef) { map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ")); }
+                          if (ov.subColors.length > 0 && ov.pfsColorRef) {
+                            map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / "));
+                          } else if (ov.subColors.length === 0) {
+                            const colorOpt = availableColors.find((c) => c.id === ov.colorId);
+                            if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
+                          }
                         }
                         return map;
                       })()}
@@ -2532,7 +2629,12 @@ export default function ColorVariantManager({
                         const map = new Map<string, string>();
                         for (const ov of variants) {
                           if (ov.tempId === v.tempId || !ov.colorId) continue;
-                          if (ov.subColors.length > 0 && ov.pfsColorRef) { map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ")); }
+                          if (ov.subColors.length > 0 && ov.pfsColorRef) {
+                            map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / "));
+                          } else if (ov.subColors.length === 0) {
+                            const colorOpt = availableColors.find((c) => c.id === ov.colorId);
+                            if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
+                          }
                         }
                         return map;
                       })()}
@@ -2729,18 +2831,28 @@ export default function ColorVariantManager({
                             value={v.saleType}
                             onChange={(val) => {
                               if (val === "PACK" && v.saleType === "UNIT") {
+                                const migratedColors: { colorId: string; colorName: string; colorHex: string }[] = [];
+                                if (v.colorId) migratedColors.push({ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex });
+                                v.subColors.forEach((sc) => migratedColors.push({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }));
                                 updateVariant(v.tempId, {
                                   saleType: "PACK",
                                   colorId: "",
                                   colorName: "",
                                   colorHex: "#9CA3AF",
                                   subColors: [],
-                                  packColorLines: [{ tempId: uid(), colors: [] }],
+                                  packColorLines: [{ tempId: uid(), colors: migratedColors }],
                                   packQuantity: "1",
                                 });
                               } else if (val === "UNIT" && v.saleType === "PACK") {
+                                const firstLine = v.packColorLines[0];
+                                const firstColor = firstLine?.colors[0];
+                                const restoredSub = (firstLine?.colors.slice(1) ?? []).map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex }));
                                 updateVariant(v.tempId, {
                                   saleType: "UNIT",
+                                  colorId: firstColor?.colorId ?? "",
+                                  colorName: firstColor?.colorName ?? "",
+                                  colorHex: firstColor?.colorHex ?? "#9CA3AF",
+                                  subColors: restoredSub,
                                   packColorLines: [],
                                   packQuantity: "",
                                   sizeEntries: v.sizeEntries.slice(0, 1),
@@ -2785,12 +2897,12 @@ export default function ColorVariantManager({
                                 const map = new Map<string, string>();
                                 for (const ov of variants) {
                                   if (ov.tempId === v.tempId || !ov.colorId) continue;
-                                  // Only block PFS refs used by OTHER multi-color variant overrides.
-                                  // Single-color variants use Color.pfsColorRef (not variant override),
-                                  // and PFS allows multiple variants to share the same color ref.
                                   if (ov.subColors.length > 0 && ov.pfsColorRef) {
                                     const label = [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ");
                                     map.set(ov.pfsColorRef, label);
+                                  } else if (ov.subColors.length === 0) {
+                                    const colorOpt = availableColors.find((c) => c.id === ov.colorId);
+                                    if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
                                   }
                                 }
                                 return map;
@@ -2820,6 +2932,9 @@ export default function ColorVariantManager({
                                   if (ov.subColors.length > 0 && ov.pfsColorRef) {
                                     const label = [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ");
                                     map.set(ov.pfsColorRef, label);
+                                  } else if (ov.subColors.length === 0) {
+                                    const colorOpt = availableColors.find((c) => c.id === ov.colorId);
+                                    if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
                                   }
                                 }
                                 return map;
@@ -2994,6 +3109,7 @@ export default function ColorVariantManager({
         variants={variants}
         availableColors={availableColors}
         onSetPrimary={(variantTempId) => setPrimary(variantTempId)}
+        pfsColorLabels={pfsColorLabels}
       />
 
       {/* ── Size Modal ── */}

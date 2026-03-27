@@ -6,12 +6,6 @@ import { authOptions } from "@/lib/auth";
 import { revalidateTag } from "next/cache";
 import { emitProductEvent } from "@/lib/product-events";
 import { syncProductToPfs, stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
-import { processProductImage, getImagePaths } from "@/lib/image-processor";
-import { downloadImage } from "@/lib/pfs-sync";
-import { pfsUploadImage, pfsDeleteImage } from "@/lib/pfs-api-write";
-import { unlink, readFile } from "fs/promises";
-import path from "path";
-import sharp from "sharp";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -109,7 +103,6 @@ export async function applyPfsLiveSync(
     }
     if (selections.category === "pfs") {
       let catId = pfsData.categoryId;
-      // If categoryId is empty but we have a name, create the category
       if (!catId && pfsData.categoryName) {
         const { findOrCreateCategory } = await import("@/lib/pfs-sync");
         catId = await findOrCreateCategory(pfsData.categoryName) ?? "";
@@ -167,25 +160,21 @@ export async function applyPfsLiveSync(
     // Update variants based on selections
     for (const [key, action] of Object.entries(selections.variants)) {
       if (action === "bj") {
-        // User chose BJ version → need to push to PFS
         needsReverseSyncToPfs = true;
         changesApplied++;
         continue;
       }
 
-      // Parse the variant key: colorId::subNames::saleType
       const parts = key.split("::");
       const colorId = parts[0];
       const saleType = parts[parts.length - 1] as "UNIT" | "PACK";
 
-      // Find matching PFS variant — prefer exact match by colorId + saleType + sizeName
       const pfsVariant = pfsData.variants.find(
         (v) => v.colorId === colorId && v.saleType === saleType
       );
       if (!pfsVariant || !pfsVariant.colorId) continue;
 
       if (action === "pfs") {
-        // For PACK variants, colorId is null in DB — match by packColorLine colors + size
         let existingVariant;
         if (saleType === "PACK") {
           const candidates = await prisma.productColor.findMany({
@@ -196,7 +185,6 @@ export async function applyPfsLiveSync(
             },
             include: { variantSizes: { select: { size: { select: { name: true } } } } },
           });
-          // Disambiguate by matching size name if available
           existingVariant = pfsVariant.sizeName
             ? candidates.find(c => c.variantSizes.some(vs => vs.size.name === pfsVariant.sizeName)) ?? candidates[0]
             : candidates[0];
@@ -207,8 +195,6 @@ export async function applyPfsLiveSync(
         }
 
         if (existingVariant) {
-          // For PACK variants, BJ stores total pack price (unitPrice × totalQty),
-          // but PFS sends per-unit price. Convert accordingly.
           let priceForDb = pfsVariant.unitPrice;
           if (saleType === "PACK") {
             const existingWithSizes = await prisma.productColor.findUnique({
@@ -234,13 +220,11 @@ export async function applyPfsLiveSync(
           changesApplied++;
         }
       } else if (action === "add") {
-        // Block import if color is not mapped to a BJ color
         if (!pfsVariant.colorId) {
           console.warn(`[PFS_LIVE_SYNC] Skipping add for unmapped color "${pfsVariant.colorName}"`);
           continue;
         }
 
-        // For new PACK variants, BJ stores total pack price (unitPrice × packQty)
         const addPrice = saleType === "PACK"
           ? Math.round(pfsVariant.unitPrice * (pfsVariant.packQuantity || 1) * 100) / 100
           : pfsVariant.unitPrice;
@@ -248,7 +232,6 @@ export async function applyPfsLiveSync(
         const createdVariant = await prisma.productColor.create({
           data: {
             productId,
-            // PACK variants store colorId as null; colors are in packColorLines
             colorId: saleType === "PACK" ? null : pfsVariant.colorId,
             unitPrice: addPrice,
             weight: pfsVariant.weight,
@@ -261,7 +244,6 @@ export async function applyPfsLiveSync(
           },
         });
 
-        // Create VariantSize record if PFS provided a size
         if (pfsVariant.sizeName) {
           const sizeRecord = await prisma.size.upsert({
             where: { name: pfsVariant.sizeName },
@@ -273,7 +255,6 @@ export async function applyPfsLiveSync(
           });
         }
 
-        // PACK: create PackColorLine with the resolved BJ color
         if (saleType === "PACK" && pfsVariant.colorId) {
           const line = await prisma.packColorLine.create({
             data: { productColorId: createdVariant.id, position: 0 },
@@ -288,8 +269,6 @@ export async function applyPfsLiveSync(
     }
 
     // ── Step 2: Check if any "bj" selection on different fields requires reverse sync ──
-
-    // Check basic fields: if user chose "bj" and the values differ, we need reverse sync
     if (selections.name === "bj" && bjData.name !== pfsData.name) {
       needsReverseSyncToPfs = true;
     }
@@ -303,9 +282,8 @@ export async function applyPfsLiveSync(
       needsReverseSyncToPfs = true;
     }
 
-    // Count BJ-selected fields that differ as changes too
     if (needsReverseSyncToPfs && changesApplied === 0) {
-      changesApplied = 1; // At least 1 change (pushing to PFS)
+      changesApplied = 1;
     }
 
     // ── Step 3: Revalidate caches ──
@@ -318,17 +296,11 @@ export async function applyPfsLiveSync(
     });
 
     // ── Step 5: If any BJ selections on differing fields, push to PFS ──
-    // After applying PFS→BJ changes, the product now has:
-    // - PFS values for "pfs" selections (just updated above)
-    // - BJ values for "bj" selections (unchanged)
-    // syncProductToPfs will push the CURRENT state → PFS gets BJ values for "bj" fields
     if (needsReverseSyncToPfs) {
       try {
         await syncProductToPfs(productId);
       } catch (err) {
         console.error("[PFS_LIVE_SYNC] Reverse sync error (non-blocking):", err);
-        // Non-blocking: BJ changes are already applied, PFS push failed
-        // pfsSyncStatus will be set to "failed" by syncProductToPfs
       }
     }
 
@@ -340,330 +312,5 @@ export async function applyPfsLiveSync(
       error: err instanceof Error ? err.message : String(err),
       changesApplied,
     };
-  }
-}
-
-// ─────────────────────────────────────────────
-// Apply image changes from live compare drag-and-drop
-// Receives the final desired state of BJ image slots
-// and reconciles with current DB state.
-// ─────────────────────────────────────────────
-
-interface BjColorImageState {
-  colorId: string;
-  slots: Array<string | null>; // path (local) or PFS URL, null = empty
-}
-
-/** Delete the 3 WebP files (large, medium, thumb) from disk. */
-async function deleteImageFiles(dbPath: string) {
-  if (!dbPath || !dbPath.endsWith(".webp")) return;
-  const paths = getImagePaths(dbPath);
-  const root = process.cwd();
-  for (const p of [paths.large, paths.medium, paths.thumb]) {
-    try {
-      await unlink(path.join(root, "public", p));
-    } catch {
-      // File may not exist — ignore
-    }
-  }
-}
-
-export async function applyLiveImageChanges(
-  productId: string,
-  bjFinalState: BjColorImageState[],
-): Promise<{ success: boolean; applied: number; error?: string }> {
-  await requireAdmin();
-
-  const ALLOWED_DOMAINS = ["static.parisfashionshops.com"];
-  let applied = 0;
-
-  console.log(`[IMG_SYNC] Start for product ${productId}, ${bjFinalState.length} color groups`);
-  for (const g of bjFinalState) {
-    console.log(`[IMG_SYNC]   colorId=${g.colorId} slots=[${g.slots.map(s => s ? (s.startsWith("http") ? "PFS_URL" : s.split("/").pop()) : "null").join(", ")}]`);
-  }
-
-  try {
-    // 1. Load all current images for this product
-    const currentImages = await prisma.productColorImage.findMany({
-      where: { productId },
-      orderBy: { order: "asc" },
-    });
-
-    console.log(`[IMG_SYNC] Current DB images: ${currentImages.length}`);
-    for (const img of currentImages) {
-      console.log(`[IMG_SYNC]   id=${img.id} colorId=${img.colorId} order=${img.order} path=${img.path.split("/").pop()}`);
-    }
-
-    // Build lookup: path → image record
-    const pathToImage = new Map<string, typeof currentImages[0]>();
-    for (const img of currentImages) {
-      pathToImage.set(img.path, img);
-    }
-
-    // Track which existing image IDs are still used in the final state
-    const usedImageIds = new Set<string>();
-
-    // 2. Process each BJ color group's final state
-    for (const group of bjFinalState) {
-      const { colorId, slots } = group;
-      if (!colorId) continue;
-
-      // Find a ProductColor for this colorId — check direct colorId first, then packColorLines
-      let variant = await prisma.productColor.findFirst({
-        where: { productId, colorId },
-      });
-      // PACK variants have colorId=null, colors are in packColorLines
-      if (!variant) {
-        variant = await prisma.productColor.findFirst({
-          where: {
-            productId,
-            saleType: "PACK",
-            packColorLines: { some: { colors: { some: { colorId } } } },
-          },
-        });
-      }
-      console.log(`[IMG_SYNC] Processing colorId=${colorId} variant=${variant?.id ?? "NONE"}`);
-
-      for (let position = 0; position < slots.length; position++) {
-        const slotPath = slots[position];
-        if (!slotPath) continue;
-
-        const isExternal = slotPath.startsWith("http");
-
-        if (!isExternal) {
-          // Local BJ image — find existing record by path
-          const existingImg = pathToImage.get(slotPath);
-          if (existingImg && !usedImageIds.has(existingImg.id)) {
-            // First occurrence — update existing record
-            usedImageIds.add(existingImg.id);
-            const needsUpdate =
-              existingImg.colorId !== colorId ||
-              existingImg.order !== position ||
-              (variant && existingImg.productColorId !== variant.id);
-            if (needsUpdate) {
-              console.log(`[IMG_SYNC]   UPDATE slot ${position}: ${existingImg.id} colorId ${existingImg.colorId}->${colorId} order ${existingImg.order}->${position}`);
-              await prisma.productColorImage.update({
-                where: { id: existingImg.id },
-                data: {
-                  colorId,
-                  productColorId: variant?.id ?? existingImg.productColorId,
-                  order: position,
-                },
-              });
-              applied++;
-            } else {
-              console.log(`[IMG_SYNC]   OK slot ${position}: ${existingImg.id} (no change)`);
-            }
-          } else if (existingImg) {
-            // Duplicate reference — image was copied to another color group
-            // Read the original large file and create a new copy
-            console.log(`[IMG_SYNC]   COPY slot ${position}: duplicating ${slotPath.split("/").pop()} for colorId=${colorId}`);
-            try {
-              const largePath = path.join(process.cwd(), "public", slotPath);
-              const buffer = await readFile(largePath);
-              const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-              const result = await processProductImage(buffer, "public/uploads/products", filename);
-              await prisma.productColorImage.create({
-                data: {
-                  productId,
-                  colorId,
-                  productColorId: variant?.id ?? null,
-                  path: result.dbPath,
-                  order: position,
-                },
-              });
-              console.log(`[IMG_SYNC]   COPIED slot ${position}: ${result.dbPath.split("/").pop()}`);
-              applied++;
-            } catch (copyErr) {
-              console.error(`[IMG_SYNC]   COPY FAILED slot ${position}:`, copyErr);
-            }
-          } else {
-            console.warn(`[IMG_SYNC]   SKIP slot ${position}: local path not found in DB: ${slotPath.split("/").pop()}`);
-          }
-        } else {
-          // PFS URL — download and create new image
-          try {
-            const url = new URL(slotPath);
-            if (!ALLOWED_DOMAINS.includes(url.hostname)) {
-              console.warn(`[IMG_SYNC]   BLOCKED slot ${position}: domain ${url.hostname} not allowed`);
-              continue;
-            }
-          } catch {
-            console.warn(`[IMG_SYNC]   INVALID slot ${position}: bad URL ${slotPath.substring(0, 60)}`);
-            continue;
-          }
-
-          console.log(`[IMG_SYNC]   DOWNLOAD slot ${position}: PFS URL ${slotPath.substring(0, 80)}`);
-          const buffer = await downloadImage(slotPath, 2);
-          const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          const result = await processProductImage(
-            buffer,
-            "public/uploads/products",
-            filename,
-          );
-
-          await prisma.productColorImage.create({
-            data: {
-              productId,
-              colorId,
-              productColorId: variant?.id ?? null,
-              path: result.dbPath,
-              order: position,
-            },
-          });
-          console.log(`[IMG_SYNC]   CREATED slot ${position}: ${result.dbPath.split("/").pop()}`);
-          applied++;
-        }
-      }
-    }
-
-    // 3. Delete images no longer present in any BJ slot
-    for (const img of currentImages) {
-      if (!usedImageIds.has(img.id)) {
-        console.log(`[IMG_SYNC]   DELETE: ${img.id} path=${img.path.split("/").pop()} (not in any BJ slot)`);
-        await deleteImageFiles(img.path);
-        await prisma.productColorImage.delete({ where: { id: img.id } });
-        applied++;
-      }
-    }
-
-    if (applied > 0) {
-      revalidateTag("products", "default");
-    }
-
-    console.log(`[IMG_SYNC] Done. ${applied} changes applied.`);
-    return { success: true, applied };
-  } catch (err) {
-    console.error("[IMG_SYNC] ERROR:", err);
-    return {
-      success: false,
-      applied,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-// ─────────────────────────────────────────────
-// Push PFS image changes (BJ → PFS)
-// ─────────────────────────────────────────────
-
-interface PfsColorImageState {
-  colorRef: string;
-  slots: Array<string | null>; // local BJ paths or null
-}
-
-export async function applyPfsImageChanges(
-  productId: string,
-  pfsFinalState: PfsColorImageState[],
-  pfsInitialState: PfsColorImageState[],
-): Promise<{ success: boolean; applied: number; error?: string }> {
-  await requireAdmin();
-
-  let applied = 0;
-
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
-    select: { pfsProductId: true },
-  });
-  if (!product?.pfsProductId) {
-    return { success: false, applied: 0, error: "Produit non lié à PFS" };
-  }
-  const pfsProductId = product.pfsProductId;
-
-  console.log(`[PFS_IMG] Start push for product ${productId} (pfs=${pfsProductId}), ${pfsFinalState.length} color groups`);
-
-  // Build initial state lookup: colorRef → slots
-  const initialMap = new Map<string, Array<string | null>>();
-  for (const g of pfsInitialState) {
-    initialMap.set(g.colorRef, g.slots);
-  }
-
-  try {
-    // 1. Collect all tasks
-    const deleteTasks: { colorRef: string; pfsSlot: number }[] = [];
-    const uploadTasks: { colorRef: string; pfsSlot: number; localPath: string }[] = [];
-
-    for (const group of pfsFinalState) {
-      const { colorRef, slots } = group;
-      if (!colorRef) continue;
-      const initialSlots = initialMap.get(colorRef) ?? [null, null, null, null, null];
-
-      for (let i = 0; i < slots.length; i++) {
-        const finalPath = slots[i];
-        const initialPath = initialSlots[i] ?? null;
-        const pfsSlot = i + 1; // PFS uses 1-indexed slots
-
-        if (finalPath === initialPath) continue;
-
-        if (!finalPath && initialPath) {
-          // Slot cleared — delete old image
-          deleteTasks.push({ colorRef, pfsSlot });
-        } else if (finalPath && !finalPath.startsWith("http")) {
-          // New local image — if slot had an old PFS image, delete it first
-          if (initialPath && initialPath.startsWith("http")) {
-            deleteTasks.push({ colorRef, pfsSlot });
-          }
-          uploadTasks.push({ colorRef, pfsSlot, localPath: finalPath });
-        }
-      }
-    }
-
-    console.log(`[PFS_IMG] ${deleteTasks.length} delete(s), ${uploadTasks.length} upload(s) to process`);
-    const errors: string[] = [];
-
-    // 2. Execute deletes in parallel
-    if (deleteTasks.length > 0) {
-      const deleteResults = await Promise.allSettled(
-        deleteTasks.map(async (task) => {
-          console.log(`[PFS_IMG]   DELETE ${task.colorRef} slot ${task.pfsSlot}`);
-          await pfsDeleteImage(pfsProductId, task.pfsSlot, task.colorRef);
-        })
-      );
-      for (let i = 0; i < deleteResults.length; i++) {
-        if (deleteResults[i].status === "fulfilled") {
-          applied++;
-        } else {
-          const err = (deleteResults[i] as PromiseRejectedResult).reason;
-          const msg = `DELETE ${deleteTasks[i].colorRef} slot ${deleteTasks[i].pfsSlot}: ${err instanceof Error ? err.message : err}`;
-          console.error(`[PFS_IMG]   ${msg}`);
-          errors.push(msg);
-        }
-      }
-    }
-
-    // 3. Execute uploads in parallel (batches of 3)
-    const POOL_SIZE = 3;
-    for (let i = 0; i < uploadTasks.length; i += POOL_SIZE) {
-      const batch = uploadTasks.slice(i, i + POOL_SIZE);
-      const results = await Promise.allSettled(
-        batch.map(async (task) => {
-          console.log(`[PFS_IMG]   UPLOAD ${task.colorRef} slot ${task.pfsSlot}: ${task.localPath.split("/").pop()}`);
-          const fsPath = path.join(process.cwd(), "public", task.localPath);
-          const buffer = await readFile(fsPath);
-          const jpegBuffer = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
-          await pfsUploadImage(pfsProductId, jpegBuffer, task.pfsSlot, task.colorRef, `image_${task.pfsSlot}.jpg`);
-        })
-      );
-      for (let j = 0; j < results.length; j++) {
-        const task = batch[j];
-        if (results[j].status === "fulfilled") {
-          applied++;
-        } else {
-          const err = (results[j] as PromiseRejectedResult).reason;
-          const msg = `UPLOAD ${task.colorRef} slot ${task.pfsSlot}: ${err instanceof Error ? err.message : err}`;
-          console.error(`[PFS_IMG]   ${msg}`);
-          errors.push(msg);
-        }
-      }
-    }
-
-    console.log(`[PFS_IMG] Done. ${applied} applied, ${errors.length} failed.`);
-    if (errors.length > 0) {
-      return { success: false, applied, error: `${errors.length} opération(s) échouée(s) : ${errors[0]}` };
-    }
-    return { success: true, applied };
-  } catch (err) {
-    console.error("[PFS_IMG] ERROR:", err);
-    return { success: false, applied, error: err instanceof Error ? err.message : String(err) };
   }
 }

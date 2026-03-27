@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import ColorSwatch from "@/components/ui/ColorSwatch";
-import { applyPfsLiveSync, applyLiveImageChanges, applyPfsImageChanges } from "@/app/actions/admin/pfs-live-sync";
+import { applyPfsLiveSync } from "@/app/actions/admin/pfs-live-sync";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import type { QuickCreateType } from "@/components/admin/products/QuickCreateModal";
 import { updateColorPfsRef, getColorsForLinking } from "@/app/actions/admin/colors";
@@ -133,17 +133,6 @@ function getSubSegs(v: VariantData) {
 /** Normalize compositions for comparison: strip pfsRef which only exists on PFS side */
 function normalizeComps(comps: CompositionData[]): string {
   return JSON.stringify(comps.map(c => ({ compositionId: c.compositionId, name: c.name, percentage: c.percentage })));
-}
-
-function isExternal(path: string): boolean {
-  return path.startsWith("http");
-}
-
-function getThumbSrc(path: string): string {
-  if (!path) return "";
-  if (isExternal(path)) return path;
-  if (path.endsWith(".webp")) return path.replace(/\.webp$/, "_thumb.webp");
-  return path;
 }
 
 // ─────────────────────────────────────────────
@@ -531,14 +520,6 @@ export default function PfsLiveCompareModal({
     manufacturingCountry: "bj",
     variants: {},
   });
-  const [imageSlots, setImageSlots] = useState<Record<string, (string | null)[]>>({});
-  const [initialBjSlots, setInitialBjSlots] = useState<Record<string, (string | null)[]>>({});
-  const [initialPfsSlots, setInitialPfsSlots] = useState<Record<string, (string | null)[]>>({});
-  // Map PFS slot key → pfsColorRef for upload
-  const [pfsKeyToColorRef, setPfsKeyToColorRef] = useState<Record<string, string>>({});
-  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
-  const [dragData, setDragData] = useState<{ path: string; sourceKey: string; sourcePos: number } | null>(null);
-
   // ── Link existing color state ──
   const [linkColorKey, setLinkColorKey] = useState<string | null>(null); // variant key being linked
   const [linkColorPfsRef, setLinkColorPfsRef] = useState<string | null>(null);
@@ -653,55 +634,6 @@ export default function PfsLiveCompareModal({
       variants: variantSels,
     });
 
-    // Initialize image slots from both sides
-    const initSlots: Record<string, (string | null)[]> = {};
-    const initBj: Record<string, (string | null)[]> = {};
-    for (const group of data.existing.imagesByColor ?? []) {
-      const key = `bj::${group.colorId}::${group.colorName}`;
-      const slots: (string | null)[] = [null, null, null, null, null];
-      // Use images array (with order) if available, otherwise fallback to paths
-      if (group.images && group.images.length > 0) {
-        for (const img of group.images) {
-          const pos = Math.min(img.order, 4);
-          // Avoid overwriting: if slot already taken, find next free slot
-          if (slots[pos] === null) {
-            slots[pos] = img.path;
-          } else {
-            const free = slots.findIndex(s => s === null);
-            if (free !== -1) slots[free] = img.path;
-          }
-        }
-      } else {
-        for (let i = 0; i < Math.min(group.paths.length, 5); i++) {
-          slots[i] = group.paths[i];
-        }
-      }
-      initSlots[key] = slots;
-      initBj[key] = [...slots];
-    }
-    const initPfs: Record<string, (string | null)[]> = {};
-    const keyToRef: Record<string, string> = {};
-    for (const group of data.pfs.imagesByColor ?? []) {
-      const key = `pfs::${group.colorId}::${group.colorName}`;
-      const slots: (string | null)[] = [null, null, null, null, null];
-      for (let i = 0; i < Math.min(group.paths.length, 5); i++) {
-        slots[i] = group.paths[i];
-      }
-      initSlots[key] = slots;
-      initPfs[key] = [...slots];
-      // Find matching PFS variant to get pfsColorRef
-      const pfsVariant = data.pfs.variants.find(v =>
-        (group.colorId && v.colorId === group.colorId) ||
-        (!group.colorId && v.colorName === group.colorName)
-      );
-      if (pfsVariant?.pfsColorRef) {
-        keyToRef[key] = pfsVariant.pfsColorRef;
-      }
-    }
-    setImageSlots(initSlots);
-    setInitialBjSlots(initBj);
-    setInitialPfsSlots(initPfs);
-    setPfsKeyToColorRef(keyToRef);
   }, []);
 
   // ── Fetch data (only if no initialData) ──
@@ -764,130 +696,6 @@ export default function PfsLiveCompareModal({
     }));
   }, []);
 
-  const handleClearSlot = useCallback((slotKey: string, position: number) => {
-    setImageSlots((prev) => {
-      const slots = [...(prev[slotKey] ?? [null, null, null, null, null])];
-      // Remove image and shift remaining images down to fill the gap
-      slots.splice(position, 1);
-      // Pad back to 5 slots
-      while (slots.length < 5) slots.push(null);
-      return { ...prev, [slotKey]: slots };
-    });
-  }, []);
-
-  const handleReorderSlot = useCallback((slotKey: string, fromPos: number, toPos: number) => {
-    setImageSlots((prev) => {
-      const slots = [...(prev[slotKey] ?? [null, null, null, null, null])];
-      const tmp = slots[fromPos];
-      slots[fromPos] = slots[toPos];
-      slots[toPos] = tmp;
-      return { ...prev, [slotKey]: slots };
-    });
-  }, []);
-
-  /** Copy image to another color group (first empty slot). Source stays unchanged. */
-  const handleMoveImage = useCallback((
-    targetKey: string,
-    _targetPos: number,
-    imagePath: string,
-    _sourceKey: string,
-    _sourcePos: number,
-  ) => {
-    console.log("[DnD] handleCopyImage", { targetKey, _sourceKey, imagePath: imagePath?.substring(0, 50) });
-    setImageSlots((prev) => {
-      const newSlots = { ...prev };
-      const targetSlots = [...(newSlots[targetKey] ?? [null, null, null, null, null])];
-
-      // Find first empty slot in target group
-      const firstEmpty = targetSlots.findIndex(s => s === null);
-      if (firstEmpty === -1) return prev; // No room, ignore drop
-
-      // Copy image to first empty slot (source stays unchanged)
-      targetSlots[firstEmpty] = imagePath;
-      newSlots[targetKey] = targetSlots;
-      return newSlots;
-    });
-  }, []);
-
-  // ── Check if BJ images changed ──
-  const hasBjImageChanges = useCallback(() => {
-    // Compare current BJ image slots with initial state
-    for (const [key, slots] of Object.entries(imageSlots)) {
-      if (!key.startsWith("bj::")) continue;
-      const initial = initialBjSlots[key];
-      if (!initial) {
-        // New BJ color group with images
-        if (slots.some(s => s !== null)) return true;
-        continue;
-      }
-      for (let i = 0; i < slots.length; i++) {
-        if (slots[i] !== (initial[i] ?? null)) return true;
-      }
-    }
-    // Check if any initial BJ slot key is missing from current state
-    for (const key of Object.keys(initialBjSlots)) {
-      if (!imageSlots[key]) return true;
-    }
-    return false;
-  }, [imageSlots, initialBjSlots]);
-
-  // ── Build BJ image final state for server ──
-  const buildBjImageFinalState = useCallback(() => {
-    const result: Array<{ colorId: string; slots: Array<string | null> }> = [];
-    for (const [key, slots] of Object.entries(imageSlots)) {
-      if (!key.startsWith("bj::")) continue;
-      // Extract colorId from key: "bj::colorId::colorName"
-      const parts = key.split("::");
-      const colorId = parts[1];
-      if (colorId) {
-        result.push({ colorId, slots });
-      }
-    }
-    return result;
-  }, [imageSlots]);
-
-  // ── Check if PFS images changed ──
-  const hasPfsImageChanges = useCallback(() => {
-    for (const [key, slots] of Object.entries(imageSlots)) {
-      if (!key.startsWith("pfs::")) continue;
-      const initial = initialPfsSlots[key];
-      if (!initial) {
-        if (slots.some(s => s !== null)) return true;
-        continue;
-      }
-      for (let i = 0; i < slots.length; i++) {
-        if (slots[i] !== (initial[i] ?? null)) return true;
-      }
-    }
-    for (const key of Object.keys(initialPfsSlots)) {
-      if (!imageSlots[key]) return true;
-    }
-    return false;
-  }, [imageSlots, initialPfsSlots]);
-
-  // ── Build PFS image final & initial state for server ──
-  const buildPfsImageStates = useCallback(() => {
-    const final: Array<{ colorRef: string; slots: Array<string | null> }> = [];
-    const initial: Array<{ colorRef: string; slots: Array<string | null> }> = [];
-
-    const allKeys = new Set([
-      ...Object.keys(imageSlots).filter(k => k.startsWith("pfs::")),
-      ...Object.keys(initialPfsSlots),
-    ]);
-
-    for (const key of allKeys) {
-      const colorRef = pfsKeyToColorRef[key];
-      if (!colorRef) {
-        console.warn("[buildPfsImageStates] No colorRef for key:", key, "available refs:", pfsKeyToColorRef);
-        continue;
-      }
-
-      final.push({ colorRef, slots: imageSlots[key] ?? [null, null, null, null, null] });
-      initial.push({ colorRef, slots: initialPfsSlots[key] ?? [null, null, null, null, null] });
-    }
-    return { final, initial };
-  }, [imageSlots, initialPfsSlots, pfsKeyToColorRef]);
-
   // ── Apply changes ──
   const handleApply = useCallback(async () => {
     if (!existing || !pfs) return;
@@ -920,65 +728,15 @@ export default function PfsLiveCompareModal({
         manufacturingCountryId: existing.manufacturingCountryId,
       });
 
-      // 2. Apply BJ image changes if any
-      let imageApplied = 0;
-      const hasImgChanges = hasBjImageChanges();
-      console.log("[Apply] hasBjImageChanges:", hasImgChanges);
-      if (hasImgChanges) {
-        const bjFinal = buildBjImageFinalState();
-        console.log("[Apply] bjFinalState:", JSON.stringify(bjFinal));
-        try {
-          const imgResult = await applyLiveImageChanges(productId, bjFinal);
-          console.log("[Apply] imgResult:", JSON.stringify(imgResult));
-          if (!imgResult.success) {
-            console.error("[Apply] Image error:", imgResult.error);
-          }
-          imageApplied = imgResult.applied;
-        } catch (imgErr) {
-          console.error("[Apply] Image exception:", imgErr);
-        }
-      }
-
-      // 3. Apply PFS image changes (BJ → PFS push) if any
-      let pfsImageApplied = 0;
-      let pfsImageError: string | undefined;
-      const hasPfsImgChanges = hasPfsImageChanges();
-      const { final: pfsFinal, initial: pfsInitial } = buildPfsImageStates();
-      console.log("[Apply] hasPfsImageChanges:", hasPfsImgChanges, "pfsFinal:", JSON.stringify(pfsFinal));
-      if (hasPfsImgChanges && pfsFinal.length > 0) {
-        try {
-          const pfsImgResult = await applyPfsImageChanges(productId, pfsFinal, pfsInitial);
-          console.log("[Apply] pfsImgResult:", JSON.stringify(pfsImgResult));
-          pfsImageApplied = pfsImgResult.applied;
-          if (!pfsImgResult.success) {
-            pfsImageError = pfsImgResult.error;
-          }
-        } catch (pfsImgErr) {
-          console.error("[Apply] PFS Image exception:", pfsImgErr);
-          pfsImageError = pfsImgErr instanceof Error ? pfsImgErr.message : String(pfsImgErr);
-        }
-      }
-
-      const totalApplied = result.changesApplied + imageApplied + pfsImageApplied;
       if (result.success) {
-        if (pfsImageError) {
-          setError(`Synchronisation partielle (${totalApplied} ok) — Images PFS : ${pfsImageError}`);
-          setTimeout(() => window.location.reload(), 2000);
-        } else {
-          // Build a meaningful message
-          const parts: string[] = [];
-          if (result.changesApplied > 0) parts.push(`${result.changesApplied} champ${result.changesApplied > 1 ? "s" : ""}`);
-          if (imageApplied > 0) parts.push(`${imageApplied} image${imageApplied > 1 ? "s" : ""} BJ`);
-          if (pfsImageApplied > 0) parts.push(`${pfsImageApplied} image${pfsImageApplied > 1 ? "s" : ""} PFS`);
-          const msg = parts.length > 0
-            ? `${parts.join(", ")} — synchronisé avec succès`
-            : "Aucune modification à appliquer";
-          setSuccess(msg);
-          setTimeout(() => {
-            onClose();
-            window.location.reload();
-          }, 1500);
-        }
+        const msg = result.changesApplied > 0
+          ? `${result.changesApplied} modification${result.changesApplied > 1 ? "s" : ""} — synchronisé avec succès`
+          : "Aucune modification à appliquer";
+        setSuccess(msg);
+        setTimeout(() => {
+          onClose();
+          window.location.reload();
+        }, 1500);
       } else {
         setError(result.error ?? "Erreur inconnue");
       }
@@ -987,7 +745,7 @@ export default function PfsLiveCompareModal({
     } finally {
       setApplying(false);
     }
-  }, [productId, selections, existing, pfs, router, onClose, hasBjImageChanges, buildBjImageFinalState, hasPfsImageChanges, buildPfsImageStates]);
+  }, [productId, selections, existing, pfs, onClose]);
 
   // ── Count changes ──
   const changesCount = useMemo(() => {
@@ -1013,11 +771,8 @@ export default function PfsLiveCompareModal({
         count++;
       }
     }
-    // Image changes
-    if (hasBjImageChanges()) count++;
-    if (hasPfsImageChanges()) count++;
     return count;
-  }, [existing, pfs, selections, imageSlots, initialBjSlots, hasBjImageChanges, initialPfsSlots, hasPfsImageChanges]);
+  }, [existing, pfs, selections]);
 
   // ── Detect unmapped PFS attributes selected for sync ──
   const unmappedPfsIssues = useMemo(() => {
@@ -1547,124 +1302,6 @@ export default function PfsLiveCompareModal({
               </div>
               )}
 
-              {/* ─── Images — Drag & Drop (always shown) ─── */}
-              <div className="rounded-xl border border-border p-4 bg-bg-secondary/30">
-                  <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)] mb-1">
-                    Images
-                  </h4>
-                  <p className="text-[11px] text-text-secondary mb-4">
-                    Glissez-déposez pour copier les images entre couleurs et côtés (position automatique au premier slot vide). Cliquez ✕ pour supprimer.
-                  </p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* ── LEFT: Boutique ── */}
-                    <div>
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#3B82F6] bg-[#3B82F6]/10 rounded px-2 py-1 mb-3 text-center">
-                        Boutique
-                      </div>
-                      <div className="space-y-3">
-                        {existing.imagesByColor?.map((group) => {
-                          const key = `bj::${group.colorId}::${group.colorName}`;
-                          const slots = imageSlots[key] ?? [null, null, null, null, null];
-                          // Find matching BJ variant for PFS color ref
-                          const matchingBjVariant = existing.variants.find(v => v.colorId === group.colorId);
-                          const fullName = [group.colorName, ...(group.subColors ?? []).map(sc => sc.colorName)].join(", ");
-                          return (
-                            <div key={key} className="rounded-xl border border-[#3B82F6]/20 bg-[#3B82F6]/5 p-3">
-                              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                                <ColorSwatch
-                                  hex={group.colorHex}
-                                  patternImage={group.colorPatternImage}
-                                  subColors={group.subColors?.map(sc => ({ hex: sc.hex, patternImage: sc.patternImage }))}
-                                  size={16}
-                                  rounded="full"
-                                  border
-                                />
-                                <span className="text-xs font-medium text-[#3B82F6]">{fullName}</span>
-                                {matchingBjVariant?.pfsColorRef && (
-                                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600">
-                                    PFS : {matchingBjVariant.pfsColorRefLabel ?? matchingBjVariant.pfsColorRef}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                                {slots.map((slotPath, pos) => (
-                                  <LiveImageSlot
-                                    key={`bj-slot-${key}-${pos}`}
-                                    position={pos}
-                                    path={slotPath}
-                                    slotKey={key}
-                                    dragData={dragData}
-                                    onClear={() => handleClearSlot(key, pos)}
-                                    onZoom={(path) => setZoomSrc(path)}
-                                    onReorder={(fromPos) => handleReorderSlot(key, fromPos, pos)}
-                                    onMoveFrom={(imgPath, srcKey, srcPos) => handleMoveImage(key, pos, imgPath, srcKey, srcPos)}
-                                    setDragData={setDragData}
-                                    side="bj"
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {(!existing.imagesByColor || existing.imagesByColor.length === 0) && (
-                          <p className="text-sm text-text-secondary py-4 text-center">Aucune image</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* ── RIGHT: PFS ── */}
-                    <div>
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#D97706] bg-[#F59E0B]/10 rounded px-2 py-1 mb-3 text-center">
-                        PFS
-                      </div>
-                      <div className="space-y-3">
-                        {pfs.imagesByColor?.map((group) => {
-                          const key = `pfs::${group.colorId}::${group.colorName}`;
-                          const slots = imageSlots[key] ?? [null, null, null, null, null];
-                          // Find matching PFS variant for French label
-                          const matchingPfsVariant = pfs.variants.find(v => v.colorId === group.colorId);
-                          const pfsLabel = matchingPfsVariant?.pfsColorRefLabel ?? group.colorName;
-                          return (
-                            <div key={key} className="rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-3">
-                              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                                <ColorSwatch
-                                  hex={group.colorHex}
-                                  patternImage={group.colorPatternImage}
-                                  subColors={group.subColors?.map(sc => ({ hex: sc.hex, patternImage: sc.patternImage }))}
-                                  size={16}
-                                  rounded="full"
-                                  border
-                                />
-                                <span className="text-xs font-medium text-[#D97706]">{pfsLabel}</span>
-                              </div>
-                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                                {slots.map((slotPath, pos) => (
-                                  <LiveImageSlot
-                                    key={`pfs-slot-${key}-${pos}`}
-                                    position={pos}
-                                    path={slotPath}
-                                    slotKey={key}
-                                    dragData={dragData}
-                                    onClear={() => handleClearSlot(key, pos)}
-                                    onZoom={(path) => setZoomSrc(path)}
-                                    onReorder={(fromPos) => handleReorderSlot(key, fromPos, pos)}
-                                    onMoveFrom={(imgPath, srcKey, srcPos) => handleMoveImage(key, pos, imgPath, srcKey, srcPos)}
-                                    setDragData={setDragData}
-                                    side="pfs"
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {(!pfs.imagesByColor || pfs.imagesByColor.length === 0) && (
-                          <p className="text-sm text-text-secondary py-4 text-center">Aucune image</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
 
               {/* ─── Footer (sticky) ─── */}
               <div className="sticky bottom-0 -mx-5 sm:-mx-6 mt-2 flex flex-col gap-3 border-t border-border bg-bg-primary px-5 sm:px-6 py-4 rounded-b-2xl">
@@ -1717,29 +1354,6 @@ export default function PfsLiveCompareModal({
         </div>
       </div>
 
-      {/* ── Zoom overlay ── */}
-      {zoomSrc && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setZoomSrc(null)}
-        >
-          <button
-            onClick={() => setZoomSrc(null)}
-            className="absolute top-4 right-4 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
-            aria-label="Fermer le zoom"
-          >
-            <XIcon className="h-5 w-5" />
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={zoomSrc}
-            alt="Zoom"
-            className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
-
       {/* ── Quick Create Modal (for unmapped PFS attributes) ── */}
       {quickCreate && (
         <QuickCreateModal
@@ -1758,137 +1372,3 @@ export default function PfsLiveCompareModal({
   );
 }
 
-// ─────────────────────────────────────────────
-// Image Slot (drag-and-drop target, works across colors and sides)
-// ─────────────────────────────────────────────
-
-function LiveImageSlot({
-  position,
-  path,
-  slotKey,
-  dragData,
-  onClear,
-  onZoom,
-  onReorder,
-  onMoveFrom,
-  setDragData,
-  side,
-}: {
-  position: number;
-  path: string | null;
-  slotKey: string;
-  dragData: { path: string; sourceKey: string; sourcePos: number } | null;
-  onClear: () => void;
-  onZoom: (path: string) => void;
-  onReorder: (fromPos: number) => void;
-  onMoveFrom: (imagePath: string, sourceKey: string, sourcePos: number) => void;
-  setDragData: (data: { path: string; sourceKey: string; sourcePos: number } | null) => void;
-  side: "bj" | "pfs";
-}) {
-  const [dragOver, setDragOver] = useState(false);
-  const sideColor = side === "bj" ? "#3B82F6" : "#F59E0B";
-  const isDragActive = !!dragData;
-
-  // Use ref to always have current dragData in drop handler (avoids stale closure)
-  const dragDataRef = useRef(dragData);
-  dragDataRef.current = dragData;
-
-  return (
-    <div
-      draggable={!!path}
-      onDragStart={(e) => {
-        if (path) {
-          e.dataTransfer.setData("text/plain", path);
-          e.dataTransfer.effectAllowed = "copyMove";
-          setDragData({ path, sourceKey: slotKey, sourcePos: position });
-        }
-      }}
-      onDragEnd={() => setDragData(null)}
-      onDragOver={(e) => {
-        e.preventDefault();
-        const dd = dragDataRef.current;
-        e.dataTransfer.dropEffect = dd && dd.sourceKey !== slotKey ? "copy" : "move";
-        setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-
-        // Read from ref to guarantee latest value
-        const dd = dragDataRef.current;
-        if (!dd) {
-          console.warn("[LiveImageSlot] drop: dragData is null");
-          return;
-        }
-
-        if (dd.sourceKey === slotKey && dd.sourcePos !== position) {
-          onReorder(dd.sourcePos);
-        } else if (dd.sourceKey !== slotKey) {
-          onMoveFrom(dd.path, dd.sourceKey, dd.sourcePos);
-        }
-      }}
-      className={`
-        relative aspect-square rounded-xl border-2 transition-all flex flex-col items-center justify-center
-        ${path
-          ? dragOver
-            ? "border-text-primary ring-2 ring-text-primary/20 scale-[1.03] cursor-grab"
-            : `border-[${sideColor}]/40 bg-bg-primary cursor-grab active:cursor-grabbing`
-          : dragOver
-            ? `border-[${sideColor}] bg-[${sideColor}]/10 scale-[1.03]`
-            : isDragActive
-              ? `border-dashed border-[${sideColor}]/60 bg-[${sideColor}]/5`
-              : "border-dashed border-border bg-bg-secondary/50"
-        }
-      `}
-      style={path ? { borderColor: dragOver ? undefined : `${sideColor}66` } : (dragOver ? { borderColor: sideColor, backgroundColor: `${sideColor}1A` } : (isDragActive ? { borderColor: `${sideColor}99`, backgroundColor: `${sideColor}0D` } : {}))}
-    >
-      {/* Position badge */}
-      <span className={`absolute top-1 start-1 z-10 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold shadow-sm ${
-        path ? "text-white" : "bg-border text-text-secondary"
-      }`} style={path ? { backgroundColor: sideColor } : {}}>
-        {position + 1}
-      </span>
-
-      {path ? (
-        <>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={getThumbSrc(path)}
-            alt={`Position ${position + 1}`}
-            className="h-full w-full object-cover rounded-[10px] pointer-events-none select-none"
-            loading="lazy"
-            draggable={false}
-          />
-          {/* Clear button */}
-          <button
-            onClick={(e) => { e.stopPropagation(); onClear(); }}
-            className="absolute top-1 end-1 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#EF4444] text-white shadow-sm transition-transform hover:scale-110"
-            aria-label={`Retirer position ${position + 1}`}
-          >
-            <XIcon className="h-3 w-3" />
-          </button>
-          {/* Zoom */}
-          <button
-            onClick={(e) => { e.stopPropagation(); onZoom(path); }}
-            className="absolute bottom-1 right-1 h-6 w-6 rounded-md bg-black/50 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-            aria-label="Zoom"
-          >
-            <ZoomIcon className="h-3.5 w-3.5" />
-          </button>
-          {/* External indicator */}
-          {isExternal(path) && (
-            <span className="absolute bottom-1 start-1 rounded bg-[#F59E0B] px-1 py-0.5 text-[8px] font-bold text-white leading-none">
-              PFS
-            </span>
-          )}
-        </>
-      ) : (
-        <div className="flex flex-col items-center gap-1 text-text-secondary pointer-events-none">
-          <PlusIcon className="h-5 w-5 opacity-40" />
-          <span className="text-[9px] font-medium opacity-60">Position {position + 1}</span>
-        </div>
-      )}
-    </div>
-  );
-}

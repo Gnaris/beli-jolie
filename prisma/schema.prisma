@@ -1122,6 +1122,7 @@ model PfsStagedProduct {
   manufacturingCountryName String?
   seasonId                 String?
   seasonName               String?
+  pfsProductStatus  String?          // PFS status at import time (READY_FOR_SALE, DRAFT, etc.)
   errorMessage      String?          @db.Text
   existsInDb        Boolean          @default(false)
   existingProductId String?

@@ -789,6 +789,8 @@ export interface SyncResult {
   productId?: string;
   /** Image task to run in background after product is created/updated */
   imageTask?: () => Promise<void>;
+  /** BJ status derived from PFS status (ONLINE if READY_FOR_SALE, OFFLINE otherwise) */
+  bjStatus?: "ONLINE" | "OFFLINE";
 }
 
 async function syncSingleProduct(
@@ -1047,7 +1049,8 @@ async function syncSingleProduct(
     });
 
     const isUpdate = !!existing;
-    addLog(`  ${isUpdate ? "🔄 Mise à jour" : "✨ Création"} "${nameFr}"`);
+    const bjStatus = pfsProduct.status === "READY_FOR_SALE" ? "ONLINE" as const : "OFFLINE" as const;
+    addLog(`  ${isUpdate ? "🔄 Mise à jour" : "✨ Création"} "${nameFr}" (PFS: ${pfsProduct.status} → ${bjStatus})`);
 
     // Use product images directly (no extra API call)
     const imageSource = { primary: pfsProduct.images, fallback: null as Record<string, string | string[]> | null };
@@ -1133,7 +1136,7 @@ async function syncSingleProduct(
 
       // Return image task to be run in background
       const imgTask = () => syncProductImages(productId, bjRef, imageSource, createdVariants, addLog);
-      return { action: "updated", reference: bjRef, productId, imageTask: imgTask };
+      return { action: "updated", reference: bjRef, productId, imageTask: imgTask, bjStatus };
     } else {
       // ── CREATE new product ──
       const product = await prisma.product.create({
@@ -1238,7 +1241,7 @@ async function syncSingleProduct(
 
       // Return image task to be run in background
       const imgTask = () => syncProductImages(product.id, bjRef, imageSource, createdVariants, addLog);
-      return { action: "created", reference: bjRef, productId: product.id, imageTask: imgTask };
+      return { action: "created", reference: bjRef, productId: product.id, imageTask: imgTask, bjStatus };
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1617,27 +1620,28 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
           if (result.imageTask) {
             const ref = result.reference;
             const pid = result.productId;
+            const finalStatus = result.bjStatus || "ONLINE";
             addImageLog(`📥 ${ref} — ajouté à la file d'attente`);
             enqueueImageTask(async () => {
               addImageLog(`⬇️ ${ref} — téléchargement en cours...`);
               try {
                 await result.imageTask!();
-                // Images done → set product ONLINE
+                // Images done → set product status based on PFS status
                 if (pid) {
                   await prisma.product.update({
                     where: { id: pid },
-                    data: { status: "ONLINE" },
+                    data: { status: finalStatus },
                   });
                 }
-                addImageLog(`✅ ${ref} — images OK, produit en ligne`);
+                addImageLog(`✅ ${ref} — images OK, produit ${finalStatus === "ONLINE" ? "en ligne" : "hors ligne"}`);
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
                 addImageLog(`❌ ${ref} — erreur: ${msg}`);
-                // Still set ONLINE even if images fail (product data is valid)
+                // Still set status even if images fail (product data is valid)
                 if (pid) {
                   await prisma.product.update({
                     where: { id: pid },
-                    data: { status: "ONLINE" },
+                    data: { status: finalStatus },
                   }).catch(() => {});
                 }
               }

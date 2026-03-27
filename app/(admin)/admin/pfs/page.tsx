@@ -825,6 +825,9 @@ export default function PfsSyncPage() {
                   bjEntityId={cat.bjEntityId}
                   existingOptions={existingEntities.categories}
                   modalType="category"
+                  pfsCategoryId={cat.pfsCategoryId}
+                  pfsCategoryGender={cat.pfsGender}
+                  pfsCategoryFamilyId={cat.pfsFamilyId}
                   onBjEntityIdChange={(id) => {
                     const updated = [...editCategories];
                     updated[idx] = { ...updated[idx], bjEntityId: id };
@@ -1269,6 +1272,9 @@ function CompactEntityCard({
   modalType,
   onBjEntityIdChange,
   onEntityCreated,
+  pfsCategoryId: propPfsCategoryId,
+  pfsCategoryGender,
+  pfsCategoryFamilyId,
 }: {
   pfsName: string;
   pfsRef?: string;
@@ -1278,6 +1284,9 @@ function CompactEntityCard({
   modalType: "category" | "composition" | "country" | "season";
   onBjEntityIdChange: (id: string | null) => void;
   onEntityCreated: (entity: { id: string; name: string; hex?: string | null }) => void;
+  pfsCategoryId?: string;
+  pfsCategoryGender?: string;
+  pfsCategoryFamilyId?: string;
 }) {
   const [showModal, setShowModal] = useState(false);
   const isResolved = !!bjEntityId;
@@ -1332,6 +1341,10 @@ function CompactEntityCard({
         onClose={() => setShowModal(false)}
         onCreated={(entity) => onEntityCreated(entity)}
         defaultName={pfsName}
+        defaultPfsRef={pfsRef}
+        defaultPfsCategoryId={propPfsCategoryId}
+        defaultPfsCategoryGender={pfsCategoryGender}
+        defaultPfsCategoryFamilyId={pfsCategoryFamilyId}
       />
     </div>
   );
@@ -1420,6 +1433,7 @@ function CompactColorCard({
           setShowModal(false);
         }}
         defaultName={color.pfsName}
+        defaultPfsRef={color.pfsReference}
       />
     </div>
   );

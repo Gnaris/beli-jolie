@@ -6,9 +6,6 @@ import PfsEditInfoModal from "./PfsEditInfoModal";
 import PfsEditVariantsModal from "./PfsEditVariantsModal";
 import PfsEditImagesModal from "./PfsEditImagesModal";
 import PfsEditCompositionsModal from "./PfsEditCompositionsModal";
-import PfsImageCompareModal from "./PfsImageCompareModal";
-import type { ImageModifications } from "./PfsImageCompareModal";
-import { applyImageModifications } from "@/app/actions/admin/pfs-image-compare";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 
 // ─────────────────────────────────────────────
@@ -83,9 +80,7 @@ export interface StagedProductFull {
   imagesByColor: StagedImageGroup[];
   tags?: string[] | null;
   errorMessage?: string | null;
-  existsInDb?: boolean;
   existingProductId?: string | null;
-  differences?: Array<{ field: string; stagedValue: unknown; existingValue: unknown }> | null;
   createdProductId?: string | null;
 }
 
@@ -338,8 +333,6 @@ export default function PfsProductDetailModal({
   const [editVariants, setEditVariants] = useState(false);
   const [editImages, setEditImages] = useState(false);
   const [editCompositions, setEditCompositions] = useState(false);
-  const [compareImages, setCompareImages] = useState(false);
-  const [savingCompareImages, setSavingCompareImages] = useState(false);
 
   // Accordion state for translations
   const [openLocales, setOpenLocales] = useState<Set<string>>(new Set());
@@ -544,61 +537,6 @@ export default function PfsProductDetailModal({
                   <StarIcon className="h-5 w-5" filled={product.isBestSeller} />
                 </button>
               </div>
-
-              {/* ─── Duplicate warning ─── */}
-              {product.existsInDb && (
-                <div className="rounded-xl bg-[#F59E0B]/10 border border-[#F59E0B]/20 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <svg className="h-5 w-5 text-[#F59E0B] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                      <line x1="12" y1="9" x2="12" y2="13" />
-                      <line x1="12" y1="17" x2="12.01" y2="17" />
-                    </svg>
-                    <span className="text-sm font-medium text-[#F59E0B]">
-                      Ce produit existe déjà dans l&apos;application
-                    </span>
-                    {product.existingProductId && (
-                      <a
-                        href={`/admin/produits/${product.existingProductId}/modifier`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-auto text-xs text-[#3B82F6] underline underline-offset-2 hover:text-[#2563EB]"
-                      >
-                        Voir le produit
-                      </a>
-                    )}
-                  </div>
-                  {product.differences && product.differences.length > 0 ? (
-                    <div className="space-y-1.5 mt-3">
-                      <p className="text-xs font-medium text-text-secondary">{product.differences.length} différence(s) détectée(s) :</p>
-                      {product.differences.map((d, i) => (
-                        <div key={i} className="flex items-start gap-2 text-xs bg-bg-primary/50 rounded-lg px-3 py-2">
-                          <span className="font-medium text-text-primary w-28 shrink-0">{d.field}</span>
-                          <span className="text-[#EF4444] line-through">{JSON.stringify(d.existingValue)}</span>
-                          <span className="text-text-secondary">→</span>
-                          <span className="text-[#22C55E]">{JSON.stringify(d.stagedValue)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-text-secondary mt-1">Aucune différence de données détectée.</p>
-                  )}
-                  <button
-                    onClick={() => setCompareImages(true)}
-                    disabled={savingCompareImages}
-                    className="mt-3 btn-secondary text-xs disabled:opacity-50"
-                  >
-                    {savingCompareImages ? (
-                      <div className="h-4 w-4 mr-1.5 inline-block animate-spin rounded-full border-2 border-border border-t-text-primary" />
-                    ) : (
-                      <svg className="h-4 w-4 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    )}
-                    {savingCompareImages ? "Application en cours..." : "Comparer les images"}
-                  </button>
-                </div>
-              )}
 
               {/* ─── 2. Images ─── */}
               <Section title="Images" onEdit={() => setEditImages(true)}>
@@ -942,40 +880,6 @@ export default function PfsProductDetailModal({
             onClose={() => setEditCompositions(false)}
             onSaved={handleEditSaved}
           />
-          {product.existsInDb && product.existingProductId && (
-            <PfsImageCompareModal
-              product={product}
-              open={compareImages}
-              onClose={() => setCompareImages(false)}
-              onSaved={async (modifications: ImageModifications) => {
-                if (!product.existingProductId) return;
-                const hasChanges =
-                  modifications.replacements.length > 0 ||
-                  modifications.deletions.length > 0 ||
-                  modifications.reorders.length > 0;
-                if (!hasChanges) {
-                  setCompareImages(false);
-                  return;
-                }
-                setSavingCompareImages(true);
-                try {
-                  const result = await applyImageModifications(
-                    product.existingProductId,
-                    modifications
-                  );
-                  if (!result.success) {
-                    alert(result.error ?? "Erreur lors de l'application des modifications");
-                  }
-                } catch (err) {
-                  alert(err instanceof Error ? err.message : "Erreur réseau");
-                } finally {
-                  setSavingCompareImages(false);
-                  setCompareImages(false);
-                  onSaved();
-                }
-              }}
-            />
-          )}
         </>
       )}
     </>

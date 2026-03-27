@@ -236,7 +236,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 lg:gap-5">
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-5">
         {products.map((product) => {
           const isNewlyAdded = newlyAddedIds.has(product.id);
           const isAnimating = animatingIds.has(product.id);

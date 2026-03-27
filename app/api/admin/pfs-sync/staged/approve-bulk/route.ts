@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { ids, selections } = body;
+    const { ids } = body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json(
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const results = await bulkApproveStagedProducts(ids, selections);
+    const results = await bulkApproveStagedProducts(ids);
 
     return NextResponse.json({ results });
   } catch (err) {

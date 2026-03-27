@@ -9,12 +9,19 @@ import { createPortal } from "react-dom";
 
 export type ConfirmType = "danger" | "warning" | "info";
 
+interface ConfirmCheckbox {
+  label: string;
+  defaultChecked: boolean;
+  onChange?: (checked: boolean) => void;
+}
+
 interface ConfirmOptions {
   type?: ConfirmType;
   title: string;
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  checkbox?: ConfirmCheckbox;
 }
 
 interface ConfirmContextValue {
@@ -71,6 +78,7 @@ function ConfirmModal({
 }) {
   const [closing, setClosing] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [checkboxChecked, setCheckboxChecked] = useState(opts.checkbox?.defaultChecked ?? false);
   const backdropRef = useRef<HTMLDivElement>(null);
   const mouseDownOnBackdrop = useRef(false);
 
@@ -127,6 +135,36 @@ function ConfirmModal({
             <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] mt-1.5 leading-relaxed">
               {opts.message}
             </p>
+            {opts.checkbox && (
+              <label className="flex items-center gap-2.5 mt-3 cursor-pointer group select-none">
+                <span className="relative flex items-center justify-center">
+                  <input
+                    type="checkbox"
+                    checked={checkboxChecked}
+                    onChange={(e) => {
+                      setCheckboxChecked(e.target.checked);
+                      opts.checkbox?.onChange?.(e.target.checked);
+                    }}
+                    className="peer sr-only"
+                  />
+                  <span className="w-[18px] h-[18px] rounded-[5px] border-2 border-[#D1D5DB] bg-white transition-all duration-150 peer-checked:border-[#1A1A1A] peer-checked:bg-[#1A1A1A] group-hover:border-[#9CA3AF] peer-checked:group-hover:border-[#000] peer-focus-visible:ring-2 peer-focus-visible:ring-offset-1 peer-focus-visible:ring-[#1A1A1A]/30" />
+                  <svg
+                    className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity duration-150 pointer-events-none"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
+                <span className="text-[13px] font-[family-name:var(--font-roboto)] text-[#4B5563] leading-tight">
+                  {opts.checkbox.label}
+                </span>
+              </label>
+            )}
           </div>
         </div>
 

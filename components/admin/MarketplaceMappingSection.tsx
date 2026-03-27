@@ -182,20 +182,18 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
   const [catFamilyId, setCatFamilyId] = useState("");
 
   // Auto-resolve gender/family when pfsCategoryId is pre-filled (e.g., from PFS sync quick-create)
+  const pfsCategoryIdProp = props.entityType === "category" ? (props as CategoryProps).pfsCategoryId : "";
   useEffect(() => {
-    if (props.entityType === "category" && pfsData && !catGender) {
-      const { pfsCategoryId } = props as CategoryProps;
-      if (pfsCategoryId) {
-        const matched = pfsData.categories.find(c => c.id === pfsCategoryId);
-        if (matched) {
-          setCatGender(matched.gender);
-          const famId = typeof matched.family === "string" ? matched.family : matched.family?.id;
-          if (famId) setCatFamilyId(famId);
-        }
+    if (props.entityType === "category" && pfsData && pfsCategoryIdProp) {
+      const matched = pfsData.categories.find(c => c.id === pfsCategoryIdProp);
+      if (matched) {
+        setCatGender(matched.gender);
+        const famId = typeof matched.family === "string" ? matched.family : matched.family?.id;
+        if (famId) setCatFamilyId(famId);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pfsData]);
+  }, [pfsData, pfsCategoryIdProp]);
 
   /* ── Loading / error states ── */
 

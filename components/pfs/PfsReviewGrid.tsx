@@ -2,12 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import PfsStagedProductCard from "./PfsStagedProductCard";
-import PfsProductDetailModal from "./PfsProductDetailModal";
-import PfsCompareModal from "./PfsCompareModal";
-import type { CompareSelections } from "./PfsCompareModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
-import type { StagedProduct } from "./PfsStagedProductCard";
+import type { StagedProduct, ColorMapEntry } from "./PfsStagedProductCard";
 
 export type { StagedProduct };
 
@@ -61,14 +58,9 @@ interface FetchResponse {
     preparing: number;
     error: number;
   };
-  existsCounts: {
-    existing: number;
-    new: number;
-  };
 }
 
 type StatusFilter = "ALL" | "READY" | "APPROVED" | "REJECTED" | "PREPARING" | "ERROR";
-type ExistsFilter = "ALL" | "NEW" | "EXISTING";
 
 const STATUS_FILTERS: { value: StatusFilter; label: string; badgeClass: string }[] = [
   { value: "ALL", label: "Tous", badgeClass: "badge-neutral" },
@@ -163,7 +155,6 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
   const [products, setProducts] = useState<StagedProduct[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<StatusFilter>("ALL");
-  const [existsFilter, setExistsFilter] = useState<ExistsFilter>("ALL");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -176,10 +167,8 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
     preparing: 0,
     error: 0,
   });
-  const [existsCounts, setExistsCounts] = useState({ existing: 0, new: 0 });
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [detailProductId, setDetailProductId] = useState<string | null>(null);
-  const [compareProductId, setCompareProductId] = useState<string | null>(null);
+  const [colorMap, setColorMap] = useState<Map<string, ColorMapEntry>>(new Map());
 
   // ── Job status state (live sync tracking) ──
   const [job, setJob] = useState<JobData | null>(null);
@@ -213,6 +202,19 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
   useEffect(() => {
     fetchJob();
   }, [fetchJob]);
+
+  // Fetch color map for swatches
+  useEffect(() => {
+    fetch("/api/admin/pfs-sync/entities")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!data?.colors) return;
+        const map = new Map<string, ColorMapEntry>();
+        for (const c of data.colors) map.set(c.id, { hex: c.hex, patternImage: c.patternImage });
+        setColorMap(map);
+      })
+      .catch(() => {});
+  }, []);
 
   // Poll job status while running (every 3s)
   useEffect(() => {
@@ -264,8 +266,6 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
         limit: String(LIMIT),
       });
       if (filter !== "ALL") params.set("status", filter);
-      if (existsFilter === "NEW") params.set("existsInDb", "false");
-      else if (existsFilter === "EXISTING") params.set("existsInDb", "true");
       if (debouncedSearch) params.set("search", debouncedSearch);
 
       const res = await fetch(`/api/admin/pfs-sync/staged?${params.toString()}`);
@@ -294,14 +294,13 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       setProducts(data.products);
       setTotal(data.total);
       setCounts(data.counts);
-      setExistsCounts(data.existsCounts ?? { existing: 0, new: 0 });
       onProductCountChange?.(data.counts);
     } catch {
       // silently handle
     } finally {
       setLoading(false);
     }
-  }, [jobId, page, filter, existsFilter, debouncedSearch, onProductCountChange]);
+  }, [jobId, page, filter, debouncedSearch, onProductCountChange]);
 
   useEffect(() => {
     fetchProducts();
@@ -349,8 +348,6 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
         status: "READY",
         idsOnly: "true",
       });
-      if (existsFilter === "NEW") params.set("existsInDb", "false");
-      else if (existsFilter === "EXISTING") params.set("existsInDb", "true");
       if (debouncedSearch) params.set("search", debouncedSearch);
 
       const res = await fetch(`/api/admin/pfs-sync/staged?${params.toString()}`);
@@ -360,7 +357,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
     } catch {
       // silent
     }
-  }, [jobId, existsFilter, debouncedSearch]);
+  }, [jobId, debouncedSearch]);
 
   // ── Single actions ──
   const handleApprove = useCallback(
@@ -413,47 +410,6 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       toast.success("Produit refusé");
     },
     [confirm, fetchProducts, toast],
-  );
-
-  const handleViewDetail = useCallback((id: string) => {
-    const product = products.find((p) => p.id === id);
-    if (product?.existsInDb && product.existingProductId) {
-      setCompareProductId(id);
-    } else {
-      setDetailProductId(id);
-    }
-  }, [products]);
-
-  // ── Compare approve (with selections) ──
-  const handleCompareApprove = useCallback(
-    async (id: string, selections: CompareSelections) => {
-      try {
-        const res = await fetch("/api/admin/pfs-sync/staged/approve-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: [id], selections }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          toast.error(data?.error ?? `Erreur ${res.status}`);
-          return;
-        }
-        const results = data?.results?.results ?? data?.results ?? [];
-        const resultArr = Array.isArray(results) ? results : [];
-        const failed = resultArr.filter((r: { error?: string }) => r.error);
-        if (failed.length > 0) {
-          toast.error(`Erreur: ${failed[0].error}`);
-          return;
-        }
-        toast.success("Produit approuvé avec les modifications sélectionnées");
-        setCompareProductId(null);
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Erreur réseau");
-      } finally {
-        fetchProducts();
-      }
-    },
-    [fetchProducts, toast],
   );
 
   // ── Bulk actions (chunked to respect API limit of 100 per request) ──
@@ -844,51 +800,6 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       </div>
 
       {/* ── Existing / New filter ── */}
-      {(existsCounts.existing > 0 || existsCounts.new > 0) && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-text-secondary mr-1">Produits :</span>
-          {([
-            { value: "ALL" as ExistsFilter, label: "Tous", count: existsCounts.existing + existsCounts.new },
-            { value: "NEW" as ExistsFilter, label: "Nouveaux", count: existsCounts.new },
-            { value: "EXISTING" as ExistsFilter, label: "Existants", count: existsCounts.existing },
-          ]).map((ef) => {
-            const isActive = existsFilter === ef.value;
-            return (
-              <button
-                key={ef.value}
-                onClick={() => {
-                  setExistsFilter(ef.value);
-                  setPage(1);
-                  setSelectedIds(new Set());
-                }}
-                className={`
-                  flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium transition-colors min-h-[36px]
-                  ${isActive
-                    ? ef.value === "NEW"
-                      ? "bg-[#3B82F6] text-white"
-                      : ef.value === "EXISTING"
-                        ? "bg-[#F59E0B] text-white"
-                        : "bg-text-primary text-bg-primary"
-                    : "bg-bg-secondary text-text-secondary hover:bg-border hover:text-text-primary"
-                  }
-                `}
-                aria-pressed={isActive}
-              >
-                {ef.label}
-                <span
-                  className={`
-                    inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px]
-                    ${isActive ? "bg-white/20 text-inherit" : "bg-border text-text-secondary"}
-                  `}
-                >
-                  {ef.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       {/* ── Grid ── */}
       {loading && products.length === 0 ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -929,10 +840,10 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
               <PfsStagedProductCard
                 product={product}
                 selected={selectedIds.has(product.id)}
+                colorMap={colorMap}
                 onSelect={handleSelect}
                 onApprove={handleApprove}
                 onReject={handleReject}
-                onViewDetail={handleViewDetail}
               />
             </div>
           ))}
@@ -1014,39 +925,6 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       {/* Spacer when bulk bar is visible so content isn't hidden behind it */}
       {selectedIds.size > 0 && <div className="h-16" />}
 
-      {/* ── Product detail modal (for NEW products) ── */}
-      {detailProductId && (
-        <PfsProductDetailModal
-          productId={detailProductId}
-          open={!!detailProductId}
-          onClose={() => setDetailProductId(null)}
-          onApprove={(id) => {
-            handleApprove(id);
-            setDetailProductId(null);
-          }}
-          onReject={(id) => {
-            handleReject(id);
-            setDetailProductId(null);
-          }}
-          onSaved={() => fetchProducts()}
-        />
-      )}
-
-      {/* ── Compare modal (for EXISTING products) ── */}
-      {compareProductId && (
-        <PfsCompareModal
-          stagedProductId={compareProductId}
-          open={!!compareProductId}
-          onClose={() => setCompareProductId(null)}
-          onApprove={(id, selections) => {
-            handleCompareApprove(id, selections);
-          }}
-          onReject={(id) => {
-            handleReject(id);
-            setCompareProductId(null);
-          }}
-        />
-      )}
     </div>
   );
 }

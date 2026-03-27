@@ -193,6 +193,7 @@ export async function GET(
         pfsCategoryName,
         undefined,
         rawCatRef,
+        pfsProductCatId,
       ) ?? "";
     } catch (err) {
       // Still show the category name in comparison even if creation failed
@@ -598,18 +599,26 @@ export async function GET(
   // 5. Compute differences
   const differences: Array<{ field: string; pfsValue: unknown; bjValue: unknown }> = [];
 
-  if (bjFormatted.name !== pfsFormatted.name && pfsFormatted.name) {
+  // Normalize strings for comparison (trim whitespace)
+  const bjNameNorm = (bjFormatted.name ?? "").trim();
+  const pfsNameNorm = (pfsFormatted.name ?? "").trim();
+  const bjDescNorm = (bjFormatted.description ?? "").trim();
+  const pfsDescNorm = (pfsFormatted.description ?? "").trim();
+
+  if (bjNameNorm !== pfsNameNorm && pfsNameNorm) {
     differences.push({ field: "name", pfsValue: pfsFormatted.name, bjValue: bjFormatted.name });
   }
-  if (bjFormatted.description !== pfsFormatted.description && pfsFormatted.description) {
+  if (bjDescNorm !== pfsDescNorm && pfsDescNorm) {
     differences.push({ field: "description", pfsValue: pfsFormatted.description, bjValue: bjFormatted.description });
   }
-  if (pfsCategoryName && (pfsCategoryId ? bjFormatted.categoryId !== pfsCategoryId : bjFormatted.categoryName !== pfsCategoryName)) {
+  if (pfsCategoryName && (pfsCategoryId ? bjFormatted.categoryId !== pfsCategoryId : bjFormatted.categoryName.trim() !== pfsCategoryName.trim())) {
     differences.push({ field: "category", pfsValue: pfsFormatted.categoryName, bjValue: bjFormatted.categoryName });
   }
-  // Compare compositions: strip pfsRef (only on PFS side) to avoid false positives
-  const bjCompsNorm = bjFormatted.compositions.map(c => ({ compositionId: c.compositionId, name: c.name, percentage: c.percentage }));
-  const pfsCompsNorm = pfsFormatted.compositions.map(c => ({ compositionId: c.compositionId, name: c.name, percentage: c.percentage }));
+  // Compare compositions: sort by name+percentage to avoid order-dependent false positives
+  const sortComps = (comps: Array<{ compositionId: string; name: string; percentage: number }>) =>
+    [...comps].sort((a, b) => a.name.localeCompare(b.name) || a.percentage - b.percentage);
+  const bjCompsNorm = sortComps(bjFormatted.compositions.map(c => ({ compositionId: c.compositionId, name: c.name.trim(), percentage: c.percentage })));
+  const pfsCompsNorm = sortComps(pfsFormatted.compositions.map(c => ({ compositionId: c.compositionId, name: c.name.trim(), percentage: c.percentage })));
   if (JSON.stringify(bjCompsNorm) !== JSON.stringify(pfsCompsNorm) && pfsFormatted.compositions.length > 0) {
     differences.push({ field: "compositions", pfsValue: pfsFormatted.compositions, bjValue: bjFormatted.compositions });
   }
@@ -632,6 +641,10 @@ export async function GET(
         differences.push({ field: `weight_${pfsV.colorName}_${pfsV.saleType}`, pfsValue: pfsV.weight, bjValue: bjV.weight });
       }
     }
+  }
+
+  if (differences.length > 0) {
+    console.log(`[LIVE_CHECK] ${product.reference} — ${differences.length} diff(s):`, differences.map(d => d.field).join(", "));
   }
 
   return NextResponse.json({

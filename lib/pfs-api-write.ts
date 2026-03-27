@@ -102,11 +102,17 @@ async function fetchWithRetry(
 
       if (res.ok) return res;
 
+      const errBody = await res.text().catch(() => "");
+      const method = options.method ?? "GET";
+      const shortUrl = url.replace(PFS_BASE_URL, "");
+
       if (res.status === 404) {
-        throw new Error(`PFS API 404: ressource introuvable — ${url}`);
+        throw new Error(`PFS API 404: ${method} ${shortUrl} — ${errBody.slice(0, 200)}`);
       }
 
       if (res.status === 429 || res.status >= 500) {
+        lastError = new Error(`PFS API ${res.status}: ${method} ${shortUrl} — ${errBody.slice(0, 200)}`);
+        console.warn(`[PFS] ${lastError.message} — retry ${attempt + 1}/${maxRetries}`);
         const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
         await new Promise((r) => setTimeout(r, delay));
         continue;
@@ -116,6 +122,7 @@ async function fetchWithRetry(
       return res;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[PFS] ${lastError.message} — retry ${attempt + 1}/${maxRetries}`);
       if (attempt < maxRetries) {
         const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
         await new Promise((r) => setTimeout(r, delay));
@@ -337,6 +344,8 @@ export async function pfsDeleteImage(
   slot: number,
   colorRef: string,
 ): Promise<void> {
+  if (colorRef === "DEFAULT") return; // PFS manages DEFAULT automatically
+
   const body = { color: colorRef, slot };
   console.log(`[PFS API] DELETE /catalog/products/${pfsProductId}/image — body:`, JSON.stringify(body));
 

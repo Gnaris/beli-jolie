@@ -4,7 +4,7 @@ import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, packDisplayName, packDisplayHex, computeTotalPrice } from "./ColorVariantManager";
 import { createProduct, updateProduct, saveProductTranslations } from "@/app/actions/admin/products";
-import { createSize } from "@/app/actions/admin/sizes";
+import { createSize, toggleSizePfsMapping } from "@/app/actions/admin/sizes";
 import { forcePfsSync } from "@/app/actions/admin/pfs-reverse-sync";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
@@ -443,14 +443,17 @@ export default function ProductForm({
     const groupMap = new Map<string, { colorId: string; name: string; hex: string }>();
     for (const v of variants) {
       if (v.saleType === "PACK") {
-        // Each PACK variant gets its own image group
         if (v.packColorLines.length === 0) continue;
         const gk = imageGroupKeyFromVariant(v);
+        // If group already registered (e.g. by a UNIT variant), skip
         if (!groupMap.has(gk)) {
+          // Derive display info from first line's colors
+          const firstLineColors = v.packColorLines[0]?.colors ?? [];
+          const colorNames = firstLineColors.map((c) => c.colorName);
           groupMap.set(gk, {
-            colorId: v.packColorLines[0]?.colors[0]?.colorId ?? "",
-            name: packDisplayName(v),
-            hex: packDisplayHex(v),
+            colorId: firstLineColors[0]?.colorId ?? "",
+            name: colorNames.join(" / "),
+            hex: firstLineColors[0]?.colorHex || packDisplayHex(v),
           });
         }
       } else {
@@ -720,8 +723,10 @@ export default function ProductForm({
   }
 
   // ── Size quick-create handler ────────────────────────────────────────
-  async function handleQuickCreateSize(name: string, categoryIds: string[]): Promise<AvailableSize> {
+  async function handleQuickCreateSize(name: string, categoryIds: string[], pfsSizeRefs: string[]): Promise<AvailableSize> {
     const created = await createSize(name, categoryIds);
+    // Create PFS size mappings
+    await Promise.all(pfsSizeRefs.map((ref) => toggleSizePfsMapping(created.id, ref)));
     const newSize: AvailableSize = { id: created.id, name: created.name, categoryIds };
     setLocalSizes((prev) => [...prev, newSize]);
     return newSize;
@@ -949,6 +954,16 @@ export default function ProductForm({
     const outOfStock = isOutOfStock();
 
     // Warn: saving an ONLINE product with errors → auto downgrade to OFFLINE
+    const shouldSyncPfs = { current: true };
+    const showPfsCheckbox = mode === "edit" && productId && !hasVariantsWithMissingPriceWeightOrStock();
+    const pfsCheckboxOption = showPfsCheckbox ? {
+      checkbox: {
+        label: "Synchroniser également les marketplaces (PFS)",
+        defaultChecked: true,
+        onChange: (v: boolean) => { shouldSyncPfs.current = v; },
+      },
+    } : {};
+
     let downgradeConfirmed = false;
     if (productStatus === "ONLINE" && isIncomplete) {
       const okDowngrade = await confirmDialog({
@@ -957,6 +972,7 @@ export default function ProductForm({
         message: "Ce produit est actuellement en ligne mais il est incomplet ou comporte des erreurs. Si vous confirmez l'enregistrement, le produit sera automatiquement mis hors ligne.",
         confirmLabel: "Enregistrer et mettre hors ligne",
         cancelLabel: "Annuler",
+        ...pfsCheckboxOption,
       });
       if (!okDowngrade) return;
       downgradeConfirmed = true;
@@ -970,6 +986,7 @@ export default function ProductForm({
         message: "Toutes les variantes de ce produit sont en rupture de stock. Le produit sera automatiquement mis hors ligne.",
         confirmLabel: "Enregistrer et mettre hors ligne",
         cancelLabel: "Annuler",
+        ...pfsCheckboxOption,
       });
       if (!okDowngrade) return;
       downgradeConfirmed = true;
@@ -1015,6 +1032,7 @@ export default function ProductForm({
           : "Voulez-vous enregistrer toutes les modifications ?",
         confirmLabel: "Enregistrer",
         cancelLabel: "Annuler",
+        ...pfsCheckboxOption,
       });
       if (!okSave) return;
     }
@@ -1053,17 +1071,21 @@ export default function ProductForm({
         discountValue: v.discountValue ? parseFloat(v.discountValue) : null,
         pfsColorRef:   v.pfsColorRef || null,
       })),
-      imagePaths: colorImages.map((ci) => {
-        const vIdx = variants.findIndex((vr) => imageGroupKeyFromVariant(vr) === ci.groupKey);
-        const v = vIdx >= 0 ? variants[vIdx] : undefined;
-        return {
+      imagePaths: colorImages.flatMap((ci) => {
+        if (ci.uploadedPaths.length === 0) return [];
+        // Find ALL variants sharing this image group key
+        const matching = variants
+          .map((vr, idx) => ({ vr, idx }))
+          .filter(({ vr }) => imageGroupKeyFromVariant(vr) === ci.groupKey);
+        if (matching.length === 0) return [];
+        return matching.map(({ vr, idx }) => ({
           colorId: ci.colorId,
-          subColorIds: v ? v.subColors.map((sc) => sc.colorId) : [],
-          variantDbId: v?.dbId ?? undefined,
-          variantIndex: vIdx >= 0 ? vIdx : undefined,
+          subColorIds: vr.saleType === "PACK" ? [] : vr.subColors.map((sc) => sc.colorId),
+          variantDbId: vr.dbId ?? undefined,
+          variantIndex: idx,
           paths: ci.uploadedPaths,
           orders: ci.orders,
-        };
+        }));
       }),
       compositions: compositions.map((c) => ({
         compositionId: c.compositionId,
@@ -1098,38 +1120,15 @@ export default function ProductForm({
         initialSnapshot.current = buildSnapshot();
         isDirty.current = false;
 
-        // ── After successful save: offer PFS sync ──
-        if (mode === "edit" && productId) {
-          const variantsHaveMissingData = hasVariantsWithMissingPriceWeightOrStock();
-
-          if (variantsHaveMissingData) {
-            await confirmDialog({
-              type: "warning",
-              title: "Synchronisation PFS impossible",
-              message: "Certaines variantes sont incomplètes (prix, poids ou stock manquant). Complétez toutes les variantes avant de synchroniser avec PFS.",
-              confirmLabel: "Compris",
-              cancelLabel: "Fermer",
-            });
-          } else {
-            const okSync = await confirmDialog({
-              type: "info",
-              title: "Synchronisation PFS",
-              message: isIncomplete
-                ? "Les modifications ont été enregistrées. Le produit est incomplet, mais vous pouvez quand même synchroniser avec PFS. Voulez-vous continuer ?"
-                : "Les modifications ont été enregistrées avec succès. Voulez-vous synchroniser ce produit avec PFS ?",
-              confirmLabel: "Synchroniser avec PFS",
-              cancelLabel: "Plus tard",
-            });
-            if (okSync) {
-              try {
-                const result = await forcePfsSync(productId);
-                if (!result.success) {
-                  setError(`Erreur de synchronisation PFS : ${result.error}`);
-                }
-              } catch {
-                setError("Erreur lors de la synchronisation PFS.");
-              }
+        // ── After successful save: auto PFS sync if checkbox was checked ──
+        if (mode === "edit" && productId && shouldSyncPfs.current && showPfsCheckbox) {
+          try {
+            const result = await forcePfsSync(productId);
+            if (!result.success) {
+              setError(`Erreur de synchronisation PFS : ${result.error}`);
             }
+          } catch {
+            setError("Erreur lors de la synchronisation PFS.");
           }
         }
       } catch (err: unknown) {

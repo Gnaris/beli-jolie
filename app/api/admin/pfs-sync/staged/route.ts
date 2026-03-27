@@ -31,7 +31,6 @@ export async function GET(req: NextRequest) {
   const jobId = searchParams.get("jobId");
   const statusParam = searchParams.get("status");
   const search = searchParams.get("search");
-  const existsParam = searchParams.get("existsInDb"); // "true" | "false" | null
   const idsOnly = searchParams.get("idsOnly") === "true";
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const limit = Math.max(1, Math.min(100, parseInt(searchParams.get("limit") || "20", 10)));
@@ -58,12 +57,6 @@ export async function GET(req: NextRequest) {
     where.status = statusParam as PfsStagedStatus;
   }
 
-  if (existsParam === "true") {
-    where.existsInDb = true;
-  } else if (existsParam === "false") {
-    where.existsInDb = false;
-  }
-
   if (search) {
     where.OR = [
       { reference: { contains: search } },
@@ -81,7 +74,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ids: allIds.map((r) => r.id) });
   }
 
-  const [products, total, countsByStatus, existingCount, newCount] = await Promise.all([
+  const [products, total, countsByStatus] = await Promise.all([
     prisma.pfsStagedProduct.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -94,8 +87,6 @@ export async function GET(req: NextRequest) {
       where: { prepareJobId: jobId },
       _count: true,
     }),
-    prisma.pfsStagedProduct.count({ where: { prepareJobId: jobId, existsInDb: true } }),
-    prisma.pfsStagedProduct.count({ where: { prepareJobId: jobId, existsInDb: false } }),
   ]);
 
   const counts = {
@@ -112,5 +103,5 @@ export async function GET(req: NextRequest) {
 
   const totalPages = Math.ceil(total / limit);
 
-  return NextResponse.json({ products, total, page, totalPages, counts, existsCounts: { existing: existingCount, new: newCount } });
+  return NextResponse.json({ products, total, page, totalPages, counts });
 }
