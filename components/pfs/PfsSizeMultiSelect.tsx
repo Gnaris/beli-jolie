@@ -45,7 +45,7 @@ const PFS_SIZE_GROUPS: { label: string; test: (ref: string) => boolean }[] = [
     test: (r) => /^\d+$/.test(r) && +r >= 20 && +r <= 46,
   },
   {
-    label: "Bagues / Bijoux (47+)",
+    label: "Petites tailles (47+)",
     test: (r) => /^\d+$/.test(r) && +r >= 47,
   },
 ];

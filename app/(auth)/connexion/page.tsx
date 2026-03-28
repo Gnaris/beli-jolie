@@ -3,11 +3,15 @@ import { Suspense } from "react";
 import Link from "next/link";
 import LoginForm from "@/components/auth/LoginForm";
 import AccessCodeForm from "@/components/auth/AccessCodeForm";
+import { getCachedShopName } from "@/lib/cached-data";
 
-export const metadata: Metadata = {
-  title: "Connexion — Espace Professionnel B2B",
-  description: "Connectez-vous à votre espace professionnel Beli & Jolie. Boutique réservée aux professionnels.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: "Connexion — Espace Professionnel B2B",
+    description: `Connectez-vous à votre espace professionnel ${shopName}. Boutique réservée aux professionnels.`,
+  };
+}
 
 export default function ConnexionPage() {
   return (

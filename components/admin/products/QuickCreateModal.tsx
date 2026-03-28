@@ -29,6 +29,28 @@ interface QuickCreateModalProps {
   defaultPfsCategoryId?: string;
   defaultPfsCategoryGender?: string;
   defaultPfsCategoryFamilyId?: string;
+  /** PFS refs already linked to other seasons — shown strikethrough + disabled */
+  usedPfsRefs?: string[];
+  /** Edit mode — if set, the modal edits instead of creating */
+  editMode?: {
+    id: string;
+    name: string;
+    translations: Record<string, string>;
+    hex?: string | null;
+    patternImage?: string | null;
+    pfsRef?: string | null;
+    pfsRefs?: string[];
+    pfsCategoryId?: string | null;
+    pfsCategoryGender?: string | null;
+    pfsCategoryFamilyId?: string | null;
+    onSave: (
+      name: string,
+      translations: Record<string, string>,
+      hex?: string,
+      patternImage?: string | null,
+      pfs?: { ref?: string; refs?: string[]; categoryId?: string; categoryGender?: string | null; categoryFamilyId?: string | null },
+    ) => Promise<void>;
+  };
 }
 
 const TITLES: Record<QuickCreateType, string> = {
@@ -41,10 +63,20 @@ const TITLES: Record<QuickCreateType, string> = {
   season:      "Créer une saison",
 };
 
+const EDIT_TITLES: Record<QuickCreateType, string> = {
+  category:    "Modifier la catégorie",
+  subcategory: "Modifier la sous-catégorie",
+  composition: "Modifier le matériau",
+  color:       "Modifier la couleur",
+  tag:         "Modifier le mot-clé",
+  country:     "Modifier le pays de fabrication",
+  season:      "Modifier la saison",
+};
+
 const PLACEHOLDERS: Record<QuickCreateType, string> = {
-  category:    "Ex: Bijoux, Maroquinerie…",
-  subcategory: "Ex: Bagues, Bracelets…",
-  composition: "Ex: Acier inoxydable, Or 18k…",
+  category:    "Ex: Accessoires, Textiles…",
+  subcategory: "Ex: T-shirts, Sacs…",
+  composition: "Ex: Coton, Polyester…",
   color:       "Ex: Or rose, Argent…",
   tag:         "Ex: tendance, été…",
   country:     "Ex: Chine, Turquie, France…",
@@ -57,7 +89,9 @@ const RTL = ["ar"];
 export default function QuickCreateModal({
   type, open, onClose, onCreated, categoryId, defaultName, defaultPfsRef,
   defaultPfsCategoryId, defaultPfsCategoryGender, defaultPfsCategoryFamilyId,
+  usedPfsRefs, editMode,
 }: QuickCreateModalProps) {
+  const isEdit = !!editMode;
   const [mounted, setMounted] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const [hex, setHex] = useState("#9CA3AF");
@@ -70,6 +104,7 @@ export default function QuickCreateModal({
 
   // Marketplace mapping state
   const [pfsRef, setPfsRef] = useState("");
+  const [pfsRefs, setPfsRefs] = useState<string[]>([]);
   const [pfsCategoryId, setPfsCategoryId] = useState("");
   const [pfsCategoryGender, setPfsCategoryGender] = useState<string | null>(null);
   const [pfsCategoryFamilyId, setPfsCategoryFamilyId] = useState<string | null>(null);
@@ -78,18 +113,34 @@ export default function QuickCreateModal({
 
   useEffect(() => {
     if (open) {
-      setNames(defaultName ? { fr: defaultName } : {});
-      setHex("#9CA3AF");
-      setColorMode("hex");
-      setPatternFile(null);
-      setPatternPreview(null);
-      setError("");
-      setPfsRef(defaultPfsRef ?? "");
-      setPfsCategoryId(defaultPfsCategoryId ?? "");
-      setPfsCategoryGender(defaultPfsCategoryGender ?? null);
-      setPfsCategoryFamilyId(defaultPfsCategoryFamilyId ?? null);
+      if (editMode) {
+        setNames({ fr: editMode.name, ...editMode.translations });
+        setHex(editMode.hex ?? "#9CA3AF");
+        setColorMode(editMode.patternImage ? "pattern" : "hex");
+        setPatternFile(null);
+        setPatternPreview(editMode.patternImage ?? null);
+        setError("");
+        setPfsRef(editMode.pfsRef ?? "");
+        setPfsRefs(editMode.pfsRefs ?? (editMode.pfsRef ? [editMode.pfsRef] : []));
+        setPfsCategoryId(editMode.pfsCategoryId ?? "");
+        setPfsCategoryGender(editMode.pfsCategoryGender ?? null);
+        setPfsCategoryFamilyId(editMode.pfsCategoryFamilyId ?? null);
+      } else {
+        setNames(defaultName ? { fr: defaultName } : {});
+        setHex("#9CA3AF");
+        setColorMode("hex");
+        setPatternFile(null);
+        setPatternPreview(null);
+        setError("");
+        setPfsRef(defaultPfsRef ?? "");
+        setPfsRefs(defaultPfsRef ? [defaultPfsRef] : []);
+        setPfsCategoryId(defaultPfsCategoryId ?? "");
+        setPfsCategoryGender(defaultPfsCategoryGender ?? null);
+        setPfsCategoryFamilyId(defaultPfsCategoryFamilyId ?? null);
+      }
     }
-  }, [open, defaultName, defaultPfsRef, defaultPfsCategoryId, defaultPfsCategoryGender, defaultPfsCategoryFamilyId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   function setName(locale: string, value: string) {
     setNames((prev) => ({ ...prev, [locale]: value }));
@@ -117,12 +168,65 @@ export default function QuickCreateModal({
     setPfsCategoryFamilyId(familyId);
   }
 
-  async function handleCreate() {
+  async function handleSubmit() {
     const frName = names["fr"]?.trim();
     if (!frName) { setError("Le nom en français est requis."); return; }
     setLoading(true);
     setError("");
     try {
+      // Edit mode — delegate to onSave callback
+      if (editMode) {
+        const translations: Record<string, string> = {};
+        for (const [locale, val] of Object.entries(names)) {
+          if (locale !== "fr" && val?.trim()) translations[locale] = val.trim();
+        }
+        let finalPatternImage: string | null | undefined = undefined;
+        if (type === "color") {
+          if (colorMode === "pattern") {
+            if (patternFile) {
+              const fd = new FormData();
+              fd.append("file", patternFile);
+              const res = await fetch("/api/admin/colors/upload-pattern", { method: "POST", body: fd });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || "Erreur upload motif.");
+              finalPatternImage = data.path;
+            } else {
+              finalPatternImage = editMode.patternImage ?? null;
+            }
+          } else {
+            finalPatternImage = null;
+          }
+        }
+        await editMode.onSave(
+          frName,
+          translations,
+          type === "color" && colorMode === "hex" ? hex : undefined,
+          finalPatternImage,
+          {
+            ref: pfsRef || undefined,
+            refs: type === "season" ? pfsRefs : undefined,
+            categoryId: pfsCategoryId || undefined,
+            categoryGender: pfsCategoryGender,
+            categoryFamilyId: pfsCategoryFamilyId,
+          },
+        );
+        onClose();
+        return;
+      }
+
+      // Create mode — enforce PFS mapping for mappable types
+      if (MAPPABLE_TYPES.has(type)) {
+        if (type === "category" && !pfsCategoryId) {
+          setError("La correspondance PFS est requise."); setLoading(false); return;
+        }
+        if (type === "season" && pfsRefs.length === 0) {
+          setError("La correspondance PFS est requise."); setLoading(false); return;
+        }
+        if (type !== "category" && type !== "season" && !pfsRef) {
+          setError("La correspondance PFS est requise."); setLoading(false); return;
+        }
+      }
+
       let result: { id: string; name: string; hex?: string | null; patternImage?: string | null; subCategories?: { id: string; name: string }[] };
       if (type === "category") {
         result = await createCategoryQuick(names, pfsCategoryId || null, pfsCategoryGender, pfsCategoryFamilyId);
@@ -136,7 +240,7 @@ export default function QuickCreateModal({
       } else if (type === "country") {
         result = await createManufacturingCountryQuick(names, undefined, pfsRef || null);
       } else if (type === "season") {
-        result = await createSeasonQuick(names, pfsRef || null);
+        result = await createSeasonQuick(names, pfsRefs);
       } else {
         let patternPath: string | null = null;
         if (colorMode === "pattern") {
@@ -177,7 +281,7 @@ export default function QuickCreateModal({
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] shrink-0">
           <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
-            {TITLES[type]}
+            {isEdit ? EDIT_TITLES[type] : TITLES[type]}
           </h3>
           <button type="button" onClick={onClose} className="text-[#9CA3AF] hover:text-[#1A1A1A] transition-colors rounded-lg p-1">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -218,7 +322,7 @@ export default function QuickCreateModal({
                   placeholder={PLACEHOLDERS[type]}
                   className="field-input w-full"
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); handleCreate(); }
+                    if (e.key === "Enter") { e.preventDefault(); handleSubmit(); }
                   }}
                 />
               </div>
@@ -317,7 +421,7 @@ export default function QuickCreateModal({
 
               <div className="w-[300px] shrink-0 p-6 overflow-y-auto">
                 <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide mb-4">
-                  Correspondances Marketplaces
+                  Correspondances Marketplaces <span className="text-[#EF4444] font-semibold">*</span>
                 </p>
 
                 {type === "category" ? (
@@ -326,9 +430,16 @@ export default function QuickCreateModal({
                     pfsCategoryId={pfsCategoryId}
                     onPfsCategoryChange={handlePfsCategoryChange}
                   />
+                ) : type === "season" ? (
+                  <MarketplaceMappingSection
+                    entityType="season"
+                    pfsRefs={pfsRefs}
+                    onPfsRefsChange={setPfsRefs}
+                    usedPfsRefs={usedPfsRefs}
+                  />
                 ) : (
                   <MarketplaceMappingSection
-                    entityType={type as "color" | "composition" | "country" | "season"}
+                    entityType={type as "color" | "composition" | "country"}
                     pfsRef={pfsRef}
                     onPfsRefChange={setPfsRef}
                   />
@@ -355,11 +466,11 @@ export default function QuickCreateModal({
             </button>
             <button
               type="button"
-              onClick={handleCreate}
+              onClick={handleSubmit}
               disabled={loading || !frName}
               className="px-5 py-2 bg-[#1A1A1A] hover:bg-black text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)]"
             >
-              {loading ? "Création…" : "Créer"}
+              {loading ? (isEdit ? "Enregistrement…" : "Création…") : (isEdit ? "Enregistrer" : "Créer")}
             </button>
           </div>
         </div>

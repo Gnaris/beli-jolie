@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { deleteTag, updateTagDirect } from "@/app/actions/admin/products";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
-import EntityEditModal from "@/components/admin/EntityEditModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 
 interface TagItem {
@@ -179,14 +178,20 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
         onCreated={() => { setCreateModalOpen(false); router.refresh(); }}
       />
 
-      <EntityEditModal
-        open={!!editTarget}
-        onClose={() => setEditTarget(null)}
-        title="Modifier le mot clé"
-        initialName={editTarget?.name ?? ""}
-        initialTranslations={editTarget?.translations ?? {}}
-        onSave={handleSave}
-      />
+      {editTarget && (
+        <QuickCreateModal
+          type="tag"
+          open={!!editTarget}
+          onClose={() => setEditTarget(null)}
+          onCreated={() => { setEditTarget(null); router.refresh(); }}
+          editMode={{
+            id: editTarget.id,
+            name: editTarget.name,
+            translations: editTarget.translations,
+            onSave: handleSave,
+          }}
+        />
+      )}
     </div>
   );
 }

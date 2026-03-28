@@ -1,7 +1,7 @@
 /**
  * PFS (Paris Fashion Shop) Write API Client
  *
- * Provides functions to push data from Beli Jolie → PFS:
+ * Provides functions to push data to PFS:
  *   - Create/update products
  *   - Create/update/delete variants
  *   - Upload images (WebP → JPEG conversion)

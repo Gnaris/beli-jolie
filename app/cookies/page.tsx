@@ -2,11 +2,15 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { loadLegalPage } from "@/lib/legal-page";
 import LegalPageClient from "@/components/legal/LegalPageClient";
+import { getCachedShopName } from "@/lib/cached-data";
 
-export const metadata: Metadata = {
-  title: "Politique de cookies — Beli & Jolie",
-  description: "Politique de cookies du site Beli & Jolie.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Politique de cookies — ${shopName}`,
+    description: `Politique de cookies du site ${shopName}.`,
+  };
+}
 
 export default async function CookiesPage() {
   const data = await loadLegalPage("COOKIES");

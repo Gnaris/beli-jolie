@@ -157,9 +157,17 @@ interface BaseProps {
 }
 
 interface SimpleProps extends BaseProps {
-  entityType: "color" | "composition" | "country" | "season";
+  entityType: "color" | "composition" | "country";
   pfsRef: string;
   onPfsRefChange: (ref: string) => void;
+}
+
+interface SeasonProps extends BaseProps {
+  entityType: "season";
+  pfsRefs: string[];
+  onPfsRefsChange: (refs: string[]) => void;
+  /** Refs already linked to other seasons — shown strikethrough + disabled */
+  usedPfsRefs?: string[];
 }
 
 interface CategoryProps extends BaseProps {
@@ -168,7 +176,7 @@ interface CategoryProps extends BaseProps {
   onPfsCategoryChange: (catId: string, gender: string | null, familyId: string | null) => void;
 }
 
-type MarketplaceMappingSectionProps = SimpleProps | CategoryProps;
+type MarketplaceMappingSectionProps = SimpleProps | CategoryProps | SeasonProps;
 
 /* ─────────────────────────────────────────────
    Component
@@ -237,7 +245,7 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
         <p className="text-xs font-semibold text-text-secondary font-[family-name:var(--font-roboto)] uppercase tracking-wider">
           Correspondances Marketplaces
         </p>
-        <span className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)]">Optionnel</span>
+        <span className="text-[10px] text-[#EF4444] font-semibold font-[family-name:var(--font-roboto)]">Requis *</span>
       </div>
 
       <div className="p-4 space-y-3">
@@ -300,7 +308,7 @@ function PfsMapping({
         className="w-full"
         aria-label="Couleur PFS"
         options={[
-          { value: "", label: "— Aucune correspondance —" },
+          { value: "", label: "— Sélectionner —" },
           ...pfsData.colors.map((pc) => ({
             value: pc.reference,
             label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
@@ -328,7 +336,7 @@ function PfsMapping({
         className="w-full"
         aria-label="Composition PFS"
         options={[
-          { value: "", label: "— Aucune correspondance —" },
+          { value: "", label: "— Sélectionner —" },
           ...pfsData.compositions.map((pc) => ({
             value: pc.reference,
             label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
@@ -350,7 +358,7 @@ function PfsMapping({
         className="w-full"
         aria-label="Pays PFS"
         options={[
-          { value: "", label: "— Aucune correspondance —" },
+          { value: "", label: "— Sélectionner —" },
           ...pfsData.countries.map((pc) => ({
             value: pc.reference,
             label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
@@ -360,25 +368,63 @@ function PfsMapping({
     );
   }
 
-  /* ── Season ── */
+  /* ── Season (multi-select) ── */
   if (entityType === "season") {
-    const { pfsRef, onPfsRefChange } = props as SimpleProps;
+    const { pfsRefs, onPfsRefsChange, usedPfsRefs } = props as SeasonProps;
+    const usedByOthers = new Set(usedPfsRefs ?? []);
+    const available = pfsData.collections.filter((pc) => !pfsRefs.includes(pc.reference));
     return (
-      <CustomSelect
-        value={pfsRef}
-        onChange={(val) => onPfsRefChange(val)}
-        size="sm"
-        searchable
-        className="w-full"
-        aria-label="Collection PFS"
-        options={[
-          { value: "", label: "— Aucune correspondance —" },
-          ...pfsData.collections.map((pc) => ({
-            value: pc.reference,
-            label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
-          })),
-        ]}
-      />
+      <div className="space-y-2">
+        {/* Selected refs as removable chips */}
+        {pfsRefs.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {pfsRefs.map((ref) => {
+              const col = pfsData.collections.find((c) => c.reference === ref);
+              const label = col ? `${col.labels?.fr ?? col.reference} (${col.reference})` : ref;
+              return (
+                <span key={ref} className="inline-flex items-center gap-1 badge badge-purple text-[10px] pr-0.5">
+                  {label}
+                  <button
+                    type="button"
+                    onClick={() => onPfsRefsChange(pfsRefs.filter((r) => r !== ref))}
+                    className="ml-0.5 p-0.5 rounded-full hover:bg-purple-200 transition-colors"
+                    aria-label={`Retirer ${ref}`}
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+        {/* Dropdown to add more */}
+        <CustomSelect
+          value=""
+          onChange={(val) => {
+            if (val && !pfsRefs.includes(val)) {
+              onPfsRefsChange([...pfsRefs, val]);
+            }
+          }}
+          size="sm"
+          searchable
+          className="w-full"
+          aria-label="Ajouter une collection PFS"
+          options={[
+            { value: "", label: pfsRefs.length > 0 ? "— Ajouter une correspondance —" : "— Sélectionner —" },
+            ...available.map((pc) => {
+              const taken = usedByOthers.has(pc.reference);
+              return {
+                value: pc.reference,
+                label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
+                disabled: taken,
+                className: taken ? "line-through" : undefined,
+              };
+            }),
+          ]}
+        />
+      </div>
     );
   }
 

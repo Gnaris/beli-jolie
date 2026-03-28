@@ -100,20 +100,20 @@ export async function batchUpdateTranslations(
   // Revalidate relevant paths
   switch (entityType) {
     case "color":
-      revalidatePath("/admin/couleurs");
+      revalidatePath("/admin/produits");
       revalidateTag("colors", "default");
       break;
     case "composition":
-      revalidatePath("/admin/compositions");
+      revalidatePath("/admin/produits");
       revalidateTag("compositions", "default");
       break;
     case "tag":
-      revalidatePath("/admin/mots-cles");
+      revalidatePath("/admin/produits");
       revalidatePath("/produits");
       break;
     case "category":
     case "subcategory":
-      revalidatePath("/admin/categories");
+      revalidatePath("/admin/produits");
       revalidateTag("categories", "default");
       break;
     case "collection":
@@ -121,11 +121,11 @@ export async function batchUpdateTranslations(
       revalidateTag("collections", "default");
       break;
     case "manufacturing-country":
-      revalidatePath("/admin/pays");
+      revalidatePath("/admin/produits");
       revalidateTag("manufacturing-countries", "default");
       break;
     case "season":
-      revalidatePath("/admin/saisons");
+      revalidatePath("/admin/produits");
       revalidateTag("seasons", "default");
       break;
   }

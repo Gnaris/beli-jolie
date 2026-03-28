@@ -6,7 +6,7 @@ import { checkLoginLockout, recordLoginFailure, recordLoginSuccess } from "@/lib
 import type { Role, UserStatus } from "@prisma/client";
 
 /**
- * Configuration NextAuth — Beli & Jolie
+ * Configuration NextAuth
  *
  * Stratégie : JWT (pas de session en base de données)
  * Provider  : Credentials (email + mot de passe)

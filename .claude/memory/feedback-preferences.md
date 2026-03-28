@@ -11,14 +11,9 @@ type: feedback
   **Why:** L'utilisateur trouve les formulaires trop denses et veut une meilleure lisibilité.
   **How to apply:** Chaque groupe logique (infos principales, mots-clés, dimensions, composition) dans son propre bloc `bg-white border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]`.
 
-- Three.js : l'utilisateur veut des modèles détaillés et luxueux, pas des formes géométriques basiques.
-  **Why:** Le site vend des bijoux haut de gamme, l'esthétique doit refléter le luxe.
-  **How to apply:** Utiliser MeshPhysicalMaterial avec metalness/roughness/clearcoat, ajouter des détails (pavé diamonds, prongs, etc.).
-
 ### Code
 - `ssr: false` avec `next/dynamic` ne fonctionne PAS dans les Server Components. Toujours créer un wrapper `"use client"`.
   **Why:** Erreur de build Next.js.
-  **How to apply:** Pattern: `JewelrySceneLoader.tsx` (client) → import dynamique de `JewelryScene.tsx`.
 
 - Vérifier quel composant est réellement rendu avant de corriger un bug UI. `PublicSidebar.tsx` est le vrai header public, pas `Navbar.tsx`.
   **Why:** 3 tentatives de fix sur le mauvais composant pour la barre de recherche.

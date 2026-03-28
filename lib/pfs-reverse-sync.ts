@@ -1,5 +1,5 @@
 /**
- * PFS Reverse Sync — Push Beli Jolie products → Paris Fashion Shop
+ * PFS Reverse Sync — Push local products → Paris Fashion Shop
  *
  * Non-blocking: called after DB save, runs in background.
  * Updates Product.pfsSyncStatus to track progress.
@@ -50,7 +50,7 @@ function getPfsUnitPrice(variant: FullProduct["colors"][number]): number {
 const PFS_DEFAULTS = {
   gender: "WOMAN",
   gender_label: "Femme",
-  brand_name: "Beli & Jolie",
+  brand_name: "Ma Boutique",
   family: "a035J00000185J7QAI", // WOMAN/FASHIONJEWELRY
   season_name: "PE2026",
   country_of_manufacture: "CN",
@@ -226,7 +226,7 @@ interface FullProduct {
     composition: { id: string; name: string; pfsCompositionRef: string | null };
   }[];
   manufacturingCountry: { id: string; name: string; isoCode: string | null; pfsCountryRef: string | null } | null;
-  season: { id: string; name: string; pfsSeasonRef: string | null } | null;
+  season: { id: string; name: string; pfsRefs: { pfsRef: string }[] } | null;
 }
 
 async function loadProductFull(productId: string): Promise<FullProduct | null> {
@@ -286,7 +286,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
         select: { compositionId: true, percentage: true, composition: { select: { id: true, name: true, pfsCompositionRef: true } } },
       },
       manufacturingCountry: { select: { id: true, name: true, isoCode: true, pfsCountryRef: true } },
-      season: { select: { id: true, name: true, pfsSeasonRef: true } },
+      season: { select: { id: true, name: true, pfsRefs: { select: { pfsRef: true } } } },
     },
   }) as unknown as FullProduct | null;
 }
@@ -344,15 +344,18 @@ async function createProductOnPfs(product: FullProduct): Promise<string> {
   const genderLabels: Record<string, string> = { WOMAN: "Femme", MAN: "Homme", KID: "Enfant", SUPPLIES: "Fournitures" };
   const genderLabel = genderLabels[gender] ?? PFS_DEFAULTS.gender_label;
 
+  const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
+  const brandName = shopNameInfo?.shopName || PFS_DEFAULTS.brand_name;
+
   const data: PfsProductCreateData = {
     reference: product.reference,
     reference_code: product.reference,
     gender,
     gender_label: genderLabel,
-    brand_name: PFS_DEFAULTS.brand_name,
+    brand_name: brandName,
     family,
     category: product.category.pfsCategoryId!,
-    season_name: product.season?.pfsSeasonRef ?? PFS_DEFAULTS.season_name,
+    season_name: product.season?.pfsRefs[0]?.pfsRef ?? PFS_DEFAULTS.season_name,
     label,
     description,
     material_composition: mainComposition,
@@ -405,8 +408,11 @@ async function diffAndUpdateMetadata(
   const pfsCategoryId = pfs.category?.id;
   const bjCountry = product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode ?? PFS_DEFAULTS.country_of_manufacture;
   const pfsCountry = pfs.country_of_manufacture ?? "";
-  const bjSeason = product.season?.pfsSeasonRef ?? PFS_DEFAULTS.season_name;
+  const bjSeasonRefs = product.season?.pfsRefs.map((r) => r.pfsRef) ?? [];
+  const bjSeason = bjSeasonRefs[0] ?? PFS_DEFAULTS.season_name;
   const pfsSeason = pfs.collection?.reference ?? "";
+  // Season matches if PFS ref is among BJ season's refs
+  const seasonMatched = pfsSeason ? bjSeasonRefs.includes(pfsSeason.toUpperCase()) || bjSeasonRefs.includes(pfsSeason) : bjSeason === PFS_DEFAULTS.season_name;
 
   // Compare compositions
   const bjComps = product.compositions
@@ -426,7 +432,7 @@ async function diffAndUpdateMetadata(
   const descChanged = descTextChanged || dimensionsChanged;
   const categoryChanged = bjCategoryId !== pfsCategoryId;
   const countryChanged = bjCountry !== pfsCountry;
-  const seasonChanged = bjSeason !== pfsSeason;
+  const seasonChanged = !seasonMatched;
   const compositionsChanged = bjComps !== pfsComps;
 
   if (!nameChanged && !descChanged && !categoryChanged && !countryChanged && !seasonChanged && !compositionsChanged) {
@@ -505,7 +511,7 @@ async function forceUpdateMetadata(pfsProductId: string, product: FullProduct): 
 
   const countryRef = product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode;
   if (countryRef) updates.country_of_manufacture = countryRef;
-  if (product.season?.pfsSeasonRef) updates.season_name = product.season.pfsSeasonRef;
+  if (product.season?.pfsRefs[0]?.pfsRef) updates.season_name = product.season.pfsRefs[0].pfsRef;
 
   const compositionArray = product.compositions
     .filter((c) => c.composition.pfsCompositionRef)
@@ -1145,8 +1151,8 @@ function validatePfsMappings(product: FullProduct): void {
   }
 
   // Saison
-  if (product.season && !product.season.pfsSeasonRef) {
-    issues.push(`Saison "${product.season.name}" non mappée (pfsSeasonRef manquant)`);
+  if (product.season && (!product.season.pfsRefs || product.season.pfsRefs.length === 0)) {
+    issues.push(`Saison "${product.season.name}" non mappée (aucune correspondance PFS)`);
   }
 
   if (issues.length > 0) {

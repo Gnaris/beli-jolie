@@ -1,7 +1,5 @@
 "use client";
-import dynamic from "next/dynamic";
-
-const DashboardParticles = dynamic(() => import("./DashboardParticles"), { ssr: false });
+import DashboardParticles from "./DashboardParticles";
 
 export default function DashboardParticlesLoader() {
   return <DashboardParticles />;

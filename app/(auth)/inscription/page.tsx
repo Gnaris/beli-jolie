@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
-import { getCachedProductCount } from "@/lib/cached-data";
+import { getCachedProductCount, getCachedShopName } from "@/lib/cached-data";
 import RegisterForm from "@/components/auth/RegisterForm";
 
-export const metadata: Metadata = {
-  title: "Inscription — Demande d'accès Pro",
-  description:
-    "Créez votre compte professionnel Beli & Jolie pour accéder à nos tarifs grossiste en bijoux acier inoxydable.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: "Inscription — Demande d'accès Pro",
+    description:
+      `Créez votre compte professionnel ${shopName} pour accéder à nos tarifs grossiste.`,
+  };
+}
 
 /**
  * Page d'inscription BtoB

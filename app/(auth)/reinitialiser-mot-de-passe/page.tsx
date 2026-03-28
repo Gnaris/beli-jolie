@@ -2,8 +2,12 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
 import ResetPasswordForm from "@/components/auth/ResetPasswordForm";
+import { getCachedShopName } from "@/lib/cached-data";
 
-export const metadata: Metadata = { title: "Nouveau mot de passe — Beli & Jolie" };
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return { title: `Nouveau mot de passe — ${shopName}` };
+}
 
 export default async function ResetPasswordPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
   const t = await getTranslations("auth.resetPassword");

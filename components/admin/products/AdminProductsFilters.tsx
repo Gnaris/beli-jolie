@@ -157,34 +157,31 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
               className="w-full pl-9 pr-3 py-2 border border-border bg-bg-primary text-sm font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors rounded-lg"
             />
           </div>
-          <label className="flex items-center gap-2 mt-1.5 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={localExactRef}
-              onChange={() => setLocalExactRef((v) => !v)}
-              className="w-3.5 h-3.5 rounded border-border accent-[#1A1A1A]"
-            />
-            <span className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)]">
-              Référence exacte
-            </span>
-          </label>
         </div>
 
-        {/* Toggle filtres */}
-        <button
-          type="button"
-          onClick={() => setFiltersOpen((v) => !v)}
-          className={`flex items-center gap-2 px-3 py-2 text-xs font-[family-name:var(--font-roboto)] font-medium border rounded-lg transition-colors shrink-0 ${
-            hasFilters
+        {/* Référence exacte */}
+        <label
+          className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none shrink-0 text-xs font-[family-name:var(--font-roboto)] font-medium border rounded-lg transition-colors ${
+            localExactRef
               ? "border-bg-dark bg-bg-dark text-white"
               : "border-border bg-bg-primary text-text-secondary hover:border-bg-dark hover:text-text-primary"
           }`}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+          <input
+            type="checkbox"
+            checked={localExactRef}
+            onChange={() => setLocalExactRef((v) => !v)}
+            className="sr-only"
+          />
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {localExactRef ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4.5 12.75l6 6 9-13.5" />
+            ) : (
+              <rect x="3" y="3" width="18" height="18" rx="3" strokeWidth={1.5} />
+            )}
           </svg>
-          Filtres{hasFilters ? " actifs" : ""}
-        </button>
+          Réf. exacte
+        </label>
 
         <div className="hidden sm:block h-5 w-px bg-border" />
 
@@ -242,6 +239,22 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
             Réinitialiser
           </button>
         )}
+
+        {/* Toggle filtres */}
+        <button
+          type="button"
+          onClick={() => setFiltersOpen((v) => !v)}
+          className={`flex items-center gap-2 px-3 py-2 text-xs font-[family-name:var(--font-roboto)] font-medium border rounded-lg transition-colors shrink-0 ml-auto ${
+            hasFilters
+              ? "border-bg-dark bg-bg-dark text-white"
+              : "border-border bg-bg-primary text-text-secondary hover:border-bg-dark hover:text-text-primary"
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+          </svg>
+          Filtres{hasFilters ? " actifs" : ""}
+        </button>
       </div>
 
       {/* Panneau de filtres déroulant */}

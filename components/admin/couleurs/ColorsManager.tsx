@@ -4,9 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteColor, updateColorDirect, updateColorPfsRef } from "@/app/actions/admin/colors";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
-import EntityEditModal from "@/components/admin/EntityEditModal";
+import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
-import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface ColorItem {
@@ -23,7 +22,6 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
   const router = useRouter();
   const { confirm } = useConfirm();
   const [editTarget, setEditTarget] = useState<ColorItem | null>(null);
-  const [editPfsRef, setEditPfsRef] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -35,7 +33,6 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
   function openEdit(color: ColorItem) {
     setError("");
     setEditTarget(color);
-    setEditPfsRef(color.pfsColorRef ?? "");
   }
 
   async function handleDelete(color: ColorItem) {
@@ -58,12 +55,18 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
       .finally(() => setDeletingId(null));
   }
 
-  async function handleSave(name: string, translations: Record<string, string>, hex?: string, patternImage?: string | null) {
+  async function handleSave(
+    name: string,
+    translations: Record<string, string>,
+    hex?: string,
+    patternImage?: string | null,
+    pfs?: { ref?: string },
+  ) {
     if (!editTarget) return;
     await updateColorDirect(editTarget.id, name, hex ?? null, translations, patternImage ?? null);
-    const origRef = editTarget.pfsColorRef ?? "";
-    if (editPfsRef !== origRef) {
-      await updateColorPfsRef(editTarget.id, editPfsRef || null);
+    const newRef = pfs?.ref || null;
+    if (newRef !== (editTarget.pfsColorRef ?? null)) {
+      await updateColorPfsRef(editTarget.id, newRef);
     }
     router.refresh();
   }
@@ -204,26 +207,23 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
         </div>
       )}
 
-      <EntityEditModal
-        open={!!editTarget}
-        onClose={() => setEditTarget(null)}
-        title="Modifier la couleur"
-        initialName={editTarget?.name ?? ""}
-        initialTranslations={editTarget?.translations ?? {}}
-        withHex
-        initialHex={editTarget?.hex ?? "#9CA3AF"}
-        initialPatternImage={editTarget?.patternImage}
-        renderExtra={
-          editTarget ? (
-            <MarketplaceMappingSection
-              entityType="color"
-              pfsRef={editPfsRef}
-              onPfsRefChange={setEditPfsRef}
-            />
-          ) : undefined
-        }
-        onSave={handleSave}
-      />
+      {editTarget && (
+        <QuickCreateModal
+          type="color"
+          open={!!editTarget}
+          onClose={() => setEditTarget(null)}
+          onCreated={() => { setEditTarget(null); router.refresh(); }}
+          editMode={{
+            id: editTarget.id,
+            name: editTarget.name,
+            translations: editTarget.translations,
+            hex: editTarget.hex,
+            patternImage: editTarget.patternImage,
+            pfsRef: editTarget.pfsColorRef,
+            onSave: handleSave,
+          }}
+        />
+      )}
     </>
   );
 }

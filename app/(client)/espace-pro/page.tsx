@@ -5,15 +5,19 @@ import Link from "next/link";
 import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName } from "@/lib/cached-data";
 import AccountEditor from "@/components/client/AccountEditor";
 import LogoutButton from "@/components/client/LogoutButton";
 import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
 
-export const metadata: Metadata = {
-  title: "Tableau de bord — Beli & Jolie",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Tableau de bord — ${shopName}`,
+    robots: { index: false, follow: false },
+  };
+}
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
   PENDING:    { bg: "bg-[#FEF3C7]",   text: "text-[#92400E]",  dot: "bg-[#F59E0B]"  },

@@ -56,7 +56,7 @@ Chaque variant inclut `colors[]` array dedie + `images` du produit parent.
 
 ```json
 { "data": [{ "reference": "T999VS1", "reference_code": "T999VS1", "gender": "WOMAN",
-  "gender_label": "Femme", "brand_name": "Beli & Jolie", "family": "ID_FAMILLE",
+  "gender_label": "Femme", "brand_name": "Ma Boutique", "family": "ID_FAMILLE",
   "category": "ID_CATEGORIE", "season_name": "PE2026",
   "label": { "fr": "...", "en": "...", "de": "...", "es": "...", "it": "..." },
   "description": { "fr": "...", "en": "...", "de": "...", "es": "...", "it": "..." },
@@ -74,7 +74,7 @@ Reponse: `{ resume: { products, errors }, data: [...] }`. Produit cree en statut
 { "data": { "label": {...}, "description": {...}, "category": "ID", "family": "ID",
   "gender_label": "Femme", "season_name": "PE2026", "country_of_manufacture": "CN",
   "material_composition": [{ "id": "ACIERINOXYDABLE", "value": 85 }, { "id": "LAITON", "value": 15 }],
-  "default_color": "GOLDEN", "brand_name": "Beli & Jolie" } }
+  "default_color": "GOLDEN", "brand_name": "Ma Boutique" } }
 ```
 
 **Important**: wrapper `{ data: {...} }` (objet, pas array). `material_composition` array fonctionne sur PATCH (contrairement a POST).
@@ -190,7 +190,7 @@ Traduit name/description → fr/en/de/es/it. Utilise automatiquement dans le rev
 
 | Entite | ID PFS |
 |--------|--------|
-| Brand Beli & Jolie | `a01AZ00000314QgYAI` |
+| Brand | `a01AZ00000314QgYAI` |
 | Family Bijoux fantaisie WOMAN | `a035J00000185J7QAI` |
 
 ---

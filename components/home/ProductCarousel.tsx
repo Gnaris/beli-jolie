@@ -73,16 +73,16 @@ function CarouselCard({ product, clientDiscount, showPromoBadge }: { product: Ca
   const anyColorHasDiscount = product.colors.some((c) => c.hasDiscount);
 
   return (
-    <article className="group shrink-0 w-52 sm:w-60 card card-hover overflow-hidden flex flex-col">
+    <article className="group shrink-0 w-72 sm:w-80 card card-hover overflow-hidden flex flex-col">
       <Link href={`/produits/${product.id}`} className="block">
         {/* Image */}
-        <div className="aspect-square bg-bg-secondary relative overflow-hidden">
+        <div className="aspect-[3/4] bg-bg-secondary relative overflow-hidden">
           {image ? (
             <Image
               src={image}
               alt={product.name}
               fill
-              sizes="240px"
+              sizes="320px"
               className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
               loading="lazy"
             />
@@ -189,16 +189,16 @@ export default function ProductCarousel({
   function scroll(dir: "left" | "right") {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollBy({ left: dir === "right" ? 280 : -280, behavior: "smooth" });
+    el.scrollBy({ left: dir === "right" ? 340 : -340, behavior: "smooth" });
   }
 
   if (products.length === 0) return null;
 
   return (
     <section
-      className={`py-16 lg:py-20 animate-slide-up ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"}`}
+      className={`py-8 lg:py-10 animate-slide-up ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"}`}
     >
-      <div className="container-site">
+      <div className="container-site" style={{ maxWidth: "1440px" }}>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>

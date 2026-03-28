@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName } from "@/lib/cached-data";
 import type { Metadata } from "next";
 
 interface Props {
@@ -42,6 +43,7 @@ export default async function PublicCatalogPage({ params }: Props) {
 
   if (!catalog || catalog.status !== "PUBLISHED") notFound();
 
+  const shopName = await getCachedShopName();
   const primary = catalog.primaryColor;
 
   return (
@@ -62,7 +64,7 @@ export default async function PublicCatalogPage({ params }: Props) {
         )}
         <div className="relative z-10">
           <p className="text-white/70 text-xs uppercase tracking-widest font-[family-name:var(--font-roboto)] mb-1">
-            Beli & Jolie — Catalogue
+            {shopName} — Catalogue
           </p>
           <h1 className="font-[family-name:var(--font-poppins)] font-bold text-white text-2xl md:text-3xl tracking-tight">
             {catalog.title}
@@ -155,7 +157,7 @@ export default async function PublicCatalogPage({ params }: Props) {
       {/* ── Footer ──────────────────────────────────────────────────────── */}
       <footer className="text-center py-8 border-t border-[#E5E5E5]">
         <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
-          © Beli & Jolie — Catalogue généré le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
+          © {shopName} — Catalogue généré le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
         </p>
       </footer>
     </div>

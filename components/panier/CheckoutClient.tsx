@@ -11,10 +11,23 @@ import { placeOrder } from "@/app/actions/client/order";
 import CustomSelect from "@/components/ui/CustomSelect";
 
 // ─────────────────────────────────────────────
-// Stripe
+// Stripe (clé publique chargée dynamiquement depuis la DB)
 // ─────────────────────────────────────────────
 
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+let _stripePromise: ReturnType<typeof loadStripe> | null = null;
+
+function getStripePromise() {
+  if (!_stripePromise) {
+    _stripePromise = fetch("/api/payments/stripe-key")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.publishableKey) return loadStripe(data.publishableKey);
+        return null;
+      })
+      .catch(() => null);
+  }
+  return _stripePromise;
+}
 
 // ─────────────────────────────────────────────
 // Types
@@ -1162,7 +1175,7 @@ export default function CheckoutClient({
                     </p>
                   </div>
                   <Elements
-                    stripe={stripePromise}
+                    stripe={getStripePromise()}
                     options={{
                       clientSecret,
                       appearance: {

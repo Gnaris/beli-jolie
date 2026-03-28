@@ -1,109 +1,83 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import JewelrySceneLoader from "@/components/home/JewelrySceneLoader";
 
 interface HeroBannerProps {
-  isLoggedIn: boolean;
-  productCount: number;
+  bannerImage: string | null;
+  shopName: string;
 }
 
-export default function HeroBanner({ isLoggedIn, productCount }: HeroBannerProps) {
+export default function HeroBanner({ bannerImage, shopName }: HeroBannerProps) {
   const t = useTranslations("home");
 
   return (
-    <section className="bg-bg-dark relative overflow-hidden min-h-[350px] sm:min-h-[500px] md:min-h-[650px]">
-      {/* Three.js 3D jewelry animation — behind everything */}
+    <section className="bg-bg-dark relative overflow-hidden min-h-[320px] sm:min-h-[450px] md:min-h-[600px] flex items-end">
+      {/* Background */}
       <div className="absolute inset-0">
-        <JewelrySceneLoader />
+        {bannerImage ? (
+          <Image
+            src={bannerImage}
+            alt={shopName}
+            fill
+            className="object-cover"
+            priority
+            unoptimized
+          />
+        ) : (
+          <div className="w-full h-full bg-[#1A1A1A]" />
+        )}
+        {/* Gradient overlay — always present for text readability */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/10" />
       </div>
 
-      {/* Dark overlay — diagonal gradient so 3D shines through */}
-      <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(26,26,26,0.55) 0%, rgba(26,26,26,0.25) 100%)" }} />
+      {/* Decorative accent line */}
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent opacity-60" />
 
-      <div className="container-site py-14 sm:py-24 md:py-32 relative z-10 pointer-events-none">
-        <div className="grid md:grid-cols-2 gap-12 items-center">
+      {/* Content overlay */}
+      <div className="relative z-10 container-site pb-10 sm:pb-14 md:pb-20 pt-24 sm:pt-32">
+        <div className="max-w-xl animate-slide-up">
+          {/* Badge */}
+          <span className="inline-block text-[10px] sm:text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.15em] uppercase text-accent border border-accent/30 bg-accent/10 px-3 py-1 rounded-full mb-4 backdrop-blur-sm">
+            {t("heroBadge")}
+          </span>
 
-          {/* Text */}
-          <div className="pointer-events-auto">
-            <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/80 text-[11px] font-medium uppercase tracking-[0.2em] px-3 py-1.5 rounded-full mb-8 font-[family-name:var(--font-roboto)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37]" />
-              {t("heroBadge")}
-            </div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-4xl md:text-5xl font-semibold leading-[1.1] text-text-inverse mb-6 drop-shadow-lg animate-slide-up">
-              {t("heroTitle1")}<br />
-              {t("heroTitle2")}
-            </h1>
-            <p className="text-white/70 text-base leading-relaxed font-[family-name:var(--font-roboto)] mb-10 max-w-md animate-slide-up stagger-2">
-              {t("heroDesc", { count: productCount })}
-            </p>
-            <div className="flex flex-wrap gap-3 animate-zoom-fade stagger-4">
-              {isLoggedIn ? (
-                <Link href="/produits" className="inline-flex items-center gap-2 bg-bg-primary text-text-primary text-sm font-medium px-6 py-3 rounded-lg hover:bg-bg-tertiary hover:-translate-y-0.5 transition-all duration-200 font-[family-name:var(--font-roboto)] shadow-lg hover:shadow-xl">
-                  {t("heroCta")}
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
-                </Link>
-              ) : (
-                <>
-                  <Link href="/connexion" className="inline-flex items-center gap-2 bg-bg-primary text-text-primary text-sm font-medium px-6 py-3 rounded-lg hover:bg-bg-tertiary hover:-translate-y-0.5 transition-all duration-200 font-[family-name:var(--font-roboto)] shadow-lg hover:shadow-xl">
-                    {t("heroAccess")}
-                  </Link>
-                  <Link href="/inscription" className="inline-flex items-center gap-2 border border-white/25 text-text-inverse text-sm px-6 py-3 rounded-lg hover:bg-white/10 hover:-translate-y-0.5 backdrop-blur-sm transition-all duration-200 font-[family-name:var(--font-roboto)]">
-                    {t("heroRegister")}
-                  </Link>
-                </>
-              )}
-            </div>
+          {/* Title */}
+          <h1 className="font-[family-name:var(--font-poppins)] text-2xl sm:text-4xl md:text-5xl font-bold text-white leading-[1.15] mb-4">
+            {t("heroTitle1")}
+            <br />
+            <span className="text-accent">{t("heroTitle2")}</span>
+          </h1>
 
-            {/* Quick stats */}
-            <div className="flex flex-wrap gap-6 mt-10 pt-10 border-t border-white/10">
-              {[
-                { value: `+${productCount}`, label: t("statsReferences") },
-                { value: t("statsDeliveryValue"),  label: t("statsDelivery") },
-                { value: t("statsProValue"),  label: t("statsPro") },
-              ].map((stat) => (
-                <div key={stat.label}>
-                  <p className="font-[family-name:var(--font-poppins)] text-xl font-bold text-text-inverse">{stat.value}</p>
-                  <p className="text-white/50 text-xs font-[family-name:var(--font-roboto)] mt-0.5">{stat.label}</p>
-                </div>
-              ))}
-            </div>
+          {/* Description */}
+          <p className="font-[family-name:var(--font-roboto)] text-sm sm:text-base text-white/70 leading-relaxed mb-6 max-w-md">
+            {t("heroDesc", { count: "500" })}
+          </p>
+
+          {/* CTA */}
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href="/produits"
+              className="btn-primary !bg-accent !border-accent hover:!bg-accent-dark hover:!border-accent-dark text-bg-dark font-semibold text-sm px-6 py-2.5 rounded-lg transition-all duration-200"
+            >
+              {t("heroCta")} &rarr;
+            </Link>
+            <Link
+              href="/collections"
+              className="inline-flex items-center text-sm font-medium text-white/80 border border-white/20 bg-white/5 backdrop-blur-sm px-5 py-2.5 rounded-lg hover:bg-white/10 hover:border-white/30 transition-all duration-200 font-[family-name:var(--font-roboto)]"
+            >
+              {t("collections")}
+            </Link>
           </div>
-
-          {/* Right panel — glass cards over 3D scene */}
-          <div className="hidden md:flex flex-col gap-3 pointer-events-auto">
-            <div className="bg-white/[0.07] backdrop-blur-md border border-white/15 rounded-2xl p-6 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/20 flex items-center justify-center text-[#D4AF37]">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /></svg>
-                </div>
-                <div>
-                  <p className="text-text-inverse text-sm font-medium font-[family-name:var(--font-roboto)]">{t("cardExclusive")}</p>
-                  <p className="text-white/50 text-xs font-[family-name:var(--font-roboto)]">{t("cardPremium")}</p>
-                </div>
-              </div>
-              <div className="h-px bg-white/5" />
-              {[t("cardNecklaces"), t("cardBracelets"), t("cardRings"), t("cardEarrings")].map((cat) => (
-                <div key={cat} className="flex items-center justify-between">
-                  <span className="text-white/60 text-sm font-[family-name:var(--font-roboto)]">{cat}</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37]/40" />
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white/[0.07] backdrop-blur-md border border-white/15 rounded-xl p-4">
-                <p className="text-text-inverse text-lg font-bold font-[family-name:var(--font-poppins)]">{productCount}+</p>
-                <p className="text-white/50 text-xs font-[family-name:var(--font-roboto)] mt-0.5">{t("cardAvailable")}</p>
-              </div>
-              <div className="bg-white/[0.07] backdrop-blur-md border border-white/15 rounded-xl p-4">
-                <p className="text-text-inverse text-lg font-bold font-[family-name:var(--font-poppins)]">100%</p>
-                <p className="text-white/50 text-xs font-[family-name:var(--font-roboto)] mt-0.5">{t("cardSteel")}</p>
-              </div>
-            </div>
-          </div>
-
         </div>
+      </div>
+
+      {/* Bottom decorative curve */}
+      <div className="absolute bottom-0 left-0 right-0">
+        <svg viewBox="0 0 1440 48" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-6 sm:h-8 md:h-12" preserveAspectRatio="none">
+          <path d="M0 48h1440V24C1200 0 960 40 720 40S240 0 0 24v24z" fill="var(--color-bg-secondary)" />
+        </svg>
       </div>
     </section>
   );

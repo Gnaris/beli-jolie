@@ -4,6 +4,7 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import Image from "next/image";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/produits/ProductCard";
@@ -16,11 +17,15 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { id } = await params;
   const col = await prisma.collection.findUnique({ where: { id }, select: { name: true } });
   if (!col) return {};
-  return { title: `${col.name} — Collections Beli & Jolie` };
+  const shopName = await getCachedShopName();
+  return { title: `${col.name} — Collections ${shopName}` };
 }
 
 export default async function CollectionDetailPage({ params }: PageProps) {
-  const t = await getTranslations("collectionDetail");
+  const [t, shopName] = await Promise.all([
+    getTranslations("collectionDetail"),
+    getCachedShopName(),
+  ]);
   const { id } = await params;
 
   const collection = await prisma.collection.findUnique({
@@ -71,7 +76,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen">
-      <PublicSidebar />
+      <PublicSidebar shopName={shopName} />
 
       <div className="min-w-0">
         {/* Header */}
@@ -165,7 +170,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
           )}
         </main>
 
-        <Footer />
+        <Footer shopName={shopName} />
       </div>
     </div>
   );

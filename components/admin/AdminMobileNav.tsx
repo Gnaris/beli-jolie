@@ -6,7 +6,7 @@ import LogoutButton from "./LogoutModal";
 import AdminClientModeButton from "./AdminClientModeButton";
 import LiveCountBadge from "./LiveCountBadge";
 
-const NAV_SECTIONS = [
+const NAV_SECTIONS: { title: string; items: { label: string; href: string; icon: string; soon?: boolean }[] }[] = [
   {
     title: "Principal",
     items: [
@@ -22,23 +22,10 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    title: "Attributs",
-    items: [
-      { label: "Catégories", href: "/admin/categories", icon: "M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z M6 6h.008v.008H6V6z" },
-      { label: "Couleurs", href: "/admin/couleurs", icon: "M4.098 19.902a3.75 3.75 0 005.304 0l6.401-6.402M6.75 21A3.75 3.75 0 013 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 003.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l2.88-2.88c.438-.439 1.15-.439 1.59 0l3.712 3.713c.44.44.44 1.152 0 1.59l-2.879 2.88M6.75 17.25h.008v.008H6.75v-.008z" },
-      { label: "Compositions", href: "/admin/compositions", icon: "M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" },
-      { label: "Pays de fabrication", href: "/admin/pays", icon: "M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" },
-      { label: "Saisons", href: "/admin/saisons", icon: "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" },
-      { label: "Tailles", href: "/admin/tailles", icon: "M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" },
-      { label: "Mots clés", href: "/admin/mots-cles", icon: "M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3zM6 6h.008v.008H6V6z" },
-    ],
-  },
-  {
     title: "Ventes",
     items: [
       { label: "Commandes", href: "/admin/commandes", icon: "M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" },
       { label: "Clients", href: "/admin/utilisateurs", icon: "M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" },
-      { label: "Suivi en direct", href: "/admin/suivi", icon: "M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" },
     ],
   },
   {
@@ -60,9 +47,10 @@ interface Props {
   userName: string;
   initials: string;
   warnings?: Record<string, number>;
+  shopName: string;
 }
 
-export default function AdminMobileNav({ userName, initials, warnings = {} }: Props) {
+export default function AdminMobileNav({ userName, initials, warnings = {}, shopName }: Props) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -80,7 +68,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {} }: Pr
         </button>
 
         <Link href="/admin" className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary">
-          Beli & Jolie
+          {shopName}
         </Link>
 
         <div className="w-8 h-8 rounded-full bg-bg-dark flex items-center justify-center">
@@ -105,7 +93,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {} }: Pr
         {/* Drawer header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
-            <p className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary">Beli & Jolie</p>
+            <p className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary">{shopName}</p>
             <p className="text-[10px] text-text-muted uppercase tracking-wider font-[family-name:var(--font-roboto)]">Administration</p>
           </div>
           <button
@@ -156,7 +144,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {} }: Pr
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
                       </svg>
                       <span className="flex-1">{item.label}</span>
-                      {item.href === "/admin/suivi" && <LiveCountBadge />}
+                      {item.href === "/admin/utilisateurs" && <LiveCountBadge />}
                       {item.href === "/admin/commandes" && warningCount > 0 && (
                         <span className="flex items-center justify-center text-[11px] bg-blue-100 text-blue-700 border border-blue-200 rounded-full min-w-[22px] h-[22px] px-1.5 font-semibold shrink-0">
                           {warningCount}

@@ -35,10 +35,9 @@ export async function createCategory(formData: FormData) {
   await prisma.category.create({
     data: { name, slug: toSlug(name) },
   });
-  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
   revalidateTag("sizes", "default");
-  revalidatePath("/admin/produits");
 }
 
 /**
@@ -69,16 +68,15 @@ export async function updateCategoryPfsId(
       pfsFamilyId: pfsCategoryId ? (pfsFamilyId || null) : null,
     },
   });
-  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
 }
 
 export async function deleteCategory(id: string) {
   await requireAdmin();
   await prisma.category.delete({ where: { id } });
-  revalidatePath("/admin/categories");
-  revalidateTag("categories", "default");
   revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
 }
 
 // ─────────────────────────────────────────────
@@ -94,15 +92,14 @@ export async function createSubCategory(formData: FormData) {
   await prisma.subCategory.create({
     data: { name, slug: toSlug(name), categoryId },
   });
-  revalidatePath("/admin/categories");
-  revalidateTag("categories", "default");
   revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
 }
 
 export async function deleteSubCategory(id: string) {
   await requireAdmin();
   await prisma.subCategory.delete({ where: { id } });
-  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
 }
 
@@ -128,9 +125,8 @@ export async function updateCategoryDirect(
     }
   }
 
-  revalidatePath("/admin/categories");
-  revalidateTag("categories", "default");
   revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
 }
 
 export async function updateSubCategoryDirect(
@@ -155,9 +151,8 @@ export async function updateSubCategoryDirect(
     }
   }
 
-  revalidatePath("/admin/categories");
-  revalidateTag("categories", "default");
   revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
 }
 
 export async function updateCategory(id: string, formData: FormData) {
@@ -180,9 +175,8 @@ export async function updateCategory(id: string, formData: FormData) {
     }
   }
 
-  revalidatePath("/admin/categories");
-  revalidateTag("categories", "default");
   revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
 }
 
 export async function updateSubCategory(id: string, formData: FormData) {
@@ -205,7 +199,6 @@ export async function updateSubCategory(id: string, formData: FormData) {
     }
   }
 
-  revalidatePath("/admin/categories");
-  revalidateTag("categories", "default");
   revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
 }

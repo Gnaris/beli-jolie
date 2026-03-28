@@ -19,7 +19,7 @@ export async function createColor(formData: FormData) {
   if (!name) throw new Error("Le nom est requis.");
 
   await prisma.color.create({ data: { name, hex } });
-  revalidatePath("/admin/couleurs");
+  revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
   revalidatePath("/admin/produits/nouveau");
 }
@@ -45,7 +45,7 @@ export async function updateColor(id: string, formData: FormData) {
     }
   }
 
-  revalidatePath("/admin/couleurs");
+  revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
 }
 
@@ -83,7 +83,7 @@ export async function updateColorDirect(
     }
   }
 
-  revalidatePath("/admin/couleurs");
+  revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
 }
 
@@ -103,7 +103,7 @@ export async function updateColorPfsRef(id: string, pfsColorRef: string | null) 
     }
   }
   await prisma.color.update({ where: { id }, data: { pfsColorRef } });
-  revalidatePath("/admin/couleurs");
+  revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
 }
 
@@ -178,6 +178,6 @@ export async function deleteColor(id: string) {
   const count = await prisma.productColor.count({ where: { colorId: id } });
   if (count > 0) throw new Error("Cette couleur est utilisée par des produits.");
   await prisma.color.delete({ where: { id } });
-  revalidatePath("/admin/couleurs");
+  revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
 }

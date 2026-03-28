@@ -22,7 +22,7 @@ export default async function AdminCollectionsPage() {
         <div>
           <h1 className="page-title">Collections</h1>
           <p className="page-subtitle font-[family-name:var(--font-roboto)]">
-            Gérez les collections de bijoux de la boutique.
+            Gérez les collections de produits de la boutique.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -58,7 +58,7 @@ export default async function AdminCollectionsPage() {
             Aucune collection
           </p>
           <p className="text-sm text-[#6B7280] font-[family-name:var(--font-roboto)] mb-6 max-w-xs">
-            Commencez par créer votre première collection pour organiser vos bijoux.
+            Commencez par créer votre première collection pour organiser vos produits.
           </p>
           <Link
             href="/admin/collections/nouveau"

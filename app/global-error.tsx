@@ -52,7 +52,7 @@ export default function GlobalError({
                 letterSpacing: "-0.025em",
               }}
             >
-              Beli &amp; Jolie
+              Notre site
             </span>
           </div>
 

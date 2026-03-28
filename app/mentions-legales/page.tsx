@@ -2,11 +2,15 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { loadLegalPage } from "@/lib/legal-page";
 import LegalPageClient from "@/components/legal/LegalPageClient";
+import { getCachedShopName } from "@/lib/cached-data";
 
-export const metadata: Metadata = {
-  title: "Mentions légales — Beli & Jolie",
-  description: "Mentions légales du site Beli & Jolie, grossiste B2B en bijoux en acier inoxydable.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Mentions légales — ${shopName}`,
+    description: `Mentions légales du site ${shopName}, plateforme grossiste B2B.`,
+  };
+}
 
 export default async function MentionsLegalesPage() {
   const data = await loadLegalPage("MENTIONS_LEGALES");

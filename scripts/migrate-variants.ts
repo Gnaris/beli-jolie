@@ -14,7 +14,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("=== Beli & Jolie — Variant Migration ===\n");
+  console.log("=== Variant Migration ===\n");
 
   // ── 1. Load all existing ProductColor rows with their SaleOptions ─────────
   const productColors = await (prisma as any).productColor.findMany({

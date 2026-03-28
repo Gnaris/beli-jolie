@@ -6,12 +6,35 @@
  *   1. POST /api/v3/shipments/rates  → transactionId + liste carriers
  *   2. POST /api/v3/shipments/checkout → trackingId + label
  *
- * Variable d'environnement requise :
- *   EASY_EXPRESS_API_KEY — token Bearer Easy-Express
- *   EE_SENDER_* — adresse expéditeur
+ * Configuration via les paramètres admin :
+ *   - Clé API : SiteConfig "easy_express_api_key" (fallback env EASY_EXPRESS_API_KEY)
+ *   - Adresse expéditeur : CompanyInfo (informations société)
  */
 
+import { getCachedCompanyInfo, getCachedEasyExpressApiKey } from "@/lib/cached-data";
+
 const BASE_URL = "https://easy-express.fr";
+
+/** Convertit un nom de pays ("France") ou code ISO en code 2 lettres pour Easy-Express */
+function countryToCode(country?: string | null): string {
+  if (!country) return "FR";
+  const trimmed = country.trim();
+  // Déjà un code ISO 2 lettres
+  if (/^[A-Z]{2}$/.test(trimmed)) return trimmed;
+  // Mapping des noms courants
+  const map: Record<string, string> = {
+    france: "FR", belgique: "BE", suisse: "CH", luxembourg: "LU",
+    allemagne: "DE", espagne: "ES", italie: "IT", "pays-bas": "NL",
+    portugal: "PT", "royaume-uni": "GB",
+  };
+  return map[trimmed.toLowerCase()] ?? "FR";
+}
+
+/** Récupère la clé API : DB (paramètres admin) puis fallback env var */
+async function getApiKey(): Promise<string | null> {
+  const dbKey = await getCachedEasyExpressApiKey();
+  return dbKey || process.env.EASY_EXPRESS_API_KEY || null;
+}
 
 function bearerHeaders(apiKey: string) {
   return {
@@ -52,13 +75,15 @@ export interface RatesError {
 export async function fetchEasyExpressRates(
   input: RatesInput
 ): Promise<RatesResult | RatesError> {
-  const apiKey = process.env.EASY_EXPRESS_API_KEY;
+  const apiKey = await getApiKey();
   if (!apiKey) return { success: false, error: "Clé API Easy-Express manquante." };
+
+  const company = await getCachedCompanyInfo();
 
   const body = {
     senderAddress: {
-      countryCode: process.env.EE_SENDER_COUNTRY ?? "FR",
-      postalCode:  process.env.EE_SENDER_POSTAL_CODE ?? "",
+      countryCode: countryToCode(company?.country),
+      postalCode:  company?.postalCode ?? "",
     },
     receiverAddress: {
       countryCode: input.receiverCountry,
@@ -158,8 +183,11 @@ export type EasyExpressResult = EasyExpressShipmentResult | EasyExpressShipmentE
 export async function createEasyExpressShipment(
   input: EasyExpressShipmentInput
 ): Promise<EasyExpressResult> {
-  const apiKey = process.env.EASY_EXPRESS_API_KEY;
+  const apiKey = await getApiKey();
   if (!apiKey) return { success: false, error: "Clé API Easy-Express manquante." };
+
+  const company = await getCachedCompanyInfo();
+  const shopName = company?.shopName || "Ma Boutique";
 
   const body = {
     transactionId: input.transactionId,
@@ -167,17 +195,17 @@ export async function createEasyExpressShipment(
     shipmentRequest: {
       parcels: [{ weight: Math.max(1, input.weightKg) }],
       senderAddress: {
-        company:       process.env.EE_SENDER_COMPANY   ?? "Beli & Jolie",
-        shopName:      process.env.EE_SENDER_SHOP_NAME ?? "Beli & Jolie",
-        email:         process.env.EE_SENDER_EMAIL     ?? "",
-        phoneNumber:   process.env.EE_SENDER_PHONE     ?? "",
-        mobileNumber:  process.env.EE_SENDER_MOBILE    ?? "",
-        street:        process.env.EE_SENDER_STREET    ?? "",
+        company:       company?.name ?? shopName,
+        shopName:      shopName,
+        email:         company?.email ?? "",
+        phoneNumber:   company?.phone ?? "",
+        mobileNumber:  company?.phone ?? "",
+        street:        company?.address ?? "",
         complement:    "",
-        city:          process.env.EE_SENDER_CITY      ?? "",
-        postalCode:    process.env.EE_SENDER_POSTAL_CODE ?? "",
-        countryCode:   process.env.EE_SENDER_COUNTRY   ?? "FR",
-        siret:         process.env.EE_SENDER_SIRET     ?? "",
+        city:          company?.city ?? "",
+        postalCode:    company?.postalCode ?? "",
+        countryCode:   countryToCode(company?.country),
+        siret:         company?.siret ?? "",
       },
       receiverAddress: {
         firstName:          input.toFirstName,
@@ -249,7 +277,7 @@ export async function createEasyExpressShipment(
 
 export async function fetchEasyExpressLabel(labelUrl: string): Promise<Buffer | null> {
   try {
-    const apiKey = process.env.EASY_EXPRESS_API_KEY ?? "";
+    const apiKey = await getApiKey() ?? "";
     const res = await fetch(labelUrl, {
       headers: { "Authorization": `Bearer ${apiKey}` },
     });

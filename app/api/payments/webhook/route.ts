@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
+import { getStripeInstance, getStripeWebhookSecret } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
 import nodemailer from "nodemailer";
 import type Stripe from "stripe";
+import { getCachedShopName, getCachedCompanyInfo, getCachedGmailConfig } from "@/lib/cached-data";
 
 /**
  * POST /api/payments/webhook
@@ -22,11 +23,9 @@ export async function POST(req: Request) {
   let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    );
+    const stripe = await getStripeInstance();
+    const webhookSecret = await getStripeWebhookSecret();
+    event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
   } catch (err) {
     console.error("[Stripe Webhook] Signature invalide:", err);
     return NextResponse.json({ error: "Signature invalide." }, { status: 400 });
@@ -279,15 +278,26 @@ interface NotifyData {
 }
 
 async function notifyTransferConfirmed(data: NotifyData): Promise<void> {
-  const { GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_EMAIL, NEXTAUTH_URL } = process.env;
-  if (!GMAIL_USER || !GMAIL_APP_PASSWORD || !NOTIFY_EMAIL) {
-    console.warn("[Webhook] Variables Gmail manquantes — email non envoyé.");
+  const [shopName, companyInfo, gmailCfg] = await Promise.all([
+    getCachedShopName(), getCachedCompanyInfo(), getCachedGmailConfig(),
+  ]);
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+  const { NEXTAUTH_URL } = process.env;
+  if (!GMAIL_USER || !GMAIL_PASSWORD) {
+    console.warn("[Webhook] Configuration Gmail manquante — email non envoyé.");
+    return;
+  }
+
+  const NOTIFY_EMAIL = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
+  if (!NOTIFY_EMAIL) {
+    console.warn("[Webhook] Aucun email destinataire configuré.");
     return;
   }
 
   const transporter = nodemailer.createTransport({
     service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
   });
 
   const itemsHtml = data.items.map((item) => `
@@ -393,7 +403,7 @@ async function notifyTransferConfirmed(data: NotifyData): Promise<void> {
         </div>
       </div>
 
-      <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;">Beli &amp; Jolie — Administration</p>
+      <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;">${shopName} — Administration</p>
     </div>
   `;
 
@@ -416,7 +426,7 @@ async function notifyTransferConfirmed(data: NotifyData): Promise<void> {
   }
 
   await transporter.sendMail({
-    from:    `"Beli & Jolie" <${GMAIL_USER}>`,
+    from:    `"${shopName}" <${GMAIL_USER}>`,
     to:      NOTIFY_EMAIL,
     subject: `Virement confirmé — Commande ${data.orderNumber} — ${data.user.company}`,
     html,

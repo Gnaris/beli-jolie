@@ -4,14 +4,18 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName } from "@/lib/cached-data";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
 
-export const metadata: Metadata = {
-  title: "Mes commandes — Beli & Jolie",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Mes commandes — ${shopName}`,
+    robots: { index: false, follow: false },
+  };
+}
 
 export const STATUS_CONFIG: Record<string, { badgeClass: string }> = {
   PENDING:    { badgeClass: "badge badge-warning" },

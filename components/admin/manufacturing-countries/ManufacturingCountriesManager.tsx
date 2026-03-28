@@ -4,9 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteManufacturingCountry, updateManufacturingCountryDirect, updateManufacturingCountryPfsRef } from "@/app/actions/admin/manufacturing-countries";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
-import EntityEditModal from "@/components/admin/EntityEditModal";
+import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
-import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface CountryItem {
@@ -26,7 +25,6 @@ export default function ManufacturingCountriesManager({
   const router = useRouter();
   const { confirm } = useConfirm();
   const [editTarget, setEditTarget] = useState<CountryItem | null>(null);
-  const [editPfsRef, setEditPfsRef] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -38,7 +36,6 @@ export default function ManufacturingCountriesManager({
   function openEdit(item: CountryItem) {
     setError("");
     setEditTarget(item);
-    setEditPfsRef(item.pfsCountryRef ?? "");
   }
 
   async function handleDelete(item: CountryItem) {
@@ -61,12 +58,18 @@ export default function ManufacturingCountriesManager({
       .finally(() => setDeletingId(null));
   }
 
-  async function handleSave(name: string, translations: Record<string, string>) {
+  async function handleSave(
+    name: string,
+    translations: Record<string, string>,
+    _hex?: string,
+    _patternImage?: string | null,
+    pfs?: { ref?: string },
+  ) {
     if (!editTarget) return;
     await updateManufacturingCountryDirect(editTarget.id, name, editTarget.isoCode ?? null, translations);
-    const origRef = editTarget.pfsCountryRef ?? "";
-    if (editPfsRef !== origRef) {
-      await updateManufacturingCountryPfsRef(editTarget.id, editPfsRef || null);
+    const newRef = pfs?.ref || null;
+    if (newRef !== (editTarget.pfsCountryRef ?? null)) {
+      await updateManufacturingCountryPfsRef(editTarget.id, newRef);
     }
     router.refresh();
   }
@@ -201,23 +204,21 @@ export default function ManufacturingCountriesManager({
         </div>
       )}
 
-      <EntityEditModal
-        open={!!editTarget}
-        onClose={() => setEditTarget(null)}
-        title="Modifier le pays"
-        initialName={editTarget?.name ?? ""}
-        initialTranslations={editTarget?.translations ?? {}}
-        renderExtra={
-          editTarget ? (
-            <MarketplaceMappingSection
-              entityType="country"
-              pfsRef={editPfsRef}
-              onPfsRefChange={setEditPfsRef}
-            />
-          ) : undefined
-        }
-        onSave={handleSave}
-      />
+      {editTarget && (
+        <QuickCreateModal
+          type="country"
+          open={!!editTarget}
+          onClose={() => setEditTarget(null)}
+          onCreated={() => { setEditTarget(null); router.refresh(); }}
+          editMode={{
+            id: editTarget.id,
+            name: editTarget.name,
+            translations: editTarget.translations,
+            pfsRef: editTarget.pfsCountryRef,
+            onSave: handleSave,
+          }}
+        />
+      )}
     </>
   );
 }

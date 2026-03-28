@@ -48,10 +48,10 @@ const COLORS = [
 ];
 
 const COMPOSITIONS = [
-  "Acier inoxydable 316L",
-  "Acier inoxydable plaqué or 18 carats",
-  "Acier inoxydable plaqué or rose",
-  "Acier inoxydable plaqué noir",
+  "Matière première A",
+  "Matière première B",
+  "Matière première C",
+  "Matière première D",
   "Laiton plaqué or",
   "Laiton plaqué argent",
   "Alliage de zinc",
@@ -92,7 +92,7 @@ const NAME_TEMPLATES: Record<string, { prefixes: string[]; styles: string[]; suf
     suffixes: ["ajustable", "réglable", "fin", "délicat", "orné", "simple", "bohème", "estival", "léger", "coloré"],
   },
   Parures: {
-    prefixes: ["Parure", "Set bijoux", "Ensemble bijoux", "Coffret parure"],
+    prefixes: ["Parure", "Set produits", "Ensemble produits", "Coffret parure"],
     styles: ["Élégante", "Romantique", "Vintage", "Bohème", "Classique", "Moderne", "Art Déco", "Minimaliste", "Luxe", "Mariage", "Soirée", "Nature", "Floral", "Géométrique", "Perle", "Cristal", "Dorée", "Argentée", "Rosée", "Nuptiale"],
     suffixes: ["complète", "assortie", "harmonieuse", "raffinée", "précieuse", "délicate", "éclatante", "sobre", "tendance", "intemporelle"],
   },
@@ -142,21 +142,21 @@ const DESCRIPTIONS: Record<string, string[]> = {
     "Ce pendentif délicat et charmant sera l'accessoire parfait pour personnaliser votre collier préféré.",
     "Pendentif au design raffiné, parfait pour créer une composition unique. Détails travaillés à la main.",
     "Un pendentif tendance et polyvalent, à associer avec vos chaînes et colliers préférés.",
-    "Pendentif au style vintage inspiré de la joaillerie classique. Pièce intemporelle et élégante.",
+    "Pendentif au style vintage inspiré du design classique. Pièce intemporelle et élégante.",
   ],
   Chevillères: [
     "Chevillère légère et délicate, parfaite pour la plage ou les journées estivales. Design bohème.",
     "Cette chevillère tendance s'adapte à toutes les chaussures. Fermeture réglable pour un confort optimal.",
     "Chevillère au style bohème chic, idéale pour la belle saison. Résistante à l'eau et à la transpiration.",
     "Chevillère fine et élégante pour sublimer vos chevilles. Chaîne solide et durable.",
-    "Un bijou de cheville délicat pour affirmer votre style estival. Convient à toutes les morphologies.",
+    "Un accessoire de cheville délicat pour affirmer votre style estival. Convient à toutes les morphologies.",
   ],
   Parures: [
     "Parure complète et harmonieuse pour un look élégant et coordonné. Idéale pour les grandes occasions.",
     "Cette parure raffinée est le cadeau idéal pour une occasion spéciale. Présentation en coffret élégant.",
     "Parure au design classique et intemporel, parfaite pour les mariages et soirées habillées.",
-    "Un ensemble bijoux coordonné pour sublimer votre tenue. Pièces assorties et complémentaires.",
-    "Parure de bijoux élégante et moderne, pour un look sophistiqué et harmonieux.",
+    "Un ensemble coordonné pour sublimer votre tenue. Pièces assorties et complémentaires.",
+    "Parure élégante et moderne, pour un look sophistiqué et harmonieux.",
   ],
   Montres: [
     "Montre élégante et fonctionnelle, idéale pour toutes les occasions. Mécanisme précis et fiable.",
@@ -170,7 +170,7 @@ const DESCRIPTIONS: Record<string, string[]> = {
     "Un accessoire délicat et raffiné pour ajouter une touche de fantaisie à votre style.",
     "Accessoire au design moderne et original, parfait pour se démarquer et affirmer sa personnalité.",
     "Accessoire de qualité supérieure, à offrir ou à s'offrir pour se faire plaisir. Finition soignée.",
-    "Un accessoire tendance qui complètera parfaitement votre collection de bijoux et accessoires.",
+    "Un accessoire tendance qui complètera parfaitement votre collection.",
   ],
 };
 
@@ -207,7 +207,7 @@ const PACK_QUANTITIES = [3, 5, 6, 10, 12];
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log("Seeding Beli & Jolie database…");
+  console.log("Seeding database…");
 
   // 1. Catégories
   console.log("Creating categories…");

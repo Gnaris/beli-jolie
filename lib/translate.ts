@@ -6,8 +6,17 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { decryptIfSensitive } from "@/lib/encryption";
 
 export type Locale = "fr" | "en" | "ar" | "zh" | "de" | "es" | "it";
+
+/** Récupère la clé API DeepL depuis la DB (déchiffrée), sans fallback env. */
+async function getDeeplApiKey(): Promise<string | null> {
+  const config = await prisma.siteConfig.findUnique({
+    where: { key: "deepl_api_key" },
+  });
+  return config?.value ? decryptIfSensitive("deepl_api_key", config.value) : null;
+}
 
 const DEEPL_MAX_CHARS = 500_000;
 
@@ -114,7 +123,7 @@ export async function translateText(
   if (from === to || !text.trim()) return text;
 
   const charCount = text.length;
-  const deeplKey = process.env.DEEPL_API_KEY;
+  const deeplKey = await getDeeplApiKey();
   if (!deeplKey) return text;
 
   const quota = await getQuota();

@@ -6,6 +6,7 @@ import nodemailer from "nodemailer";
 import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
+import { getCachedShopName, getCachedGmailConfig } from "@/lib/cached-data";
 
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10 MB per file
 const MAX_TOTAL_SIZE = 25 * 1024 * 1024; // 25 MB total
@@ -29,10 +30,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 
-  const { GMAIL_USER, GMAIL_APP_PASSWORD } = process.env;
-  if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+  const gmailCfg = await getCachedGmailConfig();
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+  if (!GMAIL_USER || !GMAIL_PASSWORD) {
     return NextResponse.json(
-      { error: "Configuration email manquante (GMAIL_USER / GMAIL_APP_PASSWORD)" },
+      { error: "Configuration email manquante — configurer dans Paramètres > Notifications email" },
       { status: 500 }
     );
   }
@@ -111,13 +114,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Build email HTML with Beli & Jolie signature
+    // Build email HTML with shop name signature
+    const shopName = await getCachedShopName();
     const fullHtml = `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
         ${htmlBody}
         <hr style="border:none;border-top:1px solid #E5E5E5;margin:32px 0 16px;" />
         <p style="color:#94A3B8;font-size:12px;">
-          Beli &amp; Jolie — Bijoux en gros
+          ${shopName} — Grossiste B2B
         </p>
       </div>
     `;
@@ -125,11 +129,11 @@ export async function POST(req: NextRequest) {
     // Send email
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+      auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
     });
 
     await transporter.sendMail({
-      from: `"Beli & Jolie" <${GMAIL_USER}>`,
+      from: `"${shopName}" <${GMAIL_USER}>`,
       to: toName ? `"${toName}" <${toEmail}>` : toEmail,
       subject,
       html: fullHtml,

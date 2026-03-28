@@ -2,11 +2,15 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { loadLegalPage } from "@/lib/legal-page";
 import LegalPageClient from "@/components/legal/LegalPageClient";
+import { getCachedShopName } from "@/lib/cached-data";
 
-export const metadata: Metadata = {
-  title: "Politique de confidentialité — Beli & Jolie",
-  description: "Politique de confidentialité et RGPD du site Beli & Jolie.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Politique de confidentialité — ${shopName}`,
+    description: `Politique de confidentialité et RGPD du site ${shopName}.`,
+  };
+}
 
 export default async function ConfidentialitePage() {
   const data = await loadLegalPage("POLITIQUE_CONFIDENTIALITE");

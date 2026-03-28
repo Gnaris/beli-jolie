@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
-export default function Footer() {
+interface FooterProps {
+  shopName: string;
+}
+
+export default function Footer({ shopName }: FooterProps) {
   const t = useTranslations("footer");
   const currentYear = new Date().getFullYear();
 
@@ -36,7 +40,7 @@ export default function Footer() {
           {/* Column 1 - Brand */}
           <div className="sm:col-span-2 lg:col-span-1">
             <Link href="/" className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-white">
-              Beli <span className="text-text-muted">&</span> Jolie
+              {shopName}
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-text-secondary font-[family-name:var(--font-roboto)]">
               {t("description")}
@@ -95,7 +99,7 @@ export default function Footer() {
 
       <div className="border-t border-white/[0.06]">
         <div className="container-site py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
-          <p>&copy; {currentYear} Beli & Jolie. {t("rights")}</p>
+          <p>&copy; {currentYear} {shopName}. {t("rights")}</p>
           <p>{t("reserved")}</p>
         </div>
       </div>

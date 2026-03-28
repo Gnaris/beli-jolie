@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { stripe } from "@/lib/stripe";
+import { getStripeInstance } from "@/lib/stripe";
 
 /**
  * GET /api/client/commandes/[id]/bank-details
@@ -31,6 +31,7 @@ export async function GET(
   }
 
   try {
+    const stripe = await getStripeInstance();
     const pi = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId);
 
     const bankTransfer = pi.next_action?.display_bank_transfer_instructions;

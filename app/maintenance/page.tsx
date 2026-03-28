@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
+import { getCachedShopName } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
-  title: "Site en maintenance — Beli & Jolie",
+  title: "Site en maintenance",
   robots: { index: false, follow: false },
 };
 
-export default function MaintenancePage() {
+export default async function MaintenancePage() {
+  const shopName = await getCachedShopName();
   return (
     <div className="min-h-screen bg-[#1A1A1A] flex flex-col items-center justify-center px-6 py-12">
       {/* Animated background dots */}
@@ -24,7 +26,7 @@ export default function MaintenancePage() {
         {/* Logo */}
         <div className="mb-10">
           <span className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-white tracking-tight">
-            Beli & Jolie
+            {shopName}
           </span>
         </div>
 

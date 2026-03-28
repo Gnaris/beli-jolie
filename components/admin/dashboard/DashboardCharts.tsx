@@ -1,4 +1,5 @@
 "use client";
+import { useMemo } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -14,6 +15,20 @@ import {
   Cell,
   Legend,
 } from "recharts";
+
+/** Read CSS variables so Recharts inline styles adapt to dark mode */
+function useChartColors() {
+  return useMemo(() => {
+    if (typeof window === "undefined") return { primary: "#1A1A1A", grid: "#F0F0F0", tick: "#9CA3AF" };
+    const s = getComputedStyle(document.documentElement);
+    const isDark = document.documentElement.classList.contains("admin-dark");
+    return {
+      primary: isDark ? "#FFFFFF" : (s.getPropertyValue("--color-bg-dark").trim() || "#1A1A1A"),
+      grid: isDark ? "#2E2E2E" : "#F0F0F0",
+      tick: s.getPropertyValue("--color-text-muted").trim() || "#9CA3AF",
+    };
+  }, []);
+}
 
 export type MonthlyPoint = { label: string; orders: number; revenue: number };
 export type StatusPoint = { status: string; count: number };
@@ -69,6 +84,7 @@ function OrdersTooltip({ active, payload, label }: any) {
 
 export default function DashboardCharts({ monthlyData, statusDist, topProducts }: Props) {
   const maxQty = topProducts.length > 0 ? Math.max(...topProducts.map((p) => p.qty)) : 1;
+  const c = useChartColors();
 
   const statusData = statusDist.map((s) => ({
     name: STATUS_LABELS[s.status] ?? s.status,
@@ -89,19 +105,19 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
             <AreaChart data={monthlyData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
               <defs>
                 <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#1A1A1A" stopOpacity={0.12} />
-                  <stop offset="95%" stopColor="#1A1A1A" stopOpacity={0} />
+                  <stop offset="5%" stopColor={c.primary} stopOpacity={0.12} />
+                  <stop offset="95%" stopColor={c.primary} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
               <XAxis
                 dataKey="label"
-                tick={{ fontSize: 11, fill: "#9CA3AF", fontFamily: "var(--font-roboto)" }}
+                tick={{ fontSize: 11, fill: c.tick, fontFamily: "var(--font-roboto)" }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 11, fill: "#9CA3AF", fontFamily: "var(--font-roboto)" }}
+                tick={{ fontSize: 11, fill: c.tick, fontFamily: "var(--font-roboto)" }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v) => `${v}€`}
@@ -110,11 +126,11 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
               <Area
                 type="monotone"
                 dataKey="revenue"
-                stroke="#1A1A1A"
+                stroke={c.primary}
                 strokeWidth={2}
                 fill="url(#revenueGrad)"
                 dot={false}
-                activeDot={{ r: 4, fill: "#1A1A1A" }}
+                activeDot={{ r: 4, fill: c.primary }}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -127,21 +143,21 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
           </p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={monthlyData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
               <XAxis
                 dataKey="label"
-                tick={{ fontSize: 11, fill: "#9CA3AF", fontFamily: "var(--font-roboto)" }}
+                tick={{ fontSize: 11, fill: c.tick, fontFamily: "var(--font-roboto)" }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 11, fill: "#9CA3AF", fontFamily: "var(--font-roboto)" }}
+                tick={{ fontSize: 11, fill: c.tick, fontFamily: "var(--font-roboto)" }}
                 axisLine={false}
                 tickLine={false}
                 allowDecimals={false}
               />
               <Tooltip content={<OrdersTooltip />} />
-              <Bar dataKey="orders" fill="#1A1A1A" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="orders" fill={c.primary} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -178,7 +194,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
                   iconType="circle"
                   iconSize={8}
                   formatter={(value) => (
-                    <span style={{ fontSize: 11, color: "#6B7280", fontFamily: "var(--font-roboto)" }}>
+                    <span className="text-[#6B7280]" style={{ fontSize: 11, fontFamily: "var(--font-roboto)" }}>
                       {value}
                     </span>
                   )}
@@ -188,7 +204,9 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
                   formatter={(value: any) => [`${value} commande${value !== 1 ? "s" : ""}`, ""]}
                   contentStyle={{
                     borderRadius: 12,
-                    border: "1px solid #E5E5E5",
+                    border: "1px solid var(--color-border, #E5E5E5)",
+                    backgroundColor: "var(--color-bg-primary, #FFFFFF)",
+                    color: "var(--color-text-primary, #1A1A1A)",
                     fontSize: 12,
                     fontFamily: "var(--font-roboto)",
                   }}

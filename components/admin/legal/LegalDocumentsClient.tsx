@@ -559,7 +559,7 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
 
 function getVariableExample(key: string): string {
   const examples: Record<string, string> = {
-    company_name: "Beli & Jolie SAS",
+    company_name: "Nom de la société",
     legal_form: "SAS",
     capital: "10 000",
     siret: "123 456 789 00012",
@@ -570,8 +570,8 @@ function getVariableExample(key: string): string {
     postal_code: "75001",
     country: "France",
     phone: "01 23 45 67 89",
-    email: "contact@belijolie.com",
-    website: "www.belijolie.com",
+    email: "contact@example.com",
+    website: "www.example.com",
     director: "Jean Dupont",
     host_name: "Vercel Inc.",
     host_address: "340 S Lemon Ave",

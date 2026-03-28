@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
           prisma.color.findMany({ select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true } }),
           prisma.composition.findMany({ select: { id: true, name: true, pfsCompositionRef: true } }),
           prisma.manufacturingCountry.findMany({ select: { id: true, name: true, isoCode: true, pfsCountryRef: true } }),
-          prisma.season.findMany({ select: { id: true, name: true, pfsSeasonRef: true } }),
+          prisma.season.findMany({ select: { id: true, name: true, pfsRefs: { select: { pfsRef: true } } } }),
           prisma.size.findMany({ select: { id: true, name: true } }),
           prisma.pfsMapping.findMany({ select: { type: true, pfsName: true, bjName: true } }),
         ]);
@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
 
         // Season sets
         const seasonByRef = new Set<string>(
-          dbSeasons.filter((s) => s.pfsSeasonRef).map((s) => s.pfsSeasonRef!.toUpperCase()),
+          dbSeasons.flatMap((s) => s.pfsRefs.map((r) => r.pfsRef.toUpperCase())),
         );
         const seasonByName = new Set<string>(dbSeasons.map((s) => s.name.toLowerCase()));
 

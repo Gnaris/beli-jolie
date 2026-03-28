@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import FloatingShapes from "@/components/ui/FloatingShapes";
@@ -10,14 +11,20 @@ import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 
 export const revalidate = 7200; // ISR: revalidate every 2 hours
 
-export const metadata: Metadata = {
-  title: "Collections Bijoux — Beli & Jolie",
-  description: "Découvrez nos collections de bijoux en acier inoxydable. Sélections tendance pour revendeurs et boutiques professionnelles.",
-  alternates: { canonical: "/collections" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Collections — ${shopName}`,
+    description: "Découvrez nos collections de produits. Sélections tendance pour revendeurs et professionnels.",
+    alternates: { canonical: "/collections" },
+  };
+}
 
 export default async function CollectionsPage() {
-  const t = await getTranslations("collectionsPage");
+  const [t, shopName] = await Promise.all([
+    getTranslations("collectionsPage"),
+    getCachedShopName(),
+  ]);
   const collections = await prisma.collection.findMany({
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { products: true } } },
@@ -26,7 +33,7 @@ export default async function CollectionsPage() {
   return (
     <div className="min-h-screen relative">
       <FloatingShapes />
-      <PublicSidebar />
+      <PublicSidebar shopName={shopName} />
 
       <div className="min-w-0 relative z-10">
         {/* Header */}
@@ -101,7 +108,7 @@ export default async function CollectionsPage() {
           )}
         </main>
 
-        <Footer />
+        <Footer shopName={shopName} />
       </div>
     </div>
   );

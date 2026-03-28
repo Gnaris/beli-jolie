@@ -5,15 +5,18 @@ import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags } from "@/lib/cached-data";
+import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedShopName } from "@/lib/cached-data";
 import SearchFilters from "@/components/produits/SearchFilters";
 import ProductCard from "@/components/produits/ProductCard";
 import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "Mes favoris — Beli & Jolie",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Mes favoris — ${shopName}`,
+    robots: { index: false, follow: false },
+  };
+}
 
 interface PageProps {
   searchParams: Promise<{

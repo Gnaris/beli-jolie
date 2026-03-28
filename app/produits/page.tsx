@@ -5,7 +5,7 @@ import { getTranslations } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display";
-import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import FloatingShapes from "@/components/ui/FloatingShapes";
@@ -13,11 +13,14 @@ import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import SearchFilters from "@/components/produits/SearchFilters";
 import ProductsInfiniteScroll from "@/components/produits/ProductsInfiniteScroll";
 
-export const metadata: Metadata = {
-  title: "Catalogue Bijoux Professionnels — Beli & Jolie",
-  description: "Parcourez notre catalogue de +78 000 bijoux en acier inoxydable. Prix grossiste, livraison rapide, qualité premium pour revendeurs.",
-  alternates: { canonical: "/produits" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Catalogue Produits — ${shopName}`,
+    description: "Parcourez notre catalogue de produits. Prix grossiste, livraison rapide, qualité premium pour revendeurs.",
+    alternates: { canonical: "/produits" },
+  };
+}
 
 const PER_PAGE = 20;
 
@@ -112,9 +115,10 @@ async function fetchImages(productIds: string[]) {
 }
 
 export default async function ProduitsPage({ searchParams }: PageProps) {
-  const [t, session] = await Promise.all([
+  const [t, session, shopName] = await Promise.all([
     getTranslations("products"),
     getServerSession(authOptions),
+    getCachedShopName(),
   ]);
 
   // Fetch client discount
@@ -266,7 +270,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   return (
     <div className="min-h-screen bg-bg-secondary relative">
       <FloatingShapes />
-      <PublicSidebar />
+      <PublicSidebar shopName={shopName} />
       <main className="relative z-10">
       {/* En-tete page */}
       <div className="bg-bg-primary border-b border-border relative overflow-hidden">
@@ -327,7 +331,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         </div>
       </div>
       </main>
-      <Footer />
+      <Footer shopName={shopName} />
     </div>
   );
 }

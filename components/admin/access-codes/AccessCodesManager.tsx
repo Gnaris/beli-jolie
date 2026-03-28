@@ -184,7 +184,7 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
                     type="text"
                     value={prefill.company}
                     onChange={(e) => setPrefill((p) => ({ ...p, company: e.target.value }))}
-                    placeholder="Ma Bijouterie SARL"
+                    placeholder="Mon Entreprise SARL"
                     className="field-input"
                   />
                 </div>

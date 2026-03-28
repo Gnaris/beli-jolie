@@ -15,7 +15,7 @@ export async function createComposition(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
   await prisma.composition.create({ data: { name } });
-  revalidatePath("/admin/compositions");
+  revalidatePath("/admin/produits");
 }
 
 export async function updateComposition(id: string, formData: FormData) {
@@ -37,7 +37,7 @@ export async function updateComposition(id: string, formData: FormData) {
     }
   }
 
-  revalidatePath("/admin/compositions");
+  revalidatePath("/admin/produits");
 }
 
 export async function updateCompositionDirect(
@@ -62,7 +62,7 @@ export async function updateCompositionDirect(
     }
   }
 
-  revalidatePath("/admin/compositions");
+  revalidatePath("/admin/produits");
 }
 
 /**
@@ -81,7 +81,7 @@ export async function updateCompositionPfsRef(id: string, pfsCompositionRef: str
     }
   }
   await prisma.composition.update({ where: { id }, data: { pfsCompositionRef } });
-  revalidatePath("/admin/compositions");
+  revalidatePath("/admin/produits");
   revalidateTag("compositions", "default");
 }
 
@@ -90,5 +90,5 @@ export async function deleteComposition(id: string) {
   const used = await prisma.productComposition.count({ where: { compositionId: id } });
   if (used > 0) throw new Error("Cette composition est utilisée par des produits.");
   await prisma.composition.delete({ where: { id } });
-  revalidatePath("/admin/compositions");
+  revalidatePath("/admin/produits");
 }

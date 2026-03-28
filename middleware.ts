@@ -2,7 +2,7 @@ import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Middleware de protection des routes — Beli & Jolie
+ * Middleware de protection des routes
  *
  * Règles :
  * - /admin/*      → réservé aux ADMIN (redirect → /connexion si non admin)

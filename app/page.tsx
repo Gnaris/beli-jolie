@@ -5,8 +5,8 @@ import { getServerSession } from "next-auth";
 import { getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parseDisplayConfig, fetchCarouselProducts } from "@/lib/product-display";
-import { getCachedSiteConfig, getCachedProductCount, getCachedBestsellerRefs } from "@/lib/cached-data";
+import { parseDisplayConfig, fetchCarouselProducts, type HomepageCarousel } from "@/lib/product-display";
+import { getCachedSiteConfig, getCachedBestsellerRefs, getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import FloatingShapes from "@/components/ui/FloatingShapes";
@@ -15,13 +15,20 @@ import BrandInfoSection from "@/components/home/BrandInfoSection";
 import CollectionsGrid from "@/components/home/CollectionsGrid";
 import ProductCarousel, { CarouselProduct } from "@/components/home/ProductCarousel";
 import HeroBanner from "@/components/home/HeroBanner";
+import MarqueeBand from "@/components/home/MarqueeBand";
+import StatsStrip from "@/components/home/StatsStrip";
+import SectionDivider from "@/components/home/SectionDivider";
+import CtaBanner from "@/components/home/CtaBanner";
 
-export const metadata: Metadata = {
-  title: "Beli & Jolie — Bijoux Acier Inoxydable BtoB",
-  description:
-    "Beli & Jolie, votre grossiste BtoB en bijoux acier inoxydable. +500 références tendance pour revendeurs et boutiques.",
-  alternates: { canonical: "/" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `${shopName} — Grossiste B2B`,
+    description:
+      `${shopName}, votre plateforme grossiste B2B. Catalogue complet pour revendeurs et professionnels.`,
+    alternates: { canonical: "/" },
+  };
+}
 
 // ─────────────────────────────────────────────
 // Helpers de mise en forme Prisma → CarouselProduct
@@ -104,6 +111,32 @@ const COLOR_INCLUDE = {
 const PRODUCT_SELECT = { id: true, name: true, reference: true, category: { select: { name: true } }, ...COLOR_INCLUDE };
 
 // ─────────────────────────────────────────────
+// Reassort fetcher (needs userId)
+// ─────────────────────────────────────────────
+async function fetchReassortProducts(userId: string, quantity: number) {
+  const items = await prisma.orderItem.findMany({
+    where:   { order: { userId } },
+    select:  { productRef: true, quantity: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const refCounts = new Map<string, number>();
+  for (const item of items) {
+    refCounts.set(item.productRef, (refCounts.get(item.productRef) ?? 0) + item.quantity);
+  }
+  const refs = [...refCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, quantity)
+    .map(([ref]) => ref);
+  if (refs.length === 0) return [];
+  const products = await prisma.product.findMany({
+    where:  { reference: { in: refs }, status: "ONLINE" },
+    select: PRODUCT_SELECT,
+  });
+  const map = new Map(products.map((p) => [p.reference, p]));
+  return refs.map((r) => map.get(r)).filter(Boolean) as PrismaProduct[];
+}
+
+// ─────────────────────────────────────────────
 // Page
 // ─────────────────────────────────────────────
 export default async function HomePage() {
@@ -114,16 +147,17 @@ export default async function HomePage() {
   ]);
   const hasAccessCode = !!cookieStore.get("bj_access_code")?.value;
   if (!session && !hasAccessCode) redirect("/connexion");
-  const isGuest = !session && hasAccessCode;
   const userId  = session?.user?.id;
 
-  // ── Load display config ─────────────────────────────────────────────────────
-  const configRow = await getCachedSiteConfig("product_display_config");
+  // ── Load banner image + display config + shop name ─────────────────────────
+  const [bannerImageRow, configRow, bestsellerRefs, shopName] = await Promise.all([
+    getCachedSiteConfig("banner_image"),
+    getCachedSiteConfig("product_display_config"),
+    getCachedBestsellerRefs(30),
+    getCachedShopName(),
+  ]);
+  const bannerImage = bannerImageRow?.value ?? null;
   const displayConfig = parseDisplayConfig(configRow?.value);
-  const useCustomCarousels = displayConfig.homepageCarousels.length > 0;
-
-  // ── Fetch bestseller refs (cached — heavy groupBy on 78k products) ──────────
-  const bestsellerRefs = await getCachedBestsellerRefs(30);
 
   // ── Fetch client discount ──────────────────────────────────────────────────
   const clientDiscount = userId
@@ -137,230 +171,113 @@ export default async function HomePage() {
       )
     : null;
 
-  // ── Fetch data ──────────────────────────────────────────────────────────────
-  // Always fetch: collections, reassort, product count, promotions
-  const [collections, reassortProducts, productCount, promoProducts] = await Promise.all([
+  // ── Fetch collections + counts ─────────────────────────────────────────────
+  const [collections, productCount, collectionCount] = await Promise.all([
     prisma.collection.findMany({
       orderBy: { createdAt: "desc" },
       take:    4,
       select:  { id: true, name: true, image: true },
     }),
-
-    // Réassort — produits déjà commandés par l'utilisateur connecté
-    userId
-      ? prisma.orderItem.findMany({
-          where:   { order: { userId } },
-          select:  { productRef: true, quantity: true },
-          orderBy: { createdAt: "desc" },
-        }).then(async (items) => {
-          const refCounts = new Map<string, number>();
-          for (const item of items) {
-            refCounts.set(item.productRef, (refCounts.get(item.productRef) ?? 0) + item.quantity);
-          }
-          const refs = [...refCounts.entries()]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 20)
-            .map(([ref]) => ref);
-          if (refs.length === 0) return [];
-          const products = await prisma.product.findMany({
-            where:  { reference: { in: refs }, status: "ONLINE" },
-            select: PRODUCT_SELECT,
-          });
-          const map = new Map(products.map((p) => [p.reference, p]));
-          return refs.map((r) => map.get(r)).filter(Boolean) as typeof products;
-        })
-      : Promise.resolve([]),
-
-    getCachedProductCount(),
-
-    // Bonne affaire — produits avec au moins une variante en promotion
-    prisma.product.findMany({
-      where: {
-        status: "ONLINE",
-        colors: {
-          some: {
-            discountType: { not: null },
-            discountValue: { gt: 0 },
-          },
-        },
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 20,
-      select: PRODUCT_SELECT,
-    }),
+    prisma.product.count({ where: { status: "ONLINE" } }),
+    prisma.collection.count(),
   ]);
 
-  // ── Build carousel data ─────────────────────────────────────────────────────
-  type CarouselData = { title: string; products: CarouselProduct[]; bg: string; href: string; label: string };
+  // ── Build carousel data from config ───────────────────────────────────────
+  const visibleCarousels = displayConfig.homepageCarousels.filter(c => c.visible);
+
+  // Fetch products for each visible carousel in parallel
+  const carouselProducts = await Promise.all(
+    visibleCarousels.map(async (carousel): Promise<{ carousel: HomepageCarousel; products: PrismaProduct[] }> => {
+      if (carousel.type === "reassort") {
+        // Reassort needs userId — skip if not logged in
+        if (!userId) return { carousel, products: [] };
+        const products = await fetchReassortProducts(userId, carousel.quantity);
+        return { carousel, products };
+      }
+      const products = await fetchCarouselProducts(carousel, bestsellerRefs);
+      return { carousel, products: products as PrismaProduct[] };
+    })
+  );
+
+  // Collect all product IDs for image fetching
+  const allIds = [...new Set(carouselProducts.flatMap(cp => cp.products.map(p => p.id)))];
+  const imgRows = allIds.length > 0
+    ? await prisma.productColorImage.findMany({ where: { productId: { in: allIds } }, orderBy: { order: "asc" } })
+    : [];
+  const imageMap = new Map<string, Map<string, string>>();
+  for (const img of imgRows) {
+    if (!imageMap.has(img.productId)) imageMap.set(img.productId, new Map());
+    const cm = imageMap.get(img.productId)!;
+    if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
+  }
+
+  // Build final carousel list
+  type CarouselData = { id: string; title: string; products: CarouselProduct[]; isPromo: boolean };
   const carouselList: CarouselData[] = [];
-  let carouselReassort: CarouselProduct[] = [];
-  let carouselPromo: CarouselProduct[] = [];
-
-  if (useCustomCarousels) {
-    // Custom carousels from config
-    const customProducts = await Promise.all(
-      displayConfig.homepageCarousels.map(c => fetchCarouselProducts(c, bestsellerRefs))
-    );
-
-    // Collect all IDs for image fetching
-    const allIds = [...new Set([
-      ...reassortProducts.map(p => p.id),
-      ...promoProducts.map(p => p.id),
-      ...customProducts.flat().map(p => p.id),
-    ])];
-    const imgRows = allIds.length > 0
-      ? await prisma.productColorImage.findMany({ where: { productId: { in: allIds } }, orderBy: { order: "asc" } })
-      : [];
-    const imageMap = new Map<string, Map<string, string>>();
-    for (const img of imgRows) {
-      if (!imageMap.has(img.productId)) imageMap.set(img.productId, new Map());
-      const cm = imageMap.get(img.productId)!;
-      if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
-    }
-
-    // Build custom carousels
-    for (let i = 0; i < displayConfig.homepageCarousels.length; i++) {
-      const cfg = displayConfig.homepageCarousels[i];
-      const prods = customProducts[i];
-      if (prods.length === 0) continue;
-      carouselList.push({
-        title: cfg.title,
-        products: toCarousel(prods, imageMap),
-        bg: i % 2 === 0 ? "bg-bg-primary" : "bg-bg-secondary",
-        href: "/produits",
-        label: t("newProductsMore"),
-      });
-    }
-
-    // Also prepare reassort + promo carousels
-    carouselReassort = toCarousel(reassortProducts, imageMap);
-    carouselPromo = toCarousel(promoProducts, imageMap);
-  } else {
-    // Default carousels: Nouveautés + Best Sellers
-    const [nouveautes, defaultBestsellers] = await Promise.all([
-      prisma.product.findMany({
-        where:   { status: "ONLINE" },
-        orderBy: { createdAt: "desc" },
-        take:    20,
-        select:  PRODUCT_SELECT,
-      }),
-
-      bestsellerRefs.length > 0
-        ? prisma.product.findMany({
-            where:  { reference: { in: bestsellerRefs }, status: "ONLINE" },
-            select: PRODUCT_SELECT,
-          }).then(products => {
-            const map = new Map(products.map((p) => [p.reference, p]));
-            return bestsellerRefs.map((r) => map.get(r)).filter(Boolean) as typeof products;
-          })
-        : Promise.resolve([]),
-    ]);
-
-    // Fetch images
-    const allIds = [...new Set([
-      ...nouveautes.map(p => p.id),
-      ...defaultBestsellers.map(p => p.id),
-      ...reassortProducts.map(p => p.id),
-      ...promoProducts.map(p => p.id),
-    ])];
-    const imgRows = allIds.length > 0
-      ? await prisma.productColorImage.findMany({ where: { productId: { in: allIds } }, orderBy: { order: "asc" } })
-      : [];
-    const imageMap = new Map<string, Map<string, string>>();
-    for (const img of imgRows) {
-      if (!imageMap.has(img.productId)) imageMap.set(img.productId, new Map());
-      const cm = imageMap.get(img.productId)!;
-      if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
-    }
-
+  for (const { carousel, products } of carouselProducts) {
+    if (products.length === 0) continue;
+    // Skip reassort for guests
+    if (carousel.type === "reassort" && !session) continue;
     carouselList.push({
-      title: t("newProducts"),
-      products: toCarousel(nouveautes, imageMap),
-      bg: "bg-bg-primary",
-      href: "/produits",
-      label: t("newProductsMore"),
+      id: carousel.id,
+      title: carousel.title,
+      products: toCarousel(products, imageMap),
+      isPromo: carousel.type === "promo",
     });
-
-    if (defaultBestsellers.length > 0) {
-      carouselList.push({
-        title: t("bestsellers"),
-        products: toCarousel(defaultBestsellers, imageMap),
-        bg: "bg-bg-secondary",
-        href: "/produits",
-        label: t("bestsellersMore"),
-      });
-    }
-
-    carouselReassort = toCarousel(reassortProducts, imageMap);
-    carouselPromo = toCarousel(promoProducts, imageMap);
   }
 
   return (
     <div className="min-h-screen bg-bg-secondary relative">
       <FloatingShapes />
-      <PublicSidebar />
+      <PublicSidebar shopName={shopName} />
 
       <main className="relative z-10">
           {/* 1. Hero banner */}
-          <HeroBanner isLoggedIn={!!session || isGuest} productCount={productCount} />
+          <HeroBanner bannerImage={bannerImage} shopName={shopName} />
 
-          {/* 2. Reassort — only if logged in */}
-          {session && carouselReassort.length > 0 && (
-            <div className="bg-bg-secondary relative overflow-hidden">
-              <ScatteredDecorations variant="dense" seed={1} />
-              <ProductCarousel
-                title={t("reassortTitle")}
-                products={carouselReassort}
-                viewMoreHref="/produits?reassort=1"
-                viewMoreLabel={t("reassortMore")}
-                clientDiscount={clientDiscount}
-              />
-            </div>
-          )}
+          {/* 2. Marquee band */}
+          <MarqueeBand />
 
-          {/* 2b. Bonne affaire — produits en promotion */}
-          {carouselPromo.length > 0 && (
-            <div className="bg-bg-primary relative overflow-hidden">
-              <ScatteredDecorations variant="sparse" seed={100} />
-              <ProductCarousel
-                title={t("deals")}
-                products={carouselPromo}
-                viewMoreHref="/produits"
-                viewMoreLabel={t("dealsMore")}
-                clientDiscount={clientDiscount}
-                showPromoBadge
-              />
-            </div>
-          )}
+          {/* 3. Stats strip */}
+          <StatsStrip productCount={productCount} collectionCount={collectionCount} />
 
-          {/* 3. Product carousels (custom or default) */}
+          {/* 4. Carousels — rendered in config order */}
           {carouselList.map((carousel, i) => (
-            <div key={i} className={`${carousel.bg} relative overflow-hidden`}>
-              <ScatteredDecorations variant="sparse" seed={i + 10} />
-              <ProductCarousel
-                title={carousel.title}
-                products={carousel.products}
-                viewMoreHref={carousel.href}
-                viewMoreLabel={carousel.label}
-                clientDiscount={clientDiscount}
-              />
+            <div key={carousel.id} className="relative overflow-hidden">
+              {i === 0 && <SectionDivider from="var(--color-bg-secondary)" to={i % 2 === 0 ? "var(--color-bg-secondary)" : "var(--color-bg-primary)"} />}
+              <div className={`${i % 2 === 0 ? "bg-bg-secondary" : "bg-bg-primary"}`}>
+                <ScatteredDecorations variant={i % 3 === 0 ? "dense" : "sparse"} seed={i + 1} />
+                <ProductCarousel
+                  title={carousel.title}
+                  products={carousel.products}
+                  viewMoreHref="/produits"
+                  viewMoreLabel={t("newProductsMore")}
+                  clientDiscount={clientDiscount}
+                  showPromoBadge={carousel.isPromo}
+                />
+              </div>
             </div>
           ))}
 
-          {/* 4. Brand info section */}
+          {/* 5. Brand info section */}
+          <SectionDivider from="var(--color-bg-primary)" to="var(--color-bg-secondary)" />
           <div className="relative overflow-hidden">
             <ScatteredDecorations variant="dense" seed={200} />
             <BrandInfoSection />
           </div>
 
-          {/* 5. Collections */}
+          {/* 6. Collections */}
+          <SectionDivider from="var(--color-bg-secondary)" to="var(--color-bg-primary)" />
           <div className="bg-bg-primary relative overflow-hidden">
             <ScatteredDecorations variant="sparse" seed={3} />
             <CollectionsGrid collections={collections} />
           </div>
+
+          {/* 7. CTA banner before footer */}
+          <CtaBanner />
       </main>
 
-      <Footer />
+      <Footer shopName={shopName} />
     </div>
   );
 }

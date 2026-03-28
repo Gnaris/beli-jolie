@@ -1,259 +1,339 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName } from "@/lib/cached-data";
 import { parseDisplayConfig } from "@/lib/product-display";
+import SettingsPageTabs from "@/components/admin/settings/SettingsPageTabs";
 import SettingsMinOrderForm from "@/components/admin/settings/SettingsMinOrderForm";
 import AdminPasswordResetButton from "@/components/admin/settings/AdminPasswordResetButton";
 import MaintenanceModeToggle from "@/components/admin/settings/MaintenanceModeToggle";
-import ProductDisplayConfig from "@/components/admin/settings/ProductDisplayConfig";
+import CatalogDisplayConfig from "@/components/admin/settings/CatalogDisplayConfig";
+import HomepageCarouselsConfig from "@/components/admin/settings/HomepageCarouselsConfig";
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import DarkModeToggle from "@/components/admin/settings/DarkModeToggle";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
+import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
+import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
+import StripeConfig from "@/components/admin/settings/StripeConfig";
+import GmailConfig from "@/components/admin/settings/GmailConfig";
+import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
+import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 
-export const metadata: Metadata = { title: "Paramètres — Beli & Jolie Admin" };
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return { title: `Paramètres — ${shopName} Admin` };
+}
 
-export default async function ParametresPage() {
-  const [minConfig, maintenanceConfig, displayConfigRow, stockVariantsConfig, stockProductsConfig, categories, dbCollections, dbTags, companyInfo] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
-    prisma.siteConfig.findUnique({ where: { key: "maintenance_mode" } }),
-    prisma.siteConfig.findUnique({ where: { key: "product_display_config" } }),
-    prisma.siteConfig.findUnique({ where: { key: "show_out_of_stock_variants" } }),
-    prisma.siteConfig.findUnique({ where: { key: "show_out_of_stock_products" } }),
-    prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.companyInfo.findFirst(),
-  ]);
+const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "paiement", "email", "livraison", "marketplaces", "traduction"] as const;
+type Tab = (typeof VALID_TABS)[number];
 
-  const cookieStore = await cookies();
-  const adminTheme = (cookieStore.get("bj_admin_theme")?.value === "dark" ? "dark" : "light") as "light" | "dark";
-
-  const currentMinHT = minConfig ? parseFloat(minConfig.value) : 0;
-  const maintenanceValue = maintenanceConfig?.value ?? "false";
-  const inMaintenance = maintenanceValue === "true" || maintenanceValue === "auto";
-  const isAutoMaintenance = maintenanceValue === "auto";
-  const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
-  const showOutOfStockVariants = stockVariantsConfig?.value !== "false"; // default true
-  const showOutOfStockProducts = stockProductsConfig?.value !== "false"; // default true
+export default async function ParametresPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
+  const rawTab = typeof sp.tab === "string" ? sp.tab : "general";
+  const activeTab: Tab = VALID_TABS.includes(rawTab as Tab) ? (rawTab as Tab) : "general";
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
         <h1 className="page-title">Paramètres</h1>
         <p className="page-subtitle">Configuration générale du site.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="border-b border-border">
+        <SettingsPageTabs activeTab={activeTab} />
+      </div>
 
-      {/* Bloc 1 — Mode maintenance */}
-      <div className="lg:col-span-2 bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <div className="flex items-start gap-3 mb-5">
-          <div className="w-8 h-8 rounded-lg bg-[#FEF3C7] flex items-center justify-center flex-shrink-0 mt-0.5">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-4 h-4 text-[#D97706]"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z"
-              />
-            </svg>
-          </div>
-          <div>
-            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
-              Mode maintenance
-            </h2>
-            <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
-              Lorsque la maintenance est activée, les clients sont redirigés vers une page
-              d&apos;information et ne peuvent plus accéder au site. Les pages de connexion et
-              d&apos;inscription restent accessibles. Vous seul pouvez continuer à naviguer en
-              tant qu&apos;administrateur.
-            </p>
-          </div>
+      {activeTab === "general" && <GeneralTab />}
+      {activeTab === "societe" && <SocieteTab />}
+      {activeTab === "catalogue" && <CatalogueTab />}
+      {activeTab === "carrousels" && <CarrouselsTab />}
+      {activeTab === "stock" && <StockTab />}
+      {activeTab === "maintenance" && <MaintenanceTab />}
+      {activeTab === "paiement" && <PaiementTab />}
+      {activeTab === "email" && <EmailTab />}
+      {activeTab === "livraison" && <LivraisonTab />}
+      {activeTab === "marketplaces" && <MarketplacesTab />}
+      {activeTab === "traduction" && <TraductionTab />}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Général — Bannière, commande min, mot de passe, apparence
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function GeneralTab() {
+  const [minConfig, bannerImageConfig] = await Promise.all([
+    prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
+    prisma.siteConfig.findUnique({ where: { key: "banner_image" } }),
+  ]);
+
+  const cookieStore = await cookies();
+  const adminTheme = (cookieStore.get("bj_admin_theme")?.value === "dark" ? "dark" : "light") as "light" | "dark";
+  const currentMinHT = minConfig ? parseFloat(minConfig.value) : 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Bannière d&apos;accueil</h3>
+        <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Image en haut de la page d&apos;accueil.</p>
+        <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+          <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Commande minimum</h3>
+          <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4"><strong>0</strong> pour désactiver.</p>
+          <SettingsMinOrderForm currentValue={currentMinHT} />
         </div>
+        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+          <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Mot de passe admin</h3>
+          <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Réinitialisation par email.</p>
+          <AdminPasswordResetButton />
+        </div>
+        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+          <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Apparence</h3>
+          <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Mode jour / nuit admin.</p>
+          <DarkModeToggle currentTheme={adminTheme} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
-        {/* Active warning banner */}
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Société — Informations société
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function SocieteTab() {
+  const companyInfo = await prisma.companyInfo.findFirst();
+
+  return (
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Informations société</h3>
+      <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Nom de la boutique, raison sociale et coordonnées. Également utilisé comme adresse expéditeur Easy-Express.</p>
+      <CompanyInfoForm initialData={companyInfo ? {
+        shopName: companyInfo.shopName ?? undefined,
+        name: companyInfo.name,
+        legalForm: companyInfo.legalForm ?? undefined,
+        capital: companyInfo.capital ?? undefined,
+        siret: companyInfo.siret ?? undefined,
+        rcs: companyInfo.rcs ?? undefined,
+        tvaNumber: companyInfo.tvaNumber ?? undefined,
+        address: companyInfo.address ?? undefined,
+        city: companyInfo.city ?? undefined,
+        postalCode: companyInfo.postalCode ?? undefined,
+        country: companyInfo.country ?? undefined,
+        phone: companyInfo.phone ?? undefined,
+        email: companyInfo.email ?? undefined,
+        website: companyInfo.website ?? undefined,
+        director: companyInfo.director ?? undefined,
+        hostName: companyInfo.hostName ?? undefined,
+        hostAddress: companyInfo.hostAddress ?? undefined,
+        hostPhone: companyInfo.hostPhone ?? undefined,
+        hostEmail: companyInfo.hostEmail ?? undefined,
+      } : null} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Catalogue — Affichage catalogue
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function CatalogueTab() {
+  const [displayConfigRow, categories, dbCollections, dbTags] = await Promise.all([
+    prisma.siteConfig.findUnique({ where: { key: "product_display_config" } }),
+    prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
+
+  const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
+
+  return (
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Affichage catalogue</h3>
+      <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Ordre d&apos;affichage sur la page produits.</p>
+      <CatalogDisplayConfig
+        initialMode={displayConfig.catalogMode}
+        initialSections={displayConfig.sections}
+        categories={categories}
+        collections={dbCollections}
+        tags={dbTags}
+      />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Carrousels — Carrousels d'accueil
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function CarrouselsTab() {
+  const [displayConfigRow, categories, dbSubCategories, dbCollections, dbTags] = await Promise.all([
+    prisma.siteConfig.findUnique({ where: { key: "product_display_config" } }),
+    prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.subCategory.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, category: { select: { name: true } } } }),
+    prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
+
+  const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
+
+  return (
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Carrousels d&apos;accueil</h3>
+      <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Ordre et visibilité des carrousels de la page d&apos;accueil.</p>
+      <HomepageCarouselsConfig
+        initialCarousels={displayConfig.homepageCarousels}
+        categories={categories}
+        subCategories={dbSubCategories.map(s => ({ id: s.id, name: s.name, categoryName: s.category.name }))}
+        collections={dbCollections}
+        tags={dbTags}
+      />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Stock — Ruptures de stock
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function StockTab() {
+  const [stockVariantsConfig, stockProductsConfig] = await Promise.all([
+    prisma.siteConfig.findUnique({ where: { key: "show_out_of_stock_variants" } }),
+    prisma.siteConfig.findUnique({ where: { key: "show_out_of_stock_products" } }),
+  ]);
+
+  const showOutOfStockVariants = stockVariantsConfig?.value !== "false";
+  const showOutOfStockProducts = stockProductsConfig?.value !== "false";
+
+  return (
+    <div className="max-w-lg">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Ruptures de stock</h3>
+        <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Visibilité côté client.</p>
+        <StockDisplayConfig showOutOfStockVariants={showOutOfStockVariants} showOutOfStockProducts={showOutOfStockProducts} />
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Maintenance
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function MaintenanceTab() {
+  const maintenanceConfig = await prisma.siteConfig.findUnique({ where: { key: "maintenance_mode" } });
+
+  const maintenanceValue = maintenanceConfig?.value ?? "false";
+  const inMaintenance = maintenanceValue === "true" || maintenanceValue === "auto";
+  const isAutoMaintenance = maintenanceValue === "auto";
+
+  return (
+    <div className="max-w-lg">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Mode maintenance</h3>
+        <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Redirige les clients vers une page d&apos;information.</p>
         {inMaintenance && (
-          <div className={`mb-5 rounded-lg px-4 py-3 flex items-start gap-2 ${
+          <div className={`mb-4 rounded-lg px-4 py-3 flex items-start gap-2 text-sm ${
             isAutoMaintenance
-              ? "bg-[#FEE2E2] border border-[#FECACA]"
-              : "bg-[#FEF3C7] border border-[#FDE68A]"
+              ? "bg-[#FEE2E2] border border-[#FECACA] text-[#B91C1C]"
+              : "bg-[#FEF3C7] border border-[#FDE68A] text-[#92400E]"
           }`}>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isAutoMaintenance ? "text-[#EF4444]" : "text-[#D97706]"}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
-              />
+            <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isAutoMaintenance ? "text-[#EF4444]" : "text-[#D97706]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
             </svg>
-            <p className={`text-sm font-[family-name:var(--font-roboto)] ${isAutoMaintenance ? "text-[#B91C1C]" : "text-[#92400E]"}`}>
-              {isAutoMaintenance ? (
-                <>
-                  <strong>Maintenance automatique</strong> — Le système a détecté des erreurs
-                  critiques (connexion base de données ou erreurs serveur) et a activé la maintenance
-                  automatiquement. Le site se rétablira automatiquement quand le problème sera résolu,
-                  ou vous pouvez la désactiver manuellement.
-                </>
-              ) : (
-                <>
-                  <strong>Maintenance active</strong> — Le site est actuellement inaccessible aux
-                  clients. Pensez à la désactiver dès que vos opérations sont terminées.
-                </>
-              )}
+            <p className="font-[family-name:var(--font-roboto)]">
+              {isAutoMaintenance
+                ? <><strong>Maintenance automatique</strong> — Erreurs critiques détectées.</>
+                : <><strong>Maintenance active</strong> — Site inaccessible aux clients.</>
+              }
             </p>
           </div>
         )}
-
         <MaintenanceModeToggle currentValue={inMaintenance} isAuto={isAutoMaintenance} />
       </div>
+    </div>
+  );
+}
 
-      {/* Bloc 2 — Commande minimale */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
-          Montant minimum de commande
-        </h2>
-        <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-5">
-          Les clients ne pourront pas valider leur commande si le total HT des articles est inférieur à ce montant.
-          Mettez <strong>0</strong> pour désactiver.
-        </p>
-        <SettingsMinOrderForm currentValue={currentMinHT} />
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Paiement — Stripe
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function PaiementTab() {
+  const stripeKeyConfig = await prisma.siteConfig.findUnique({ where: { key: "stripe_secret_key" }, select: { key: true } });
+
+  return (
+    <div className="max-w-xl">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Paiement Stripe</h3>
+        <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Connectez votre compte Stripe pour accepter les paiements.</p>
+        <StripeConfig hasKeys={!!stripeKeyConfig} />
       </div>
+    </div>
+  );
+}
 
-      {/* Bloc 3 — Gestion des ruptures de stock */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <div className="flex items-start gap-3 mb-5">
-          <div className="w-8 h-8 rounded-lg bg-[#FEE2E2] flex items-center justify-center flex-shrink-0 mt-0.5">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#EF4444]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m6 4.125 2.25 2.25m0 0 2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
-              Gestion des ruptures de stock
-            </h2>
-            <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
-              Contrôlez la visibilité des produits et variantes en rupture de stock côté client.
-            </p>
-          </div>
-        </div>
-        <StockDisplayConfig
-          showOutOfStockVariants={showOutOfStockVariants}
-          showOutOfStockProducts={showOutOfStockProducts}
-        />
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Email — Gmail
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function EmailTab() {
+  const gmailConfig = await prisma.siteConfig.findUnique({ where: { key: "gmail_user" }, select: { key: true } });
+
+  return (
+    <div className="max-w-xl">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Notifications email</h3>
+        <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Identifiants Gmail pour l&apos;envoi d&apos;emails (inscriptions, commandes, alertes).</p>
+        <GmailConfig hasConfig={!!gmailConfig} />
       </div>
+    </div>
+  );
+}
 
-      {/* Bloc 4 — Affichage des produits */}
-      <div className="lg:col-span-2 bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <div className="flex items-start gap-3 mb-5">
-          <div className="w-8 h-8 rounded-lg bg-[#EDE9FE] flex items-center justify-center flex-shrink-0 mt-0.5">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#7C3AED]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
-              Affichage des produits
-            </h2>
-            <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
-              Configurez l&apos;ordre d&apos;affichage des produits sur le catalogue et les carrousels de la page d&apos;accueil.
-              Les sections prioritaires s&apos;affichent en premier, suivies du reste des produits.
-            </p>
-          </div>
-        </div>
-        <ProductDisplayConfig
-          config={displayConfig}
-          categories={categories}
-          collections={dbCollections}
-          tags={dbTags}
-        />
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Livraison — Easy-Express
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function LivraisonTab() {
+  const eeApiKeyConfig = await prisma.siteConfig.findUnique({ where: { key: "easy_express_api_key" }, select: { key: true } });
+
+  return (
+    <div className="max-w-xl">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Easy-Express</h3>
+        <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Clé API pour les expéditions. L&apos;adresse expéditeur utilise les infos société.</p>
+        <EasyExpressApiKeyConfig hasKey={!!eeApiKeyConfig} />
       </div>
+    </div>
+  );
+}
 
-      {/* Bloc 5 — Sécurité compte admin */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
-          Mot de passe administrateur
-        </h2>
-        <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-5">
-          Pour des raisons de sécurité, la modification du mot de passe se fait uniquement par email.
-          Un lien valable 1 heure vous sera envoyé sur votre adresse email administrateur.
-        </p>
-        <AdminPasswordResetButton />
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Marketplaces — PFS
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function MarketplacesTab() {
+  const pfsConfig = await prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } });
+
+  return (
+    <div className="max-w-xl">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Marketplaces</h3>
+        <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Identifiants de connexion aux plateformes B2B.</p>
+        <MarketplaceConfig hasPfsConfig={!!pfsConfig} />
       </div>
+    </div>
+  );
+}
 
-      {/* Bloc 6 — Mode nuit */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <div className="flex items-start gap-3 mb-5">
-          <div className="w-8 h-8 rounded-lg bg-[#1E293B] flex items-center justify-center flex-shrink-0 mt-0.5">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#93C5FD]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] mb-1">
-              Apparence
-            </h2>
-            <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
-              Basculez entre le mode jour et le mode nuit pour l&apos;interface d&apos;administration.
-              Ce réglage n&apos;affecte pas le site public.
-            </p>
-          </div>
-        </div>
-        <DarkModeToggle currentTheme={adminTheme} />
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Traduction — DeepL
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function TraductionTab() {
+  const deeplKeyConfig = await prisma.siteConfig.findUnique({ where: { key: "deepl_api_key" }, select: { key: true } });
+
+  return (
+    <div className="max-w-xl">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">Traduction DeepL</h3>
+        <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mb-4">Clé API pour la traduction automatique des fiches produit.</p>
+        <DeeplApiKeyConfig hasKey={!!deeplKeyConfig} />
       </div>
-
-      {/* Bloc 7 — Informations société */}
-      <div className="lg:col-span-2 bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <div className="flex items-start gap-3 mb-5">
-          <div className="w-8 h-8 rounded-lg bg-[#DBEAFE] flex items-center justify-center flex-shrink-0 mt-0.5">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#2563EB]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">
-              Informations société
-            </h2>
-            <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)]">
-              Ces informations sont utilisées dans les documents légaux (CGV, mentions légales, etc.)
-              via des variables automatiques. Toute modification met à jour automatiquement tous les documents.
-            </p>
-          </div>
-        </div>
-        <CompanyInfoForm initialData={companyInfo ? {
-          name: companyInfo.name,
-          legalForm: companyInfo.legalForm ?? undefined,
-          capital: companyInfo.capital ?? undefined,
-          siret: companyInfo.siret ?? undefined,
-          rcs: companyInfo.rcs ?? undefined,
-          tvaNumber: companyInfo.tvaNumber ?? undefined,
-          address: companyInfo.address ?? undefined,
-          city: companyInfo.city ?? undefined,
-          postalCode: companyInfo.postalCode ?? undefined,
-          country: companyInfo.country ?? undefined,
-          phone: companyInfo.phone ?? undefined,
-          email: companyInfo.email ?? undefined,
-          website: companyInfo.website ?? undefined,
-          director: companyInfo.director ?? undefined,
-          hostName: companyInfo.hostName ?? undefined,
-          hostAddress: companyInfo.hostAddress ?? undefined,
-          hostPhone: companyInfo.hostPhone ?? undefined,
-          hostEmail: companyInfo.hostEmail ?? undefined,
-        } : null} />
-      </div>
-
-      </div>{/* end grid */}
     </div>
   );
 }

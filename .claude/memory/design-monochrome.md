@@ -4,7 +4,7 @@ description: Complete grayscale design system inspired by modern dashboard UIs (
 type: project
 ---
 
-## Monochrome Design System — Beli & Jolie (Mars 2026)
+## Monochrome Design System (Mars 2026)
 
 **Why:** Complete visual redesign moving from spring rose/sage palette to a modern monochrome (gray/black/white) dashboard-inspired design. Based on 3 reference screenshots showing clean, minimal UI with left sidebars, card-based layouts, subtle shadows, and green accents.
 

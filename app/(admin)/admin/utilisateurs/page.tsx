@@ -5,16 +5,11 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { UserStatus } from "@prisma/client";
+import LiveClientsTracker from "@/components/admin/tracking/LiveClientsTracker";
+import ClientsList from "@/components/admin/tracking/ClientsList";
 
 export const metadata: Metadata = {
   title: "Gestion des clients — Admin",
-};
-
-/** Correspondance statut → libellé + styles */
-const STATUS_CONFIG: Record<UserStatus, { label: string; className: string }> = {
-  PENDING:  { label: "En attente", className: "badge badge-warning" },
-  APPROVED: { label: "Approuvé",   className: "badge badge-success" },
-  REJECTED: { label: "Rejeté",     className: "badge badge-error" },
 };
 
 /** Filtres disponibles avec leur label */
@@ -29,19 +24,6 @@ const FILTERS: { value: string; label: string }[] = [
 /** Threshold for "online" status: 2 minutes */
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 
-/** Format relative time for last activity */
-function formatLastSeen(lastSeenAt: Date | null): string | null {
-  if (!lastSeenAt) return null;
-  const diff = Date.now() - new Date(lastSeenAt).getTime();
-  if (diff < ONLINE_THRESHOLD_MS) return "En ligne";
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 60) return `Il y a ${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Il y a ${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `Il y a ${days}j`;
-}
-
 /**
  * Page liste des clients — /admin/utilisateurs
  *
@@ -51,12 +33,13 @@ function formatLastSeen(lastSeenAt: Date | null): string | null {
 export default async function UtilisateursPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; tab?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
-  const { status } = await searchParams;
+  const { status, tab } = await searchParams;
+  const isSuiviTab = tab === "suivi";
   const filterStatus = status || "ALL";
 
   const now = Date.now(); // eslint-disable-line react-compiler/react-compiler
@@ -142,6 +125,48 @@ export default async function UtilisateursPage({
         </div>
       </div>
 
+      {/* Onglets principaux : Liste / Suivi en direct */}
+      <div className="flex gap-1 bg-bg-secondary p-1 rounded-lg w-fit">
+        <Link
+          href="/admin/utilisateurs"
+          prefetch={false}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-[family-name:var(--font-roboto)] font-medium rounded-md transition-all ${
+            !isSuiviTab
+              ? "bg-bg-primary text-text-primary shadow-sm"
+              : "text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+          </svg>
+          Liste
+        </Link>
+        <Link
+          href="/admin/utilisateurs?tab=suivi"
+          prefetch={false}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-[family-name:var(--font-roboto)] font-medium rounded-md transition-all ${
+            isSuiviTab
+              ? "bg-bg-primary text-text-primary shadow-sm"
+              : "text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+          </svg>
+          Suivi en direct
+          {onlineCount > 0 && (
+            <span className="flex items-center gap-1 text-[11px] bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5 font-medium tabular-nums">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              {onlineCount}
+            </span>
+          )}
+        </Link>
+      </div>
+
+      {isSuiviTab ? (
+        <LiveClientsTracker />
+      ) : (
+      <>
       {/* Onglets filtre */}
       <div className="flex flex-wrap gap-1 bg-bg-secondary p-1 rounded-lg w-fit">
         {FILTERS.map((filter) => {
@@ -183,116 +208,21 @@ export default async function UtilisateursPage({
         })}
       </div>
 
-      {/* Liste des clients */}
-      {clients.length === 0 ? (
-        <div className="card p-12 text-center">
-          <div className="w-14 h-14 bg-bg-tertiary rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-            </svg>
-          </div>
-          <p className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary mb-1">Aucun client</p>
-          <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
-            Aucun client dans cette categorie.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {clients.map((client) => {
-            const statusCfg = STATUS_CONFIG[client.status];
-            const date = new Date(client.createdAt).toLocaleDateString("fr-FR", {
-              day: "2-digit", month: "short", year: "numeric",
-            });
-            const initials = `${client.firstName[0] ?? ""}${client.lastName[0] ?? ""}`.toUpperCase();
-            const isOnline = client.activity?.lastSeenAt
-              ? new Date(client.activity.lastSeenAt).getTime() > onlineThreshold.getTime()
-              : false;
-            const lastSeenLabel = formatLastSeen(client.activity?.lastSeenAt ?? null);
-            return (
-              <Link
-                key={client.id}
-                href={`/admin/utilisateurs/${client.id}`}
-                className="card card-hover block p-4 sm:p-5 group"
-              >
-                <div className="flex items-center gap-4">
-                  {/* Avatar with online indicator */}
-                  <div className="relative shrink-0">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      client.status === "PENDING"
-                        ? "bg-[#FEF3C7]"
-                        : client.status === "REJECTED"
-                          ? "bg-[#FEE2E2]"
-                          : "bg-bg-tertiary"
-                    }`}>
-                      <span className={`text-xs font-bold font-[family-name:var(--font-roboto)] ${
-                        client.status === "PENDING"
-                          ? "text-[#92400E]"
-                          : client.status === "REJECTED"
-                            ? "text-[#991B1B]"
-                            : "text-text-secondary"
-                      }`}>
-                        {initials}
-                      </span>
-                    </div>
-                    {isOnline && (
-                      <span className="absolute -bottom-0.5 -right-0.5 block h-3 w-3 rounded-full bg-[#22C55E] ring-2 ring-white" />
-                    )}
-                  </div>
-
-                  {/* Infos principales */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-[family-name:var(--font-roboto)] font-semibold text-text-primary text-sm group-hover:text-text-secondary transition-colors">
-                        {client.firstName} {client.lastName}
-                      </p>
-                      <span className={statusCfg.className}>
-                        {statusCfg.label}
-                      </span>
-                    </div>
-                    <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] truncate mt-0.5">
-                      {client.company}
-                    </p>
-                  </div>
-
-                  {/* Details desktop */}
-                  <div className="hidden md:flex items-center gap-6 shrink-0">
-                    {lastSeenLabel && (
-                      <div className="text-right">
-                        <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] uppercase tracking-wider">Activite</p>
-                        <p className={`text-sm font-[family-name:var(--font-roboto)] ${isOnline ? "text-[#22C55E] font-medium" : "text-text-secondary"}`}>
-                          {lastSeenLabel}
-                        </p>
-                      </div>
-                    )}
-                    <div className="text-right">
-                      <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] uppercase tracking-wider">Email</p>
-                      <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] truncate max-w-[200px]">{client.email}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] uppercase tracking-wider">SIRET</p>
-                      <p className="text-sm text-text-secondary font-mono">{client.siret}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] uppercase tracking-wider">Inscrit le</p>
-                      <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)]">{date}</p>
-                    </div>
-                  </div>
-
-                  {/* Arrow */}
-                  <svg className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                  </svg>
-                </div>
-
-                {/* Mobile details */}
-                <div className="md:hidden flex flex-wrap gap-x-4 gap-y-1 mt-3 pl-14 text-xs text-text-muted font-[family-name:var(--font-roboto)]">
-                  <span>{client.email}</span>
-                  <span>{date}</span>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+      {/* Liste des clients — composant client avec statut en ligne temps réel via SSE */}
+      <ClientsList
+        clients={clients.map((c) => ({
+          id: c.id,
+          firstName: c.firstName,
+          lastName: c.lastName,
+          company: c.company,
+          email: c.email,
+          siret: c.siret,
+          status: c.status,
+          createdAt: c.createdAt.toISOString(),
+          lastSeenAt: c.activity?.lastSeenAt?.toISOString() ?? null,
+        }))}
+      />
+      </>
       )}
     </div>
   );

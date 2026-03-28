@@ -4,7 +4,7 @@ description: Complete architecture reference - route groups, data models, file s
 type: reference
 ---
 
-# Architecture Complète — Beli & Jolie
+# Architecture Complète
 
 ## Stack Technique
 
@@ -17,7 +17,6 @@ type: reference
 | Tailwind CSS | 4 | Styles (config dans `globals.css`, pas de `tailwind.config.js`) |
 | Zod | 4.3.6 | Validation (`.issues` pas `.errors` pour ZodError) |
 | Stripe | 20.4.1 | Paiements (carte + virement bancaire) |
-| Three.js | 0.183.2 | Animation 3D bijoux (hero banner) |
 | PDFKit | 0.17.2 | Génération PDF (`serverExternalPackages` dans next.config) |
 | Nodemailer | 7.0.13 | Email (Gmail App Password) |
 | Recharts | 3.8.0 | Graphiques admin |
@@ -132,8 +131,7 @@ Order (id, orderNumber[BJ-YYYY-XXXXXX], userId, status[PENDING→PROCESSING→SH
 - `AdminMobileNav.tsx` — Header mobile admin + drawer navigation
 
 ### Accueil
-- `JewelryScene.tsx` — Animation 3D Three.js (16 bijoux flottants, hover réactif, sparkles)
-- `JewelrySceneLoader.tsx` — Wrapper client pour `ssr: false`
+- `HeroBanner.tsx` — Bannière hero landing page
 - `ProductCarousel.tsx` — Carousel produits réutilisable
 - `CollectionsGrid.tsx` — Grille collections
 - `BrandInfoSection.tsx` — Section marque

@@ -4,15 +4,14 @@
  * Envoi d'un email à l'admin lors d'une nouvelle inscription client.
  * Le Kbis est joint en pièce jointe.
  *
- * Variables d'environnement requises (voir .env) :
- *   GMAIL_USER          — adresse Gmail expéditrice
- *   GMAIL_APP_PASSWORD  — mot de passe d'application Gmail (pas le mdp du compte)
- *   NOTIFY_EMAIL        — adresse admin destinataire
+ * Configuration email lue depuis les paramètres admin (SiteConfig),
+ * avec fallback sur les variables d'environnement.
  */
 
 import nodemailer from "nodemailer";
 import path from "path";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName, getCachedCompanyInfo, getCachedGmailConfig } from "@/lib/cached-data";
 
 interface NewClientInfo {
   firstName: string;
@@ -29,19 +28,26 @@ interface NewClientInfo {
 export async function notifyNewClientRegistration(
   client: NewClientInfo
 ): Promise<void> {
-  const { GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_EMAIL } = process.env;
+  const [shopName, companyInfo, gmailCfg] = await Promise.all([
+    getCachedShopName(), getCachedCompanyInfo(), getCachedGmailConfig(),
+  ]);
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
 
-  if (!GMAIL_USER || !GMAIL_APP_PASSWORD || !NOTIFY_EMAIL) {
-    console.warn("[notifications] Variables Gmail manquantes — email ignoré.");
+  if (!GMAIL_USER || !GMAIL_PASSWORD) {
+    console.warn("[notifications] Configuration Gmail manquante — email ignoré.");
+    return;
+  }
+
+  const notifyEmail = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
+  if (!notifyEmail) {
+    console.warn("[notifications] Aucun email destinataire configuré — email ignoré.");
     return;
   }
 
   const transporter = nodemailer.createTransport({
     service: "gmail",
-    auth: {
-      user: GMAIL_USER,
-      pass: GMAIL_APP_PASSWORD,
-    },
+    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
   });
 
   // Pièce jointe Kbis (optionnelle)
@@ -75,15 +81,15 @@ export async function notifyNewClientRegistration(
     : "";
 
   await transporter.sendMail({
-    from: `"Beli & Jolie" <${GMAIL_USER}>`,
-    to: NOTIFY_EMAIL,
+    from: `"${shopName}" <${GMAIL_USER}>`,
+    to: notifyEmail,
     subject: `Nouvelle inscription client — ${client.company}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#0F172A;">
         <h2 style="color:#0F3460;border-bottom:2px solid #E2E8F0;padding-bottom:10px;">
           Nouvelle demande d'inscription
         </h2>
-        <p>Un nouveau client vient de s'inscrire sur la plateforme B2B Beli &amp; Jolie.</p>
+        <p>Un nouveau client vient de s'inscrire sur la plateforme B2B ${shopName}.</p>
         <table style="width:100%;border-collapse:collapse;margin-top:16px;">
           <tr style="background:#F1F5F9;">
             <td style="padding:10px 14px;font-weight:bold;width:40%;">Prénom / Nom</td>
@@ -116,7 +122,7 @@ export async function notifyNewClientRegistration(
           </a>
         </div>
         <p style="margin-top:24px;color:#94A3B8;font-size:12px;">
-          Beli &amp; Jolie — Administration
+          ${shopName} — Administration
         </p>
       </div>
     `,
@@ -135,8 +141,10 @@ export async function notifyNewClientRegistration(
  */
 export async function notifyRestockAlerts(productColorId: string): Promise<void> {
   try {
-    const { GMAIL_USER, GMAIL_APP_PASSWORD } = process.env;
-    if (!GMAIL_USER || !GMAIL_APP_PASSWORD) return;
+    const gmailCfg = await getCachedGmailConfig();
+    const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+    const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+    if (!GMAIL_USER || !GMAIL_PASSWORD) return;
 
     // Find all pending alerts for this variant
     const alerts = await prisma.restockAlert.findMany({
@@ -152,9 +160,11 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
 
     if (alerts.length === 0) return;
 
+    const shopName = await getCachedShopName();
+
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+      auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
     });
 
     const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
@@ -164,7 +174,7 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
       const colorName = alert.productColor.color?.name ?? "";
 
       await transporter.sendMail({
-        from: `"Beli & Jolie" <${GMAIL_USER}>`,
+        from: `"${shopName}" <${GMAIL_USER}>`,
         to: alert.user.email,
         subject: `🔔 Réassort — ${alert.product.name} (${colorName})`,
         html: `
@@ -180,7 +190,7 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
               Voir le produit →
             </a>
             <p style="margin-top:24px;color:#94A3B8;font-size:12px;">
-              Beli &amp; Jolie — Vous recevez cet email car vous avez activé une alerte de réassort.
+              ${shopName} — Vous recevez cet email car vous avez activé une alerte de réassort.
             </p>
           </div>
         `,

@@ -78,7 +78,10 @@ export default function LogoutButton() {
               </button>
               <button
                 type="button"
-                onClick={() => signOut({ callbackUrl: "/connexion" })}
+                onClick={async () => {
+                  try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
+                  signOut({ callbackUrl: "/connexion" });
+                }}
                 className="flex-1 px-4 py-2.5 text-sm font-[family-name:var(--font-roboto)] font-medium text-white bg-[#1A1A1A] rounded-xl hover:bg-[#333] transition-colors"
               >
                 {t("logoutConfirmYes")}

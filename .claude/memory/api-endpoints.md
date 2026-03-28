@@ -4,7 +4,7 @@ description: Complete reference of all API routes, server actions, their methods
 type: reference
 ---
 
-# API Routes & Server Actions — Beli & Jolie
+# API Routes & Server Actions
 
 ## API Routes (app/api/)
 

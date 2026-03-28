@@ -1,12 +1,12 @@
 /**
  * Client-side product translation system
  * 100% free, no API calls — uses a comprehensive French→target dictionary
- * for jewelry-related terms + localStorage caching
+ * for product-related terms + localStorage caching
  */
 
-// ─── Jewelry term dictionaries ────────────────────────────────────────────
+// ─── Product term dictionaries ────────────────────────────────────────────
 // These cover the vast majority of product names and descriptions
-// in a B2B stainless steel jewelry catalog
+// in a B2B product catalog
 
 type Dict = Record<string, string>;
 
@@ -62,7 +62,7 @@ const EN: Dict = {
   "diamant": "diamond",
   "oxyde de zirconium": "cubic zirconia",
 
-  // Jewelry types
+  // Product types
   "collier": "necklace",
   "colliers": "necklaces",
   "bracelet": "bracelet",
@@ -107,8 +107,8 @@ const EN: Dict = {
   "charms": "charms",
   "ras de cou": "choker",
   "sautoir": "long necklace",
-  "parure": "jewelry set",
-  "parures": "jewelry sets",
+  "parure": "set",
+  "parures": "sets",
   "ensemble": "set",
   "lot": "set",
 

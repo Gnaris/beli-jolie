@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Elegant floating jewelry-themed SVG shapes behind page content.
+ * Elegant floating decorative SVG shapes behind page content.
  * Purely decorative — pointer-events: none.
  */
 

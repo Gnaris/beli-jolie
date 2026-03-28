@@ -1,7 +1,7 @@
-# Beli & Jolie — Index Mémoire
+# Index Mémoire
 
 ## Profil & Préférences
-- [user-profile.md](user-profile.md) — Propriétaire B2B bijoux, francophone, sensible esthétique/luxe
+- [user-profile.md](user-profile.md) — Propriétaire plateforme B2B SaaS, francophone
 - [feedback-preferences.md](feedback-preferences.md) — Corrections accumulées : design, code, responsive, pièges à éviter
 
 ## Références Techniques

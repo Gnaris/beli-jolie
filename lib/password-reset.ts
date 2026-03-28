@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName, getCachedGmailConfig } from "@/lib/cached-data";
 
 export function generateResetToken(): string {
   return crypto.randomBytes(32).toString("hex");
@@ -21,20 +22,23 @@ export async function createPasswordResetToken(email: string): Promise<string> {
 }
 
 export async function sendPasswordResetEmail(email: string, token: string): Promise<void> {
-  const { GMAIL_USER, GMAIL_APP_PASSWORD, NEXTAUTH_URL } = process.env;
-  if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
-    console.warn("[password-reset] Variables Gmail manquantes.");
+  const [shopName, gmailCfg] = await Promise.all([getCachedShopName(), getCachedGmailConfig()]);
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+  if (!GMAIL_USER || !GMAIL_PASSWORD) {
+    console.warn("[password-reset] Configuration Gmail manquante.");
     return;
   }
+  const { NEXTAUTH_URL } = process.env;
   const resetUrl = `${NEXTAUTH_URL}/reinitialiser-mot-de-passe?token=${token}`;
   const transporter = nodemailer.createTransport({
     service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
   });
   await transporter.sendMail({
-    from: `"Beli & Jolie" <${GMAIL_USER}>`,
+    from: `"${shopName}" <${GMAIL_USER}>`,
     to: email,
-    subject: "Réinitialisation de votre mot de passe — Beli & Jolie",
+    subject: `Réinitialisation de votre mot de passe — ${shopName}`,
     html: `
       <div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:32px">
         <h2 style="color:#1A1A1A;margin-bottom:8px">Réinitialisation du mot de passe</h2>

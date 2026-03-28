@@ -585,7 +585,7 @@ export default function ImportImagesTab() {
               <li>REF001 Doré 1.jpg</li>
               <li>REF001_Argenté_2.png</li>
               <li>A200_Doré,Rouge,Noir_1.jpg</li>
-              <li>BIJOU-042 Or Rose 3.webp</li>
+              <li>PROD-042 Or Rose 3.webp</li>
             </ul>
           </div>
           <ul className="space-y-1 text-[#666] font-[family-name:var(--font-roboto)]">

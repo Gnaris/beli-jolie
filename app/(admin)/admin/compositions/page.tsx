@@ -34,7 +34,7 @@ export default async function CompositionsPage() {
           </div>
           <h1 className="page-title">Bibliothèque de compositions</h1>
           <p className="page-subtitle">
-            Créez les matériaux (acier 316L, or 18K…) — ils seront assignables aux produits avec un pourcentage.
+            Créez les matériaux et compositions — ils seront assignables aux produits avec un pourcentage.
           </p>
         </div>
         <EntityCreateButton type="composition" label="+ Créer une composition" />

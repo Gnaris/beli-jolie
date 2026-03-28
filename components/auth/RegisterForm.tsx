@@ -372,7 +372,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                 </div>
                 <FormField id="company" label={t("company")} type="text"
                   value={fields.company} error={fieldErrors.company}
-                  placeholder="Ma Bijouterie SARL" autoComplete="organization"
+                  placeholder="Mon Entreprise SARL" autoComplete="organization"
                   onChange={(v) => handleChange("company", v)} />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField id="email" label={t("email")} type="email"

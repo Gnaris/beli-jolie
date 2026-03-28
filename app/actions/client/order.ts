@@ -29,8 +29,9 @@ export async function cancelOrder(orderId: string): Promise<void> {
 }
 import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
-import { stripe } from "@/lib/stripe";
+import { getStripeInstance } from "@/lib/stripe";
 import nodemailer from "nodemailer";
+import { getCachedShopName, getCachedCompanyInfo, getCachedGmailConfig } from "@/lib/cached-data";
 
 // ─────────────────────────────────────────────
 // Types
@@ -147,6 +148,7 @@ export async function placeOrder(
   // ── Vérifier le paiement Stripe côté serveur ───────────────────────────────
   let paymentIntent;
   try {
+    const stripe = await getStripeInstance();
     paymentIntent = await stripe.paymentIntents.retrieve(input.stripePaymentIntentId);
   } catch (err) {
     console.error("[placeOrder] Erreur retrieve PI:", err);
@@ -460,15 +462,26 @@ interface NotifyOrderData {
 }
 
 async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
-  const { GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_EMAIL, NEXTAUTH_URL } = process.env;
-  if (!GMAIL_USER || !GMAIL_APP_PASSWORD || !NOTIFY_EMAIL) {
-    console.warn("[notifyNewOrder] Variables Gmail manquantes.");
+  const [shopName, companyInfo, gmailCfg] = await Promise.all([
+    getCachedShopName(), getCachedCompanyInfo(), getCachedGmailConfig(),
+  ]);
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+  const { NEXTAUTH_URL } = process.env;
+  if (!GMAIL_USER || !GMAIL_PASSWORD) {
+    console.warn("[notifyNewOrder] Configuration Gmail manquante.");
+    return;
+  }
+
+  const NOTIFY_EMAIL = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
+  if (!NOTIFY_EMAIL) {
+    console.warn("[notifyNewOrder] Aucun email destinataire configuré.");
     return;
   }
 
   const transporter = nodemailer.createTransport({
     service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
   });
 
   const itemsHtml = data.items.map((item) => `
@@ -569,7 +582,7 @@ async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
         </div>
       </div>
 
-      <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;">Beli &amp; Jolie — Administration</p>
+      <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;">${shopName} — Administration</p>
     </div>
   `;
 
@@ -592,7 +605,7 @@ async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
   }
 
   await transporter.sendMail({
-    from:    `"Beli & Jolie" <${GMAIL_USER}>`,
+    from:    `"${shopName}" <${GMAIL_USER}>`,
     to:      NOTIFY_EMAIL,
     subject: `Nouvelle commande ${data.orderNumber} — ${data.user.company}`,
     html,

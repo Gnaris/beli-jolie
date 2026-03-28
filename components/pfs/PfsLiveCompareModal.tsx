@@ -40,6 +40,7 @@ interface VariantData {
   discountValue: number | null;
   pfsColorRef?: string | null;
   pfsColorRefLabel?: string | null;
+  pfsVariantId?: string | null;
 }
 
 interface CompositionData {
@@ -88,7 +89,7 @@ interface CompareSelections {
   compositions: "bj" | "pfs";
   season: "bj" | "pfs";
   manufacturingCountry: "bj" | "pfs";
-  variants: Record<string, "bj" | "pfs" | "add">;
+  variants: Record<string, "bj" | "pfs" | "add" | "delete_pfs">;
 }
 
 interface PfsLiveCompareModalProps {
@@ -132,7 +133,11 @@ function getSubSegs(v: VariantData) {
 
 /** Normalize compositions for comparison: strip pfsRef which only exists on PFS side */
 function normalizeComps(comps: CompositionData[]): string {
-  return JSON.stringify(comps.map(c => ({ compositionId: c.compositionId, name: c.name, percentage: c.percentage })));
+  return JSON.stringify(
+    [...comps]
+      .map(c => ({ name: c.name.trim().toLowerCase(), percentage: c.percentage }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.percentage - b.percentage)
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -170,6 +175,15 @@ function XMarkIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </svg>
   );
 }
@@ -619,7 +633,7 @@ export default function PfsLiveCompareModal({
     setPfs(data.pfs);
 
     const variantMatches = matchVariants(data.existing.variants, data.pfs.variants);
-    const variantSels: Record<string, "bj" | "pfs" | "add"> = {};
+    const variantSels: Record<string, "bj" | "pfs" | "add" | "delete_pfs"> = {};
     for (const m of variantMatches) {
       variantSels[m.key] = m.onlyIn === "pfs" ? "add" : "bj";
     }
@@ -689,7 +703,7 @@ export default function PfsLiveCompareModal({
     [],
   );
 
-  const updateVariantSelection = useCallback((key: string, value: "bj" | "pfs" | "add") => {
+  const updateVariantSelection = useCallback((key: string, value: "bj" | "pfs" | "add" | "delete_pfs") => {
     setSelections((prev) => ({
       ...prev,
       variants: { ...prev.variants, [key]: value },
@@ -1206,15 +1220,15 @@ export default function PfsLiveCompareModal({
                                   Ajouter
                                 </button>
                                 <button
-                                  onClick={() => updateVariantSelection(match.key, "bj")}
+                                  onClick={() => updateVariantSelection(match.key, "delete_pfs")}
                                   className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium border transition-all min-h-[36px] ${
-                                    sel === "bj"
+                                    sel === "delete_pfs"
                                       ? "bg-red-500 text-white border-red-500"
                                       : "bg-bg-secondary text-text-secondary border-border hover:bg-border"
                                   }`}
                                 >
-                                  <XMarkIcon className="h-3.5 w-3.5" />
-                                  Ignorer
+                                  <TrashIcon className="h-3.5 w-3.5" />
+                                  Supprimer de PFS
                                 </button>
                                 </div>
                               </div>
@@ -1290,7 +1304,9 @@ export default function PfsLiveCompareModal({
                           <VariantCard variant={bjV} side="bj" selected={true} compact />
                         )}
                         {match.onlyIn === "pfs" && (
-                          <VariantCard variant={pfsV} side="pfs" selected={sel === "add"} />
+                          <div className={sel === "delete_pfs" ? "opacity-40 line-through" : ""}>
+                            <VariantCard variant={pfsV} side="pfs" selected={sel === "add"} />
+                          </div>
                         )}
                         {match.onlyIn === "bj" && (
                           <VariantCard variant={bjV} side="bj" selected={true} />

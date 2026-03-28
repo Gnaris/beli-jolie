@@ -5,7 +5,7 @@ import { updateColorPfsRef, updateProductColorPfsRef } from "@/app/actions/admin
 import { updateCategoryPfsId } from "@/app/actions/admin/categories";
 import { updateCompositionPfsRef } from "@/app/actions/admin/compositions";
 import { updateManufacturingCountryPfsRef } from "@/app/actions/admin/manufacturing-countries";
-import { updateSeasonPfsRef } from "@/app/actions/admin/seasons";
+import { updateSeasonPfsRefs } from "@/app/actions/admin/seasons";
 import { toggleSizePfsMapping } from "@/app/actions/admin/sizes";
 import CustomSelect from "@/components/ui/CustomSelect";
 import PfsSizeMultiSelect from "@/components/pfs/PfsSizeMultiSelect";
@@ -42,7 +42,7 @@ interface BjCountry {
 interface BjSeason {
   id: string;
   name: string;
-  pfsSeasonRef: string | null;
+  pfsRefs: string[];
 }
 
 interface BjSize {
@@ -261,11 +261,11 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
     setSaving(null);
   }, []);
 
-  const handleSaveSeason = useCallback(async (seasonId: string, pfsRef: string | null) => {
+  const handleSaveSeason = useCallback(async (seasonId: string, pfsRefs: string[]) => {
     setSaving(seasonId);
     try {
-      await updateSeasonPfsRef(seasonId, pfsRef || null);
-      setSeasons((prev) => prev.map((s) => (s.id === seasonId ? { ...s, pfsSeasonRef: pfsRef } : s)));
+      await updateSeasonPfsRefs(seasonId, pfsRefs);
+      setSeasons((prev) => prev.map((s) => (s.id === seasonId ? { ...s, pfsRefs } : s)));
     } catch (err) {
       alert(err instanceof Error ? err.message : "Erreur");
     }
@@ -317,7 +317,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
     { key: "categories", label: "Catégories", count: categories.length, mapped: categories.filter((c) => c.pfsCategoryId).length },
     { key: "compositions", label: "Compositions", count: compositions.length, mapped: compositions.filter((c) => c.pfsCompositionRef).length },
     { key: "countries", label: "Pays", count: countries.length, mapped: countries.filter((c) => c.pfsCountryRef).length },
-    { key: "seasons", label: "Saisons", count: seasons.length, mapped: seasons.filter((s) => s.pfsSeasonRef).length },
+    { key: "seasons", label: "Saisons", count: seasons.length, mapped: seasons.filter((s) => s.pfsRefs.length > 0).length },
     { key: "sizes", label: "Tailles", count: sizes.length, mapped: sizes.filter((s) => s.pfsMappings.length > 0).length },
     ...(multiColorVariants.length > 0 ? [{ key: "combinations" as const, label: "Combinaisons", count: multiColorVariants.length, mapped: multiColorVariants.filter((v) => v.pfsColorRef).length }] : []),
   ];
@@ -327,7 +327,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
   const usedCategoryIds = new Set(categories.filter((c) => c.pfsCategoryId).map((c) => c.pfsCategoryId!));
   const usedCompositionRefs = new Set(compositions.filter((c) => c.pfsCompositionRef).map((c) => c.pfsCompositionRef!));
   const usedCountryRefs = new Set(countries.filter((c) => c.pfsCountryRef).map((c) => c.pfsCountryRef!));
-  const usedSeasonRefs = new Set(seasons.filter((s) => s.pfsSeasonRef).map((s) => s.pfsSeasonRef!));
+  const usedSeasonRefs = new Set(seasons.flatMap((s) => s.pfsRefs));
 
   const filteredColors = colors.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
   const filteredCategories = categories.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
@@ -698,32 +698,65 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                 <tr key={season.id} className="table-row">
                   <td className="p-3 font-medium">{season.name}</td>
                   <td className="p-3">
-                    <CustomSelect
-                      value={season.pfsSeasonRef ?? ""}
-                      onChange={(val) => handleSaveSeason(season.id, val || null)}
-                      disabled={saving === season.id}
-                      size="sm"
-                      searchable
-                      className="max-w-[350px]"
-                      aria-label={`Collection PFS pour ${season.name}`}
-                      options={[
-                        { value: "", label: "— Non liée —" },
-                        ...pfsCollections.map((pc) => {
-                          const taken = usedSeasonRefs.has(pc.reference) && season.pfsSeasonRef !== pc.reference;
-                          return {
-                            value: pc.reference,
-                            label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})${taken ? " ✗ déjà liée" : ""}`,
-                            disabled: taken,
-                          };
-                        }),
-                      ]}
-                    />
+                    <div className="max-w-[350px] space-y-1.5">
+                      {/* Selected refs as removable chips */}
+                      {season.pfsRefs.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {season.pfsRefs.map((ref) => {
+                            const col = pfsCollections.find((c) => c.reference === ref);
+                            return (
+                              <span key={ref} className="inline-flex items-center gap-1 badge badge-purple text-[10px] pr-0.5">
+                                {col ? `${col.labels?.fr ?? ref} (${ref})` : ref}
+                                <button
+                                  type="button"
+                                  disabled={saving === season.id}
+                                  onClick={() => handleSaveSeason(season.id, season.pfsRefs.filter((r) => r !== ref))}
+                                  className="ml-0.5 p-0.5 rounded-full hover:bg-purple-200 transition-colors disabled:opacity-50"
+                                  aria-label={`Retirer ${ref}`}
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {/* Dropdown to add */}
+                      <CustomSelect
+                        value=""
+                        onChange={(val) => {
+                          if (val && !season.pfsRefs.includes(val)) {
+                            handleSaveSeason(season.id, [...season.pfsRefs, val]);
+                          }
+                        }}
+                        disabled={saving === season.id}
+                        size="sm"
+                        searchable
+                        className="w-full"
+                        aria-label={`Ajouter une collection PFS pour ${season.name}`}
+                        options={[
+                          { value: "", label: season.pfsRefs.length > 0 ? "— Ajouter —" : "— Non liée —" },
+                          ...pfsCollections
+                            .filter((pc) => !season.pfsRefs.includes(pc.reference))
+                            .map((pc) => {
+                              const taken = usedSeasonRefs.has(pc.reference) && !season.pfsRefs.includes(pc.reference);
+                              return {
+                                value: pc.reference,
+                                label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})${taken ? " ✗ déjà liée" : ""}`,
+                                disabled: taken,
+                              };
+                            }),
+                        ]}
+                      />
+                    </div>
                   </td>
                   <td className="p-3">
                     {saving === season.id ? (
                       <span className="text-text-secondary text-xs">...</span>
-                    ) : season.pfsSeasonRef ? (
-                      <span className="badge badge-success">Liée</span>
+                    ) : season.pfsRefs.length > 0 ? (
+                      <span className="badge badge-success">Liée ({season.pfsRefs.length})</span>
                     ) : (
                       <span className="badge badge-neutral">Non liée</span>
                     )}
@@ -892,7 +925,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
         <span>Catégories liées : {categories.filter((c) => c.pfsCategoryId).length}/{categories.length}</span>
         <span>Compositions liées : {compositions.filter((c) => c.pfsCompositionRef).length}/{compositions.length}</span>
         <span>Pays liés : {countries.filter((c) => c.pfsCountryRef).length}/{countries.length}</span>
-        <span>Saisons liées : {seasons.filter((s) => s.pfsSeasonRef).length}/{seasons.length}</span>
+        <span>Saisons liées : {seasons.filter((s) => s.pfsRefs.length > 0).length}/{seasons.length}</span>
         <span>Tailles liées : {sizes.filter((s) => s.pfsMappings.length > 0).length}/{sizes.length}</span>
         {multiColorVariants.length > 0 && (
           <span>Combinaisons liées : {multiColorVariants.filter((v) => v.pfsColorRef || v.color.pfsColorRef).length}/{multiColorVariants.length}</span>

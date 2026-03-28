@@ -8,7 +8,8 @@ interface CompanyInfoFormProps {
 }
 
 const FIELDS: { key: keyof CompanyInfoData; label: string; placeholder: string; required?: boolean; colSpan?: number }[] = [
-  { key: "name", label: "Raison sociale", placeholder: "Ex: Beli & Jolie SAS", required: true, colSpan: 2 },
+  { key: "shopName", label: "Nom de la boutique", placeholder: "Ex: Ma Boutique", colSpan: 2 },
+  { key: "name", label: "Raison sociale", placeholder: "Ex: Ma Société SAS", required: true, colSpan: 2 },
   { key: "legalForm", label: "Forme juridique", placeholder: "Ex: SAS, SARL, EURL..." },
   { key: "capital", label: "Capital social (€)", placeholder: "Ex: 10 000" },
   { key: "siret", label: "SIRET", placeholder: "Ex: 123 456 789 00012" },
@@ -19,8 +20,8 @@ const FIELDS: { key: keyof CompanyInfoData; label: string; placeholder: string; 
   { key: "city", label: "Ville", placeholder: "Ex: Paris" },
   { key: "country", label: "Pays", placeholder: "France" },
   { key: "phone", label: "Téléphone", placeholder: "Ex: 01 23 45 67 89" },
-  { key: "email", label: "Email de contact", placeholder: "Ex: contact@belijolie.com" },
-  { key: "website", label: "Site web", placeholder: "Ex: www.belijolie.com" },
+  { key: "email", label: "Email de contact", placeholder: "Ex: contact@example.com" },
+  { key: "website", label: "Site web", placeholder: "Ex: www.example.com" },
   { key: "director", label: "Directeur de publication", placeholder: "Ex: Jean Dupont", colSpan: 2 },
   { key: "hostName", label: "Hébergeur (nom)", placeholder: "Ex: Vercel Inc." },
   { key: "hostAddress", label: "Hébergeur (adresse)", placeholder: "Ex: 340 S Lemon Ave, Walnut, CA" },
@@ -30,6 +31,7 @@ const FIELDS: { key: keyof CompanyInfoData; label: string; placeholder: string; 
 
 export default function CompanyInfoForm({ initialData }: CompanyInfoFormProps) {
   const [form, setForm] = useState<CompanyInfoData>({
+    shopName: initialData?.shopName || "",
     name: initialData?.name || "",
     legalForm: initialData?.legalForm || "",
     capital: initialData?.capital || "",

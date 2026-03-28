@@ -7,7 +7,7 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getProductTranslation } from "@/lib/translate";
-import { getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import FloatingShapes from "@/components/ui/FloatingShapes";
@@ -85,7 +85,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   if (!product) return { title: "Produit introuvable" };
 
-  const title = `${product.name} — Beli & Jolie`;
+  const shopName = await getCachedShopName();
+  const title = `${product.name} — ${shopName}`;
   const description = product.description.slice(0, 160).replace(/\n/g, " ");
 
   return {
@@ -95,7 +96,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       title,
       description,
       type: "website",
-      siteName: "Beli & Jolie",
+      siteName: shopName,
       ...(firstImage && { images: [{ url: firstImage.path, width: 800, height: 800, alt: product.name }] }),
     },
     alternates: { canonical: `/produits/${id}` },
@@ -106,11 +107,12 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   const { id } = await params;
 
   // Fetch product, session, config, and locale in parallel
-  const [product, session, stockVariantsConfig, locale] = await Promise.all([
+  const [product, session, stockVariantsConfig, locale, shopName] = await Promise.all([
     getProduct(id),
     getServerSession(authOptions),
     getCachedSiteConfig("show_out_of_stock_variants"),
     getLocale(),
+    getCachedShopName(),
   ]);
 
   if (!product || product.status !== "ONLINE") notFound();
@@ -221,8 +223,8 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Produits", item: "https://beli-jolie.fr/produits" },
-      { "@type": "ListItem", position: 2, name: product.category.name, item: `https://beli-jolie.fr/produits?cat=${product.categoryId}` },
+      { "@type": "ListItem", position: 1, name: "Produits", item: `${process.env.NEXTAUTH_URL || ""}/produits` },
+      { "@type": "ListItem", position: 2, name: product.category.name, item: `${process.env.NEXTAUTH_URL || ""}/produits?cat=${product.categoryId}` },
       { "@type": "ListItem", position: 3, name: translated.name },
     ],
   };
@@ -232,7 +234,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
       <FloatingShapes />
-      <PublicSidebar />
+      <PublicSidebar shopName={shopName} />
       <div className="min-w-0 relative z-10">
         <main className="min-h-screen bg-bg-secondary relative overflow-hidden">
           <ScatteredDecorations variant="sparse" seed={200} />
@@ -304,7 +306,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
             />
           </div>
         </main>
-        <Footer />
+        <Footer shopName={shopName} />
       </div>
     </div>
   );

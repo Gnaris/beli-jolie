@@ -15,7 +15,7 @@ export async function createSeason(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
   await prisma.season.create({ data: { name } });
-  revalidatePath("/admin/saisons");
+  revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
 }
 
@@ -38,7 +38,7 @@ export async function updateSeason(id: string, formData: FormData) {
     }
   }
 
-  revalidatePath("/admin/saisons");
+  revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
 }
 
@@ -64,28 +64,51 @@ export async function updateSeasonDirect(
     }
   }
 
-  revalidatePath("/admin/saisons");
+  revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
 }
 
 /**
- * Update the PFS season reference for an existing season.
- * Used when linking a BJ season to a PFS season for reverse sync.
+ * Replace all PFS refs for a season.
+ * Each ref must be unique across all seasons.
  */
-export async function updateSeasonPfsRef(id: string, pfsSeasonRef: string | null) {
+export async function updateSeasonPfsRefs(id: string, pfsRefs: string[]) {
   await requireAdmin();
-  if (pfsSeasonRef) {
-    const conflict = await prisma.season.findFirst({
-      where: { pfsSeasonRef, id: { not: id } },
-      select: { id: true, name: true },
+
+  // Normalize & dedupe
+  const normalized = [...new Set(pfsRefs.map((r) => r.trim()).filter(Boolean))];
+
+  // Check for conflicts with other seasons
+  if (normalized.length > 0) {
+    const conflicts = await prisma.seasonPfsRef.findMany({
+      where: { pfsRef: { in: normalized }, seasonId: { not: id } },
+      select: { pfsRef: true, season: { select: { name: true } } },
     });
-    if (conflict) {
-      throw new Error(`Cette référence PFS est déjà utilisée par la saison « ${conflict.name} ».`);
+    if (conflicts.length > 0) {
+      const detail = conflicts.map((c) => `« ${c.pfsRef} » (${c.season.name})`).join(", ");
+      throw new Error(`Correspondances déjà utilisées par d'autres saisons : ${detail}`);
     }
   }
-  await prisma.season.update({ where: { id }, data: { pfsSeasonRef } });
-  revalidatePath("/admin/saisons");
+
+  // Replace all refs for this season in a transaction
+  await prisma.$transaction(async (tx) => {
+    await tx.seasonPfsRef.deleteMany({ where: { seasonId: id } });
+    if (normalized.length > 0) {
+      await tx.seasonPfsRef.createMany({
+        data: normalized.map((pfsRef) => ({ seasonId: id, pfsRef })),
+      });
+    }
+  });
+
+  revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
+}
+
+/**
+ * @deprecated Use updateSeasonPfsRefs instead. Kept for backward compat during migration.
+ */
+export async function updateSeasonPfsRef(id: string, pfsSeasonRef: string | null) {
+  await updateSeasonPfsRefs(id, pfsSeasonRef ? [pfsSeasonRef] : []);
 }
 
 export async function deleteSeason(id: string) {
@@ -93,6 +116,6 @@ export async function deleteSeason(id: string) {
   const used = await prisma.product.count({ where: { seasonId: id } });
   if (used > 0) throw new Error("Cette saison est utilisée par des produits.");
   await prisma.season.delete({ where: { id } });
-  revalidatePath("/admin/saisons");
+  revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
 }

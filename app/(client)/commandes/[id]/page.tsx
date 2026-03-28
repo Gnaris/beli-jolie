@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName } from "@/lib/cached-data";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 import SuccessToast from "@/components/client/SuccessToast";
 import BankTransferDetails from "@/components/client/BankTransferDetails";
@@ -12,10 +13,13 @@ import { STATUS_CONFIG, getTrackingUrl } from "@/app/(client)/commandes/page";
 import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
 
-export const metadata: Metadata = {
-  title: "Detail commande — Beli & Jolie",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Detail commande — ${shopName}`,
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function CommandeDetailPage({
   params,

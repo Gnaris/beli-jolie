@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import nodemailer from "nodemailer";
+import { getCachedShopName, getCachedCompanyInfo, getCachedGmailConfig } from "@/lib/cached-data";
 
 /**
  * POST /api/auth/unlock-request
@@ -29,15 +30,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Envoyer l'email à l'admin
-    const { GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_EMAIL } = process.env;
-    if (GMAIL_USER && GMAIL_APP_PASSWORD && NOTIFY_EMAIL) {
+    const [shopName, companyInfo, gmailCfg] = await Promise.all([
+      getCachedShopName(), getCachedCompanyInfo(), getCachedGmailConfig(),
+    ]);
+    const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+    const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+    const NOTIFY_EMAIL = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
+    if (GMAIL_USER && GMAIL_PASSWORD && NOTIFY_EMAIL) {
       const transporter = nodemailer.createTransport({
         service: "gmail",
-        auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+        auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
       });
 
       await transporter.sendMail({
-        from: `"Beli & Jolie" <${GMAIL_USER}>`,
+        from: `"${shopName}" <${GMAIL_USER}>`,
         to: NOTIFY_EMAIL,
         subject: `Demande de déblocage — ${normalizedEmail}`,
         html: `

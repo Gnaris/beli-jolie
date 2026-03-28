@@ -2,8 +2,12 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
+import { getCachedShopName } from "@/lib/cached-data";
 
-export const metadata: Metadata = { title: "Mot de passe oublié — Beli & Jolie" };
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return { title: `Mot de passe oublié — ${shopName}` };
+}
 
 export default async function ForgotPasswordPage() {
   const t = await getTranslations("auth.forgotPassword");

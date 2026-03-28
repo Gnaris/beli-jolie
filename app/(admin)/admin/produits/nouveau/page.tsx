@@ -33,14 +33,14 @@ export default async function NouveauProduitPage() {
       {categories.length === 0 && (
         <div className="badge-warning px-4 py-3 text-sm font-[family-name:var(--font-roboto)] rounded-xl border border-[#FDE68A]">
           Aucune catégorie.{" "}
-          <Link href="/admin/categories" className="underline font-medium">Créez-en une d&apos;abord.</Link>
+          <Link href="/admin/produits?tab=categories" className="underline font-medium">Créez-en une d&apos;abord.</Link>
         </div>
       )}
 
       {colors.length === 0 && (
         <div className="badge-warning px-4 py-3 text-sm font-[family-name:var(--font-roboto)] rounded-xl border border-[#FDE68A]">
           Aucune couleur dans la bibliothèque.{" "}
-          <Link href="/admin/couleurs" className="underline font-medium">Créez des couleurs d&apos;abord.</Link>
+          <Link href="/admin/produits?tab=couleurs" className="underline font-medium">Créez des couleurs d&apos;abord.</Link>
         </div>
       )}
 

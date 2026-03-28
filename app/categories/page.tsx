@@ -2,19 +2,26 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
+import { getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import FloatingShapes from "@/components/ui/FloatingShapes";
 import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 
-export const metadata: Metadata = {
-  title: "Catégories Bijoux — Beli & Jolie",
-  description: "Parcourez nos catégories de bijoux en acier inoxydable : colliers, bracelets, bagues, boucles d'oreilles. Prix grossiste professionnel.",
-  alternates: { canonical: "/categories" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: `Catégories — ${shopName}`,
+    description: "Parcourez nos catégories de produits. Prix grossiste professionnel.",
+    alternates: { canonical: "/categories" },
+  };
+}
 
 export default async function CategoriesPage() {
-  const t = await getTranslations("categoriesPage");
+  const [t, shopName] = await Promise.all([
+    getTranslations("categoriesPage"),
+    getCachedShopName(),
+  ]);
   const categories = await prisma.category.findMany({
     orderBy: { name: "asc" },
     include: {
@@ -26,7 +33,7 @@ export default async function CategoriesPage() {
   return (
     <div className="min-h-screen relative">
       <FloatingShapes />
-      <PublicSidebar />
+      <PublicSidebar shopName={shopName} />
 
       <div className="min-w-0 relative z-10">
         {/* Page header */}
@@ -100,7 +107,7 @@ export default async function CategoriesPage() {
           )}
         </main>
 
-        <Footer />
+        <Footer shopName={shopName} />
       </div>
     </div>
   );

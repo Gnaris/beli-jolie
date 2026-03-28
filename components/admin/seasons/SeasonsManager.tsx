@@ -2,42 +2,44 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteSeason, updateSeasonDirect, updateSeasonPfsRef } from "@/app/actions/admin/seasons";
+import { deleteSeason, updateSeasonDirect, updateSeasonPfsRefs } from "@/app/actions/admin/seasons";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
-import EntityEditModal from "@/components/admin/EntityEditModal";
+import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
-import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface SeasonItem {
   id: string;
   name: string;
-  pfsSeasonRef: string | null;
+  pfsRefs: string[];
   productCount: number;
   translations: Record<string, string>;
 }
 
 export default function SeasonsManager({
   initialSeasons,
+  allUsedPfsRefs,
 }: {
   initialSeasons: SeasonItem[];
+  allUsedPfsRefs: string[];
 }) {
   const router = useRouter();
   const { confirm } = useConfirm();
   const [editTarget, setEditTarget] = useState<SeasonItem | null>(null);
-  const [editPfsRef, setEditPfsRef] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
 
   const filtered = search.trim()
-    ? initialSeasons.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()) || s.pfsSeasonRef?.toLowerCase().includes(search.trim().toLowerCase()))
+    ? initialSeasons.filter((s) =>
+        s.name.toLowerCase().includes(search.trim().toLowerCase()) ||
+        s.pfsRefs.some((r) => r.toLowerCase().includes(search.trim().toLowerCase()))
+      )
     : initialSeasons;
 
   function openEdit(item: SeasonItem) {
     setError("");
     setEditTarget(item);
-    setEditPfsRef(item.pfsSeasonRef ?? "");
   }
 
   async function handleDelete(item: SeasonItem) {
@@ -60,12 +62,21 @@ export default function SeasonsManager({
       .finally(() => setDeletingId(null));
   }
 
-  async function handleSave(name: string, translations: Record<string, string>) {
+  async function handleSave(
+    name: string,
+    translations: Record<string, string>,
+    _hex?: string,
+    _patternImage?: string | null,
+    pfs?: { refs?: string[] },
+  ) {
     if (!editTarget) return;
     await updateSeasonDirect(editTarget.id, name, translations);
-    const origRef = editTarget.pfsSeasonRef ?? "";
-    if (editPfsRef !== origRef) {
-      await updateSeasonPfsRef(editTarget.id, editPfsRef || null);
+    const newRefs = pfs?.refs ?? [];
+    const oldRefs = editTarget.pfsRefs;
+    // Compare sorted arrays
+    const changed = JSON.stringify([...newRefs].sort()) !== JSON.stringify([...oldRefs].sort());
+    if (changed) {
+      await updateSeasonPfsRefs(editTarget.id, newRefs);
     }
     router.refresh();
   }
@@ -121,7 +132,7 @@ export default function SeasonsManager({
                 <tr className="bg-bg-secondary border-b border-border">
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Nom</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Produits</th>
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Réf PFS</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Réfs PFS</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Traduction</th>
                   <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
                 </tr>
@@ -136,8 +147,12 @@ export default function SeasonsManager({
                       <span className="badge badge-neutral text-[10px]">{item.productCount}</span>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      {item.pfsSeasonRef ? (
-                        <span className="badge badge-purple text-[10px]">PFS: {item.pfsSeasonRef}</span>
+                      {item.pfsRefs.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {item.pfsRefs.map((ref) => (
+                            <span key={ref} className="badge badge-purple text-[10px]">PFS: {ref}</span>
+                          ))}
+                        </div>
                       ) : (
                         <span className="text-text-muted text-xs">—</span>
                       )}
@@ -192,23 +207,22 @@ export default function SeasonsManager({
         </div>
       )}
 
-      <EntityEditModal
-        open={!!editTarget}
-        onClose={() => setEditTarget(null)}
-        title="Modifier la saison"
-        initialName={editTarget?.name ?? ""}
-        initialTranslations={editTarget?.translations ?? {}}
-        renderExtra={
-          editTarget ? (
-            <MarketplaceMappingSection
-              entityType="season"
-              pfsRef={editPfsRef}
-              onPfsRefChange={setEditPfsRef}
-            />
-          ) : undefined
-        }
-        onSave={handleSave}
-      />
+      {editTarget && (
+        <QuickCreateModal
+          type="season"
+          open={!!editTarget}
+          onClose={() => setEditTarget(null)}
+          onCreated={() => { setEditTarget(null); router.refresh(); }}
+          usedPfsRefs={allUsedPfsRefs.filter((r) => !editTarget.pfsRefs.includes(r))}
+          editMode={{
+            id: editTarget.id,
+            name: editTarget.name,
+            translations: editTarget.translations,
+            pfsRefs: editTarget.pfsRefs,
+            onSave: handleSave,
+          }}
+        />
+      )}
     </>
   );
 }

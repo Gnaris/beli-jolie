@@ -5,6 +5,11 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { clearAutoMaintenance } from "@/lib/health";
 import type { ProductDisplayConfig } from "@/lib/product-display";
+import { parseDisplayConfig } from "@/lib/product-display-shared";
+import type { DisplaySection, HomepageCarousel } from "@/lib/product-display-shared";
+import Stripe from "stripe";
+import { invalidateStripeCache } from "@/lib/stripe";
+import { encryptIfSensitive } from "@/lib/encryption";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -79,6 +84,313 @@ export async function updateStockDisplayConfig(config: {
   }
 }
 
+export async function updateBannerImage(
+  imagePath: string | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    if (imagePath) {
+      await prisma.siteConfig.upsert({
+        where: { key: "banner_image" },
+        update: { value: imagePath },
+        create: { key: "banner_image", value: imagePath },
+      });
+    } else {
+      await prisma.siteConfig.deleteMany({ where: { key: "banner_image" } });
+    }
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function updateEasyExpressApiKey(
+  apiKey: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      // Supprimer la clé
+      await prisma.siteConfig.deleteMany({ where: { key: "easy_express_api_key" } });
+    } else {
+      const encrypted = encryptIfSensitive("easy_express_api_key", trimmed);
+      await prisma.siteConfig.upsert({
+        where: { key: "easy_express_api_key" },
+        update: { value: encrypted },
+        create: { key: "easy_express_api_key", value: encrypted },
+      });
+    }
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function validateEasyExpressApiKey(
+  apiKey: string
+): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    // Tester la clé avec un appel rates bidon (FR → FR, 1kg)
+    const res = await fetch("https://easy-express.fr/api/v3/shipments/rates", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        senderAddress: { countryCode: "FR", postalCode: "75001" },
+        receiverAddress: { countryCode: "FR", postalCode: "75001" },
+        parcels: [{ weight: 1 }],
+      }),
+    });
+    const rawText = await res.text();
+    if (!res.ok) return { valid: false, error: `Erreur ${res.status}` };
+    const data = JSON.parse(rawText) as Record<string, unknown>;
+    const response = data.Response as Record<string, unknown> | undefined;
+    return { valid: response?.Code === 200 };
+  } catch {
+    return { valid: false, error: "Impossible de contacter Easy-Express." };
+  }
+}
+
+// ─── Gmail Configuration ─────────────────────────────────────────────────────
+
+export async function updateGmailConfig(config: {
+  gmailUser: string;
+  gmailPassword: string;
+  notifyEmail: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const { gmailUser, gmailPassword, notifyEmail } = config;
+
+    const upsertOrDelete = (key: string, value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return prisma.siteConfig.deleteMany({ where: { key } });
+      const stored = encryptIfSensitive(key, trimmed);
+      return prisma.siteConfig.upsert({
+        where: { key },
+        update: { value: stored },
+        create: { key, value: stored },
+      });
+    };
+
+    await Promise.all([
+      upsertOrDelete("gmail_user", gmailUser),
+      upsertOrDelete("gmail_app_password", gmailPassword),
+      upsertOrDelete("gmail_notify_email", notifyEmail),
+    ]);
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function validateGmailConfig(config: {
+  gmailUser: string;
+  gmailPassword: string;
+}): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const nodemailer = (await import("nodemailer")).default;
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: config.gmailUser.trim(), pass: config.gmailPassword.trim() },
+    });
+    await transporter.verify();
+    return { valid: true };
+  } catch (e) {
+    return { valid: false, error: e instanceof Error ? e.message : "Identifiants Gmail invalides." };
+  }
+}
+
+// ─── PFS (Marketplace) Configuration ─────────────────────────────────────────
+
+export async function updatePfsCredentials(config: {
+  email: string;
+  password: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const { email, password } = config;
+
+    const upsertOrDelete = (key: string, value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return prisma.siteConfig.deleteMany({ where: { key } });
+      const stored = encryptIfSensitive(key, trimmed);
+      return prisma.siteConfig.upsert({
+        where: { key },
+        update: { value: stored },
+        create: { key, value: stored },
+      });
+    };
+
+    await Promise.all([
+      upsertOrDelete("pfs_email", email),
+      upsertOrDelete("pfs_password", password),
+    ]);
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function validatePfsCredentials(config: {
+  email: string;
+  password: string;
+}): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const res = await fetch("https://wholesaler-api.parisfashionshops.com/api/v1/oauth/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ email: config.email.trim(), password: config.password.trim() }),
+    });
+    if (!res.ok) return { valid: false, error: `Erreur d'authentification (${res.status})` };
+    const data = await res.json();
+    if (!data.access_token) return { valid: false, error: "Réponse invalide (pas de token)." };
+    return { valid: true };
+  } catch {
+    return { valid: false, error: "Impossible de contacter Paris Fashion Shops." };
+  }
+}
+
+// ─── DeepL Configuration ────────────────────────────────────────────────────
+
+export async function updateDeeplApiKey(
+  apiKey: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      await prisma.siteConfig.deleteMany({ where: { key: "deepl_api_key" } });
+    } else {
+      const encrypted = encryptIfSensitive("deepl_api_key", trimmed);
+      await prisma.siteConfig.upsert({
+        where: { key: "deepl_api_key" },
+        update: { value: encrypted },
+        create: { key: "deepl_api_key", value: encrypted },
+      });
+    }
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function validateDeeplApiKey(
+  apiKey: string
+): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const key = apiKey.trim();
+    const isFreePlan = key.endsWith(":fx");
+    const baseUrl = isFreePlan
+      ? "https://api-free.deepl.com"
+      : "https://api.deepl.com";
+
+    const res = await fetch(`${baseUrl}/v2/usage`, {
+      headers: { Authorization: `DeepL-Auth-Key ${key}` },
+    });
+    if (!res.ok) return { valid: false, error: `Erreur ${res.status} — clé invalide.` };
+    const data = await res.json();
+    if (typeof data.character_count !== "number") return { valid: false, error: "Réponse inattendue." };
+    return { valid: true };
+  } catch {
+    return { valid: false, error: "Impossible de contacter DeepL." };
+  }
+}
+
+export type CarouselProductInfo = {
+  id: string;
+  name: string;
+  reference: string;
+  category: string;
+  image: string | null;
+};
+
+export async function searchProductsForCarousel(
+  query: string
+): Promise<CarouselProductInfo[]> {
+  await requireAdmin();
+  if (!query || query.length < 2) return [];
+  const products = await prisma.product.findMany({
+    where: {
+      status: "ONLINE",
+      OR: [
+        { name: { contains: query } },
+        { reference: { contains: query } },
+      ],
+    },
+    select: {
+      id: true, name: true, reference: true,
+      category: { select: { name: true } },
+      colors: {
+        where: { isPrimary: true },
+        take: 1,
+        select: { images: { take: 1, orderBy: { order: "asc" }, select: { path: true } } },
+      },
+    },
+    take: 20,
+    orderBy: { name: "asc" },
+  });
+  return products.map(p => ({
+    id: p.id,
+    name: p.name,
+    reference: p.reference,
+    category: p.category.name,
+    image: p.colors[0]?.images[0]?.path ?? null,
+  }));
+}
+
+export async function getProductsByIds(
+  ids: string[]
+): Promise<CarouselProductInfo[]> {
+  await requireAdmin();
+  if (ids.length === 0) return [];
+  const products = await prisma.product.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true, name: true, reference: true,
+      category: { select: { name: true } },
+      colors: {
+        where: { isPrimary: true },
+        take: 1,
+        select: { images: { take: 1, orderBy: { order: "asc" }, select: { path: true } } },
+      },
+    },
+  });
+  // Maintain input order
+  const map = new Map(products.map(p => [p.id, p]));
+  return ids.map(id => map.get(id)).filter(Boolean).map(p => ({
+    id: p!.id,
+    name: p!.name,
+    reference: p!.reference,
+    category: p!.category.name,
+    image: p!.colors[0]?.images[0]?.path ?? null,
+  }));
+}
+
 export async function updateProductDisplayConfig(
   config: ProductDisplayConfig
 ): Promise<{ success: boolean; error?: string }> {
@@ -96,6 +408,146 @@ export async function updateProductDisplayConfig(
     revalidateTag("site-config", "default");
     revalidatePath("/produits");
     revalidatePath("/");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function updateCatalogDisplayConfig(
+  catalogMode: "date" | "custom",
+  sections: DisplaySection[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const row = await prisma.siteConfig.findUnique({ where: { key: "product_display_config" } });
+    const current = parseDisplayConfig(row?.value ?? null);
+    const updated: ProductDisplayConfig = { ...current, catalogMode, sections: catalogMode === "custom" ? sections : [] };
+    await prisma.siteConfig.upsert({
+      where: { key: "product_display_config" },
+      update: { value: JSON.stringify(updated) },
+      create: { key: "product_display_config", value: JSON.stringify(updated) },
+    });
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/produits");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function updateHomepageCarouselsConfig(
+  carousels: HomepageCarousel[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const row = await prisma.siteConfig.findUnique({ where: { key: "product_display_config" } });
+    const current = parseDisplayConfig(row?.value ?? null);
+    const updated: ProductDisplayConfig = { ...current, homepageCarousels: carousels };
+    await prisma.siteConfig.upsert({
+      where: { key: "product_display_config" },
+      update: { value: JSON.stringify(updated) },
+      create: { key: "product_display_config", value: JSON.stringify(updated) },
+    });
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+// ─── Stripe Configuration ─────────────────────────────────────────────────────
+
+export async function validateStripeSecretKey(
+  secretKey: string
+): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const testStripe = new Stripe(secretKey.trim());
+    // Tester avec un appel léger
+    await testStripe.balance.retrieve();
+    return { valid: true };
+  } catch (e) {
+    const msg = e instanceof Stripe.errors.StripeAuthenticationError
+      ? "Clé secrète invalide. Vérifiez que la clé est correcte."
+      : e instanceof Error ? e.message : "Erreur de validation.";
+    return { valid: false, error: msg };
+  }
+}
+
+export async function updateStripeConfig(config: {
+  secretKey: string;
+  publishableKey: string;
+  webhookSecret: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const { secretKey, publishableKey, webhookSecret } = config;
+
+    if (!secretKey.trim() && !publishableKey.trim() && !webhookSecret.trim()) {
+      // Supprimer toute la config Stripe
+      await prisma.siteConfig.deleteMany({
+        where: { key: { in: ["stripe_secret_key", "stripe_publishable_key", "stripe_webhook_secret"] } },
+      });
+      invalidateStripeCache();
+      revalidatePath("/admin/parametres");
+      revalidateTag("site-config", "default");
+      return { success: true };
+    }
+
+    // Validation basique des préfixes
+    const sk = secretKey.trim();
+    const pk = publishableKey.trim();
+    const wh = webhookSecret.trim();
+
+    if (sk && !sk.startsWith("sk_")) {
+      return { success: false, error: "La clé secrète doit commencer par sk_" };
+    }
+    if (pk && !pk.startsWith("pk_")) {
+      return { success: false, error: "La clé publique doit commencer par pk_" };
+    }
+    if (wh && !wh.startsWith("whsec_")) {
+      return { success: false, error: "Le webhook secret doit commencer par whsec_" };
+    }
+
+    // Sauvegarder les 3 clés (chiffrées)
+    const upsertOrDelete = (key: string, value: string) => {
+      if (!value) return prisma.siteConfig.deleteMany({ where: { key } });
+      const stored = encryptIfSensitive(key, value);
+      return prisma.siteConfig.upsert({
+        where: { key },
+        update: { value: stored },
+        create: { key, value: stored },
+      });
+    };
+
+    await Promise.all([
+      upsertOrDelete("stripe_secret_key", sk),
+      upsertOrDelete("stripe_publishable_key", pk),
+      upsertOrDelete("stripe_webhook_secret", wh),
+    ]);
+
+    invalidateStripeCache();
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function deleteStripeConfig(): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await prisma.siteConfig.deleteMany({
+      where: { key: { in: ["stripe_secret_key", "stripe_publishable_key", "stripe_webhook_secret"] } },
+    });
+    invalidateStripeCache();
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };

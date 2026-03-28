@@ -88,7 +88,7 @@ AI descriptions: Claude Sonnet via `lib/claude.ts`. Auto-translated: products, c
 
 - **Public header**: `PublicSidebar.tsx` (NOT Navbar.tsx)
 - **Admin mobile**: `AdminMobileNav.tsx`
-- **3D Hero**: `JewelryScene.tsx` via `JewelrySceneLoader.tsx` (client wrapper, ssr:false)
+- **Hero Banner**: `HeroBanner.tsx` (landing page hero section)
 - **Product form**: `ProductForm.tsx` (4 blocks + unsaved changes guard → ConfirmDialog)
 - **Variant manager**: `ColorVariantManager.tsx` (passes `availableSizes`, exports `variantGroupKeyFromState()`, `computeTotalPrice()`)
 - **Sizes manager**: `SizesManager.tsx` at `/admin/tailles`

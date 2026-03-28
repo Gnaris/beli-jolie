@@ -8,6 +8,7 @@
 import PDFDocument from "pdfkit";
 import path from "path";
 import fs from "fs";
+import { prisma } from "@/lib/prisma";
 
 // ─────────────────────────────────────────────
 // Couleurs — Monochrome theme
@@ -121,7 +122,10 @@ function resolveImagePath(imagePath: string | null): string | null {
 // Génération principale
 // ─────────────────────────────────────────────
 
-export function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
+export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
+  const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
+  const shopName = shopNameInfo?.shopName || "Ma Boutique";
+
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
 
@@ -148,11 +152,11 @@ export function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
     // Logo texte
     doc.font("Helvetica-Bold").fontSize(22);
     setFill(doc, C.white);
-    doc.text("Beli & Jolie", ML, 22);
+    doc.text(shopName, ML, 22);
 
     doc.font("Helvetica").fontSize(10);
     setFill(doc, "#F8D5DC");
-    doc.text("Bijoux Acier Inoxydable — Plateforme BtoB", ML, 48);
+    doc.text("Plateforme Grossiste B2B", ML, 48);
 
     // N° commande à droite
     const orderLabel = `N° ${data.orderNumber}`;
@@ -434,7 +438,7 @@ export function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
       doc.font("Helvetica").fontSize(8);
       setFill(doc, "#9CA3AF");
       doc.text(
-        `Beli & Jolie — Bijoux Acier Inoxydable BtoB  ·  ${data.orderNumber}  ·  Page ${i + 1} / ${pageCount}`,
+        `${shopName} — Grossiste B2B  ·  ${data.orderNumber}  ·  Page ${i + 1} / ${pageCount}`,
         ML, footerY + 14, { width: CW, align: "center" }
       );
     }

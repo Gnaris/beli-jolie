@@ -551,6 +551,13 @@ function ProductRow({
           </div>
         </td>
 
+        {/* Date de création */}
+        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
+          <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)] whitespace-nowrap">
+            {new Date(product.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
+          </span>
+        </td>
+
         {/* Actions */}
         <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-1 justify-end">
@@ -1145,6 +1152,7 @@ function TableWithTopScroll({
               <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Catégorie</th>
               <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Couleurs</th>
               <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Statut</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Créé le</th>
               <th className="px-3 py-3 text-right text-xs font-semibold text-text-secondary uppercase tracking-wider w-24"></th>
             </tr>
           </thead>

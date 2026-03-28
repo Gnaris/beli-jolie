@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-**Beli & Jolie** — B2B wholesale jewelry e-commerce. Next.js 16 App Router, MySQL (Prisma), Tailwind v4, TypeScript.
+B2B SaaS e-commerce platform — generic wholesale for any product type. Next.js 16 App Router, MySQL (Prisma), Tailwind v4, TypeScript. Each client can deploy their own instance to sell any product category online.
 
 ### Route groups (`app/`)
 
@@ -29,7 +29,7 @@ Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middl
 - **Server actions** (`app/actions/admin/`, `app/actions/client/`) — all mutations. `requireAdmin()` / `requireAuth()` obligatoire.
 - **API routes** (`app/api/`) — webhooks (Stripe, heartbeat), SSE streams, file-serving, PFS sync endpoints.
 - **Lib** (`lib/`) — business logic: `pfs-*.ts` (PFS sync ecosystem), `stripe.ts`, `easy-express.ts`, `cached-data.ts`, `security.ts`, `image-processor.ts`.
-- **Components** — `components/admin/` (backoffice), `components/client/` (espace-pro), `components/pfs/` (PFS mapping UI), `components/ui/` (shared primitives), `components/home/` (3D hero, landing).
+- **Components** — `components/admin/` (backoffice), `components/client/` (espace-pro), `components/pfs/` (PFS mapping UI), `components/ui/` (shared primitives), `components/home/` (landing page).
 
 ### Data flow
 
@@ -41,7 +41,7 @@ Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib
 
 ### PFS sync (bidirectional)
 
-`lib/pfs-reverse-sync.ts` (BJ→PFS push), `lib/pfs-sync.ts` (PFS→BJ import), `lib/pfs-api.ts` (read), `lib/pfs-api-write.ts` (write). Auth via `lib/pfs-auth.ts` (token cache).
+`lib/pfs-reverse-sync.ts` (local→PFS push), `lib/pfs-sync.ts` (PFS→local import), `lib/pfs-api.ts` (read), `lib/pfs-api-write.ts` (write). Auth via `lib/pfs-auth.ts` (token cache).
 
 ### Auth
 
@@ -53,7 +53,11 @@ next-intl, cookie `bj_locale` (default `fr`), RTL for `ar`. Messages: `messages/
 
 ### Styling
 
-**Tailwind CSS v4** — no `tailwind.config.js`. Theme tokens in `app/globals.css` inside `@theme inline {}`. Dark mode via `.admin-dark` class on root.
+**Tailwind CSS v4** — no `tailwind.config.js`. Theme tokens in `app/globals.css` inside `@theme inline {}`. Dark mode via `.admin-dark` class on root. Dark mode overrides for hardcoded colors (bg-white, text-[#1A1A1A], etc.) are centralized as `.admin-dark .class` rules at the bottom of `globals.css` — add new overrides there when introducing new hardcoded color values.
+
+### Key Prisma enums
+
+`ProductStatus` (OFFLINE|ONLINE|ARCHIVED|SYNCING), `SaleType` (UNIT|PACK), `OrderStatus` (PENDING|PROCESSING|SHIPPED|DELIVERED|CANCELLED), `UserRole` (ADMIN|CLIENT), `UserStatus` (PENDING|APPROVED|REJECTED), `PfsSyncStatus`, `ImportDraftStatus`, `ImportJobStatus`. Full definitions in `prisma/schema.prisma`.
 
 ---
 
@@ -69,17 +73,15 @@ next-intl, cookie `bj_locale` (default `fr`), RTL for `ar`. Messages: `messages/
 npm run dev / build / start / lint
 npx prisma db push && npx prisma generate   # Apres modif schema, redemerrer dev server d'abord
 npx prisma studio
-npx tsx scripts/create-admin.ts / generate-translations.ts / seed.ts
+npx tsx scripts/create-admin.ts / generate-translations.ts / seed.ts / encrypt-secrets.ts
 npm run clear:products
 ```
 
 ## Variables d'environnement
 
-`DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`,
-`EASY_EXPRESS_API_KEY`, `EE_SENDER_*` (COMPANY/SHOP_NAME/SIRET/EMAIL/PHONE/MOBILE/STREET/CITY/POSTAL_CODE/COUNTRY="FR"),
-`GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NOTIFY_EMAIL`,
-`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`,
-`ANTHROPIC_API_KEY`, `DEEPL_API_KEY`, `PFS_EMAIL`, `PFS_PASSWORD`
+**Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `ENCRYPTION_KEY`
+
+**Configurables via paramètres admin** (env var = fallback, admin UI prend priorité) : `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NOTIFY_EMAIL`, `EASY_EXPRESS_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `DEEPL_API_KEY`, `PFS_EMAIL`, `PFS_PASSWORD`
 
 ## Versions critiques
 
@@ -92,7 +94,7 @@ npm run clear:products
 | Tailwind | v4 | No config file. Theme in `globals.css` `@theme inline {}` |
 | React | 19.2.3 | |
 
-Autres : Stripe 20.4.1, Three.js, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthropic-ai/sdk, playwright, nodemailer, DeepL (HTTP direct).
+Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthropic-ai/sdk, playwright, nodemailer, DeepL (HTTP direct).
 `serverExternalPackages: ["pdfkit", "sharp", "exceljs"]` dans `next.config.ts`. Path alias: `@/*` → `./*`.
 
 ## Gotchas critiques
@@ -104,7 +106,7 @@ Autres : Stripe 20.4.1, Three.js, Recharts, bcryptjs (12 rounds), pdfkit, excelj
 - **Dropdowns** : toujours `CustomSelect`, jamais `<select>` natif
 - **UI context** : `useConfirm()` de ConfirmDialog, `useToast()` de Toast — pas de default import
 - **Fonts** : `var(--font-poppins)` headings, `var(--font-roboto)` body
-- **Admin dark mode** : `bg-bg-primary`, `text-text-primary`, `border-border` — jamais `bg-white` hardcode
+- **Admin dark mode** : prefer `bg-bg-primary`, `text-text-primary`, `border-border`. Hardcoded colors (`bg-white`, `text-[#1A1A1A]`, `border-[#E5E5E5]`, etc.) are auto-overridden via `.admin-dark` CSS rules in `globals.css`. For Recharts/inline styles, use CSS variables (`var(--color-bg-primary)`, `var(--color-text-primary)`, etc.)
 - **Admin forms** : blocs `bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]`
 - **Mobile-first** : touch targets min 44px, `prefers-reduced-motion` respecte
 
@@ -122,6 +124,13 @@ Autres : Stripe 20.4.1, Three.js, Recharts, bcryptjs (12 rounds), pdfkit, excelj
 ### Images
 - **Images produit** : `processProductImage()` → WebP 3 tailles (large/medium/thumb). Utiliser `getImageSrc(path, size)` pour dériver. Max 5 images par couleur
 - **PFS image sync** : `DELETE /catalog/products/{id}/image` avec body `{ color, slot }`. Upload = POST multipart (JPEG uniquement, pas WebP). Logs détaillés via `[PFS Images]` prefix
+
+### Encryption (secrets en BDD)
+- **`lib/encryption.ts`** : AES-256-GCM. Clé maître = `ENCRYPTION_KEY` (env var, base64 32 bytes)
+- **`SENSITIVE_KEYS`** dans encryption.ts = liste des clés SiteConfig chiffrées. Toute nouvelle clé sensible doit y être ajoutée
+- **Écriture** : `encryptIfSensitive(key, value)` avant `prisma.siteConfig.upsert()`
+- **Lecture** : `decryptIfSensitive(key, value)` après lecture BDD. Compatible migration progressive (valeurs en clair retournées telles quelles)
+- **Migration** : `npx tsx scripts/encrypt-secrets.ts` — chiffre les valeurs existantes, idempotent
 
 ### Caching & Security
 - **`getCachedSiteConfig(key)`** : cache unique par key. Toujours `getCached*` + `revalidateTag(tag, "default")`

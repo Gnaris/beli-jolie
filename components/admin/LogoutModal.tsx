@@ -55,7 +55,10 @@ export default function LogoutButton() {
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => signOut({ callbackUrl: "/connexion" })}
+                onClick={async () => {
+                  try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
+                  signOut({ callbackUrl: "/connexion" });
+                }}
                 className="flex-1 bg-bg-dark hover:bg-neutral-800 text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
               >
                 Se deconnecter

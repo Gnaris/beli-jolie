@@ -991,14 +991,14 @@ export async function createTag(name: string) {
     create: { name: trimmed },
     update: {},
   });
-  revalidatePath("/admin/mots-cles");
+  revalidatePath("/admin/produits");
   return tag;
 }
 
 export async function deleteTag(id: string) {
   await requireAdmin();
   await prisma.tag.delete({ where: { id } });
-  revalidatePath("/admin/mots-cles");
+  revalidatePath("/admin/produits");
   revalidatePath("/produits");
 }
 
@@ -1024,7 +1024,7 @@ export async function updateTagDirect(
     }
   }
 
-  revalidatePath("/admin/mots-cles");
+  revalidatePath("/admin/produits");
   revalidatePath("/produits");
 }
 
@@ -1076,7 +1076,7 @@ export async function updateTag(id: string, formData: FormData) {
     }
   }
 
-  revalidatePath("/admin/mots-cles");
+  revalidatePath("/admin/produits");
   revalidatePath("/produits");
 }
 

@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { authOptions } from "@/lib/auth";
+import { getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 
@@ -15,13 +16,15 @@ export default async function ClientLayout({ children }: { children: React.React
 
   if (session.user.role === "ADMIN" && !isPreview) redirect("/admin");
 
+  const shopName = await getCachedShopName();
+
   return (
     <div className="min-h-screen bg-bg-secondary flex flex-col">
-      <PublicSidebar />
+      <PublicSidebar shopName={shopName} />
       <main className={`flex-1${session.user.role === "ADMIN" ? " pb-20" : ""}`}>
         {children}
       </main>
-      <Footer />
+      <Footer shopName={shopName} />
     </div>
   );
 }

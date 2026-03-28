@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import LegalDocumentsClient from "@/components/admin/legal/LegalDocumentsClient";
+import { getCachedShopName } from "@/lib/cached-data";
 
-export const metadata: Metadata = { title: "Documents légaux — Beli & Jolie Admin" };
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return { title: `Documents légaux — ${shopName} Admin` };
+}
 
 export default async function DocumentsLegauxPage() {
   const [documents, companyInfo] = await Promise.all([

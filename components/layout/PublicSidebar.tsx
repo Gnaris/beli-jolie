@@ -51,7 +51,11 @@ interface SearchResult {
   price: number | null;
 }
 
-export default function PublicSidebar() {
+interface PublicSidebarProps {
+  shopName: string;
+}
+
+export default function PublicSidebar({ shopName }: PublicSidebarProps) {
   const t      = useTranslations("nav");
   const locale = useLocale();
 
@@ -229,16 +233,25 @@ export default function PublicSidebar() {
       >
         <div className="container-site h-16 flex items-center gap-6">
 
-          {/* Logo */}
+          {/* Mobile hamburger — LEFT on mobile */}
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="lg:hidden flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
+            aria-label="Menu"
+          >
+            <IconMenu />
+          </button>
+
+          {/* Logo — centered on mobile, left on desktop */}
           <Link
             href="/"
-            className="relative font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary tracking-tight shrink-0 group shimmer-overlay overflow-hidden"
+            className="relative font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary tracking-tight shrink-0 group shimmer-overlay overflow-hidden lg:mr-0 max-lg:absolute max-lg:left-1/2 max-lg:-translate-x-1/2"
           >
-            Beli &amp; Jolie
+            {shopName}
           </Link>
 
           {/* Desktop nav */}
-          <nav ref={navContainerRef} className="hidden md:flex items-center gap-1 flex-1 relative">
+          <nav ref={navContainerRef} className="hidden lg:flex items-center gap-1 flex-1 relative">
             {/* Sliding bubble indicator */}
             <span
               className="absolute top-0 h-full bg-bg-secondary/80 rounded-md pointer-events-none z-0"
@@ -271,7 +284,7 @@ export default function PublicSidebar() {
           </nav>
 
           {/* Search bar (desktop only) */}
-          <div ref={searchRef} className="hidden md:flex items-center relative w-72 z-20">
+          <div ref={searchRef} className="hidden lg:flex items-center relative w-72 z-20">
             <form onSubmit={handleSearchSubmit} className="w-full">
               <div className="relative">
                 <input
@@ -382,7 +395,7 @@ export default function PublicSidebar() {
 
             {/* Logged-in user */}
             {session ? (
-              <div className="hidden md:flex items-center gap-2">
+              <div className="hidden lg:flex items-center gap-2">
                 <Link href="/espace-pro" className="flex items-center gap-2.5 px-3 py-1.5 bg-bg-secondary rounded-lg border border-border-light hover:border-border-dark transition-colors">
                   <div className="w-6 h-6 rounded-full bg-bg-dark flex items-center justify-center shrink-0">
                     <span className="text-text-inverse text-[10px] font-bold font-[family-name:var(--font-roboto)]">{initials}</span>
@@ -392,7 +405,10 @@ export default function PublicSidebar() {
                   </span>
                 </Link>
                 <button
-                  onClick={() => signOut({ callbackUrl: "/" })}
+                  onClick={async () => {
+                    try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
+                    signOut({ callbackUrl: "/" });
+                  }}
                   className="flex items-center justify-center w-9 h-9 text-text-muted hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
                   aria-label={t("logout")}
                 >
@@ -402,20 +418,12 @@ export default function PublicSidebar() {
             ) : (
               <Link
                 href="/connexion"
-                className="hidden md:inline-flex btn-primary text-xs py-2 px-4"
+                className="hidden lg:inline-flex btn-primary text-xs py-2 px-4"
               >
                 {t("login")}
               </Link>
             )}
 
-            {/* Mobile hamburger */}
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="md:hidden flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
-              aria-label="Menu"
-            >
-              <IconMenu />
-            </button>
           </div>
         </div>
       </header>
@@ -424,10 +432,10 @@ export default function PublicSidebar() {
       {mobileOpen && (
         <>
           <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 md:hidden animate-fadeIn"
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 lg:hidden animate-fadeIn"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="fixed inset-y-0 right-0 w-[calc(100%-3rem)] max-w-72 bg-bg-primary z-50 md:hidden flex flex-col shadow-2xl">
+          <div className="fixed inset-y-0 left-0 w-[calc(100%-3rem)] max-w-72 bg-bg-primary z-50 lg:hidden flex flex-col shadow-2xl">
 
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
@@ -436,7 +444,7 @@ export default function PublicSidebar() {
                 onClick={() => setMobileOpen(false)}
                 className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary"
               >
-                Beli & Jolie
+                {shopName}
               </Link>
               <button
                 onClick={() => setMobileOpen(false)}
@@ -516,7 +524,11 @@ export default function PublicSidebar() {
                     </div>
                   </div>
                   <button
-                    onClick={() => { setMobileOpen(false); signOut({ callbackUrl: "/" }); }}
+                    onClick={async () => {
+                      try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
+                      setMobileOpen(false);
+                      signOut({ callbackUrl: "/" });
+                    }}
                     className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
                   >
                     <IconLogout />

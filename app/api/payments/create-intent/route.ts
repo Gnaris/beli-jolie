@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { stripe } from "@/lib/stripe";
+import { getStripeInstance } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { getCachedShopName } from "@/lib/cached-data";
 
 const CreateIntentSchema = z.object({
   addressId: z.string().min(1),
@@ -102,6 +103,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Le montant minimum est de 0,50 €." }, { status: 400 });
   }
 
+  const shopName = await getCachedShopName();
+
+  // Initialiser Stripe dynamiquement (clés DB ou env)
+  let stripe;
+  try {
+    stripe = await getStripeInstance();
+  } catch {
+    return NextResponse.json({ error: "Stripe non configuré. Contactez l'administrateur." }, { status: 503 });
+  }
+
   // Créer ou récupérer le Stripe Customer (requis pour le virement bancaire)
   let stripeCustomerId = user?.stripeCustomerId;
 
@@ -153,7 +164,7 @@ export async function POST(req: Request) {
           tvaRate: String(tvaRate),
         },
         receipt_email: user?.email ?? undefined,
-        description: `Commande Beli & Jolie — ${user?.company ?? "Client"}`,
+        description: `Commande ${shopName} — ${user?.company ?? "Client"}`,
       });
 
       console.log("[create-intent] PI créé avec carte + virement:", paymentIntent.id);
@@ -185,7 +196,7 @@ export async function POST(req: Request) {
         tvaRate: String(tvaRate),
       },
       receipt_email: user?.email ?? undefined,
-      description: `Commande Beli & Jolie — ${user?.company ?? "Client"}`,
+      description: `Commande ${shopName} — ${user?.company ?? "Client"}`,
     });
 
     console.log("[create-intent] PI créé (carte seule, fallback):", paymentIntent.id);

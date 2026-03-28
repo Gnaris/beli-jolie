@@ -1,7 +1,7 @@
 /**
  * PFS Sync Processor
  *
- * Synchronizes products from Paris Fashion Shop → Beli Jolie.
+ * Synchronizes products from Paris Fashion Shop → local catalog.
  * Strategy:
  *   1. Paginate listProducts (100/page)
  *   2. For each product, call /variants for correct weight/packQuantity
@@ -266,14 +266,14 @@ export function parsePfsCategoryRef(ref: string): string {
   const last = parts[parts.length - 1];
 
   const categoryMap: Record<string, string> = {
-    // Bijoux
+    // Produits
     EARRINGS: "Boucles d'oreilles",
     RINGS: "Bagues",
     NECKLACES: "Colliers",
     BRACELETS: "Bracelets",
     PENDANTS: "Pendentifs",
     PIERCINGS: "Piercings",
-    SETS: "Parures de bijoux",
+    SETS: "Parures / Ensembles",
     KEYRINGS: "Porte-clés",
     DISPLAYSETS: "Lots avec présentoir",
     ANKLETS: "Bracelets de cheville",
@@ -630,32 +630,33 @@ export async function findOrCreateSeason(
     await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
   }
 
-  // Check by PFS ref
-  const existingByRef = await prisma.season.findFirst({
-    where: { pfsSeasonRef: normalized },
-    select: { id: true },
+  // Check by PFS ref in SeasonPfsRef table
+  const existingByRef = await prisma.seasonPfsRef.findUnique({
+    where: { pfsRef: normalized },
+    select: { seasonId: true },
   });
   if (existingByRef) {
     // Ensure PfsMapping exists
     await prisma.pfsMapping.upsert({
       where: { type_pfsName: { type: "season", pfsName: reference.toLowerCase() } },
-      create: { type: "season", pfsName: reference.toLowerCase(), bjEntityId: existingByRef.id, bjName: labels?.fr || normalized },
-      update: { bjEntityId: existingByRef.id, bjName: labels?.fr || normalized },
+      create: { type: "season", pfsName: reference.toLowerCase(), bjEntityId: existingByRef.seasonId, bjName: labels?.fr || normalized },
+      update: { bjEntityId: existingByRef.seasonId, bjName: labels?.fr || normalized },
     }).catch(() => {});
-    seasonCache.set(normalized, existingByRef.id);
-    return existingByRef.id;
+    seasonCache.set(normalized, existingByRef.seasonId);
+    return existingByRef.seasonId;
   }
 
   // Check by name (FR label)
   const frName = labels?.fr || normalized;
   const existingByName = await prisma.season.findFirst({
     where: { name: frName },
-    select: { id: true, pfsSeasonRef: true },
+    select: { id: true, pfsRefs: { select: { pfsRef: true } } },
   });
   if (existingByName) {
-    // Set pfsSeasonRef if missing
-    if (!existingByName.pfsSeasonRef) {
-      await prisma.season.update({ where: { id: existingByName.id }, data: { pfsSeasonRef: normalized } }).catch(() => {});
+    // Add pfsRef if not already linked
+    const hasRef = existingByName.pfsRefs.some((r) => r.pfsRef === normalized);
+    if (!hasRef) {
+      await prisma.seasonPfsRef.create({ data: { seasonId: existingByName.id, pfsRef: normalized } }).catch(() => {});
     }
     // Ensure PfsMapping exists
     await prisma.pfsMapping.upsert({

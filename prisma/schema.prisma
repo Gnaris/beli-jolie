@@ -1,4 +1,4 @@
-// Prisma Schema — Beli & Jolie
+// Prisma Schema
 // Base de données MySQL
 
 generator client {
@@ -208,10 +208,21 @@ model ManufacturingCountryTranslation {
 model Season {
   id               String              @id @default(cuid())
   name             String              @unique
-  pfsSeasonRef     String?             @unique  // PFS collection reference: "PE2026", "AH2025"
   createdAt        DateTime            @default(now())
   products         Product[]
   translations     SeasonTranslation[]
+  pfsRefs          SeasonPfsRef[]
+}
+
+// Correspondances PFS pour une saison (1 saison → N refs, chaque ref unique)
+model SeasonPfsRef {
+  id        String   @id @default(cuid())
+  seasonId  String
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  pfsRef    String   @unique  // PFS collection reference: "PE2026", "AH2025" — unique across all seasons
+  createdAt DateTime @default(now())
+
+  @@index([seasonId])
 }
 
 model SeasonTranslation {
@@ -1142,6 +1153,7 @@ model PfsStagedProduct {
 
 model CompanyInfo {
   id            String   @id @default(cuid())
+  shopName      String?  // Nom commercial de la boutique (affiché partout sur le site)
   name          String   // Raison sociale
   legalForm     String?  // Forme juridique (SAS, SARL, EURL, etc.)
   capital       String?  // Capital social

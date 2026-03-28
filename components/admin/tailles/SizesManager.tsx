@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { createSize, updateSize, deleteSize, toggleSizePfsMapping } from "@/app/actions/admin/sizes";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
@@ -28,7 +29,7 @@ export default function SizesManager({
   initialSizes: SizeItem[];
   categories: CategoryOption[];
 }) {
-  const [sizes, setSizes] = useState(initialSizes);
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { confirm } = useConfirm();
   const toast = useToast();
@@ -57,6 +58,10 @@ export default function SizesManager({
 
   function handleCreate() {
     if (!newName.trim()) return;
+    if (newPfsSizeRefs.size === 0) {
+      toast.error("La correspondance PFS est requise. Sélectionnez au moins une taille PFS.");
+      return;
+    }
     const selectedPfsRefs = [...newPfsSizeRefs];
     startTransition(async () => {
       try {
@@ -66,10 +71,9 @@ export default function SizesManager({
           await toggleSizePfsMapping(created.id, ref);
         }
         setNewName("");
-        setNewCategoryIds([]);
         setNewPfsSizeRefs(new Set());
         toast.success(`Taille « ${newName.trim()} » créée.`);
-        window.location.reload();
+        router.refresh();
       } catch (err: unknown) {
         toast.error((err as Error).message);
       }
@@ -89,7 +93,7 @@ export default function SizesManager({
         await updateSize(editId, editName, editCategoryIds);
         setEditId(null);
         toast.success("Taille mise à jour.");
-        window.location.reload();
+        router.refresh();
       } catch (err: unknown) {
         toast.error((err as Error).message);
       }
@@ -107,8 +111,8 @@ export default function SizesManager({
     startTransition(async () => {
       try {
         await deleteSize(size.id);
-        setSizes((prev) => prev.filter((s) => s.id !== size.id));
         toast.success("Taille supprimée.");
+        router.refresh();
       } catch (err: unknown) {
         toast.error((err as Error).message);
       }
@@ -155,26 +159,11 @@ export default function SizesManager({
             <p className="text-xs text-text-secondary mb-2 font-[family-name:var(--font-roboto)]">
               Associer aux catégories :
             </p>
-            <div className="flex flex-wrap gap-2">
-              {categories.map((cat) => (
-                <label
-                  key={cat.id}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-sm transition-colors ${
-                    newCategoryIds.includes(cat.id)
-                      ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                      : "bg-bg-secondary text-text-primary border-border hover:border-[#1A1A1A]"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={newCategoryIds.includes(cat.id)}
-                    onChange={() => toggleCategory(cat.id, newCategoryIds, setNewCategoryIds)}
-                    className="sr-only"
-                  />
-                  {cat.name}
-                </label>
-              ))}
-            </div>
+            <CategoryPicker
+              categories={categories}
+              selected={newCategoryIds}
+              onToggle={(catId) => toggleCategory(catId, newCategoryIds, setNewCategoryIds)}
+            />
           </div>
         )}
 
@@ -184,7 +173,7 @@ export default function SizesManager({
             <p className="text-xs font-semibold text-text-secondary font-[family-name:var(--font-roboto)] uppercase tracking-wider">
               Mapping Marketplaces
             </p>
-            <span className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)]">Optionnel</span>
+            <span className="text-[10px] text-[#EF4444] font-semibold font-[family-name:var(--font-roboto)]">Requis *</span>
           </div>
           <div className="p-4">
             <p className="text-xs font-medium text-text-primary font-[family-name:var(--font-roboto)] mb-2 flex items-center gap-1.5">
@@ -233,11 +222,11 @@ export default function SizesManager({
       <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
           <h2 className="text-sm font-semibold text-text-primary font-[family-name:var(--font-poppins)]">
-            Tailles existantes ({sizes.length})
+            Tailles existantes ({initialSizes.length})
           </h2>
         </div>
 
-        {sizes.length === 0 ? (
+        {initialSizes.length === 0 ? (
           <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] p-6">
             Aucune taille créée.
           </p>
@@ -251,26 +240,11 @@ export default function SizesManager({
               className="field-input w-full"
               onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
             />
-            <div className="flex flex-wrap gap-2">
-              {categories.map((cat) => (
-                <label
-                  key={cat.id}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-xs transition-colors ${
-                    editCategoryIds.includes(cat.id)
-                      ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                      : "bg-bg-primary text-text-primary border-border hover:border-[#1A1A1A]"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={editCategoryIds.includes(cat.id)}
-                    onChange={() => toggleCategory(cat.id, editCategoryIds, setEditCategoryIds)}
-                    className="sr-only"
-                  />
-                  {cat.name}
-                </label>
-              ))}
-            </div>
+            <CategoryPicker
+              categories={categories}
+              selected={editCategoryIds}
+              onToggle={(catId) => toggleCategory(catId, editCategoryIds, setEditCategoryIds)}
+            />
             <div className="flex gap-2">
               <button onClick={handleUpdate} disabled={isPending} className="btn-primary text-xs">
                 Enregistrer
@@ -292,7 +266,7 @@ export default function SizesManager({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {sizes.map((size) => (
+                {initialSizes.map((size) => (
                   <tr key={size.id} className="hover:bg-bg-secondary/50 transition-colors">
                     <td className="px-4 py-3">
                       <span className="font-medium text-text-primary font-[family-name:var(--font-poppins)]">{size.name}</span>
@@ -352,5 +326,100 @@ export default function SizesManager({
       </div>
 
     </>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Searchable, scrollable category picker
+   ───────────────────────────────────────────── */
+
+function CategoryPicker({
+  categories,
+  selected,
+  onToggle,
+}: {
+  categories: CategoryOption[];
+  selected: string[];
+  onToggle: (catId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = search.trim()
+    ? categories.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : categories;
+
+  // Show selected first, then unselected
+  const sorted = [...filtered].sort((a, b) => {
+    const aSelected = selected.includes(a.id) ? 0 : 1;
+    const bSelected = selected.includes(b.id) ? 0 : 1;
+    return aSelected - bSelected || a.name.localeCompare(b.name);
+  });
+
+  return (
+    <div className="border border-border rounded-xl overflow-hidden">
+      {/* Search */}
+      {categories.length > 8 && (
+        <div className="px-3 py-2 border-b border-border bg-bg-secondary">
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0Z" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher une catégorie…"
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-lg bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Scrollable list */}
+      <div className="max-h-48 overflow-y-auto p-2 space-y-0.5">
+        {sorted.length === 0 ? (
+          <p className="text-xs text-text-muted text-center py-3 font-[family-name:var(--font-roboto)]">Aucune catégorie trouvée</p>
+        ) : (
+          sorted.map((cat) => {
+            const isChecked = selected.includes(cat.id);
+            return (
+              <label
+                key={cat.id}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer text-xs transition-colors font-[family-name:var(--font-roboto)] ${
+                  isChecked
+                    ? "bg-[#1A1A1A] text-white"
+                    : "text-text-primary hover:bg-bg-secondary"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => onToggle(cat.id)}
+                  className="sr-only"
+                />
+                <span className={`flex items-center justify-center w-4 h-4 rounded border shrink-0 transition-colors ${
+                  isChecked ? "bg-white border-white" : "border-border bg-bg-primary"
+                }`}>
+                  {isChecked && (
+                    <svg className="w-2.5 h-2.5 text-[#1A1A1A]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </span>
+                <span className="truncate">{cat.name}</span>
+              </label>
+            );
+          })
+        )}
+      </div>
+
+      {/* Footer: count */}
+      {selected.length > 0 && (
+        <div className="px-3 py-1.5 border-t border-border bg-bg-secondary">
+          <p className="text-[10px] text-text-secondary font-[family-name:var(--font-roboto)]">
+            {selected.length} catégorie{selected.length > 1 ? "s" : ""} sélectionnée{selected.length > 1 ? "s" : ""}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }

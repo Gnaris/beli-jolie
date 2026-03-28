@@ -55,7 +55,7 @@ export default function Error({
         {/* Logo */}
         <div className="mb-10">
           <span className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-white tracking-tight">
-            Beli &amp; Jolie
+            Notre site
           </span>
         </div>
 

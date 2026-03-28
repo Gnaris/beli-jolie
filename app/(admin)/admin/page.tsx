@@ -119,7 +119,7 @@ export default async function AdminDashboardPage() {
             Bonjour, {session.user.name?.split(" ")[0] ?? "Admin"} 👋
           </h1>
           <p className="font-[family-name:var(--font-roboto)] text-[rgba(255,255,255,0.6)] text-sm mt-1">
-            Tableau de bord — Beli &amp; Jolie Administration
+            Tableau de bord — Administration
           </p>
         </div>
       </div>

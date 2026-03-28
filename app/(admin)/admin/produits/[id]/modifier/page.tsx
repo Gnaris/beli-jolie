@@ -29,7 +29,7 @@ export default async function ModifierProduitPage({
       include: {
         category: true,
         manufacturingCountry: true,
-        season: true,
+        season: { include: { pfsRefs: { select: { pfsRef: true } } } },
         colors: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
           include: {
@@ -241,7 +241,7 @@ export default async function ModifierProduitPage({
   if (product.manufacturingCountry && !product.manufacturingCountry.pfsCountryRef) {
     mappingIssues.push(`Pays "${product.manufacturingCountry.name}" non mappé`);
   }
-  if (product.season && !product.season.pfsSeasonRef) {
+  if (product.season && product.season.pfsRefs.length === 0) {
     mappingIssues.push(`Saison "${product.season.name}" non mappée`);
   }
 
@@ -280,6 +280,20 @@ export default async function ModifierProduitPage({
               <div className="flex items-center gap-3 mt-1 flex-wrap">
                 <p className="text-base text-text-muted font-[family-name:var(--font-roboto)]">
                   Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
+                </p>
+                <span className="hidden sm:block h-4 w-px bg-border" />
+                <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                  Créé le{" "}
+                  <span className="text-text-secondary">
+                    {product.createdAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
+                  </span>
+                </p>
+                <span className="hidden sm:block h-4 w-px bg-border" />
+                <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                  Modifié le{" "}
+                  <span className="text-text-secondary">
+                    {product.updatedAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
                 </p>
                 <PfsSyncButton
                   productId={product.id}

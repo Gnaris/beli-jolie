@@ -35,8 +35,7 @@ export async function createSize(name: string, categoryIds: string[]) {
     },
   });
 
-  revalidatePath("/admin/tailles");
-  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
   revalidateTag("sizes", "default");
 
   return { id: created.id, name: created.name };
@@ -67,8 +66,7 @@ export async function updateSize(
     ),
   ]);
 
-  revalidatePath("/admin/tailles");
-  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
   revalidateTag("sizes", "default");
 }
 
@@ -86,7 +84,7 @@ export async function deleteSize(id: string) {
   }
 
   await prisma.size.delete({ where: { id } });
-  revalidatePath("/admin/tailles");
+  revalidatePath("/admin/produits");
   revalidateTag("sizes", "default");
 }
 
@@ -132,6 +130,6 @@ export async function reorderSizes(orderedIds: string[]) {
     )
   );
 
-  revalidatePath("/admin/tailles");
+  revalidatePath("/admin/produits");
   revalidateTag("sizes", "default");
 }

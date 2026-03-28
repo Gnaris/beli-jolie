@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { getCachedSiteConfig, getCachedProductCount } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedProductCount, getCachedShopName } from "@/lib/cached-data";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 import FloatingGems from "@/components/ui/FloatingGems";
 
@@ -10,10 +10,11 @@ export const metadata: Metadata = {
 };
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
-  const [config, cookieStore, productCount] = await Promise.all([
+  const [config, cookieStore, productCount, shopName] = await Promise.all([
     getCachedSiteConfig("maintenance_mode"),
     cookies(),
     getCachedProductCount(),
+    getCachedShopName(),
   ]);
   const currentLocale = cookieStore.get("bj_locale")?.value ?? "fr";
   const inMaintenance = config?.value === "true";
@@ -56,7 +57,7 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border lg:hidden">
         <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-bold text-text-primary animate-blur-in">
-          Beli & Jolie
+          {shopName}
         </Link>
         <LanguageSwitcher currentLocale={currentLocale} />
       </div>
@@ -74,22 +75,22 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
 
           <div className="relative z-10">
             <Link href="/" className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-white animate-blur-in">
-              Beli <span className="text-white/40">&</span> Jolie
+              {shopName}
             </Link>
           </div>
 
           <div className="relative z-10 space-y-6">
             <h2 className="font-[family-name:var(--font-poppins)] text-3xl xl:text-4xl font-semibold text-white leading-tight">
               Votre partenaire<br />
-              <span className="text-white/50">bijoux B2B</span>
+              <span className="text-white/50">grossiste B2B</span>
             </h2>
             <p className="text-white/40 text-sm leading-relaxed font-[family-name:var(--font-roboto)] max-w-xs">
-              Accédez à notre catalogue de bijoux en acier inoxydable. Prix grossiste, livraison rapide, qualité premium.
+              Accédez à notre catalogue de produits. Prix grossiste, livraison rapide, qualité premium.
             </p>
             <div className="flex gap-8 pt-4">
               {[
                 { value: formattedCount, label: "Références" },
-                { value: "100%", label: "Acier inox" },
+                { value: "100%", label: "Qualité pro" },
                 { value: "B2B", label: "Professionnel" },
               ].map((stat) => (
                 <div key={stat.label}>

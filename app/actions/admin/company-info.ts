@@ -11,6 +11,7 @@ async function requireAdmin() {
 }
 
 export interface CompanyInfoData {
+  shopName?: string;
   name: string;
   legalForm?: string;
   capital?: string;
@@ -51,6 +52,7 @@ export async function updateCompanyInfo(
       await prisma.companyInfo.update({
         where: { id: existing.id },
         data: {
+          shopName: data.shopName?.trim() || null,
           name: data.name.trim(),
           legalForm: data.legalForm?.trim() || null,
           capital: data.capital?.trim() || null,
@@ -74,6 +76,7 @@ export async function updateCompanyInfo(
     } else {
       await prisma.companyInfo.create({
         data: {
+          shopName: data.shopName?.trim() || null,
           name: data.name.trim(),
           legalForm: data.legalForm?.trim() || null,
           capital: data.capital?.trim() || null,

@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
     margins: { top: 60, bottom: 60, left: 50, right: 50 },
     info: {
       Title: doc.title,
-      Author: companyInfo?.name || "Beli & Jolie",
+      Author: companyInfo?.shopName || companyInfo?.name || "Ma Boutique",
       Subject: doc.title,
       CreationDate: new Date(),
     },
@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Footer
-  const companyName = companyInfo?.name || "Beli & Jolie";
+  const companyName = companyInfo?.shopName || companyInfo?.name || "Ma Boutique";
   pdfDoc.moveDown(2);
   pdfDoc
     .strokeColor("#E5E5E5")

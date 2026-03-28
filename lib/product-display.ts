@@ -2,63 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { getCachedSiteConfig } from "@/lib/cached-data";
 import { unstable_cache } from "next/cache";
 
-// ─── Types ──────────────────────────────────────────────────────────────────────
+// Re-export shared types & constants (safe for client imports via product-display-shared.ts)
+export type { DisplaySectionType, DisplaySection, CarouselType, HomepageCarousel, ProductDisplayConfig } from "@/lib/product-display-shared";
+export { DEFAULT_CAROUSEL_IDS, DEFAULT_CAROUSELS, DEFAULT_CONFIG, ensureDefaultCarousels, parseDisplayConfig } from "@/lib/product-display-shared";
 
-export type DisplaySectionType = "new" | "bestseller" | "category" | "collection" | "tag" | "random";
-
-export type DisplaySection = {
-  id: string;
-  type: DisplaySectionType;
-  quantity: number;
-  categoryId?: string;
-  categoryName?: string;
-  sortBy?: "new" | "bestseller" | "random";
-  collectionIds?: string[];
-  collectionNames?: string[];
-  tagId?: string;
-  tagName?: string;
-};
-
-export type HomepageCarousel = {
-  id: string;
-  type: Exclude<DisplaySectionType, "random">;
-  title: string;
-  quantity: number;
-  categoryId?: string;
-  categoryName?: string;
-  collectionIds?: string[];
-  collectionNames?: string[];
-  tagId?: string;
-  tagName?: string;
-};
-
-export type ProductDisplayConfig = {
-  catalogMode: "date" | "custom";
-  sections: DisplaySection[];
-  homepageCarousels: HomepageCarousel[];
-};
-
-export const DEFAULT_CONFIG: ProductDisplayConfig = {
-  catalogMode: "date",
-  sections: [],
-  homepageCarousels: [],
-};
-
-// ─── Config parsing ─────────────────────────────────────────────────────────────
-
-export function parseDisplayConfig(value: string | null | undefined): ProductDisplayConfig {
-  if (!value) return DEFAULT_CONFIG;
-  try {
-    const parsed = JSON.parse(value);
-    return {
-      catalogMode: parsed.catalogMode === "custom" ? "custom" : "date",
-      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
-      homepageCarousels: Array.isArray(parsed.homepageCarousels) ? parsed.homepageCarousels : [],
-    };
-  } catch {
-    return DEFAULT_CONFIG;
-  }
-}
+import type { ProductDisplayConfig, HomepageCarousel } from "@/lib/product-display-shared";
+import { parseDisplayConfig } from "@/lib/product-display-shared";
 
 // ─── Seeded random (deterministic daily shuffle) ────────────────────────────────
 
@@ -275,9 +224,31 @@ export async function fetchCarouselProducts(
       return products.slice(0, carousel.quantity);
     }
 
+    case "promo":
+      return prisma.product.findMany({
+        where: {
+          status: "ONLINE",
+          colors: { some: { discountType: { not: null }, discountValue: { gt: 0 } } },
+        },
+        orderBy: { updatedAt: "desc" },
+        take: carousel.quantity,
+        select: CAROUSEL_SELECT,
+      });
+
     case "category":
       return prisma.product.findMany({
         where: { status: "ONLINE", categoryId: carousel.categoryId },
+        orderBy: { createdAt: "desc" },
+        take: carousel.quantity,
+        select: CAROUSEL_SELECT,
+      });
+
+    case "subcategory":
+      return prisma.product.findMany({
+        where: {
+          status: "ONLINE",
+          subCategories: { some: { id: carousel.subCategoryId } },
+        },
         orderBy: { createdAt: "desc" },
         take: carousel.quantity,
         select: CAROUSEL_SELECT,
@@ -303,6 +274,19 @@ export async function fetchCarouselProducts(
         select: CAROUSEL_SELECT,
       });
 
+    case "custom": {
+      if (!carousel.productIds?.length) return [];
+      const products = await prisma.product.findMany({
+        where: { id: { in: carousel.productIds }, status: "ONLINE" },
+        select: CAROUSEL_SELECT,
+      });
+      // Preserve manual order
+      const orderMap = new Map(carousel.productIds.map((id, i) => [id, i]));
+      products.sort((a, b) => (orderMap.get(a.id) ?? 999) - (orderMap.get(b.id) ?? 999));
+      return products;
+    }
+
+    // "reassort" is handled separately in homepage (needs userId)
     default:
       return [];
   }

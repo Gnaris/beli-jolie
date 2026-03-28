@@ -5,6 +5,18 @@ import type { Metadata } from "next";
 import AdminProductsFilters from "@/components/admin/products/AdminProductsFilters";
 import AdminProductsTable from "@/components/admin/products/AdminProductsTable";
 import AdminPagination from "@/components/admin/products/AdminPagination";
+import ProductsPageTabs from "@/components/admin/products/ProductsPageTabs";
+import { getCachedAdminWarnings } from "@/lib/cached-data";
+
+// Attribute managers
+import CategoriesManager from "@/components/admin/categories/SubCategoryList";
+import EntityCreateButton from "@/components/admin/EntityCreateButton";
+import ColorsManager from "@/components/admin/couleurs/ColorsManager";
+import CompositionsManager from "@/components/admin/compositions/CompositionsManager";
+import ManufacturingCountriesManager from "@/components/admin/manufacturing-countries/ManufacturingCountriesManager";
+import SeasonsManager from "@/components/admin/seasons/SeasonsManager";
+import SizesManager from "@/components/admin/tailles/SizesManager";
+import TagsManager from "@/app/(admin)/admin/mots-cles/TagsManager";
 
 export const metadata: Metadata = {
   title: "Produits",
@@ -12,6 +24,7 @@ export const metadata: Metadata = {
 
 interface PageProps {
   searchParams: Promise<{
+    tab?: string;
     q?: string;
     exactRef?: string;
     page?: string;
@@ -26,7 +39,56 @@ interface PageProps {
   }>;
 }
 
+const VALID_TABS = ["produits", "categories", "couleurs", "compositions", "pays", "saisons", "tailles", "mots-cles"] as const;
+type TabKey = (typeof VALID_TABS)[number];
+
 export default async function ProduitsPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const activeTab = (VALID_TABS.includes(params.tab as TabKey) ? params.tab : "produits") as TabKey;
+
+  // Warning counts for tab badges
+  const {
+    untranslatedCount,
+    unusedColorsCount,
+    unusedCompositionsCount,
+    unusedTagsCount,
+    untranslatedCategoriesCount,
+    untranslatedSubCategoriesCount,
+  } = await getCachedAdminWarnings();
+
+  const tabWarnings: Record<string, number> = {};
+  if (untranslatedCount > 0) tabWarnings["produits"] = untranslatedCount;
+  if (unusedColorsCount > 0) tabWarnings["couleurs"] = unusedColorsCount;
+  if (unusedCompositionsCount > 0) tabWarnings["compositions"] = unusedCompositionsCount;
+  if (unusedTagsCount > 0) tabWarnings["mots-cles"] = unusedTagsCount;
+  if (untranslatedCategoriesCount + untranslatedSubCategoriesCount > 0) tabWarnings["categories"] = untranslatedCategoriesCount + untranslatedSubCategoriesCount;
+
+  return (
+    <div className="space-y-6">
+      {/* Tab bar */}
+      <div className="border-b border-border">
+        <Suspense>
+          <ProductsPageTabs activeTab={activeTab} warnings={tabWarnings} />
+        </Suspense>
+      </div>
+
+      {/* Tab content */}
+      {activeTab === "produits" && <ProduitsContent params={params} />}
+      {activeTab === "categories" && <CategoriesContent />}
+      {activeTab === "couleurs" && <CouleursContent />}
+      {activeTab === "compositions" && <CompositionsContent />}
+      {activeTab === "pays" && <PaysContent />}
+      {activeTab === "saisons" && <SaisonsContent />}
+      {activeTab === "tailles" && <TaillesContent />}
+      {activeTab === "mots-cles" && <MotsClesContent />}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB: Produits
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function ProduitsContent({ params }: { params: Record<string, string | undefined> }) {
   const {
     q = "",
     exactRef: exactRefParam,
@@ -39,7 +101,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     dateFrom = "",
     dateTo = "",
     stockBelow: stockBelowParam = "",
-  } = await searchParams;
+  } = params;
 
   const exactRef   = exactRefParam === "1";
   const currentPage = Math.max(1, parseInt(pageParam));
@@ -47,7 +109,6 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const minPrice    = minPriceParam ? parseFloat(minPriceParam) : null;
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
 
-  // ─── Build where clause ─────────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: Record<string, any> = {};
 
@@ -85,11 +146,9 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
 
   const stockBelow = stockBelowParam ? parseInt(stockBelowParam) : null;
   if (stockBelow !== null && !isNaN(stockBelow)) {
-    // Products that have at least one variant with stock <= threshold
     where.colors = { ...where.colors, some: { ...where.colors?.some, stock: { lte: stockBelow } } };
   }
 
-  // ─── Fetch data ─────────────────────────────────────────────────────────────
   const [products, totalCount, categories] = await Promise.all([
     prisma.product.findMany({
       where,
@@ -123,7 +182,6 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
-  // First images for each product
   const productIds = products.map((p) => p.id);
   const firstImages = productIds.length > 0
     ? await prisma.productColorImage.findMany({
@@ -139,7 +197,6 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
 
   const totalPages = Math.ceil(totalCount / perPage);
 
-  // Serialize for client component
   const serializedProducts = products.map((p) => ({
     id:              p.id,
     reference:       p.reference,
@@ -170,7 +227,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   }));
 
   return (
-    <div className="space-y-6">
+    <>
       {/* En-tête */}
       <div className="flex items-center justify-between">
         <div>
@@ -195,14 +252,14 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      {/* Filtres + quantité par page */}
+      {/* Filtres */}
       <div className="card px-4 py-3">
         <Suspense>
           <AdminProductsFilters totalCount={totalCount} categories={categories} />
         </Suspense>
       </div>
 
-      {/* Tableau interactif */}
+      {/* Tableau */}
       <AdminProductsTable products={serializedProducts} totalCount={totalCount} />
 
       {/* Pagination */}
@@ -216,6 +273,312 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
           </Suspense>
         </div>
       )}
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB: Catégories
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function CategoriesContent() {
+  const categories = await prisma.category.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      subCategories: {
+        orderBy: { name: "asc" },
+        include: { translations: true },
+      },
+      translations: true,
+      _count: { select: { products: true } },
+    },
+  });
+
+  // Resolve PFS category names (best-effort, don't block if PFS is down)
+  let pfsCategoryNames: Record<string, string> = {};
+  const pfsCategoryIds = categories.map((c) => c.pfsCategoryId).filter(Boolean) as string[];
+  if (pfsCategoryIds.length > 0) {
+    try {
+      const { pfsGetCategories } = await import("@/lib/pfs-api-write");
+      const pfsCategories = await pfsGetCategories();
+      pfsCategoryNames = Object.fromEntries(
+        pfsCategories.map((pc) => [pc.id, pc.labels?.fr || pc.labels?.en || pc.id])
+      );
+    } catch {
+      // PFS unavailable — fall back to showing IDs
+    }
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-8">
+      <div>
+        <h1 className="page-title">Catégories &amp; sous-catégories</h1>
+        <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+          Organisez votre catalogue produits
+        </p>
+      </div>
+
+      <div className="bg-bg-primary border border-border rounded-xl p-5 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-text-primary font-[family-name:var(--font-poppins)]">Nouvelle catégorie</p>
+          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+            Saisissez le nom dans toutes les langues souhaitées.
+          </p>
+        </div>
+        <EntityCreateButton type="category" label="+ Créer une catégorie" />
+      </div>
+
+      <CategoriesManager
+        categories={categories.map((c) => ({
+          id: c.id,
+          name: c.name,
+          pfsCategoryId: c.pfsCategoryId,
+          pfsGender: c.pfsGender,
+          pfsFamilyId: c.pfsFamilyId,
+          productCount: c._count.products,
+          translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
+          subCategories: c.subCategories.map((s) => ({
+            id: s.id,
+            name: s.name,
+            translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
+          })),
+        }))}
+        pfsCategoryNames={pfsCategoryNames}
+      />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB: Couleurs
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function CouleursContent() {
+  const colors = await prisma.color.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      _count: { select: { productColors: true } },
+      translations: true,
+    },
+  });
+
+  const colorItems = colors.map((c) => ({
+    id: c.id,
+    name: c.name,
+    hex: c.hex,
+    patternImage: c.patternImage,
+    pfsColorRef: c.pfsColorRef,
+    productCount: c._count.productColors,
+    translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
+  }));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="page-title">Bibliothèque de couleurs</h1>
+          <p className="page-subtitle">
+            Créez les couleurs ici, puis assignez-les à vos produits.
+          </p>
+        </div>
+        <EntityCreateButton type="color" label="+ Créer une couleur" />
+      </div>
+
+      <section className="space-y-3">
+        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
+          Couleurs ({colors.length})
+        </h2>
+        <ColorsManager initialColors={colorItems} />
+      </section>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB: Compositions
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function CompositionsContent() {
+  const compositions = await prisma.composition.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      _count: { select: { products: true } },
+      translations: true,
+    },
+  });
+
+  const compositionItems = compositions.map((c) => ({
+    id: c.id,
+    name: c.name,
+    pfsCompositionRef: c.pfsCompositionRef,
+    productCount: c._count.products,
+    translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
+  }));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="page-title">Bibliothèque de compositions</h1>
+          <p className="page-subtitle">
+            Créez les mat��riaux et compositions — ils seront assignables aux produits avec un pourcentage.
+          </p>
+        </div>
+        <EntityCreateButton type="composition" label="+ Créer une composition" />
+      </div>
+
+      <CompositionsManager initialCompositions={compositionItems} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB: Pays de fabrication
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function PaysContent() {
+  const countries = await prisma.manufacturingCountry.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      _count: { select: { products: true } },
+      translations: true,
+    },
+  });
+
+  const countryItems = countries.map((c) => ({
+    id: c.id,
+    name: c.name,
+    isoCode: c.isoCode,
+    pfsCountryRef: c.pfsCountryRef,
+    productCount: c._count.products,
+    translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
+  }));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="page-title">Pays de fabrication</h1>
+          <p className="page-subtitle">
+            Gérez les pays de fabrication de vos produits.
+          </p>
+        </div>
+        <EntityCreateButton type="country" label="+ Créer un pays" />
+      </div>
+
+      <ManufacturingCountriesManager initialCountries={countryItems} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB: Saisons
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function SaisonsContent() {
+  const seasons = await prisma.season.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      _count: { select: { products: true } },
+      translations: true,
+      pfsRefs: { select: { pfsRef: true } },
+    },
+  });
+
+  const seasonItems = seasons.map((s) => ({
+    id: s.id,
+    name: s.name,
+    pfsRefs: s.pfsRefs.map((r) => r.pfsRef),
+    productCount: s._count.products,
+    translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
+  }));
+
+  const allUsedPfsRefs = seasonItems.flatMap((s) => s.pfsRefs);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="page-title">Saisons</h1>
+          <p className="page-subtitle">
+            Gérez les saisons / collections de vos produits (ex: Printemps/Été 2026).
+          </p>
+        </div>
+        <EntityCreateButton type="season" label="+ Créer une saison" usedPfsRefs={allUsedPfsRefs} />
+      </div>
+
+      <SeasonsManager initialSeasons={seasonItems} allUsedPfsRefs={allUsedPfsRefs} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB: Tailles
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function TaillesContent() {
+  const [sizes, categories] = await Promise.all([
+    prisma.size.findMany({
+      orderBy: { position: "asc" },
+      include: {
+        categories: {
+          include: { category: { select: { id: true, name: true } } },
+        },
+        _count: { select: { variantSizes: true } },
+      },
+    }),
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const sizeItems = sizes.map((s) => ({
+    id: s.id,
+    name: s.name,
+    position: s.position,
+    variantCount: s._count.variantSizes,
+    categoryIds: s.categories.map((c) => c.category.id),
+    categoryNames: s.categories.map((c) => c.category.name),
+  }));
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="page-title">Gestion des tailles</h1>
+        <p className="page-subtitle">
+          Créez les tailles et associez-les aux catégories de produits.
+        </p>
+      </div>
+
+      <SizesManager initialSizes={sizeItems} categories={categories} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB: Mots clés
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function MotsClesContent() {
+  const tags = await prisma.tag.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      _count: { select: { products: true } },
+      translations: true,
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="page-title">Mots clés</h1>
+        <p className="page-subtitle">
+          Gérez les mots clés réutilisables sur plusieurs produits.
+        </p>
+      </div>
+
+      <TagsManager
+        initialTags={tags.map((t) => ({
+          id: t.id,
+          name: t.name,
+          productCount: t._count.products,
+          translations: Object.fromEntries(t.translations.map((tr) => [tr.locale, tr.name])),
+        }))}
+      />
     </div>
   );
 }

@@ -208,7 +208,7 @@ export async function GET(
     for (const mat of refDetails.product.material_composition) {
       const frName = mat.labels?.fr || mat.reference;
       try {
-        const compositionId = await findOrCreateComposition(frName, mat.labels) ?? "";
+        const compositionId = await findOrCreateComposition(frName, mat.labels, mat.reference) ?? "";
         pfsCompositions.push({ compositionId, name: frName, percentage: mat.percentage, pfsRef: mat.reference });
       } catch {
         pfsCompositions.push({ compositionId: "", name: frName, percentage: mat.percentage, pfsRef: mat.reference });
@@ -257,6 +257,7 @@ export async function GET(
     discountValue: number | null;
     pfsColorRef: string | null;
     pfsColorRefLabel: string | null;
+    pfsVariantId: string | null;
   }> = [];
 
   // Detect default color
@@ -304,6 +305,7 @@ export async function GET(
         discountValue,
         pfsColorRef: v.item.color.reference,
         pfsColorRefLabel: v.item.color.labels?.fr ?? pfsColorLabelMap.get(v.item.color.reference) ?? null,
+        pfsVariantId: v.id,
       });
     } else if (v.type === "PACK" && v.packs && v.packs.length > 0) {
       const pack = v.packs[0];
@@ -336,6 +338,7 @@ export async function GET(
         discountValue,
         pfsColorRef: pack.color.reference,
         pfsColorRefLabel: pack.color.labels?.fr ?? pfsColorLabelMap.get(pack.color.reference) ?? null,
+        pfsVariantId: v.id,
       });
     }
   }
@@ -615,10 +618,11 @@ export async function GET(
     differences.push({ field: "category", pfsValue: pfsFormatted.categoryName, bjValue: bjFormatted.categoryName });
   }
   // Compare compositions: sort by name+percentage to avoid order-dependent false positives
-  const sortComps = (comps: Array<{ compositionId: string; name: string; percentage: number }>) =>
+  // Compare only by name+percentage, NOT compositionId (may differ between BJ and PFS lookup)
+  const sortComps = (comps: Array<{ name: string; percentage: number }>) =>
     [...comps].sort((a, b) => a.name.localeCompare(b.name) || a.percentage - b.percentage);
-  const bjCompsNorm = sortComps(bjFormatted.compositions.map(c => ({ compositionId: c.compositionId, name: c.name.trim(), percentage: c.percentage })));
-  const pfsCompsNorm = sortComps(pfsFormatted.compositions.map(c => ({ compositionId: c.compositionId, name: c.name.trim(), percentage: c.percentage })));
+  const bjCompsNorm = sortComps(bjFormatted.compositions.map(c => ({ name: c.name.trim().toLowerCase(), percentage: c.percentage })));
+  const pfsCompsNorm = sortComps(pfsFormatted.compositions.map(c => ({ name: c.name.trim().toLowerCase(), percentage: c.percentage })));
   if (JSON.stringify(bjCompsNorm) !== JSON.stringify(pfsCompsNorm) && pfsFormatted.compositions.length > 0) {
     differences.push({ field: "compositions", pfsValue: pfsFormatted.compositions, bjValue: bjFormatted.compositions });
   }

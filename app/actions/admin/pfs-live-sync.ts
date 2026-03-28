@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { revalidateTag } from "next/cache";
 import { emitProductEvent } from "@/lib/product-events";
 import { syncProductToPfs, stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
+import { pfsDeleteVariant } from "@/lib/pfs-api-write";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -25,7 +26,7 @@ interface LiveSyncSelections {
   compositions: "bj" | "pfs";
   season?: "bj" | "pfs";
   manufacturingCountry?: "bj" | "pfs";
-  variants: Record<string, "bj" | "pfs" | "add">;
+  variants: Record<string, "bj" | "pfs" | "add" | "delete_pfs">;
 }
 
 interface PfsVariantData {
@@ -40,6 +41,7 @@ interface PfsVariantData {
   isPrimary: boolean;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
+  pfsVariantId?: string | null;
 }
 
 interface PfsCompositionData {
@@ -172,6 +174,20 @@ export async function applyPfsLiveSync(
       const pfsVariant = pfsData.variants.find(
         (v) => v.colorId === colorId && v.saleType === saleType
       );
+
+      if (action === "delete_pfs") {
+        if (pfsVariant?.pfsVariantId) {
+          try {
+            await pfsDeleteVariant(pfsVariant.pfsVariantId);
+            console.log(`[PFS_LIVE_SYNC] Deleted PFS variant ${pfsVariant.pfsVariantId} (${pfsVariant.colorName})`);
+            changesApplied++;
+          } catch (err) {
+            console.error(`[PFS_LIVE_SYNC] Failed to delete PFS variant ${pfsVariant.pfsVariantId}:`, err);
+          }
+        }
+        continue;
+      }
+
       if (!pfsVariant || !pfsVariant.colorId) continue;
 
       if (action === "pfs") {

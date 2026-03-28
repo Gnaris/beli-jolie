@@ -4,9 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef } from "@/app/actions/admin/compositions";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
-import EntityEditModal from "@/components/admin/EntityEditModal";
+import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
-import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface CompositionItem {
@@ -25,7 +24,6 @@ export default function CompositionsManager({
   const router = useRouter();
   const { confirm } = useConfirm();
   const [editTarget, setEditTarget] = useState<CompositionItem | null>(null);
-  const [editPfsRef, setEditPfsRef] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -37,7 +35,6 @@ export default function CompositionsManager({
   function openEdit(comp: CompositionItem) {
     setError("");
     setEditTarget(comp);
-    setEditPfsRef(comp.pfsCompositionRef ?? "");
   }
 
   async function handleDelete(comp: CompositionItem) {
@@ -60,12 +57,18 @@ export default function CompositionsManager({
       .finally(() => setDeletingId(null));
   }
 
-  async function handleSave(name: string, translations: Record<string, string>) {
+  async function handleSave(
+    name: string,
+    translations: Record<string, string>,
+    _hex?: string,
+    _patternImage?: string | null,
+    pfs?: { ref?: string },
+  ) {
     if (!editTarget) return;
     await updateCompositionDirect(editTarget.id, name, translations);
-    const origRef = editTarget.pfsCompositionRef ?? "";
-    if (editPfsRef !== origRef) {
-      await updateCompositionPfsRef(editTarget.id, editPfsRef || null);
+    const newRef = pfs?.ref || null;
+    if (newRef !== (editTarget.pfsCompositionRef ?? null)) {
+      await updateCompositionPfsRef(editTarget.id, newRef);
     }
     router.refresh();
   }
@@ -192,23 +195,21 @@ export default function CompositionsManager({
         </div>
       )}
 
-      <EntityEditModal
-        open={!!editTarget}
-        onClose={() => setEditTarget(null)}
-        title="Modifier la composition"
-        initialName={editTarget?.name ?? ""}
-        initialTranslations={editTarget?.translations ?? {}}
-        renderExtra={
-          editTarget ? (
-            <MarketplaceMappingSection
-              entityType="composition"
-              pfsRef={editPfsRef}
-              onPfsRefChange={setEditPfsRef}
-            />
-          ) : undefined
-        }
-        onSave={handleSave}
-      />
+      {editTarget && (
+        <QuickCreateModal
+          type="composition"
+          open={!!editTarget}
+          onClose={() => setEditTarget(null)}
+          onCreated={() => { setEditTarget(null); router.refresh(); }}
+          editMode={{
+            id: editTarget.id,
+            name: editTarget.name,
+            translations: editTarget.translations,
+            pfsRef: editTarget.pfsCompositionRef,
+            onSave: handleSave,
+          }}
+        />
+      )}
     </>
   );
 }

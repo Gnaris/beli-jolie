@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 
   // ── Build prompt (FR only) ──────────────────────────────────────────
   const systemPrompt =
-    `You are a B2B jewelry and accessories product copywriter specializing in French. ` +
+    `You are a B2B product copywriter specializing in French. ` +
     `Given product data (and optionally images), generate a commercial product name and a clear, ` +
     `SEO-friendly description in French. ` +
     `The name must be concise (3-8 words). The description must be 2-4 sentences, ` +

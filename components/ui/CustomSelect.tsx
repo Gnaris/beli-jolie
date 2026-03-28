@@ -12,6 +12,7 @@ export interface SelectOption {
   label: string;
   icon?: string;        // SVG path for optional icon
   disabled?: boolean;
+  className?: string;   // Extra class on label (e.g. line-through)
 }
 
 interface CustomSelectProps {
@@ -191,7 +192,7 @@ export default function CustomSelect({
                         <path strokeLinecap="round" strokeLinejoin="round" d={opt.icon} />
                       </svg>
                     )}
-                    <span className="flex-1 truncate">{opt.label}</span>
+                    <span className={`flex-1 truncate ${opt.className ?? ""}`}>{opt.label}</span>
                     {isSelected && (
                       <svg className="w-3.5 h-3.5 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />

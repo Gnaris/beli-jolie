@@ -9,6 +9,7 @@ import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
 import AccessCodeTracker from "@/components/layout/AccessCodeTracker";
 import GuestBanner from "@/components/layout/GuestBanner";
 import HeartbeatTracker from "@/components/layout/HeartbeatTracker";
+import { getCachedShopName } from "@/lib/cached-data";
 import "./globals.css";
 
 /* ─────────────────────────────────────────────
@@ -33,44 +34,48 @@ const roboto = Roboto({
 /* ─────────────────────────────────────────────
    Métadonnées SEO globales
 ───────────────────────────────────────────── */
-export const metadata: Metadata = {
-  title: {
-    default: "Beli & Jolie — Bijoux Acier Inoxydable BtoB",
-    template: "%s | Beli & Jolie",
-  },
-  description:
-    "Beli & Jolie, grossiste BtoB en bijoux acier inoxydable. Collections tendance pour revendeurs, boutiques et créateurs. Qualité premium, tarifs professionnels.",
-  keywords: [
-    "bijoux acier inoxydable",
-    "grossiste bijoux",
-    "BtoB bijoux",
-    "revendeur bijoux",
-    "colliers acier",
-    "bracelets acier",
-    "bagues inoxydable",
-  ],
-  authors: [{ name: "Beli & Jolie" }],
-  openGraph: {
-    type: "website",
-    locale: "fr_FR",
-    siteName: "Beli & Jolie",
-    title: "Beli & Jolie — Bijoux Acier Inoxydable BtoB",
+export async function generateMetadata(): Promise<Metadata> {
+  const shopName = await getCachedShopName();
+  return {
+    title: {
+      default: `${shopName} — Grossiste B2B`,
+      template: `%s | ${shopName}`,
+    },
     description:
-      "Grossiste BtoB spécialisé dans les bijoux en acier inoxydable. Collections élégantes pour professionnels.",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Beli & Jolie — Bijoux BtoB",
-    description: "Collections de bijoux acier inoxydable pour professionnels.",
-  },
-  robots: { index: true, follow: true },
-};
+      `${shopName}, plateforme grossiste B2B. Catalogue produits pour revendeurs et professionnels. Qualité premium, tarifs professionnels.`,
+    keywords: [
+      "grossiste B2B",
+      "plateforme professionnelle",
+      "revendeur",
+      "catalogue produits",
+      "vente en gros",
+    ],
+    authors: [{ name: shopName }],
+    openGraph: {
+      type: "website",
+      locale: "fr_FR",
+      siteName: shopName,
+      title: `${shopName} — Grossiste B2B`,
+      description:
+        "Plateforme grossiste B2B pour professionnels. Catalogue produits, tarifs dégressifs, livraison rapide.",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${shopName} — Grossiste B2B`,
+      description: "Catalogue produits pour professionnels. Tarifs grossiste et livraison rapide.",
+    },
+    robots: { index: true, follow: true },
+  };
+}
 
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const locale = await getLocale();
-  const messages = await getMessages();
+  const [locale, messages, shopName] = await Promise.all([
+    getLocale(),
+    getMessages(),
+    getCachedShopName(),
+  ]);
 
   const isRTL = RTL_LOCALES.includes(locale as "ar");
 
@@ -87,9 +92,9 @@ export default async function RootLayout({
             __html: JSON.stringify({
               "@context": "https://schema.org",
               "@type": "Organization",
-              name: "Beli & Jolie",
-              description: "Grossiste BtoB en bijoux acier inoxydable pour professionnels.",
-              url: "https://beli-jolie.fr",
+              name: shopName,
+              description: "Plateforme grossiste B2B pour professionnels.",
+              url: process.env.NEXTAUTH_URL || "https://example.com",
             }),
           }}
         />

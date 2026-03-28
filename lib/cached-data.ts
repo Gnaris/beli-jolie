@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { decryptIfSensitive } from "@/lib/encryption";
 
 // ─── Catégories (avec sous-catégories) ─────────────────────────────────────────
 export const getCachedCategories = unstable_cache(
@@ -107,6 +108,70 @@ export function getCachedSiteConfig(key: string) {
     { revalidate: 300, tags: ["site-config"] }
   )();
 }
+
+// ─── Company info (from CompanyInfo, used for shipping, legal, etc.) ─────────
+const DEFAULT_SHOP_NAME = "Ma Boutique";
+
+export const getCachedCompanyInfo = unstable_cache(
+  async () => {
+    const info = await prisma.companyInfo.findFirst();
+    return info;
+  },
+  ["company-info"],
+  { revalidate: 300, tags: ["company-info"] }
+);
+
+export const getCachedShopName = unstable_cache(
+  async () => {
+    const info = await prisma.companyInfo.findFirst({ select: { shopName: true } });
+    return info?.shopName || DEFAULT_SHOP_NAME;
+  },
+  ["shop-name"],
+  { revalidate: 300, tags: ["company-info"] }
+);
+
+// ─── Easy Express API key (from SiteConfig) ─────────────────────────────────
+export const getCachedEasyExpressApiKey = unstable_cache(
+  async () => {
+    const row = await prisma.siteConfig.findUnique({ where: { key: "easy_express_api_key" } });
+    return row?.value ? decryptIfSensitive("easy_express_api_key", row.value) : null;
+  },
+  ["easy-express-api-key"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+// ─── Gmail config (from SiteConfig) ──────────────────────────────────────────
+export const getCachedGmailConfig = unstable_cache(
+  async () => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["gmail_user", "gmail_app_password", "gmail_notify_email"] } },
+    });
+    const map = new Map(rows.map(r => [r.key, decryptIfSensitive(r.key, r.value)]));
+    return {
+      gmailUser: map.get("gmail_user") ?? null,
+      gmailPassword: map.get("gmail_app_password") ?? null,
+      notifyEmail: map.get("gmail_notify_email") ?? null,
+    };
+  },
+  ["gmail-config"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+// ─── PFS credentials (from SiteConfig) ──────────────────────────────────────
+export const getCachedPfsCredentials = unstable_cache(
+  async () => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["pfs_email", "pfs_password"] } },
+    });
+    const map = new Map(rows.map(r => [r.key, decryptIfSensitive(r.key, r.value)]));
+    return {
+      email: map.get("pfs_email") ?? null,
+      password: map.get("pfs_password") ?? null,
+    };
+  },
+  ["pfs-credentials"],
+  { revalidate: 300, tags: ["site-config"] }
+);
 
 // ─── Product count (expensive count on 78k rows, cache 5min) ───────────────────
 export const getCachedProductCount = unstable_cache(

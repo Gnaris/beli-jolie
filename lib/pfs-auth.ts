@@ -3,7 +3,12 @@
  *
  * Manages Bearer token with in-memory cache.
  * Auto-refreshes 10 minutes before expiration.
+ *
+ * Credentials are read from admin settings (SiteConfig),
+ * with fallback on PFS_EMAIL / PFS_PASSWORD env vars.
  */
+
+import { getCachedPfsCredentials } from "@/lib/cached-data";
 
 const PFS_BASE_URL = "https://wholesaler-api.parisfashionshops.com/api/v1";
 
@@ -27,10 +32,11 @@ export async function getPfsToken(): Promise<string> {
     }
   }
 
-  const email = process.env.PFS_EMAIL;
-  const password = process.env.PFS_PASSWORD;
+  const pfsCreds = await getCachedPfsCredentials();
+  const email = pfsCreds.email || process.env.PFS_EMAIL;
+  const password = pfsCreds.password || process.env.PFS_PASSWORD;
   if (!email || !password) {
-    throw new Error("PFS_EMAIL et PFS_PASSWORD doivent être définis dans .env");
+    throw new Error("Identifiants PFS manquants — configurer dans Paramètres > Marketplaces");
   }
 
   const res = await fetch(`${PFS_BASE_URL}/oauth/token`, {

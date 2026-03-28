@@ -16,7 +16,7 @@ export async function createManufacturingCountry(formData: FormData) {
   if (!name) throw new Error("Le nom est requis.");
   const isoCode = (formData.get("isoCode") as string)?.trim() || null;
   await prisma.manufacturingCountry.create({ data: { name, isoCode } });
-  revalidatePath("/admin/pays");
+  revalidatePath("/admin/produits");
   revalidateTag("manufacturing-countries", "default");
 }
 
@@ -40,7 +40,7 @@ export async function updateManufacturingCountry(id: string, formData: FormData)
     }
   }
 
-  revalidatePath("/admin/pays");
+  revalidatePath("/admin/produits");
   revalidateTag("manufacturing-countries", "default");
 }
 
@@ -67,7 +67,7 @@ export async function updateManufacturingCountryDirect(
     }
   }
 
-  revalidatePath("/admin/pays");
+  revalidatePath("/admin/produits");
   revalidateTag("manufacturing-countries", "default");
 }
 
@@ -83,7 +83,7 @@ export async function updateManufacturingCountryPfsRef(id: string, pfsCountryRef
     }
   }
   await prisma.manufacturingCountry.update({ where: { id }, data: { pfsCountryRef } });
-  revalidatePath("/admin/pays");
+  revalidatePath("/admin/produits");
   revalidateTag("manufacturing-countries", "default");
 }
 
@@ -92,6 +92,6 @@ export async function deleteManufacturingCountry(id: string) {
   const used = await prisma.product.count({ where: { manufacturingCountryId: id } });
   if (used > 0) throw new Error("Ce pays est utilisé par des produits.");
   await prisma.manufacturingCountry.delete({ where: { id } });
-  revalidatePath("/admin/pays");
+  revalidatePath("/admin/produits");
   revalidateTag("manufacturing-countries", "default");
 }

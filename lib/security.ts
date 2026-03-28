@@ -1,7 +1,7 @@
 /**
  * lib/security.ts
  *
- * Couche de sécurité pour l'authentification — Beli & Jolie
+ * Couche de sécurité pour l'authentification
  *
  * 1. Login brute force : lockout progressif après 3 échecs
  *    Paliers : 1min, 5min, 15min, 20min, 1h, 3h, 6h, 12h, 24h, 48h, permanent
