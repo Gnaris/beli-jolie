@@ -60,10 +60,10 @@ export default function InvoiceUpload({ orderId, hasInvoice }: Props) {
       <div className="flex flex-wrap items-center gap-3">
         {/* Upload button */}
         <label
-          className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-[family-name:var(--font-roboto)] font-medium cursor-pointer transition-colors rounded-lg ${
+          className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-body font-medium cursor-pointer transition-colors rounded-lg ${
             uploading
-              ? "bg-text-muted text-white cursor-not-allowed"
-              : "bg-bg-dark text-white hover:bg-neutral-800"
+              ? "bg-text-muted text-text-inverse cursor-not-allowed"
+              : "bg-bg-dark text-text-inverse hover:bg-neutral-800"
           }`}
         >
           <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -87,7 +87,7 @@ export default function InvoiceUpload({ orderId, hasInvoice }: Props) {
             <a
               href={`/api/admin/commandes/${orderId}/invoice`}
               target="_blank"
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-[family-name:var(--font-roboto)] font-medium border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary transition-colors rounded-lg"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-body font-medium border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary transition-colors rounded-lg"
             >
               <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -100,7 +100,7 @@ export default function InvoiceUpload({ orderId, hasInvoice }: Props) {
               type="button"
               onClick={handleDelete}
               disabled={deleting}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 text-sm font-[family-name:var(--font-roboto)] font-medium hover:bg-red-50 transition-colors disabled:opacity-50 rounded-lg"
+              className="inline-flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 text-sm font-body font-medium hover:bg-red-50 transition-colors disabled:opacity-50 rounded-lg"
             >
               <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -114,7 +114,7 @@ export default function InvoiceUpload({ orderId, hasInvoice }: Props) {
 
       {/* Status */}
       {hasInvoice && !error && (
-        <p className="text-xs text-emerald-600 font-[family-name:var(--font-roboto)] flex items-center gap-1.5">
+        <p className="text-xs text-emerald-600 font-body flex items-center gap-1.5">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
@@ -122,12 +122,12 @@ export default function InvoiceUpload({ orderId, hasInvoice }: Props) {
         </p>
       )}
       {!hasInvoice && !error && (
-        <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+        <p className="text-xs text-text-muted font-body">
           Aucune facture uploadee — le client ne peut pas encore telecharger
         </p>
       )}
       {error && (
-        <p className="text-xs text-red-600 font-[family-name:var(--font-roboto)]">{error}</p>
+        <p className="text-xs text-red-600 font-body">{error}</p>
       )}
     </div>
   );

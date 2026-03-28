@@ -74,10 +74,10 @@ export default function GuestBanner() {
             </svg>
           </div>
           <div className="min-w-0">
-            <p className="text-sm sm:text-base font-semibold font-[family-name:var(--font-poppins)] text-warning">
+            <p className="text-sm sm:text-base font-semibold font-heading text-warning">
               Mode invit&#233;
             </p>
-            <p className="text-xs sm:text-sm text-text-inverse/70 font-[family-name:var(--font-roboto)] hidden sm:block truncate">
+            <p className="text-xs sm:text-sm text-text-inverse/70 font-body hidden sm:block truncate">
               Inscrivez-vous rapidement et sans v&#233;rification pour acc&#233;der compl&#232;tement au site.
             </p>
           </div>
@@ -86,7 +86,7 @@ export default function GuestBanner() {
         <div className="flex items-center gap-2 shrink-0">
           <Link
             href={isAuthPage ? "/" : "/inscription"}
-            className="text-sm font-[family-name:var(--font-roboto)] font-semibold bg-bg-primary text-text-primary px-5 py-2.5 rounded-xl hover:bg-bg-secondary transition-colors whitespace-nowrap"
+            className="text-sm font-body font-semibold bg-bg-primary text-text-primary px-5 py-2.5 rounded-xl hover:bg-bg-secondary transition-colors whitespace-nowrap"
           >
             {isAuthPage ? (
               <>
@@ -101,7 +101,7 @@ export default function GuestBanner() {
           </Link>
           <button
             onClick={handleLogout}
-            className="text-sm font-[family-name:var(--font-roboto)] font-medium text-text-inverse/60 hover:text-warning px-3 py-2.5 rounded-xl border border-text-inverse/20 hover:border-warning/50 transition-colors whitespace-nowrap"
+            className="text-sm font-body font-medium text-text-inverse/60 hover:text-warning px-3 py-2.5 rounded-xl border border-text-inverse/20 hover:border-warning/50 transition-colors whitespace-nowrap"
             aria-label="Se déconnecter du mode invité"
           >
             <span className="hidden sm:inline">Se déconnecter</span>

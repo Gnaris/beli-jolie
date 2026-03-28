@@ -67,7 +67,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
           </svg>
         </button>
 
-        <Link href="/admin" className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary">
+        <Link href="/admin" className="font-heading text-base font-bold text-text-primary">
           {shopName}
         </Link>
 
@@ -93,8 +93,8 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
         {/* Drawer header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
-            <p className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary">{shopName}</p>
-            <p className="text-[10px] text-text-muted uppercase tracking-wider font-[family-name:var(--font-roboto)]">Administration</p>
+            <p className="font-heading text-base font-bold text-text-primary">{shopName}</p>
+            <p className="text-[10px] text-text-muted uppercase tracking-wider font-body">Administration</p>
           </div>
           <button
             onClick={() => setOpen(false)}
@@ -121,7 +121,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                     return (
                       <div
                         key={item.href}
-                        className="flex items-center gap-3 px-3 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-text-muted rounded-lg cursor-not-allowed opacity-60"
+                        className="flex items-center gap-3 px-3 py-2.5 text-sm font-body text-text-muted rounded-lg cursor-not-allowed opacity-60"
                       >
                         <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
@@ -138,7 +138,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                       key={item.href}
                       href={item.href}
                       onClick={() => setOpen(false)}
-                      className="flex items-center gap-3 px-3 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors group"
+                      className="flex items-center gap-3 px-3 py-2.5 text-sm font-body text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors group"
                     >
                       <svg className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
@@ -170,13 +170,13 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
           </div>
           <div className="flex items-center gap-3 px-3 py-2.5 mb-1 bg-bg-secondary rounded-lg">
             <div className="w-8 h-8 rounded-full bg-bg-dark flex items-center justify-center shrink-0">
-              <span className="text-text-inverse text-[11px] font-bold font-[family-name:var(--font-roboto)]">{initials}</span>
+              <span className="text-text-inverse text-[11px] font-bold font-body">{initials}</span>
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-text-primary truncate font-[family-name:var(--font-roboto)] leading-tight">
+              <p className="text-sm font-medium text-text-primary truncate font-body leading-tight">
                 {userName}
               </p>
-              <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)] leading-tight">
+              <p className="text-[11px] text-text-muted font-body leading-tight">
                 Administrateur
               </p>
             </div>

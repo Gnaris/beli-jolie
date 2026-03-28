@@ -26,7 +26,7 @@ export default function HeroBanner({ bannerImage, shopName }: HeroBannerProps) {
             unoptimized
           />
         ) : (
-          <div className="w-full h-full bg-[#1A1A1A]" />
+          <div className="w-full h-full bg-bg-dark" />
         )}
         {/* Gradient overlay — always present for text readability */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/10" />
@@ -39,19 +39,19 @@ export default function HeroBanner({ bannerImage, shopName }: HeroBannerProps) {
       <div className="relative z-10 container-site pb-10 sm:pb-14 md:pb-20 pt-24 sm:pt-32">
         <div className="max-w-xl animate-slide-up">
           {/* Badge */}
-          <span className="inline-block text-[10px] sm:text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.15em] uppercase text-accent border border-accent/30 bg-accent/10 px-3 py-1 rounded-full mb-4 backdrop-blur-sm">
+          <span className="inline-block text-[10px] sm:text-xs font-body font-medium tracking-[0.15em] uppercase text-accent border border-accent/30 bg-accent/10 px-3 py-1 rounded-full mb-4 backdrop-blur-sm">
             {t("heroBadge")}
           </span>
 
           {/* Title */}
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl sm:text-4xl md:text-5xl font-bold text-white leading-[1.15] mb-4">
+          <h1 className="font-heading text-2xl sm:text-4xl md:text-5xl font-bold text-text-inverse leading-[1.15] mb-4">
             {t("heroTitle1")}
             <br />
             <span className="text-accent">{t("heroTitle2")}</span>
           </h1>
 
           {/* Description */}
-          <p className="font-[family-name:var(--font-roboto)] text-sm sm:text-base text-white/70 leading-relaxed mb-6 max-w-md">
+          <p className="font-body text-sm sm:text-base text-white/70 leading-relaxed mb-6 max-w-md">
             {t("heroDesc", { count: "500" })}
           </p>
 
@@ -65,7 +65,7 @@ export default function HeroBanner({ bannerImage, shopName }: HeroBannerProps) {
             </Link>
             <Link
               href="/collections"
-              className="inline-flex items-center text-sm font-medium text-white/80 border border-white/20 bg-white/5 backdrop-blur-sm px-5 py-2.5 rounded-lg hover:bg-white/10 hover:border-white/30 transition-all duration-200 font-[family-name:var(--font-roboto)]"
+              className="inline-flex items-center text-sm font-medium text-white/80 border border-white/20 bg-white/5 backdrop-blur-sm px-5 py-2.5 rounded-lg hover:bg-white/10 hover:border-white/30 transition-all duration-200 font-body"
             >
               {t("collections")}
             </Link>

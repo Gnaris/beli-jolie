@@ -105,13 +105,17 @@ function ConfirmModal({
       ref={backdropRef}
       onMouseDown={(e) => { mouseDownOnBackdrop.current = e.target === backdropRef.current; }}
       onMouseUp={(e) => { if (e.target === backdropRef.current && mouseDownOnBackdrop.current) resolve(false); mouseDownOnBackdrop.current = false; }}
+      role="dialog"
+      aria-modal="true"
       className={`fixed inset-0 z-[10000] flex items-center justify-center p-4 transition-all duration-200 ${
         closing ? "bg-black/0" : "bg-black/40"
       }`}
       style={{ animation: closing ? undefined : "confirmFadeIn 0.2s ease-out" }}
     >
       <div
-        className={`bg-white rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] w-full max-w-md overflow-hidden transition-all duration-200 ${
+        aria-labelledby="confirm-title"
+        aria-describedby="confirm-message"
+        className={`bg-bg-primary rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] w-full max-w-md overflow-hidden transition-all duration-200 ${
           closing ? "opacity-0 scale-95 translate-y-2" : "opacity-100 scale-100 translate-y-0"
         }`}
         style={{ animation: closing ? undefined : "confirmSlideUp 0.25s cubic-bezier(0.16,1,0.3,1)" }}
@@ -129,10 +133,10 @@ function ConfirmModal({
           </div>
           {/* Text */}
           <div className="flex-1 min-w-0">
-            <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A] leading-tight">
+            <h3 id="confirm-title" className="font-heading text-base font-semibold text-text-primary leading-tight">
               {opts.title}
             </h3>
-            <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] mt-1.5 leading-relaxed">
+            <p id="confirm-message" className="text-sm font-body text-text-secondary mt-1.5 leading-relaxed">
               {opts.message}
             </p>
             {opts.checkbox && (
@@ -147,7 +151,7 @@ function ConfirmModal({
                     }}
                     className="peer sr-only"
                   />
-                  <span className="w-[18px] h-[18px] rounded-[5px] border-2 border-[#D1D5DB] bg-white transition-all duration-150 peer-checked:border-[#1A1A1A] peer-checked:bg-[#1A1A1A] group-hover:border-[#9CA3AF] peer-checked:group-hover:border-[#000] peer-focus-visible:ring-2 peer-focus-visible:ring-offset-1 peer-focus-visible:ring-[#1A1A1A]/30" />
+                  <span className="w-[18px] h-[18px] rounded-[5px] border-2 border-border-dark bg-bg-primary transition-all duration-150 peer-checked:border-bg-dark peer-checked:bg-bg-dark hover:border-text-muted peer-checked:group-hover:border-bg-dark peer-focus-visible:ring-2 peer-focus-visible:ring-offset-1 peer-focus-visible:ring-bg-dark/30" />
                   <svg
                     className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity duration-150 pointer-events-none"
                     fill="none"
@@ -160,7 +164,7 @@ function ConfirmModal({
                     <path d="M5 13l4 4L19 7" />
                   </svg>
                 </span>
-                <span className="text-[13px] font-[family-name:var(--font-roboto)] text-[#4B5563] leading-tight">
+                <span className="text-[13px] font-body text-text-secondary leading-tight">
                   {opts.checkbox.label}
                 </span>
               </label>
@@ -173,7 +177,7 @@ function ConfirmModal({
           <button
             type="button"
             onClick={() => resolve(false)}
-            className="px-4 py-2.5 text-sm font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-all duration-150 active:scale-[0.98]"
+            className="px-4 py-2.5 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-lg hover:border-bg-dark hover:text-text-primary transition-all duration-150 active:scale-[0.98]"
           >
             {opts.cancelLabel ?? "Annuler"}
           </button>
@@ -181,7 +185,7 @@ function ConfirmModal({
             type="button"
             onClick={() => resolve(true)}
             autoFocus
-            className="px-4 py-2.5 text-sm font-semibold font-[family-name:var(--font-roboto)] rounded-lg transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2"
+            className="px-4 py-2.5 text-sm font-semibold font-body rounded-lg transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2"
             style={{
               backgroundColor: c.btnBg,
               color: c.btnText,

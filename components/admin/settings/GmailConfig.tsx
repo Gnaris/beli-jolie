@@ -72,7 +72,7 @@ export default function GmailConfig({ hasConfig }: Props) {
             "bg-[#D1D1D1]"
           }`}
         />
-        <span className="font-[family-name:var(--font-roboto)] text-sm text-text-secondary">
+        <span className="font-body text-sm text-text-secondary">
           {status === "valid" && "Configuration Gmail active"}
           {status === "invalid" && "Identifiants invalides"}
           {status === "checking" && "Vérification..."}
@@ -82,13 +82,13 @@ export default function GmailConfig({ hasConfig }: Props) {
 
       {!editing && hasConfig ? (
         <div className="flex items-center gap-3">
-          <div className="flex-1 font-[family-name:var(--font-roboto)] text-sm text-text-secondary tracking-widest">
+          <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
             ••••••••••••••••
           </div>
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary underline"
+            className="text-sm font-body text-text-secondary hover:text-text-primary underline"
           >
             Modifier
           </button>
@@ -104,7 +104,7 @@ export default function GmailConfig({ hasConfig }: Props) {
                 if (status === "valid" || status === "invalid") setStatus("none");
               }}
               placeholder="Adresse Gmail (expéditeur)"
-              className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-[family-name:var(--font-roboto)] placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+              className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
               disabled={isPending}
               autoComplete="off"
             />
@@ -116,7 +116,7 @@ export default function GmailConfig({ hasConfig }: Props) {
                 if (status === "valid" || status === "invalid") setStatus("none");
               }}
               placeholder="Mot de passe d'application Gmail"
-              className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-[family-name:var(--font-roboto)] placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+              className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
               disabled={isPending}
               autoComplete="off"
             />
@@ -125,7 +125,7 @@ export default function GmailConfig({ hasConfig }: Props) {
               value={notifyEmail}
               onChange={(e) => setNotifyEmail(e.target.value)}
               placeholder="Email destinataire notifications (optionnel, défaut : email société)"
-              className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-[family-name:var(--font-roboto)] placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+              className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
               disabled={isPending}
               autoComplete="off"
             />
@@ -136,7 +136,7 @@ export default function GmailConfig({ hasConfig }: Props) {
               type="button"
               onClick={handleValidate}
               disabled={isPending || !gmailUser.trim() || !gmailPassword.trim()}
-              className="h-9 px-4 rounded-lg border border-border text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+              className="h-9 px-4 rounded-lg border border-border text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
             >
               {isValidating ? "Vérification..." : "Vérifier"}
             </button>
@@ -144,7 +144,7 @@ export default function GmailConfig({ hasConfig }: Props) {
               type="button"
               onClick={handleSave}
               disabled={isPending || !canSave}
-              className="h-9 px-4 rounded-lg bg-[#1A1A1A] text-white text-sm font-[family-name:var(--font-roboto)] font-medium hover:bg-[#333] transition-colors disabled:opacity-50"
+              className="h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
             >
               {isSaving ? "Enregistrement..." : "Enregistrer"}
             </button>
@@ -153,7 +153,7 @@ export default function GmailConfig({ hasConfig }: Props) {
                 type="button"
                 onClick={() => { setEditing(false); setGmailUser(""); setGmailPassword(""); setNotifyEmail(""); setStatus("valid"); }}
                 disabled={isPending}
-                className="h-9 px-3 text-sm font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary"
+                className="h-9 px-3 text-sm font-body text-text-secondary hover:text-text-primary"
               >
                 Annuler
               </button>

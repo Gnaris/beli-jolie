@@ -61,7 +61,7 @@ export default function AdminPagination({ currentPage, totalPages }: Props) {
         p === "..." ? (
           <span
             key={`ellipsis-${i}`}
-            className="px-1.5 text-sm text-text-muted font-[family-name:var(--font-roboto)] select-none"
+            className="px-1.5 text-sm text-text-muted font-body select-none"
           >
             ...
           </span>
@@ -70,9 +70,9 @@ export default function AdminPagination({ currentPage, totalPages }: Props) {
             key={p}
             type="button"
             onClick={() => goTo(p)}
-            className={`min-w-[32px] h-8 px-2 text-sm font-[family-name:var(--font-roboto)] border rounded-lg transition-colors ${
+            className={`min-w-[32px] h-8 px-2 text-sm font-body border rounded-lg transition-colors ${
               p === currentPage
-                ? "bg-bg-dark text-white border-bg-dark font-semibold"
+                ? "bg-bg-dark text-text-inverse border-bg-dark font-semibold"
                 : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark hover:text-text-primary"
             }`}
           >

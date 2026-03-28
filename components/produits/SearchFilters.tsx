@@ -49,7 +49,7 @@ function CustomSelect({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border text-sm font-[family-name:var(--font-roboto)] transition-all ${
+        className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 min-h-[44px] rounded-lg border text-sm font-body transition-all ${
           value
             ? "border-text-primary bg-bg-tertiary text-text-primary"
             : "border-border bg-bg-primary text-text-secondary hover:border-border-dark"
@@ -61,11 +61,11 @@ function CustomSelect({
         </svg>
       </button>
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-lg z-50 max-h-52 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-lg z-50 max-h-52 overflow-y-auto animate-[customSelectDown_0.15s_ease-out]">
           <button
             type="button"
             onClick={() => { onChange(""); setOpen(false); }}
-            className={`w-full px-3 py-2 text-left text-sm font-[family-name:var(--font-roboto)] transition-colors hover:bg-bg-secondary ${!value ? "text-text-primary font-medium" : "text-text-muted"}`}
+            className={`w-full px-3 py-2 min-h-[44px] text-left text-sm font-body transition-colors hover:bg-bg-secondary ${!value ? "text-text-primary font-medium" : "text-text-muted"}`}
           >
             {placeholder}
           </button>
@@ -74,7 +74,7 @@ function CustomSelect({
               key={opt.id}
               type="button"
               onClick={() => { onChange(opt.id); setOpen(false); }}
-              className={`w-full px-3 py-2 text-left text-sm font-[family-name:var(--font-roboto)] transition-colors hover:bg-bg-secondary ${
+              className={`w-full px-3 py-2 min-h-[44px] text-left text-sm font-body transition-colors hover:bg-bg-secondary ${
                 opt.id === value ? "text-text-primary font-medium bg-bg-tertiary" : "text-text-primary"
               }`}
             >
@@ -91,7 +91,7 @@ function CustomSelect({
 // -- Section label -----------------------------------------------------------
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-widest font-[family-name:var(--font-roboto)] mb-2">
+    <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-widest font-body mb-2">
       {children}
     </p>
   );
@@ -105,7 +105,7 @@ function ToggleChip({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-[family-name:var(--font-roboto)] font-medium transition-all ${
+      className={`flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-full text-xs font-body font-medium transition-all ${
         active
           ? "bg-bg-dark text-text-inverse shadow-sm"
           : "bg-bg-primary border border-border text-text-secondary hover:border-border-dark hover:text-text-primary"
@@ -156,7 +156,7 @@ function ColorMultiSelect({
             return (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-full bg-bg-tertiary border border-border text-xs font-[family-name:var(--font-roboto)] text-text-primary"
+                className="inline-flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-full bg-bg-tertiary border border-border text-xs font-body text-text-primary"
               >
                 <span
                   className="w-3.5 h-3.5 rounded-full border border-border shrink-0"
@@ -178,7 +178,7 @@ function ColorMultiSelect({
           <button
             type="button"
             onClick={onClear}
-            className="text-[10px] text-text-muted hover:text-text-primary underline font-[family-name:var(--font-roboto)] transition-colors"
+            className="text-[10px] text-text-muted hover:text-text-primary underline font-body transition-colors"
           >
             Tout effacer
           </button>
@@ -196,15 +196,27 @@ function ColorMultiSelect({
           onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           placeholder="Rechercher une couleur..."
-          className="w-full pl-8 pr-3 py-2 border border-border bg-bg-primary rounded-lg text-xs font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-dark transition-all"
+          className="w-full pl-8 pr-8 py-2 min-h-[44px] border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-dark transition-all"
         />
+        {search && (
+          <button
+            type="button"
+            onClick={() => { setSearch(""); setOpen(false); }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors"
+            aria-label="Effacer la recherche"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Dropdown list */}
       {open && (
-        <div className="mt-1 bg-bg-primary border border-border rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+        <div className="mt-1 bg-bg-primary border border-border rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto animate-[customSelectDown_0.15s_ease-out]">
           {filtered.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+            <p className="px-3 py-2 text-xs text-text-muted font-body">
               Aucune couleur trouvée
             </p>
           ) : (
@@ -215,7 +227,7 @@ function ColorMultiSelect({
                   key={c.id}
                   type="button"
                   onClick={() => onToggle(c.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-[family-name:var(--font-roboto)] transition-colors hover:bg-bg-secondary ${
+                  className={`w-full flex items-center gap-2 px-3 py-2 min-h-[44px] text-left text-xs font-body transition-colors hover:bg-bg-secondary ${
                     isSelected ? "bg-bg-tertiary text-text-primary font-medium" : "text-text-primary"
                   }`}
                 >
@@ -325,7 +337,7 @@ export default function SearchFilters({
             defaultValue={q}
             onChange={(e) => update("q", e.target.value)}
             placeholder={t("filterSearchPlaceholder")}
-            className="w-full pl-9 pr-3 py-2.5 border border-border bg-bg-primary rounded-lg text-sm font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-dark focus:shadow-[0_0_0_3px_rgba(26,26,26,0.06)] transition-all"
+            className="w-full pl-9 pr-3 py-2.5 border border-border bg-bg-primary rounded-lg text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-dark focus:shadow-[0_0_0_3px_rgba(26,26,26,0.06)] transition-all"
           />
         </div>
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
@@ -335,7 +347,7 @@ export default function SearchFilters({
             onChange={() => toggleBool("exactRef", exactRef)}
             className="w-4 h-4 rounded border-border text-text-primary accent-[#1A1A1A]"
           />
-          <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
+          <span className="text-xs text-text-secondary font-body">
             Référence exacte
           </span>
         </label>
@@ -425,14 +437,14 @@ export default function SearchFilters({
             type="number" min="0" step="0.01" placeholder={t("filterMin")}
             value={minPrice}
             onChange={(e) => update("minPrice", e.target.value)}
-            className="w-full border border-border bg-bg-primary rounded-lg px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary focus:outline-none focus:border-border-dark transition-all"
+            className="w-full border border-border bg-bg-primary rounded-lg px-3 py-2 text-sm font-body text-text-primary focus:outline-none focus:border-border-dark transition-all"
           />
           <span className="text-text-muted text-sm shrink-0">—</span>
           <input
             type="number" min="0" step="0.01" placeholder={t("filterMax")}
             value={maxPrice}
             onChange={(e) => update("maxPrice", e.target.value)}
-            className="w-full border border-border bg-bg-primary rounded-lg px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary focus:outline-none focus:border-border-dark transition-all"
+            className="w-full border border-border bg-bg-primary rounded-lg px-3 py-2 text-sm font-body text-text-primary focus:outline-none focus:border-border-dark transition-all"
           />
         </div>
       </div>
@@ -473,7 +485,7 @@ export default function SearchFilters({
               onChange={() => toggleBool("hideOos", hideOos)}
               className="w-4 h-4 rounded border-border text-text-primary accent-[#1A1A1A]"
             />
-            <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
+            <span className="text-xs text-text-secondary font-body">
               {t("hideOutOfStock")}
             </span>
           </label>
@@ -485,7 +497,7 @@ export default function SearchFilters({
         <button
           type="button"
           onClick={resetAll}
-          className="w-full flex items-center justify-center gap-2 py-2.5 border border-border-dark rounded-lg text-sm text-text-secondary hover:bg-bg-secondary font-[family-name:var(--font-roboto)] transition-all"
+          className="w-full flex items-center justify-center gap-2 py-2.5 min-h-[44px] border border-border-dark rounded-lg text-sm text-text-secondary hover:bg-bg-secondary font-body transition-all"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -504,7 +516,7 @@ export default function SearchFilters({
           <button
             type="button"
             onClick={() => setMobileOpen((v) => !v)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-[family-name:var(--font-roboto)] font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 min-h-[44px] rounded-lg border text-sm font-body font-medium transition-all ${
               hasAny
                 ? "border-text-primary text-text-primary bg-bg-tertiary"
                 : "border-border text-text-secondary bg-bg-primary hover:border-border-dark"
@@ -515,12 +527,12 @@ export default function SearchFilters({
             </svg>
             {t("filtersLabel")}{hasAny ? " •" : ""}
           </button>
-          <span className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
+          <span className="text-sm text-text-muted font-body">
             {totalCount !== 1 ? t("productCount_plural", { count: totalCount }) : t("productCount", { count: totalCount })}
           </span>
         </div>
         {mobileOpen && (
-          <div className="card p-4">
+          <div className="card p-4 animate-[customSelectDown_0.2s_ease-out]">
             {filterContent}
           </div>
         )}
@@ -533,10 +545,10 @@ export default function SearchFilters({
     <div className="sticky top-6">
       {/* Header sidebar */}
       <div className="flex items-center justify-between mb-5">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
+        <h2 className="font-heading text-sm font-semibold text-text-primary">
           {t("filtersLabel")}
         </h2>
-        <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)] bg-bg-tertiary px-2.5 py-1 rounded-full">
+        <span className="text-xs text-text-muted font-body bg-bg-tertiary px-2.5 py-1 rounded-full">
           {totalCount}
         </span>
       </div>

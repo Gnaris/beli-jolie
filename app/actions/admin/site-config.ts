@@ -321,6 +321,26 @@ export async function validateDeeplApiKey(
   }
 }
 
+// ─── Auto-translate toggle ─────────────────────────────────────────────────
+
+export async function updateAutoTranslate(
+  enabled: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await prisma.siteConfig.upsert({
+      where: { key: "auto_translate_enabled" },
+      update: { value: enabled ? "true" : "false" },
+      create: { key: "auto_translate_enabled", value: enabled ? "true" : "false" },
+    });
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 export type CarouselProductInfo = {
   id: string;
   name: string;

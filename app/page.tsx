@@ -231,7 +231,7 @@ export default async function HomePage() {
       <FloatingShapes />
       <PublicSidebar shopName={shopName} />
 
-      <main className="relative z-10">
+      <main className="relative z-10 -mt-16">
           {/* 1. Hero banner */}
           <HeroBanner bannerImage={bannerImage} shopName={shopName} />
 

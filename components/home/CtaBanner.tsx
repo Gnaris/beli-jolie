@@ -26,23 +26,23 @@ export default function CtaBanner() {
           </svg>
         </div>
 
-        <h2 className="font-[family-name:var(--font-poppins)] text-xl sm:text-2xl md:text-3xl font-bold text-white mb-4">
+        <h2 className="font-heading text-xl sm:text-2xl md:text-3xl font-bold text-text-inverse mb-4">
           {t("ctaTitle")}
         </h2>
-        <p className="font-[family-name:var(--font-roboto)] text-sm sm:text-base text-white/60 max-w-lg mx-auto mb-8 leading-relaxed">
+        <p className="font-body text-sm sm:text-base text-white/60 max-w-lg mx-auto mb-8 leading-relaxed">
           {t("ctaDesc")}
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <Link
             href="/produits"
-            className="inline-flex items-center gap-2 bg-accent text-bg-dark font-[family-name:var(--font-poppins)] font-semibold text-sm px-7 py-3 rounded-lg hover:bg-accent-dark transition-colors duration-200"
+            className="inline-flex items-center gap-2 bg-accent text-bg-dark font-heading font-semibold text-sm px-7 py-3 rounded-lg hover:bg-accent-dark transition-colors duration-200"
           >
             {t("heroCta")} &rarr;
           </Link>
           {!session && (
             <Link
               href="/inscription"
-              className="inline-flex items-center gap-2 border border-white/20 text-white/80 font-[family-name:var(--font-roboto)] font-medium text-sm px-6 py-3 rounded-lg hover:bg-white/5 hover:border-white/30 transition-all duration-200"
+              className="inline-flex items-center gap-2 border border-white/20 text-white/80 font-body font-medium text-sm px-6 py-3 rounded-lg hover:bg-white/5 hover:border-white/30 transition-all duration-200"
             >
               {t("heroRegister")}
             </Link>

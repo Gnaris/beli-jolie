@@ -795,10 +795,10 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
 
                 return (
                   <tr key={bjSize.id} className="table-row">
-                    <td className="p-3 font-semibold text-sm font-[family-name:var(--font-poppins)]">
+                    <td className="p-3 font-semibold text-sm font-heading">
                       {bjSize.name}
                     </td>
-                    <td className="p-3 text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
+                    <td className="p-3 text-xs text-text-secondary font-body">
                       {cats || <span className="opacity-40">—</span>}
                     </td>
                     <td className="p-3">

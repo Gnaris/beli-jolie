@@ -184,10 +184,10 @@ export default async function FavorisPage({ searchParams }: PageProps) {
       {/* En-tête page */}
       <div className="bg-bg-primary border-b border-border">
         <div className="container-site py-6">
-          <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
+          <h1 className="font-heading text-xl font-semibold text-text-primary">
             {tFav("title")}
           </h1>
-          <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+          <p className="text-sm text-text-muted font-body mt-0.5">
             {totalCount !== 1 ? tFav("count_plural", { count: totalCount }) : tFav("count", { count: totalCount })}
           </p>
         </div>
@@ -228,7 +228,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
 
             {/* Grille produits ou état vide */}
             {favorites.length === 0 ? (
-              <div className="bg-white border border-[#E5E5E5] rounded-xl p-12 text-center">
+              <div className="bg-bg-primary border border-border rounded-xl p-12 text-center">
                 <svg
                   className="w-12 h-12 text-[#E5E5E5] mx-auto mb-4"
                   fill="none"
@@ -244,30 +244,30 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                 </svg>
                 {totalCount === 0 && !q && !cat && !subcat && !collection && !colorId && !tagId && !bestseller_ && !isNew_ && minPrice === null && maxPrice === null ? (
                   <>
-                    <p className="font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] mb-1">
+                    <p className="font-body font-medium text-text-secondary mb-1">
                       {tFav("empty")}
                     </p>
-                    <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF] mb-6">
+                    <p className="text-sm font-body text-text-muted mb-6">
                       {tFav("emptyDesc")}
                     </p>
                     <Link
                       href="/produits"
-                      className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1A1A1A] text-white text-sm font-[family-name:var(--font-roboto)] font-medium rounded-lg hover:bg-[#333] transition-colors"
+                      className="inline-flex items-center justify-center px-5 py-2.5 bg-bg-dark text-text-inverse text-sm font-body font-medium rounded-lg hover:bg-primary-hover transition-colors"
                     >
                       {tFav("browseCatalogue")}
                     </Link>
                   </>
                 ) : (
                   <>
-                    <p className="font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] mb-1">
+                    <p className="font-body font-medium text-text-secondary mb-1">
                       {tFav("noResults")}
                     </p>
-                    <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF] mb-6">
+                    <p className="text-sm font-body text-text-muted mb-6">
                       {tFav("noResultsDesc")}
                     </p>
                     <Link
                       href="/favoris"
-                      className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1A1A1A] text-white text-sm font-[family-name:var(--font-roboto)] font-medium rounded-lg hover:bg-[#333] transition-colors"
+                      className="inline-flex items-center justify-center px-5 py-2.5 bg-bg-dark text-text-inverse text-sm font-body font-medium rounded-lg hover:bg-primary-hover transition-colors"
                     >
                       {tProd("resetFilters")}
                     </Link>
@@ -300,18 +300,18 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                 {page > 1 && (
                   <Link
                     href={`/favoris?${new URLSearchParams({ ...(q && { q }), ...(cat && { cat }), ...(subcat && { subcat }), ...(collection && { collection }), ...(colorId && { color: colorId }), ...(tagId && { tag: tagId }), page: String(page - 1) }).toString()}`}
-                    className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+                    className="px-3 py-2 text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
                   >
                     &larr;
                   </Link>
                 )}
-                <span className="text-sm font-[family-name:var(--font-roboto)] text-text-muted">
+                <span className="text-sm font-body text-text-muted">
                   {page} / {totalPages}
                 </span>
                 {page < totalPages && (
                   <Link
                     href={`/favoris?${new URLSearchParams({ ...(q && { q }), ...(cat && { cat }), ...(subcat && { subcat }), ...(collection && { collection }), ...(colorId && { color: colorId }), ...(tagId && { tag: tagId }), page: String(page + 1) }).toString()}`}
-                    className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+                    className="px-3 py-2 text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
                   >
                     &rarr;
                   </Link>

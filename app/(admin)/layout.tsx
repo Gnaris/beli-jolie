@@ -11,6 +11,8 @@ import AdminClientModeButton from "@/components/admin/AdminClientModeButton";
 
 import LiveCountBadge from "@/components/admin/LiveCountBadge";
 import AdminEmailWrapper from "@/components/admin/email/AdminEmailWrapper";
+import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
+import { getCachedSiteConfig } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -42,6 +44,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     pendingOrdersCount,
   } = await getCachedAdminWarnings();
 
+  const deeplConfig = await getCachedSiteConfig("deepl_api_key");
+  const deeplEnabled = !!deeplConfig?.value;
+
   const totalAttributeWarnings = untranslatedCount + unusedColorsCount + unusedCompositionsCount + unusedTagsCount + untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
   const warningCounts: Record<string, { count: number; tooltip: string } | undefined> = {
@@ -49,6 +54,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   };
 
   return (
+    <DeeplConfigProvider enabled={deeplEnabled}>
     <AdminEmailWrapper>
     <div id="admin-theme-wrapper" suppressHydrationWarning className={`min-h-screen bg-bg-secondary flex${isDarkMode ? " admin-dark" : ""}`}>
 
@@ -57,10 +63,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
         {/* Logo */}
         <div className="px-6 py-5 border-b border-border">
-          <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-bold text-text-primary tracking-tight">
+          <Link href="/" className="font-heading text-lg font-bold text-text-primary tracking-tight">
             {shopName}
           </Link>
-          <p className="text-[10px] text-text-muted mt-0.5 font-[family-name:var(--font-roboto)] uppercase tracking-wider">
+          <p className="text-[10px] text-text-muted mt-0.5 font-body uppercase tracking-wider">
             Administration
           </p>
         </div>
@@ -79,7 +85,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                     return (
                       <div
                         key={item.href}
-                        className="flex items-center gap-3 px-3 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-text-muted rounded-lg cursor-not-allowed opacity-60"
+                        className="flex items-center gap-3 px-3 py-2.5 text-sm font-body text-text-muted rounded-lg cursor-not-allowed opacity-60"
                       >
                         <span aria-hidden="true">{item.icon}</span>
                         <span className="flex-1">{item.label}</span>
@@ -93,7 +99,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                     <Link
                       key={item.href}
                       href={item.href}
-                      className="flex items-center gap-3 px-3 py-2.5 text-sm font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors group"
+                      className="flex items-center gap-3 px-3 py-2.5 text-sm font-body text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors group"
                     >
                       <span className="text-text-muted group-hover:text-text-secondary transition-colors" aria-hidden="true">
                         {item.icon}
@@ -105,7 +111,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                           <span className="flex items-center justify-center text-[11px] bg-blue-100 text-blue-700 border border-blue-200 rounded-full min-w-[22px] h-[22px] px-1.5 font-semibold">
                             {pendingOrdersCount}
                           </span>
-                          <span className="absolute right-0 bottom-full mb-2 hidden group-hover/tooltip:block w-48 bg-[#1A1A1A] text-white text-xs rounded-lg px-3 py-2 z-50 pointer-events-none shadow-lg">
+                          <span className="absolute right-0 bottom-full mb-2 hidden group-hover/tooltip:block w-48 bg-bg-dark text-text-inverse text-xs rounded-lg px-3 py-2 z-50 pointer-events-none shadow-lg">
                             {pendingOrdersCount} commande{pendingOrdersCount > 1 ? "s" : ""} en attente
                             <span className="absolute top-full right-3 border-4 border-transparent border-t-[#1A1A1A]" />
                           </span>
@@ -116,7 +122,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                           <span className="flex items-center gap-1 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 font-medium">
                             ⚠ {warning.count}
                           </span>
-                          <span className="absolute right-0 bottom-full mb-2 hidden group-hover/tooltip:block w-52 bg-[#1A1A1A] text-white text-xs rounded-lg px-3 py-2 z-50 pointer-events-none shadow-lg">
+                          <span className="absolute right-0 bottom-full mb-2 hidden group-hover/tooltip:block w-52 bg-bg-dark text-text-inverse text-xs rounded-lg px-3 py-2 z-50 pointer-events-none shadow-lg">
                             {warning.tooltip}
                             <span className="absolute top-full right-3 border-4 border-transparent border-t-[#1A1A1A]" />
                           </span>
@@ -137,13 +143,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <div className="px-3 py-4 border-t border-border">
           <div className="flex items-center gap-3 px-3 py-2.5 mb-1 bg-bg-secondary rounded-lg">
             <div className="w-8 h-8 rounded-full bg-bg-dark flex items-center justify-center shrink-0">
-              <span className="text-text-inverse text-[11px] font-bold font-[family-name:var(--font-roboto)]">{initials}</span>
+              <span className="text-text-inverse text-[11px] font-bold font-body">{initials}</span>
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-text-primary truncate font-[family-name:var(--font-roboto)] leading-tight">
+              <p className="text-sm font-medium text-text-primary truncate font-body leading-tight">
                 {session.user.name}
               </p>
-              <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)] leading-tight truncate">
+              <p className="text-[11px] text-text-muted font-body leading-tight truncate">
                 Administrateur
               </p>
             </div>
@@ -173,6 +179,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
     </div>
     </AdminEmailWrapper>
+    </DeeplConfigProvider>
   );
 }
 

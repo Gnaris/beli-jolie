@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { getCachedHasPfsConfig } from "@/lib/cached-data";
 import { pfsGetColors, pfsGetCategories, pfsGetCompositions, pfsGetCountries, pfsGetCollections, pfsGetFamilies, pfsGetGenders, pfsGetSizes } from "@/lib/pfs-api-write";
 
 /**
@@ -12,6 +13,15 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN")
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+
+  const hasPfs = await getCachedHasPfsConfig();
+  if (!hasPfs) {
+    return NextResponse.json({
+      colors: [], categories: [], compositions: [], countries: [],
+      collections: [], families: [], genders: [], sizes: [],
+      pfsDisabled: true,
+    });
+  }
 
   const errors: string[] = [];
 

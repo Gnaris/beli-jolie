@@ -17,11 +17,11 @@ export default function ResetPasswordForm({ token }: Props) {
 
   if (!token) {
     return (
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A] mb-4">
+      <div className="bg-bg-primary border border-border rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <h1 className="font-heading text-2xl font-bold text-text-primary mb-4">
           {t("invalidToken")}
         </h1>
-        <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+        <p className="text-sm text-text-secondary font-body">
           {t("invalidTokenDesc")}
         </p>
       </div>
@@ -60,11 +60,11 @@ export default function ResetPasswordForm({ token }: Props) {
   }
 
   return (
-    <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-      <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-[#1A1A1A] mb-2">
+    <div className="bg-bg-primary border border-border rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <h1 className="font-heading text-2xl font-bold text-text-primary mb-2">
         {t("title")}
       </h1>
-      <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-6">
+      <p className="text-sm text-text-secondary font-body mb-6">
         {t("subtitle")}
       </p>
 
@@ -104,7 +104,7 @@ export default function ResetPasswordForm({ token }: Props) {
         </div>
 
         {error && (
-          <p className="text-sm text-[#EF4444] font-[family-name:var(--font-roboto)]">{error}</p>
+          <p className="text-sm text-[#EF4444] font-body">{error}</p>
         )}
 
         <button

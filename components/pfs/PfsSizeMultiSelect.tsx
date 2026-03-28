@@ -155,7 +155,7 @@ export default function PfsSizeMultiSelect({
         style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
       >
         <div
-          className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden"
+          className="bg-bg-primary rounded-xl border border-border overflow-hidden"
           style={{
             boxShadow: "0 12px 40px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
             animation:
@@ -165,10 +165,10 @@ export default function PfsSizeMultiSelect({
           }}
         >
           {/* Search bar */}
-          <div className="px-2 pt-2 pb-1.5 border-b border-[#F0F0F0] bg-white sticky top-0 z-10">
+          <div className="px-2 pt-2 pb-1.5 border-b border-border-light bg-bg-primary sticky top-0 z-10">
             <div className="relative">
               <svg
-                className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#9CA3AF] pointer-events-none"
+                className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-text-muted pointer-events-none"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -186,7 +186,7 @@ export default function PfsSizeMultiSelect({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Rechercher une taille…"
-                className="w-full pl-6 pr-2.5 py-1.5 text-[11px] border border-[#E5E5E5] rounded-lg focus:outline-none focus:border-[#1A1A1A] bg-[#F7F7F8] font-[family-name:var(--font-roboto)] text-[#1A1A1A] placeholder:text-[#9CA3AF]"
+                className="w-full pl-6 pr-2.5 py-1.5 text-[11px] border border-border rounded-lg focus:outline-none focus:border-[#1A1A1A] bg-bg-secondary font-body text-text-primary placeholder:text-text-muted"
               />
             </div>
           </div>
@@ -194,14 +194,14 @@ export default function PfsSizeMultiSelect({
           {/* Options grouped by category */}
           <div className="py-1 max-h-[320px] overflow-y-auto">
             {orderedGroups.length === 0 ? (
-              <p className="px-3.5 py-3 text-[11px] text-[#9CA3AF] text-center">
+              <p className="px-3.5 py-3 text-[11px] text-text-muted text-center">
                 Aucun résultat
               </p>
             ) : (
               orderedGroups.map(({ label, refs }) => (
                 <div key={label}>
                   {/* Group subtitle */}
-                  <p className="px-3 pt-3 pb-1.5 text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider font-[family-name:var(--font-poppins)]">
+                  <p className="px-3 pt-3 pb-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider font-heading">
                     {label}
                   </p>
                   {/* Size chips with checkboxes */}
@@ -211,10 +211,10 @@ export default function PfsSizeMultiSelect({
                       return (
                         <label
                           key={ref}
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium cursor-pointer transition-all duration-150 select-none font-[family-name:var(--font-roboto)] ${
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium cursor-pointer transition-all duration-150 select-none font-body ${
                             isChecked
                               ? "bg-[#22C55E]/10 border-[#22C55E]/40 text-[#15803D]"
-                              : "bg-[#F7F7F8] border-[#E5E5E5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
+                              : "bg-bg-secondary border-border text-text-secondary hover:border-bg-dark hover:text-text-primary"
                           }`}
                         >
                           <input
@@ -235,8 +235,8 @@ export default function PfsSizeMultiSelect({
 
           {/* Footer: count + clear */}
           {selected.size > 0 && (
-            <div className="px-3 py-2 border-t border-[#F0F0F0] bg-[#F7F7F8] flex items-center justify-between">
-              <span className="text-[10px] text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+            <div className="px-3 py-2 border-t border-border-light bg-bg-secondary flex items-center justify-between">
+              <span className="text-[10px] text-text-secondary font-body">
                 {selected.size} taille{selected.size > 1 ? "s" : ""} liée{selected.size > 1 ? "s" : ""}
               </span>
               <button
@@ -247,7 +247,7 @@ export default function PfsSizeMultiSelect({
                     onToggle(ref);
                   }
                 }}
-                className="text-[10px] text-[#EF4444] hover:text-[#DC2626] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+                className="text-[10px] text-[#EF4444] hover:text-[#DC2626] font-medium font-body transition-colors"
               >
                 Tout désélectionner
               </button>
@@ -268,7 +268,7 @@ export default function PfsSizeMultiSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="Sélectionner des tailles PFS"
-        className={`flex items-center gap-2 w-full text-left font-[family-name:var(--font-roboto)] transition-all duration-150 cursor-pointer rounded-lg border px-2.5 py-1.5 text-[11px] font-medium text-[#1A1A1A] bg-white border-[#E5E5E5] hover:border-[#1A1A1A] disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${className}`}
+        className={`flex items-center gap-2 w-full text-left font-body transition-all duration-150 cursor-pointer rounded-lg border px-2.5 py-1.5 text-[11px] font-medium text-text-primary bg-bg-primary border-border hover:border-bg-dark disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${className}`}
       >
         <span className={`flex-1 truncate ${selected.size === 0 ? "opacity-50" : ""}`}>
           {triggerLabel}

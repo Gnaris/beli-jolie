@@ -243,7 +243,7 @@ export default function ProductCard({
               if (isBestSeller) badges.push({ label: t("badgeBestSeller"), bg: "bg-warning" });
               if (isNew) badges.push({ label: t("badgeNew"), bg: "bg-info" });
               return badges.slice(0, 2).map((b) => (
-                <span key={b.label} className={`${b.bg} text-text-inverse text-[11px] font-bold font-[family-name:var(--font-poppins)] px-3 py-1 rounded-full shadow-sm uppercase tracking-wide backdrop-blur-sm`}>
+                <span key={b.label} className={`${b.bg} text-text-inverse text-[11px] font-bold font-heading px-3 py-1 rounded-full shadow-sm uppercase tracking-wide backdrop-blur-sm`}>
                   {b.label}
                 </span>
               ));
@@ -256,7 +256,7 @@ export default function ProductCard({
           {/* Favori + coloris count */}
           <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
             {colors.length > 1 && (
-              <span className="bg-bg-primary text-text-muted text-[9px] font-[family-name:var(--font-roboto)] px-1.5 py-0.5 rounded-full border border-border">
+              <span className="bg-bg-primary text-text-muted text-[9px] font-body px-1.5 py-0.5 rounded-full border border-border">
                 {t("colorCount", { count: colors.length })}
               </span>
             )}
@@ -319,12 +319,12 @@ export default function ProductCard({
           )}
 
           <Link href={`/produits/${id}`} className="block">
-            <p className="font-[family-name:var(--font-roboto)] font-semibold text-sm text-text-primary line-clamp-2 leading-snug hover:text-text-secondary transition-colors">
+            <p className="font-body font-semibold text-sm text-text-primary line-clamp-2 leading-snug hover:text-text-secondary transition-colors">
               {tp(name)}
             </p>
           </Link>
 
-          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+          <p className="text-xs text-text-muted font-body">
             {tc(category)}{subCategory && <> · {tc(subCategory)}</>}
           </p>
 
@@ -336,13 +336,13 @@ export default function ProductCard({
                   key={tag.id}
                   href={`/produits?tag=${tag.id}`}
                   onClick={(e) => e.stopPropagation()}
-                  className="text-[11px] px-2 py-0.5 rounded-full bg-bg-secondary text-text-muted border border-border-light font-[family-name:var(--font-roboto)] hover:bg-bg-tertiary transition-colors"
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-bg-secondary text-text-muted border border-border-light font-body hover:bg-bg-tertiary transition-colors"
                 >
                   {tp(tag.name)}
                 </Link>
               ))}
               {tags.length > 3 && (
-                <span className="text-[11px] px-1 py-0.5 text-text-muted font-[family-name:var(--font-roboto)]">
+                <span className="text-[11px] px-1 py-0.5 text-text-muted font-body">
                   +{tags.length - 3}
                 </span>
               )}
@@ -354,22 +354,22 @@ export default function ProductCard({
         <div>
           <div className="flex items-baseline gap-1.5 flex-wrap">
             {showStrikethrough && (
-              <span className="font-[family-name:var(--font-roboto)] text-xs text-text-muted line-through">
+              <span className="font-body text-xs text-text-muted line-through">
                 {strikethroughPrice.toFixed(2)} &euro;
               </span>
             )}
             {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
-              <span className="text-[11px] font-[family-name:var(--font-roboto)] text-error font-medium">
+              <span className="text-[11px] font-body text-error font-medium">
                 -{clientDiscount.discountValue}%
               </span>
             )}
-            <span className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${showStrikethrough ? "text-error" : "text-text-primary"}`}>
+            <span className={`font-heading font-semibold text-lg ${showStrikethrough ? "text-error" : "text-text-primary"}`}>
               {displayedFinalPrice.toFixed(2)} &euro;
             </span>
-            <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">{t("htUnit")}</span>
+            <span className="text-xs text-text-muted font-body">{t("htUnit")}</span>
           </div>
           {packOptions.length > 0 && (
-            <p className="text-[11px] text-text-secondary font-[family-name:var(--font-roboto)] mt-0.5">
+            <p className="text-[11px] text-text-secondary font-body mt-0.5">
               Pack {packOptions.map((p) => `\u00d7${p.packQuantity}`).join(", ")}
             </p>
           )}
@@ -378,7 +378,7 @@ export default function ProductCard({
         {/* Add to cart */}
         <div className="mt-auto space-y-2">
           {sizesInfo.length > 0 && (
-            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+            <p className="text-xs text-text-muted font-body">
               {t("sizes")}: {sizesInfo.map((s) => `${s.name}\u00d7${s.quantity}`).join(", ")}
             </p>
           )}
@@ -419,7 +419,7 @@ export default function ProductCard({
                 value={quantity}
                 aria-label={t("quantity") ?? "Quantité"}
                 onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-10 h-10 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-0 focus:outline-none bg-transparent"
+                className="w-10 h-10 text-center text-sm font-body text-text-primary border-0 focus:outline-none bg-transparent"
               />
               <button
                 type="button"
@@ -434,7 +434,7 @@ export default function ProductCard({
                 type="button"
                 onClick={handleAddToCart}
                 disabled={isPending || selectedColorOutOfStock}
-                className={`w-full flex items-center justify-center gap-1.5 text-text-inverse text-xs font-[family-name:var(--font-roboto)] font-medium py-3 px-3 rounded-lg transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${
+                className={`w-full flex items-center justify-center gap-1.5 text-text-inverse text-xs font-body font-medium py-3 px-3 rounded-lg transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${
                   addedMsg ? "bg-accent-dark" : "bg-bg-dark hover:bg-primary-hover"
                 }`}
               >
@@ -483,11 +483,11 @@ export default function ProductCard({
           </div>
 
           {addError && (
-            <p className="text-[11px] text-error font-[family-name:var(--font-roboto)]">{addError}</p>
+            <p className="text-[11px] text-error font-body">{addError}</p>
           )}
 
           {packOptions.length > 0 && (
-            <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)]">
+            <p className="text-[11px] text-text-muted font-body">
               {t("packAutoDistribution")}
             </p>
           )}

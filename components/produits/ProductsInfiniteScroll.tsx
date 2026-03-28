@@ -224,10 +224,10 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
               d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
         </div>
-        <p className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-1">
+        <p className="font-heading text-base font-semibold text-text-primary mb-1">
           {t("noResults")}
         </p>
-        <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
+        <p className="text-sm text-text-muted font-body">
           {t("noResultsHint")}
         </p>
       </div>
@@ -276,7 +276,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
       )}
 
       {!hasMore && products.length > 0 && (
-        <p className="text-center text-sm text-text-muted font-[family-name:var(--font-roboto)] py-4">
+        <p className="text-center text-sm text-text-muted font-body py-4">
           {t("allProductsShown", { count: products.length })}
         </p>
       )}

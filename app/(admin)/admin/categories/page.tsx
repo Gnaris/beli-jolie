@@ -29,16 +29,16 @@ export default async function CategoriesPage() {
         <h1 className="page-title">
           Catégories &amp; sous-catégories
         </h1>
-        <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+        <p className="page-subtitle font-body">
           Organisez votre catalogue produits
         </p>
       </div>
 
       {/* Création catégorie */}
-      <div className="bg-white border border-[#E5E5E5] rounded-xl p-5 flex items-center justify-between">
+      <div className="bg-bg-primary border border-border rounded-xl p-5 flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">Nouvelle catégorie</p>
-          <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+          <p className="text-sm font-semibold text-text-primary font-heading">Nouvelle catégorie</p>
+          <p className="text-xs text-text-muted font-body mt-0.5">
             Saisissez le nom dans toutes les langues souhaitées.
           </p>
         </div>
@@ -63,14 +63,14 @@ export default async function CategoriesPage() {
 
       {/* Zone suppression catégories */}
       {categories.length > 0 && (
-        <div className="bg-white border border-[#E5E5E5] rounded-xl p-5">
-          <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3 font-[family-name:var(--font-roboto)]">
+        <div className="bg-bg-primary border border-border rounded-xl p-5">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3 font-body">
             Supprimer une categorie
           </p>
           <div className="flex flex-wrap gap-2">
             {categories.map((cat) => (
               <div key={cat.id} className="flex items-center gap-2 bg-bg-secondary border border-border px-3 py-2 rounded-lg">
-                <span className="text-sm text-text-primary font-[family-name:var(--font-roboto)]">
+                <span className="text-sm text-text-primary font-body">
                   {cat.name}
                 </span>
                 <DeleteButton

@@ -107,19 +107,19 @@ export default async function UtilisateursPage({
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="page-title">Gestion des clients</h1>
-          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+          <p className="page-subtitle font-body">
             Gerez les comptes professionnels et validez les nouvelles inscriptions.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="stat-card px-4 py-2 text-center">
-            <p className="text-lg font-bold text-text-primary font-[family-name:var(--font-poppins)]">{totalCount}</p>
-            <p className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)] uppercase tracking-wider">Total</p>
+            <p className="text-lg font-bold text-text-primary font-heading">{totalCount}</p>
+            <p className="text-[10px] text-text-muted font-body uppercase tracking-wider">Total</p>
           </div>
           {pendingCount > 0 && (
             <div className="stat-card px-4 py-2 text-center border-warning/40">
-              <p className="text-lg font-bold text-warning font-[family-name:var(--font-poppins)]">{pendingCount}</p>
-              <p className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)] uppercase tracking-wider">En attente</p>
+              <p className="text-lg font-bold text-warning font-heading">{pendingCount}</p>
+              <p className="text-[10px] text-text-muted font-body uppercase tracking-wider">En attente</p>
             </div>
           )}
         </div>
@@ -130,7 +130,7 @@ export default async function UtilisateursPage({
         <Link
           href="/admin/utilisateurs"
           prefetch={false}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-[family-name:var(--font-roboto)] font-medium rounded-md transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-body font-medium rounded-md transition-all ${
             !isSuiviTab
               ? "bg-bg-primary text-text-primary shadow-sm"
               : "text-text-secondary hover:text-text-primary"
@@ -144,7 +144,7 @@ export default async function UtilisateursPage({
         <Link
           href="/admin/utilisateurs?tab=suivi"
           prefetch={false}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-[family-name:var(--font-roboto)] font-medium rounded-md transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-body font-medium rounded-md transition-all ${
             isSuiviTab
               ? "bg-bg-primary text-text-primary shadow-sm"
               : "text-text-secondary hover:text-text-primary"
@@ -179,7 +179,7 @@ export default async function UtilisateursPage({
                 ? "/admin/utilisateurs"
                 : `/admin/utilisateurs?status=${filter.value}`}
               prefetch={false}
-              className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-[family-name:var(--font-roboto)] font-medium rounded-md transition-all ${
+              className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-body font-medium rounded-md transition-all ${
                 isActive
                   ? "bg-bg-primary text-text-primary shadow-sm"
                   : "text-text-secondary hover:text-text-primary"

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getStripeInstance } from "@/lib/stripe";
+import { getStripeInstance, getConnectedAccountId } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -112,6 +112,44 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Stripe non configuré. Contactez l'administrateur." }, { status: 503 });
   }
+
+  // Stripe Connect : récupérer l'account ID (commission gérée côté dashboard Stripe)
+  const connectAccountId = await getConnectedAccountId();
+  const connectOpts = connectAccountId ? { stripeAccount: connectAccountId } : undefined;
+
+  // ─── Mode Connect : paiement direct sur le compte connecté ───────────────
+  if (connectAccountId) {
+    try {
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: "eur",
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          userId,
+          addressId,
+          carrierId,
+          carrierName,
+          carrierPrice: String(carrierPrice),
+          tvaRate: String(tvaRate),
+        },
+        receipt_email: user?.email ?? undefined,
+        description: `Commande ${shopName} — ${user?.company ?? "Client"}`,
+      }, connectOpts);
+
+      console.log("[create-intent] PI créé (Connect):", paymentIntent.id);
+
+      return NextResponse.json({
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+        bankTransferAvailable: false,
+      });
+    } catch (err) {
+      console.error("[create-intent] Erreur création PI (Connect):", err);
+      return NextResponse.json({ error: "Impossible de créer le paiement." }, { status: 500 });
+    }
+  }
+
+  // ─── Mode manuel : paiement direct avec clés du marchand ────────────────
 
   // Créer ou récupérer le Stripe Customer (requis pour le virement bancaire)
   let stripeCustomerId = user?.stripeCustomerId;

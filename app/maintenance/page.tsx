@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 export default async function MaintenancePage() {
   const shopName = await getCachedShopName();
   return (
-    <div className="min-h-screen bg-[#1A1A1A] flex flex-col items-center justify-center px-6 py-12">
+    <div className="min-h-screen bg-bg-dark flex flex-col items-center justify-center px-6 py-12">
       {/* Animated background dots */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
@@ -25,7 +25,7 @@ export default async function MaintenancePage() {
       <div className="relative z-10 max-w-lg w-full text-center">
         {/* Logo */}
         <div className="mb-10">
-          <span className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-white tracking-tight">
+          <span className="font-heading text-2xl font-bold text-white tracking-tight">
             {shopName}
           </span>
         </div>
@@ -49,7 +49,7 @@ export default async function MaintenancePage() {
         </div>
 
         {/* Title */}
-        <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-bold text-white mb-4 leading-tight">
+        <h1 className="font-heading text-3xl font-bold text-white mb-4 leading-tight">
           Site en maintenance
         </h1>
 
@@ -57,11 +57,11 @@ export default async function MaintenancePage() {
         <div className="mx-auto mb-6 w-12 h-px bg-white/20" />
 
         {/* Message */}
-        <p className="font-[family-name:var(--font-roboto)] text-white/60 text-base leading-relaxed mb-4">
+        <p className="font-body text-white/60 text-base leading-relaxed mb-4">
           Nous effectuons actuellement des opérations de maintenance afin d&apos;améliorer
           votre expérience sur notre plateforme.
         </p>
-        <p className="font-[family-name:var(--font-roboto)] text-white/60 text-base leading-relaxed mb-10">
+        <p className="font-body text-white/60 text-base leading-relaxed mb-10">
           Notre équipe travaille activement pour remettre le site en ligne dans les
           meilleurs délais. Merci pour votre patience et votre confiance.
         </p>
@@ -69,7 +69,7 @@ export default async function MaintenancePage() {
         {/* Status badge */}
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-10">
           <span className="w-2 h-2 rounded-full bg-[#F59E0B] animate-pulse" />
-          <span className="font-[family-name:var(--font-roboto)] text-white/50 text-sm">
+          <span className="font-body text-white/50 text-sm">
             Maintenance en cours
           </span>
         </div>
@@ -78,7 +78,7 @@ export default async function MaintenancePage() {
 
       {/* Footer */}
       <div className="relative z-10 mt-12 text-center">
-        <p className="font-[family-name:var(--font-roboto)] text-white/20 text-xs">
+        <p className="font-body text-white/20 text-xs">
           Plateforme réservée aux professionnels revendeurs
         </p>
       </div>

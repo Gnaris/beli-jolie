@@ -107,7 +107,7 @@ function ProductSearchPanel({
       <div className="relative">
         <input type="text" value={query} onChange={e => setQuery(e.target.value)}
           placeholder="Rechercher par nom ou référence..." className="field-input !py-1.5 !pl-9 text-sm" />
-        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF] pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
         </svg>
         {searching && (
@@ -118,22 +118,22 @@ function ProductSearchPanel({
       </div>
 
       {results.length > 0 && (
-        <div className="border border-[#E5E5E5] rounded-lg max-h-52 overflow-auto bg-white">
+        <div className="border border-border rounded-lg max-h-52 overflow-auto bg-bg-primary">
           {results.filter(r => !selectedIds.includes(r.id)).map(product => (
             <button key={product.id} type="button" onClick={() => onAdd(product)}
-              className="w-full text-left px-3 py-2 hover:bg-[#F7F7F8] text-sm flex items-center gap-3 border-b border-[#F3F4F6] last:border-0">
+              className="w-full text-left px-3 py-2 hover:bg-bg-secondary text-sm flex items-center gap-3 border-b border-[#F3F4F6] last:border-0">
               <div className="w-10 h-10 rounded-lg bg-[#F3F4F6] overflow-hidden flex-shrink-0">
                 {product.image ? (
                   <Image src={product.image} alt="" width={40} height={40} className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" /></svg>
+                    <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" /></svg>
                   </div>
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-[#1A1A1A] truncate">{product.name}</div>
-                <div className="text-xs text-[#9CA3AF]">{product.reference} · {product.category}</div>
+                <div className="font-medium text-text-primary truncate">{product.name}</div>
+                <div className="text-xs text-text-muted">{product.reference} · {product.category}</div>
               </div>
               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#22C55E] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -145,16 +145,16 @@ function ProductSearchPanel({
 
       {selectedIds.length > 0 && (
         <div className="space-y-1.5">
-          <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+          <label className="text-xs text-text-secondary font-body">
             {selectedIds.length} produit{selectedIds.length > 1 ? "s" : ""} sélectionné{selectedIds.length > 1 ? "s" : ""}
           </label>
           {loadingExisting && (
-            <div className="flex items-center gap-2 text-xs text-[#6B6B6B] py-2">
+            <div className="flex items-center gap-2 text-xs text-text-secondary py-2">
               <div className="w-3.5 h-3.5 border-2 border-[#D1D5DB] border-t-[#1A1A1A] rounded-full animate-spin" />
               Chargement...
             </div>
           )}
-          <div className="border border-[#E5E5E5] rounded-lg bg-white divide-y divide-[#F3F4F6] max-h-64 overflow-auto">
+          <div className="border border-border rounded-lg bg-bg-primary divide-y divide-[#F3F4F6] max-h-64 overflow-auto">
             {selectedIds.map((id, idx) => {
               const info = productsMap.get(id);
               return (
@@ -164,13 +164,13 @@ function ProductSearchPanel({
                       <Image src={info.image} alt="" width={40} height={40} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" /></svg>
+                        <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" /></svg>
                       </div>
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-[#1A1A1A] truncate">{info?.name ?? "Chargement..."}</div>
-                    <div className="text-xs text-[#9CA3AF]">{info ? `${info.reference} · ${info.category}` : id}</div>
+                    <div className="font-medium text-text-primary truncate">{info?.name ?? "Chargement..."}</div>
+                    <div className="text-xs text-text-muted">{info ? `${info.reference} · ${info.category}` : id}</div>
                   </div>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
                     <button type="button" onClick={() => moveProduct(idx, "up")} disabled={idx === 0}
@@ -299,14 +299,14 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
         key={carousel.id}
         className={`border rounded-xl p-4 space-y-3 transition-colors ${
           carousel.visible
-            ? "border-[#E5E5E5] bg-[#FAFAFA]"
+            ? "border-border bg-[#FAFAFA]"
             : "border-dashed border-[#D1D5DB] bg-[#F9FAFB] opacity-60"
         }`}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-base">{carouselIcon(carousel.type)}</span>
-            <span className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+            <span className="font-heading text-sm font-semibold text-text-primary">
               {index + 1}. {carousel.title}
             </span>
             {isDefault && <span className="badge badge-info text-[10px] px-1.5 py-0.5">Par défaut</span>}
@@ -314,7 +314,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
           </div>
           <div className="flex items-center gap-1">
             <button type="button" onClick={() => toggleCarouselVisibility(carousel.id)}
-              className={`p-1 rounded transition-colors ${carousel.visible ? "hover:bg-[#E5E5E5] text-[#1A1A1A]" : "hover:bg-[#DBEAFE] text-[#9CA3AF]"}`}
+              className={`p-1 rounded transition-colors ${carousel.visible ? "hover:bg-[#E5E5E5] text-text-primary" : "hover:bg-[#DBEAFE] text-text-muted"}`}
               title={carousel.visible ? "Masquer" : "Afficher"}>
               {carousel.visible ? (
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -353,14 +353,14 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
         <div className="flex flex-wrap items-end gap-3">
           {isDefault ? (
             <div>
-              <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Type</label>
+              <label className="text-xs text-text-secondary font-body">Type</label>
               <div className="field-input !py-1.5 text-sm bg-[#F3F4F6] cursor-not-allowed">
                 {carouselLabel(carousel.type)}
               </div>
             </div>
           ) : (
             <div>
-              <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Type</label>
+              <label className="text-xs text-text-secondary font-body">Type</label>
               <CustomSelect
                 value={carousel.type}
                 onChange={v => updateCarousel(carousel.id, { type: v as CarouselType })}
@@ -371,7 +371,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
           )}
 
           <div className="flex-1 min-w-[120px]">
-            <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Titre</label>
+            <label className="text-xs text-text-secondary font-body">Titre</label>
             <input type="text" value={carousel.title}
               onChange={e => updateCarousel(carousel.id, { title: e.target.value })}
               className="field-input !py-1.5 text-sm" />
@@ -379,7 +379,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
 
           {carousel.type !== "custom" && (
             <div>
-              <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Quantité</label>
+              <label className="text-xs text-text-secondary font-body">Quantité</label>
               <input type="number" min={1} max={50} value={carousel.quantity}
                 onChange={e => updateCarousel(carousel.id, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
                 className="field-input w-20 !py-1.5 text-sm" />
@@ -388,7 +388,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
 
           {carousel.type === "category" && (
             <div className="min-w-[140px]">
-              <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Catégorie</label>
+              <label className="text-xs text-text-secondary font-body">Catégorie</label>
               <CustomSelect
                 value={carousel.categoryId ?? ""}
                 onChange={v => {
@@ -403,7 +403,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
 
           {carousel.type === "subcategory" && (
             <div className="min-w-[200px]">
-              <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Sous-catégorie</label>
+              <label className="text-xs text-text-secondary font-body">Sous-catégorie</label>
               <CustomSelect
                 value={carousel.subCategoryId ?? ""}
                 onChange={v => {
@@ -418,12 +418,12 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
 
           {carousel.type === "collection" && (
             <div className="flex-1 min-w-[200px]">
-              <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+              <label className="text-xs text-text-secondary font-body">
                 Collections ({carousel.collectionIds?.length ?? 0})
               </label>
-              <div className="border border-[#E5E5E5] rounded-lg max-h-28 overflow-auto bg-white">
+              <div className="border border-border rounded-lg max-h-28 overflow-auto bg-bg-primary">
                 {collections.map(c => (
-                  <label key={c.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#F7F7F8] cursor-pointer text-sm">
+                  <label key={c.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-bg-secondary cursor-pointer text-sm">
                     <input type="checkbox"
                       checked={carousel.collectionIds?.includes(c.id) ?? false}
                       onChange={() => {
@@ -431,7 +431,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
                         updateCarousel(carousel.id, toggled);
                       }}
                       className="accent-[#1A1A1A]" />
-                    <span className="text-[#1A1A1A] font-[family-name:var(--font-roboto)]">{c.name}</span>
+                    <span className="text-text-primary font-body">{c.name}</span>
                   </label>
                 ))}
               </div>
@@ -440,7 +440,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
 
           {carousel.type === "tag" && (
             <div className="min-w-[140px]">
-              <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Mot-clé</label>
+              <label className="text-xs text-text-secondary font-body">Mot-clé</label>
               <CustomSelect
                 value={carousel.tagId ?? ""}
                 onChange={v => {
@@ -468,7 +468,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+      <p className="text-xs text-text-secondary font-body">
         Gérez l&apos;ordre et la visibilité. Les 3 par défaut ne peuvent pas être supprimés.
       </p>
 
@@ -487,10 +487,10 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
         {addCarouselOpen && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setAddCarouselOpen(false)} />
-            <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-[#E5E5E5] rounded-lg shadow-lg py-1 min-w-[220px]">
+            <div className="absolute left-0 top-full mt-1 z-20 bg-bg-primary border border-border rounded-lg shadow-lg py-1 min-w-[220px]">
               {CAROUSEL_TYPES.map(t => (
                 <button key={t.value} type="button" onClick={() => addCarousel(t.value)}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-[#F7F7F8] font-[family-name:var(--font-roboto)] flex items-center gap-2">
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-bg-secondary font-body flex items-center gap-2">
                   <span>{t.icon}</span> {t.label}
                 </button>
               ))}

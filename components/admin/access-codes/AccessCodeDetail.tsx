@@ -95,13 +95,13 @@ export default function AccessCodeDetail({ data }: { data: AccessCodeData }) {
     <div className="space-y-6">
       {/* Infos générales */}
       <div className="card p-6 space-y-4">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wider">
+        <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wider">
           Informations
         </h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="stat-card">
-            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">Statut</p>
+            <p className="text-xs text-text-muted font-body">Statut</p>
             <p className="mt-1">
               {isUsed ? (
                 <span className="badge badge-success">Inscrit</span>
@@ -118,30 +118,30 @@ export default function AccessCodeDetail({ data }: { data: AccessCodeData }) {
           </div>
 
           <div className="stat-card">
-            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">Expiration</p>
+            <p className="text-xs text-text-muted font-body">Expiration</p>
             <p className="text-sm font-medium text-text-primary mt-1">{formatDate(data.expiresAt)}</p>
           </div>
 
           <div className="stat-card">
-            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">Pages vues</p>
+            <p className="text-xs text-text-muted font-body">Pages vues</p>
             <p className="text-2xl font-bold text-text-primary mt-1">{data.views.length}</p>
           </div>
 
           <div className="stat-card">
-            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">Produits consultés</p>
+            <p className="text-xs text-text-muted font-body">Produits consultés</p>
             <p className="text-2xl font-bold text-text-primary mt-1">{uniqueProducts.length}</p>
           </div>
 
           {data.firstAccessAt && (
             <div className="stat-card">
-              <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">Premier accès</p>
+              <p className="text-xs text-text-muted font-body">Premier accès</p>
               <p className="text-sm font-medium text-text-primary mt-1">{formatDate(data.firstAccessAt)}</p>
             </div>
           )}
 
           {duration && (
             <div className="stat-card">
-              <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">Durée estimée</p>
+              <p className="text-xs text-text-muted font-body">Durée estimée</p>
               <p className="text-sm font-medium text-text-primary mt-1">{duration}</p>
             </div>
           )}
@@ -158,10 +158,10 @@ export default function AccessCodeDetail({ data }: { data: AccessCodeData }) {
       {/* Client inscrit */}
       {data.user && (
         <div className="card p-6 space-y-3">
-          <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wider">
+          <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wider">
             Client inscrit
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm font-[family-name:var(--font-roboto)]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm font-body">
             <div>
               <p className="text-text-muted text-xs">Nom</p>
               <p className="text-text-primary font-medium">{data.user.firstName} {data.user.lastName}</p>
@@ -186,7 +186,7 @@ export default function AccessCodeDetail({ data }: { data: AccessCodeData }) {
 
       {/* Note admin */}
       <div className="card p-6 space-y-3">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wider">
+        <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wider">
           Note admin
         </h2>
         <textarea
@@ -204,12 +204,12 @@ export default function AccessCodeDetail({ data }: { data: AccessCodeData }) {
       {/* Produits consultés */}
       {uniqueProducts.length > 0 && (
         <div className="card p-6 space-y-3">
-          <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wider">
+          <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wider">
             Produits consultés ({uniqueProducts.length})
           </h2>
           <div className="divide-y divide-border">
             {uniqueProducts.map((v) => (
-              <div key={v.id} className="py-2 flex items-center justify-between text-sm font-[family-name:var(--font-roboto)]">
+              <div key={v.id} className="py-2 flex items-center justify-between text-sm font-body">
                 <div>
                   <p className="text-text-primary font-medium">{v.productName ?? "Produit supprimé"}</p>
                   {v.productRef && <p className="text-xs text-text-muted">Réf: {v.productRef}</p>}
@@ -223,7 +223,7 @@ export default function AccessCodeDetail({ data }: { data: AccessCodeData }) {
 
       {/* Historique complet */}
       <div className="card p-6 space-y-3">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wider">
+        <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wider">
           Historique de navigation ({data.views.length})
         </h2>
         {data.views.length === 0 ? (
@@ -233,7 +233,7 @@ export default function AccessCodeDetail({ data }: { data: AccessCodeData }) {
         ) : (
           <div className="divide-y divide-border max-h-[400px] overflow-y-auto">
             {data.views.map((v) => (
-              <div key={v.id} className="py-2 flex items-center justify-between text-sm font-[family-name:var(--font-roboto)]">
+              <div key={v.id} className="py-2 flex items-center justify-between text-sm font-body">
                 <div className="min-w-0 flex-1">
                   <p className="text-text-primary truncate">{v.pageUrl}</p>
                   {v.productName && (

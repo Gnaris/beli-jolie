@@ -153,7 +153,7 @@ export default function RichTextEditor({
         onInput={handleInput}
         onKeyDown={handleKeyDown}
         data-placeholder={placeholder}
-        className="min-h-[200px] max-h-[400px] overflow-y-auto p-3 text-sm text-text-primary font-[family-name:var(--font-roboto)] focus:outline-none [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-text-muted [&:empty]:before:pointer-events-none"
+        className="min-h-[200px] max-h-[400px] overflow-y-auto p-3 text-sm text-text-primary font-body focus:outline-none [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-text-muted [&:empty]:before:pointer-events-none"
         role="textbox"
         aria-label="Contenu de l'email"
         aria-multiline="true"

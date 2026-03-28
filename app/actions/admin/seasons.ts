@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { autoTranslateSeason } from "@/lib/auto-translate";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -14,7 +15,8 @@ export async function createSeason(formData: FormData) {
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
-  await prisma.season.create({ data: { name } });
+  const season = await prisma.season.create({ data: { name } });
+  autoTranslateSeason(season.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
 }

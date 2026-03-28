@@ -25,12 +25,12 @@ export default function CollectionsGrid({ collections }: Props) {
       <div className="container-site">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
+          <h2 className="font-heading text-xl font-semibold text-text-primary">
             {t("collections")}
           </h2>
           <Link
             href="/collections"
-            className="text-sm font-medium text-text-secondary hover:text-accent transition-colors font-[family-name:var(--font-roboto)]"
+            className="text-sm font-medium text-text-secondary hover:text-accent transition-colors font-body"
           >
             {tc("viewAll")} &rarr;
           </Link>
@@ -77,7 +77,7 @@ export default function CollectionsGrid({ collections }: Props) {
 
               {/* Label */}
               <div className="absolute bottom-0 left-0 right-0 p-4">
-                <p className="font-[family-name:var(--font-poppins)] text-text-inverse font-semibold text-base leading-snug">
+                <p className="font-heading text-text-inverse font-semibold text-base leading-snug">
                   {col.name}
                 </p>
               </div>

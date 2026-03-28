@@ -260,7 +260,7 @@ export default function PfsStagedProductCard({
       <div className="flex flex-1 flex-col gap-2 p-3">
         {/* Name */}
         <h3
-          className="line-clamp-2 text-sm font-semibold leading-snug text-text-primary font-[family-name:var(--font-poppins)]"
+          className="line-clamp-2 text-sm font-semibold leading-snug text-text-primary font-heading"
           title={product.name}
         >
           {product.name}

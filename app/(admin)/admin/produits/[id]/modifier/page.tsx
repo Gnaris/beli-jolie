@@ -5,7 +5,7 @@ import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
 import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
-import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes } from "@/lib/cached-data";
+import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes, getCachedHasPfsConfig } from "@/lib/cached-data";
 import PfsSyncButton from "@/components/pfs/PfsSyncButton";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
@@ -23,7 +23,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes] = await Promise.all([
+  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes, hasPfsConfig] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -92,6 +92,7 @@ export default async function ModifierProduitPage({
     getCachedManufacturingCountries(),
     getCachedSeasons(),
     getCachedSizes(),
+    getCachedHasPfsConfig(),
   ]);
 
   if (!product) notFound();
@@ -197,52 +198,54 @@ export default async function ModifierProduitPage({
   }
   const initialColorImages: ColorImageState[] = [...colorImageMap.values()];
 
-  // ── Vérification des mappings PFS ────────────────────────────────────────────
+  // ── Vérification des mappings PFS (seulement si PFS configuré) ──────────────
   const mappingIssues: string[] = [];
 
-  if (!product.category?.pfsCategoryId) {
-    mappingIssues.push(`Catégorie "${product.category?.name ?? '?'}" non mappée`);
-  }
-  for (const c of product.compositions) {
-    if (!c.composition.pfsCompositionRef) {
-      mappingIssues.push(`Composition "${c.composition.name}" non mappée`);
+  if (hasPfsConfig) {
+    if (!product.category?.pfsCategoryId) {
+      mappingIssues.push(`Catégorie "${product.category?.name ?? '?'}" non mappée`);
     }
-  }
-  const _seenColorIds = new Set<string>();
-  const _seenSizeIds = new Set<string>();
-  for (const variant of product.colors) {
-    if (variant.colorId && variant.color && !_seenColorIds.has(variant.colorId)) {
-      _seenColorIds.add(variant.colorId);
-      if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" non mappée`);
-    }
-    for (const sc of variant.subColors) {
-      if (!_seenColorIds.has(sc.colorId)) {
-        _seenColorIds.add(sc.colorId);
-        if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" non mappée`);
+    for (const c of product.compositions) {
+      if (!c.composition.pfsCompositionRef) {
+        mappingIssues.push(`Composition "${c.composition.name}" non mappée`);
       }
     }
-    for (const pcl of variant.packColorLines) {
-      for (const c of pcl.colors) {
-        if (!_seenColorIds.has(c.colorId)) {
-          _seenColorIds.add(c.colorId);
-          if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" non mappée`);
+    const _seenColorIds = new Set<string>();
+    const _seenSizeIds = new Set<string>();
+    for (const variant of product.colors) {
+      if (variant.colorId && variant.color && !_seenColorIds.has(variant.colorId)) {
+        _seenColorIds.add(variant.colorId);
+        if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" non mappée`);
+      }
+      for (const sc of variant.subColors) {
+        if (!_seenColorIds.has(sc.colorId)) {
+          _seenColorIds.add(sc.colorId);
+          if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" non mappée`);
+        }
+      }
+      for (const pcl of variant.packColorLines) {
+        for (const c of pcl.colors) {
+          if (!_seenColorIds.has(c.colorId)) {
+            _seenColorIds.add(c.colorId);
+            if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" non mappée`);
+          }
+        }
+      }
+      for (const vs of variant.variantSizes) {
+        if (!_seenSizeIds.has(vs.sizeId)) {
+          _seenSizeIds.add(vs.sizeId);
+          if (!vs.size.pfsMappings || vs.size.pfsMappings.length === 0) {
+            mappingIssues.push(`Taille "${vs.size.name}" non mappée`);
+          }
         }
       }
     }
-    for (const vs of variant.variantSizes) {
-      if (!_seenSizeIds.has(vs.sizeId)) {
-        _seenSizeIds.add(vs.sizeId);
-        if (!vs.size.pfsMappings || vs.size.pfsMappings.length === 0) {
-          mappingIssues.push(`Taille "${vs.size.name}" non mappée`);
-        }
-      }
+    if (product.manufacturingCountry && !product.manufacturingCountry.pfsCountryRef) {
+      mappingIssues.push(`Pays "${product.manufacturingCountry.name}" non mappé`);
     }
-  }
-  if (product.manufacturingCountry && !product.manufacturingCountry.pfsCountryRef) {
-    mappingIssues.push(`Pays "${product.manufacturingCountry.name}" non mappé`);
-  }
-  if (product.season && product.season.pfsRefs.length === 0) {
-    mappingIssues.push(`Saison "${product.season.name}" non mappée`);
+    if (product.season && product.season.pfsRefs.length === 0) {
+      mappingIssues.push(`Saison "${product.season.name}" non mappée`);
+    }
   }
 
   // ── Initial header state ─────────────────────────────────────────────────
@@ -267,7 +270,7 @@ export default async function ModifierProduitPage({
       initial={initialHeaderState}
       staticHeader={
         <>
-          <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-2">
+          <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-2">
             <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
             <span>/</span>
             <span className="text-text-secondary truncate max-w-xs">{product.name}</span>
@@ -278,38 +281,40 @@ export default async function ModifierProduitPage({
             <div>
               <h1 className="page-title">Modifier le produit</h1>
               <div className="flex items-center gap-3 mt-1 flex-wrap">
-                <p className="text-base text-text-muted font-[family-name:var(--font-roboto)]">
+                <p className="text-base text-text-muted font-body">
                   Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
                 </p>
                 <span className="hidden sm:block h-4 w-px bg-border" />
-                <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                <p className="text-xs text-text-muted font-body">
                   Créé le{" "}
                   <span className="text-text-secondary">
                     {product.createdAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
                   </span>
                 </p>
                 <span className="hidden sm:block h-4 w-px bg-border" />
-                <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                <p className="text-xs text-text-muted font-body">
                   Modifié le{" "}
                   <span className="text-text-secondary">
                     {product.updatedAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </p>
-                <PfsSyncButton
-                  productId={product.id}
-                  pfsProductId={product.pfsProductId}
-                  pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
-                  pfsSyncError={product.pfsSyncError}
-                  pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
-                  mappingIssues={mappingIssues}
-                />
+                {hasPfsConfig && (
+                  <PfsSyncButton
+                    productId={product.id}
+                    pfsProductId={product.pfsProductId}
+                    pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
+                    pfsSyncError={product.pfsSyncError}
+                    pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
+                    mappingIssues={mappingIssues}
+                  />
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
               <Link
                 href={`/produits/${product.id}`}
                 target="_blank"
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors font-[family-name:var(--font-roboto)]"
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-text-secondary bg-bg-primary border border-border rounded-lg hover:border-bg-dark hover:text-text-primary transition-colors font-body"
                 title="Voir côté client"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -334,6 +339,7 @@ export default async function ModifierProduitPage({
         availableTags={tags}
         mode="edit"
         productId={product.id}
+        hasPfsConfig={hasPfsConfig}
         initialData={{
           reference:         product.reference,
           name:              product.name,

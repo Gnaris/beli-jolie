@@ -22,6 +22,7 @@ export const SENSITIVE_KEYS = new Set([
   "deepl_api_key",
   "pfs_email",
   "pfs_password",
+  "stripe_connect_account_id",
 ]);
 
 function getEncryptionKey(): Buffer {

@@ -39,23 +39,23 @@ export default function Footer({ shopName }: FooterProps) {
 
           {/* Column 1 - Brand */}
           <div className="sm:col-span-2 lg:col-span-1">
-            <Link href="/" className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-white">
+            <Link href="/" className="font-heading text-xl font-semibold text-text-inverse">
               {shopName}
             </Link>
-            <p className="mt-3 max-w-xs text-sm leading-relaxed text-text-secondary font-[family-name:var(--font-roboto)]">
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-text-secondary font-body">
               {t("description")}
             </p>
           </div>
 
           {/* Column 2 - Catalogue */}
           <div>
-            <h3 className="font-[family-name:var(--font-poppins)] text-xs font-semibold text-white/70 uppercase tracking-widest mb-4 after:block after:mt-2 after:w-6 after:h-0.5 after:bg-accent after:rounded-full">
+            <h3 className="font-heading text-xs font-semibold text-white/70 uppercase tracking-widest mb-4 after:block after:mt-2 after:w-6 after:h-0.5 after:bg-accent after:rounded-full">
               {t("catalogue")}
             </h3>
             <ul className="space-y-2.5 text-sm">
               {catalogueItems.map((item) => (
                 <li key={item.label}>
-                  <Link href={item.href} className="inline-block text-text-secondary hover:text-accent hover:pl-1.5 transition-all duration-200 font-[family-name:var(--font-roboto)]">
+                  <Link href={item.href} className="inline-block text-text-secondary hover:text-accent hover:pl-1.5 transition-all duration-200 font-body">
                     {item.label}
                   </Link>
                 </li>
@@ -65,13 +65,13 @@ export default function Footer({ shopName }: FooterProps) {
 
           {/* Column 3 - Espace Pro */}
           <div>
-            <h3 className="font-[family-name:var(--font-poppins)] text-xs font-semibold text-white/70 uppercase tracking-widest mb-4 after:block after:mt-2 after:w-6 after:h-0.5 after:bg-accent after:rounded-full">
+            <h3 className="font-heading text-xs font-semibold text-white/70 uppercase tracking-widest mb-4 after:block after:mt-2 after:w-6 after:h-0.5 after:bg-accent after:rounded-full">
               {t("proSpace")}
             </h3>
             <ul className="space-y-2.5 text-sm">
               {proItems.map((item) => (
                 <li key={item.href}>
-                  <Link href={item.href} className="inline-block text-text-secondary hover:text-accent hover:pl-1.5 transition-all duration-200 font-[family-name:var(--font-roboto)]">
+                  <Link href={item.href} className="inline-block text-text-secondary hover:text-accent hover:pl-1.5 transition-all duration-200 font-body">
                     {item.label}
                   </Link>
                 </li>
@@ -81,13 +81,13 @@ export default function Footer({ shopName }: FooterProps) {
 
           {/* Column 4 - Informations */}
           <div>
-            <h3 className="font-[family-name:var(--font-poppins)] text-xs font-semibold text-white/70 uppercase tracking-widest mb-4 after:block after:mt-2 after:w-6 after:h-0.5 after:bg-accent after:rounded-full">
+            <h3 className="font-heading text-xs font-semibold text-white/70 uppercase tracking-widest mb-4 after:block after:mt-2 after:w-6 after:h-0.5 after:bg-accent after:rounded-full">
               {t("info")}
             </h3>
             <ul className="space-y-2.5 text-sm">
               {infoItems.map((item) => (
                 <li key={item.href}>
-                  <Link href={item.href} className="inline-block text-text-secondary hover:text-accent hover:pl-1.5 transition-all duration-200 font-[family-name:var(--font-roboto)]">
+                  <Link href={item.href} className="inline-block text-text-secondary hover:text-accent hover:pl-1.5 transition-all duration-200 font-body">
                     {item.label}
                   </Link>
                 </li>
@@ -98,7 +98,7 @@ export default function Footer({ shopName }: FooterProps) {
       </div>
 
       <div className="border-t border-white/[0.06]">
-        <div className="container-site py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
+        <div className="container-site py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-text-secondary font-body">
           <p>&copy; {currentYear} {shopName}. {t("rights")}</p>
           <p>{t("reserved")}</p>
         </div>

@@ -275,15 +275,15 @@ export default function QuickCreateModal({
       onMouseUp={backdrop.onMouseUp}
     >
       <div
-        className={`bg-white rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.3)] flex flex-col max-h-[90vh] ${hasMappableType ? "w-full max-w-[780px]" : "w-full max-w-lg"}`}
+        className={`bg-bg-primary rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.3)] flex flex-col max-h-[90vh] ${hasMappableType ? "w-full max-w-[780px]" : "w-full max-w-lg"}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ── */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] shrink-0">
-          <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+          <h3 className="font-heading text-base font-semibold text-text-primary">
             {isEdit ? EDIT_TITLES[type] : TITLES[type]}
           </h3>
-          <button type="button" onClick={onClose} className="text-[#9CA3AF] hover:text-[#1A1A1A] transition-colors rounded-lg p-1">
+          <button type="button" onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors rounded-lg p-1">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -299,7 +299,7 @@ export default function QuickCreateModal({
             {/* Traductions */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
+                <p className="text-[11px] text-text-muted font-body uppercase tracking-wide">
                   Nom & traductions
                 </p>
                 <TranslateButton
@@ -311,7 +311,7 @@ export default function QuickCreateModal({
 
               {/* FR field — prominent */}
               <div>
-                <label className="block text-xs font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] mb-1">
+                <label className="block text-xs font-semibold text-text-secondary font-body mb-1">
                   Français <span className="text-[#EF4444]">*</span>
                 </label>
                 <input
@@ -331,7 +331,7 @@ export default function QuickCreateModal({
               <div className="grid grid-cols-2 gap-2.5">
                 {VALID_LOCALES.filter((l) => l !== "fr").map((locale) => (
                   <div key={locale}>
-                    <label className="block text-[10px] font-semibold text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-0.5 uppercase">
+                    <label className="block text-[10px] font-semibold text-text-muted font-body mb-0.5 uppercase">
                       {LOCALE_FULL_NAMES[locale]}
                     </label>
                     <input
@@ -350,15 +350,15 @@ export default function QuickCreateModal({
             {/* Color-specific: type toggle + picker */}
             {type === "color" && (
               <div className="space-y-3">
-                <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
+                <p className="text-[11px] text-text-muted font-body uppercase tracking-wide">
                   Apparence
                 </p>
-                <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden">
+                <div className="flex rounded-lg border border-border overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setColorMode("hex")}
-                    className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
-                      colorMode === "hex" ? "bg-[#1A1A1A] text-white" : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                    className={`flex-1 py-2 text-sm font-medium transition-colors font-body ${
+                      colorMode === "hex" ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
                     }`}
                   >
                     Couleur unie
@@ -366,8 +366,8 @@ export default function QuickCreateModal({
                   <button
                     type="button"
                     onClick={() => setColorMode("pattern")}
-                    className={`flex-1 py-2 text-sm font-medium transition-colors font-[family-name:var(--font-roboto)] ${
-                      colorMode === "pattern" ? "bg-[#1A1A1A] text-white" : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                    className={`flex-1 py-2 text-sm font-medium transition-colors font-body ${
+                      colorMode === "pattern" ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
                     }`}
                   >
                     Motif / Image
@@ -380,7 +380,7 @@ export default function QuickCreateModal({
                       type="color"
                       value={hex}
                       onChange={(e) => setHex(e.target.value)}
-                      className="w-10 h-10 rounded-lg border border-[#E5E5E5] cursor-pointer p-0.5 shrink-0"
+                      className="w-10 h-10 rounded-lg border border-border cursor-pointer p-0.5 shrink-0"
                     />
                     <input
                       type="text"
@@ -389,22 +389,22 @@ export default function QuickCreateModal({
                       placeholder="#9CA3AF"
                       className="field-input w-28 font-mono text-sm"
                     />
-                    <div className="flex-1 h-10 rounded-lg border border-[#E5E5E5]" style={{ backgroundColor: hex }} />
+                    <div className="flex-1 h-10 rounded-lg border border-border" style={{ backgroundColor: hex }} />
                   </div>
                 ) : (
-                  <label className="flex flex-col items-center justify-center h-28 border-2 border-dashed border-[#E5E5E5] rounded-xl cursor-pointer hover:border-[#1A1A1A] transition-colors overflow-hidden relative">
+                  <label className="flex flex-col items-center justify-center h-28 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-bg-dark transition-colors overflow-hidden relative">
                     {patternPreview ? (
                       <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${patternPreview})` }}>
                         <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                          <span className="text-white text-xs font-medium font-[family-name:var(--font-roboto)]">Changer</span>
+                          <span className="text-text-inverse text-xs font-medium font-body">Changer</span>
                         </div>
                       </div>
                     ) : (
                       <>
-                        <svg className="w-7 h-7 text-[#9CA3AF] mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-7 h-7 text-text-muted mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
                         </svg>
-                        <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">PNG, JPG, WebP · max 500 KB</span>
+                        <span className="text-xs text-text-muted font-body">PNG, JPG, WebP · max 500 KB</span>
                       </>
                     )}
                     <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePatternFileChange} className="sr-only" />
@@ -420,7 +420,7 @@ export default function QuickCreateModal({
               <div className="w-px bg-[#E5E5E5] shrink-0" />
 
               <div className="w-[300px] shrink-0 p-6 overflow-y-auto">
-                <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] uppercase tracking-wide mb-4">
+                <p className="text-[11px] text-text-muted font-body uppercase tracking-wide mb-4">
                   Correspondances Marketplaces <span className="text-[#EF4444] font-semibold">*</span>
                 </p>
 
@@ -450,9 +450,9 @@ export default function QuickCreateModal({
         </div>
 
         {/* ── Footer ── */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-[#E5E5E5] shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-border shrink-0">
           {error ? (
-            <p className="text-xs text-[#DC2626] font-[family-name:var(--font-roboto)] flex-1 mr-4">{error}</p>
+            <p className="text-xs text-[#DC2626] font-body flex-1 mr-4">{error}</p>
           ) : (
             <div />
           )}
@@ -460,7 +460,7 @@ export default function QuickCreateModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2 border border-[#E5E5E5] text-[#6B6B6B] hover:border-[#1A1A1A] hover:text-[#1A1A1A] text-sm font-medium rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
+              className="px-5 py-2 border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary text-sm font-medium rounded-lg transition-colors font-body"
             >
               Annuler
             </button>
@@ -468,7 +468,7 @@ export default function QuickCreateModal({
               type="button"
               onClick={handleSubmit}
               disabled={loading || !frName}
-              className="px-5 py-2 bg-[#1A1A1A] hover:bg-black text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)]"
+              className="px-5 py-2 bg-bg-dark hover:bg-black text-text-inverse text-sm font-medium rounded-lg transition-colors disabled:opacity-50 font-body"
             >
               {loading ? (isEdit ? "Enregistrement…" : "Création…") : (isEdit ? "Enregistrer" : "Créer")}
             </button>

@@ -44,7 +44,7 @@ export default function ColorSwatch({
   const reactId = useId();
   const hasSubColors = subColors && subColors.length > 0;
   const roundedClass = rounded === "full" ? "rounded-full" : "rounded-lg";
-  const borderClass = border ? "border border-[#E5E5E5]" : "";
+  const borderClass = border ? "border border-border" : "";
 
   // Single color (no sub-colors)
   if (!hasSubColors) {

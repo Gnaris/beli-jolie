@@ -18,7 +18,7 @@ function MarqueeRow({ reverse }: { reverse?: boolean }) {
     <div className={`flex shrink-0 gap-6 ${reverse ? "animate-marquee-reverse" : "animate-marquee"}`}>
       {ITEMS.map((item, i) => (
         <span key={i} className="flex items-center gap-6 whitespace-nowrap">
-          <span className="font-[family-name:var(--font-poppins)] text-xs sm:text-sm font-medium text-text-secondary/70 tracking-wide uppercase">
+          <span className="font-heading text-xs sm:text-sm font-medium text-text-secondary/70 tracking-wide uppercase">
             {item}
           </span>
           <span className="w-1 h-1 rounded-full bg-accent/60 shrink-0" />

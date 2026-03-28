@@ -69,17 +69,17 @@ export default function ClientDiscountForm({
 
       {/* Remise sur montant */}
       <div>
-        <label className="block text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-wider mb-2">
+        <label className="block text-xs font-body font-semibold text-text-muted uppercase tracking-wider mb-2">
           Type de remise
         </label>
         <div className="flex flex-col sm:flex-row gap-2">
           {(["", "PERCENT", "AMOUNT"] as const).map((type) => (
             <label
               key={type}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-[family-name:var(--font-roboto)] cursor-pointer transition-colors ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-body cursor-pointer transition-colors ${
                 discountType === type
-                  ? "border-[#1A1A1A] bg-[#1A1A1A] text-white"
-                  : "border-border bg-white text-text-primary hover:border-[#9CA3AF]"
+                  ? "border-[#1A1A1A] bg-bg-dark text-text-inverse"
+                  : "border-border bg-bg-primary text-text-primary hover:border-[#9CA3AF]"
               }`}
             >
               <input
@@ -101,7 +101,7 @@ export default function ClientDiscountForm({
       {/* Valeur de la remise */}
       {discountType !== "" && (
         <div>
-          <label htmlFor="discountValue" className="block text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-wider mb-1.5">
+          <label htmlFor="discountValue" className="block text-xs font-body font-semibold text-text-muted uppercase tracking-wider mb-1.5">
             {discountType === "PERCENT" ? "Pourcentage (%)" : "Montant (€)"}
           </label>
           <div className="relative max-w-xs">
@@ -122,12 +122,12 @@ export default function ClientDiscountForm({
             </span>
           </div>
           {discountType === "PERCENT" && (
-            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-1">
+            <p className="text-xs text-text-muted font-body mt-1">
               Appliqué sur le sous-total HT de chaque commande.
             </p>
           )}
           {discountType === "AMOUNT" && (
-            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-1">
+            <p className="text-xs text-text-muted font-body mt-1">
               Déduit du sous-total HT de chaque commande.
             </p>
           )}
@@ -145,7 +145,7 @@ export default function ClientDiscountForm({
               className="sr-only"
             />
             <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-              freeShipping ? "bg-[#1A1A1A] border-[#1A1A1A]" : "border-border bg-white group-hover:border-[#9CA3AF]"
+              freeShipping ? "bg-bg-dark border-[#1A1A1A]" : "border-border bg-bg-primary group-hover:border-[#9CA3AF]"
             }`}>
               {freeShipping && (
                 <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -155,10 +155,10 @@ export default function ClientDiscountForm({
             </div>
           </div>
           <div>
-            <span className="text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary">
+            <span className="text-sm font-body font-medium text-text-primary">
               Livraison offerte
             </span>
-            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+            <p className="text-xs text-text-muted font-body mt-0.5">
               Les frais de livraison seront automatiquement à 0 € pour ce client.
             </p>
           </div>

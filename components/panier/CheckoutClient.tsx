@@ -21,7 +21,13 @@ function getStripePromise() {
     _stripePromise = fetch("/api/payments/stripe-key")
       .then((r) => r.json())
       .then((data) => {
-        if (data.publishableKey) return loadStripe(data.publishableKey);
+        if (data.publishableKey) {
+          // En mode Stripe Connect, passer le compte connecté
+          const opts = data.connectAccountId
+            ? { stripeAccount: data.connectAccountId as string }
+            : undefined;
+          return loadStripe(data.publishableKey, opts);
+        }
         return null;
       })
       .catch(() => null);
@@ -195,7 +201,7 @@ function FieldInput({
 }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-1.5">
+      <label htmlFor={id} className="block text-sm font-body font-medium text-text-primary mb-1.5">
         {label}{optional && <span className="text-text-muted font-normal ml-1">(optionnel)</span>}
         {required && <span className="text-text-primary ml-0.5">*</span>}
       </label>
@@ -253,7 +259,7 @@ function AddressForm({
         <FieldInput id="addr-city" label="Ville" value={f.city} onChange={set("city")} required />
       </div>
       <div>
-        <label htmlFor="addr-country" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-1.5">
+        <label htmlFor="addr-country" className="block text-sm font-body font-medium text-text-primary mb-1.5">
           Pays <span className="text-text-primary">*</span>
         </label>
         <CustomSelect
@@ -264,7 +270,7 @@ function AddressForm({
         />
       </div>
       <FieldInput id="addr-phone" label="Téléphone" value={f.phone} onChange={set("phone")} type="tel" optional placeholder="0612345678" />
-      <label className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary cursor-pointer">
+      <label className="flex items-center gap-2 text-sm font-body text-text-primary cursor-pointer">
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)}
           className="accent-text-primary w-4 h-4" />
         Définir comme adresse par défaut
@@ -308,14 +314,14 @@ function CarrierCard({
         {selected && <div className="w-2.5 h-2.5 rounded-full bg-text-primary" />}
       </div>
       <div className="flex-1">
-        <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+        <p className="text-sm font-body font-semibold text-text-primary">
           {carrier.name}
         </p>
-        <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] mt-0.5">
+        <p className="text-xs text-text-secondary font-body mt-0.5">
           {carrier.delay}
         </p>
       </div>
-      <p className="font-[family-name:var(--font-poppins)] font-semibold text-sm text-text-primary shrink-0">
+      <p className="font-heading font-semibold text-sm text-text-primary shrink-0">
         {carrier.price === 0 ? "Gratuit" : `${carrier.price.toFixed(2)} €`}
       </p>
     </button>
@@ -471,6 +477,7 @@ export default function CheckoutClient({
   const [selectedCarrierId, setSelectedCarrierId] = useState<string | null>(null);
   const [carriersLoading, setCarriersLoading]     = useState(false);
   const [carriersError, setCarriersError]         = useState("");
+  const [noCarrierConfigured, setNoCarrierConfigured] = useState(false);
   const selectedCarrier = deliveryMode === "pickup"
     ? { id: "pickup_store", name: "Retrait en boutique", price: 0, delay: "" }
     : (carriers.find((c) => c.id === selectedCarrierId) ?? null);
@@ -513,6 +520,7 @@ export default function CheckoutClient({
     const controller = new AbortController();
     setCarriersLoading(true);
     setCarriersError("");
+    setNoCarrierConfigured(false);
     setSelectedCarrierId(null);
     setTransactionId("");
 
@@ -530,7 +538,11 @@ export default function CheckoutClient({
       .then((r) => r.json())
       .then((data) => {
         if (data.error) { setCarriersError(data.error); setCarriers([]); }
-        else { setTransactionId(data.transactionId ?? ""); setCarriers(data.carriers ?? []); }
+        else {
+          setTransactionId(data.transactionId ?? "");
+          setCarriers(data.carriers ?? []);
+          if (data.noCarrierConfigured) setNoCarrierConfigured(true);
+        }
       })
       .catch((err) => { if (err.name !== "AbortError") setCarriersError("Impossible de charger les transporteurs."); })
       .finally(() => setCarriersLoading(false));
@@ -693,16 +705,16 @@ export default function CheckoutClient({
     <div className="container-site py-10 md:py-14">
       {/* En-tête */}
       <div className="mb-8">
-        <Link href="/panier" className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary flex items-center gap-1 mb-4 transition-colors">
+        <Link href="/panier" className="text-xs font-body text-text-secondary hover:text-text-primary flex items-center gap-1 mb-4 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
           Retour au panier
         </Link>
-        <p className="text-xs font-[family-name:var(--font-roboto)] font-medium tracking-[0.2em] uppercase text-text-muted mb-1">
+        <p className="text-xs font-body font-medium tracking-[0.2em] uppercase text-text-muted mb-1">
           Commande
         </p>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-semibold text-text-primary">
+        <h1 className="font-heading text-2xl md:text-3xl font-semibold text-text-primary">
           Finaliser la commande
         </h1>
       </div>
@@ -717,12 +729,12 @@ export default function CheckoutClient({
             <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-xs font-bold flex items-center justify-center shrink-0">1</span>
-                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
+                <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
                   Informations client
                 </h2>
               </div>
               <button type="button" onClick={() => setEditingInfo((v) => !v)}
-                className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary transition-colors">
+                className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors">
                 {editingInfo ? "Fermer" : "Modifier"}
               </button>
             </div>
@@ -739,7 +751,7 @@ export default function CheckoutClient({
                   <FieldInput id="bi-phone" label="Telephone" value={billingInfo.phone} onChange={(v) => setBillingInfo((p) => ({ ...p, phone: v }))} type="tel" />
                 </div>
                 <div className="border-t border-border pt-4 mt-2">
-                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-3">Adresse de facturation</p>
+                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body mb-3">Adresse de facturation</p>
                   <div className="space-y-4">
                     <FieldInput id="bi-a1" label="Adresse" value={billingInfo.address1} onChange={(v) => setBillingInfo((p) => ({ ...p, address1: v }))} placeholder="12 rue des Fleurs" required />
                     <FieldInput id="bi-a2" label="Complement" value={billingInfo.address2} onChange={(v) => setBillingInfo((p) => ({ ...p, address2: v }))} optional placeholder="Bat. A, porte 3" />
@@ -748,7 +760,7 @@ export default function CheckoutClient({
                       <FieldInput id="bi-city" label="Ville" value={billingInfo.city} onChange={(v) => setBillingInfo((p) => ({ ...p, city: v }))} required />
                     </div>
                     <div>
-                      <label htmlFor="bi-country" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-1.5">Pays</label>
+                      <label htmlFor="bi-country" className="block text-sm font-body font-medium text-text-primary mb-1.5">Pays</label>
                       <CustomSelect
                         id="bi-country"
                         value={billingInfo.country}
@@ -764,7 +776,7 @@ export default function CheckoutClient({
               </div>
             ) : (
               <div className="p-5 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm font-[family-name:var(--font-roboto)]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm font-body">
                   <InfoLine label="Societe"   value={billingInfo.company} />
                   <InfoLine label="Contact"   value={`${billingInfo.firstName} ${billingInfo.lastName}`} />
                   <InfoLine label="Email"     value={billingInfo.email} />
@@ -774,11 +786,11 @@ export default function CheckoutClient({
                 </div>
                 {billingInfo.address1 && (
                   <div className="border-t border-border pt-3">
-                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">Adresse de facturation</p>
-                    <p className="text-sm text-text-primary font-[family-name:var(--font-roboto)]">
+                    <p className="text-xs font-semibold text-text-muted uppercase tracking-wider font-body mb-1">Adresse de facturation</p>
+                    <p className="text-sm text-text-primary font-body">
                       {billingInfo.address1}{billingInfo.address2 ? `, ${billingInfo.address2}` : ""}
                     </p>
-                    <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)]">
+                    <p className="text-sm text-text-secondary font-body">
                       {billingInfo.zipCode} {billingInfo.city}, {EU_COUNTRY_OPTIONS.find((c) => c.code === billingInfo.country)?.label ?? billingInfo.country}
                     </p>
                   </div>
@@ -792,13 +804,13 @@ export default function CheckoutClient({
             <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-xs font-bold flex items-center justify-center shrink-0">2</span>
-                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
+                <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
                   Adresse de livraison
                 </h2>
               </div>
               {!showAddressForm && (
                 <button type="button" onClick={() => setShowAddressForm(true)}
-                  className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1">
+                  className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
@@ -809,7 +821,7 @@ export default function CheckoutClient({
             <div className="p-5 space-y-3">
               {/* Option: meme adresse que facturation */}
               {billingInfo.address1 && billingInfo.zipCode && billingInfo.city && (
-                <label className="flex items-center gap-2.5 p-3 border border-border rounded-xl text-sm font-[family-name:var(--font-roboto)] text-text-primary cursor-pointer hover:bg-bg-secondary transition-colors">
+                <label className="flex items-center gap-2.5 p-3 border border-border rounded-xl text-sm font-body text-text-primary cursor-pointer hover:bg-bg-secondary transition-colors">
                   <input
                     type="checkbox"
                     checked={sameAsBilling}
@@ -841,7 +853,7 @@ export default function CheckoutClient({
                         )}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+                        <p className="text-sm font-body font-semibold text-text-primary">
                           {addr.firstName} {addr.lastName}
                           {addr.isDefault && (
                             <span className="ml-2 text-[10px] font-normal bg-bg-secondary text-text-secondary px-1.5 py-0.5 rounded-full">
@@ -850,9 +862,9 @@ export default function CheckoutClient({
                           )}
                         </p>
                         {addr.company && (
-                          <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] mt-0.5">{addr.company}</p>
+                          <p className="text-xs text-text-secondary font-body mt-0.5">{addr.company}</p>
                         )}
-                        <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                        <p className="text-xs text-text-muted font-body">
                           {addr.address1}{addr.address2 ? `, ${addr.address2}` : ""} — {addr.zipCode} {addr.city}, {addr.country}
                         </p>
                       </div>
@@ -863,7 +875,7 @@ export default function CheckoutClient({
                       type="button"
                       onClick={() => handleDeleteAddress(addr.id)}
                       disabled={isPending}
-                      className="text-[11px] text-text-muted hover:text-error font-[family-name:var(--font-roboto)] transition-colors flex items-center gap-1"
+                      className="text-[11px] text-text-muted hover:text-error font-body transition-colors flex items-center gap-1"
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -884,7 +896,7 @@ export default function CheckoutClient({
               )}
 
               {addresses.length === 0 && !showAddressForm && (
-                <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-4">
+                <p className="text-sm text-text-muted font-body text-center py-4">
                   Aucune adresse enregistrée.
                 </p>
               )}
@@ -895,7 +907,7 @@ export default function CheckoutClient({
           <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-card">
             <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center gap-2">
               <span className="w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-xs font-bold flex items-center justify-center shrink-0">3</span>
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
+              <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Mode de livraison
               </h2>
             </div>
@@ -915,7 +927,7 @@ export default function CheckoutClient({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                       d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0H21M3.375 14.25h3.75L8.25 9.75H3.375m0 4.5V5.625c0-.621.504-1.125 1.125-1.125h9.75c.621 0 1.125.504 1.125 1.125v4.125m-13.5 4.5h13.5m0 0l1.125-4.5h2.25c.621 0 1.125.504 1.125 1.125v3.375" />
                   </svg>
-                  <span className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+                  <span className="text-sm font-body font-semibold text-text-primary">
                     Livraison
                   </span>
                 </button>
@@ -932,7 +944,7 @@ export default function CheckoutClient({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                       d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016A3.001 3.001 0 0021 9.349m-18 0a2.999 2.999 0 00.97-1.599L5.03 3.75h13.94l1.06 4A2.999 2.999 0 003 9.349" />
                   </svg>
-                  <span className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+                  <span className="text-sm font-body font-semibold text-text-primary">
                     Retrait en boutique
                   </span>
                 </button>
@@ -949,10 +961,10 @@ export default function CheckoutClient({
                         d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
                     </svg>
                     <div>
-                      <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+                      <p className="text-sm font-body font-semibold text-text-primary">
                         Retrait gratuit en boutique
                       </p>
-                      <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] mt-1">
+                      <p className="text-xs text-text-secondary font-body mt-1">
                         Vous serez notifié par email lorsque votre commande sera prête à retirer.
                       </p>
                     </div>
@@ -964,7 +976,7 @@ export default function CheckoutClient({
               {deliveryMode === "delivery" && (
                 <div className="space-y-3">
                   {!selectedAddr && (
-                    <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-3">
+                    <p className="text-sm text-text-muted font-body text-center py-3">
                       Sélectionnez une adresse de livraison pour voir les transporteurs disponibles.
                     </p>
                   )}
@@ -975,20 +987,22 @@ export default function CheckoutClient({
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
-                      <span className="text-sm font-[family-name:var(--font-roboto)]">Chargement des transporteurs…</span>
+                      <span className="text-sm font-body">Chargement des transporteurs…</span>
                     </div>
                   )}
 
                   {selectedAddr && !carriersLoading && carriersError && (
-                    <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm rounded-lg font-[family-name:var(--font-roboto)]">
+                    <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm rounded-lg font-body">
                       {carriersError}
                     </div>
                   )}
 
                   {selectedAddr && !carriersLoading && !carriersError && carriers.length === 0 && (
-                    <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] text-center py-3">
-                      Aucun transporteur disponible pour cette adresse.
-                    </p>
+                    <div className={`text-sm font-body text-center py-3 ${noCarrierConfigured ? "bg-[#FEF3C7] border border-[#FDE68A] text-[#92400E] px-4 rounded-lg" : "text-text-muted"}`}>
+                      {noCarrierConfigured
+                        ? "Aucun transporteur disponible, veuillez contacter le personnel du site."
+                        : "Aucun transporteur disponible pour cette adresse."}
+                    </div>
                   )}
 
                   {carriers.map((carrier) => (
@@ -1007,20 +1021,109 @@ export default function CheckoutClient({
 
         {/* ── Récapitulatif ───────────────────────── */}
         <div>
-          <div className="bg-bg-primary border border-border rounded-2xl shadow-card overflow-hidden sticky top-24">
-            <div className="px-5 py-3.5 border-b border-border bg-bg-secondary">
-              <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
-                Récapitulatif
-              </h3>
-            </div>
+          <SummaryPanel
+            cart={cart}
+            computeUnitPrice={computeUnitPrice}
+            subtotalHT={subtotalHT}
+            clientDiscountAmt={clientDiscountAmt}
+            clientDiscount={clientDiscount}
+            subtotalAfterDiscount={subtotalAfterDiscount}
+            tvaRate={tvaRate}
+            tvaLabel={tvaLabel}
+            tvaAmount={tvaAmount}
+            selectedAddr={selectedAddr}
+            deliveryMode={deliveryMode}
+            selectedCarrier={selectedCarrier}
+            canProceed={canProceed}
+            totalTTC={totalTTC}
+            orderError={orderError}
+            stripeError={stripeError}
+            cgvAccepted={cgvAccepted}
+            setCgvAccepted={setCgvAccepted}
+            clientSecret={clientSecret}
+            stripeLoading={stripeLoading}
+            handleInitiatePayment={handleInitiatePayment}
+            handlePaymentSuccess={handlePaymentSuccess}
+            handlePaymentProcessing={handlePaymentProcessing}
+            setStripeError={setStripeError}
+            isPending={isPending}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Summary panel — collapsible on mobile, sticky on desktop
+// ─────────────────────────────────────────────
+
+function SummaryPanel({
+  cart, computeUnitPrice: computePrice, subtotalHT, clientDiscountAmt, clientDiscount,
+  subtotalAfterDiscount, tvaRate, tvaLabel, tvaAmount, selectedAddr, deliveryMode,
+  selectedCarrier, canProceed, totalTTC, orderError, stripeError, cgvAccepted,
+  setCgvAccepted, clientSecret, stripeLoading, handleInitiatePayment,
+  handlePaymentSuccess, handlePaymentProcessing, setStripeError, isPending,
+}: {
+  cart: CartData;
+  computeUnitPrice: (v: VariantData) => number;
+  subtotalHT: number;
+  clientDiscountAmt: number;
+  clientDiscount?: ClientDiscount;
+  subtotalAfterDiscount: number;
+  tvaRate: number;
+  tvaLabel: string;
+  tvaAmount: number;
+  selectedAddr: Address | null;
+  deliveryMode: "delivery" | "pickup";
+  selectedCarrier: Carrier | { id: string; name: string; price: number; delay: string } | null;
+  canProceed: boolean;
+  totalTTC: number;
+  orderError: string;
+  stripeError: string;
+  cgvAccepted: boolean;
+  setCgvAccepted: (v: boolean) => void;
+  clientSecret: string | null;
+  stripeLoading: boolean;
+  handleInitiatePayment: () => void;
+  handlePaymentSuccess: (piId: string) => void;
+  handlePaymentProcessing: (piId: string) => void;
+  setStripeError: (v: string) => void;
+  isPending: boolean;
+}) {
+  const [mobileOpen, setMobileOpen] = useState(true);
+  const itemCount = cart.items.reduce((s, i) => s + i.quantity, 0);
+
+  return (
+    <div className="bg-bg-primary border border-border rounded-2xl shadow-card overflow-hidden sticky top-24">
+      {/* Header — clickable on mobile to toggle */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen((v) => !v)}
+        className="w-full px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between lg:cursor-default"
+      >
+        <h3 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+          Récapitulatif
+        </h3>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-body text-text-muted lg:hidden">
+            {itemCount} article{itemCount !== 1 ? "s" : ""} {canProceed ? `— ${totalTTC.toFixed(2)} \u20AC` : ""}
+          </span>
+          <svg className={`w-4 h-4 text-text-muted transition-transform lg:hidden ${mobileOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+
+      <div className={`${mobileOpen ? "block" : "hidden"} lg:block`}>
 
             {/* Articles */}
             <div className="px-5 py-4 space-y-2 border-b border-border">
               {cart.items.map((item) => {
-                const price     = computeUnitPrice(item.variant);
+                const price     = computePrice(item.variant);
                 const lineTotal = price * item.quantity;
                 return (
-                  <div key={item.id} className="flex items-start gap-2 text-xs font-[family-name:var(--font-roboto)]">
+                  <div key={item.id} className="flex items-start gap-2 text-xs font-body">
                     <div className="w-8 h-8 rounded-lg overflow-hidden bg-bg-secondary shrink-0">
                       {item.variantImages[0]?.path ? (
                         <Image src={item.variantImages[0]!.path}
@@ -1046,7 +1149,7 @@ export default function CheckoutClient({
             </div>
 
             {/* Totaux */}
-            <div className="px-5 py-4 space-y-2 text-sm font-[family-name:var(--font-roboto)]">
+            <div className="px-5 py-4 space-y-2 text-sm font-body">
               <div className="flex justify-between text-text-secondary">
                 <span>Sous-total HT</span>
                 <span className="font-medium text-text-primary">{subtotalHT.toFixed(2)} €</span>
@@ -1099,7 +1202,7 @@ export default function CheckoutClient({
 
               <div className="border-t border-border pt-3 flex justify-between items-center mt-2">
                 <span className="font-semibold text-text-primary">Total TTC</span>
-                <span className="font-[family-name:var(--font-poppins)] font-semibold text-lg text-text-primary">
+                <span className="font-heading font-semibold text-lg text-text-primary">
                   {canProceed ? `${totalTTC.toFixed(2)} €` : "—"}
                 </span>
               </div>
@@ -1108,13 +1211,13 @@ export default function CheckoutClient({
             {/* Paiement Stripe */}
             <div className="px-5 pb-5 space-y-3">
               {(orderError || stripeError) && (
-                <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] text-xs font-[family-name:var(--font-roboto)] px-3 py-2 rounded-lg">
+                <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] text-xs font-body px-3 py-2 rounded-lg">
                   {orderError || stripeError}
                 </div>
               )}
 
               {!canProceed && (
-                <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] text-center py-2">
+                <p className="text-xs text-text-muted font-body text-center py-2">
                   Sélectionnez une adresse et un transporteur pour procéder au paiement.
                 </p>
               )}
@@ -1128,7 +1231,7 @@ export default function CheckoutClient({
                     onChange={(e) => setCgvAccepted(e.target.checked)}
                     className="checkbox-custom mt-0.5 shrink-0"
                   />
-                  <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] leading-relaxed">
+                  <span className="text-xs text-text-secondary font-body leading-relaxed">
                     J&apos;ai lu et j&apos;accepte les{" "}
                     <Link href="/cgv" target="_blank" className="text-accent underline hover:text-accent-dark">
                       Conditions Générales de Vente
@@ -1163,14 +1266,14 @@ export default function CheckoutClient({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span className="text-xs font-[family-name:var(--font-roboto)]">Préparation du paiement…</span>
+                  <span className="text-xs font-body">Préparation du paiement…</span>
                 </div>
               )}
 
               {canProceed && clientSecret && (
                 <>
                   <div className="border-t border-border pt-3">
-                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-3">
+                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body mb-3">
                       Paiement sécurisé
                     </p>
                   </div>
@@ -1208,7 +1311,7 @@ export default function CheckoutClient({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span className="text-xs font-[family-name:var(--font-roboto)]">Création de la commande…</span>
+                  <span className="text-xs font-body">Création de la commande…</span>
                 </div>
               )}
 
@@ -1217,16 +1320,14 @@ export default function CheckoutClient({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
                 </svg>
-                <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                <p className="text-xs text-text-muted font-body">
                   Paiement sécurisé par Stripe
                 </p>
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 }
 
 // ─────────────────────────────────────────────

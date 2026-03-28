@@ -39,14 +39,14 @@ export default function StockDisplayConfig({ showOutOfStockVariants, showOutOfSt
             onChange={(e) => setProducts(e.target.checked)}
             className="sr-only peer"
           />
-          <div className="w-10 h-[22px] bg-[#D1D5DB] rounded-full peer-checked:bg-[#1A1A1A] transition-colors" />
-          <div className="absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform peer-checked:translate-x-[18px]" />
+          <div className="w-10 h-[22px] bg-[#D1D5DB] rounded-full peer-checked:bg-bg-dark transition-colors" />
+          <div className="absolute top-[3px] left-[3px] w-4 h-4 bg-bg-primary rounded-full shadow-sm transition-transform peer-checked:translate-x-[18px]" />
         </div>
         <div>
-          <p className="text-sm font-medium text-[#1A1A1A] font-[family-name:var(--font-roboto)]">
+          <p className="text-sm font-medium text-text-primary font-body">
             Afficher les produits en rupture totale
           </p>
-          <p className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-0.5">
+          <p className="text-xs text-text-secondary font-body mt-0.5">
             Si désactivé, les produits dont <strong>toutes</strong> les variantes sont à stock 0 seront masqués du catalogue et de l&apos;accueil.
           </p>
         </div>
@@ -61,14 +61,14 @@ export default function StockDisplayConfig({ showOutOfStockVariants, showOutOfSt
             onChange={(e) => setVariants(e.target.checked)}
             className="sr-only peer"
           />
-          <div className="w-10 h-[22px] bg-[#D1D5DB] rounded-full peer-checked:bg-[#1A1A1A] transition-colors" />
-          <div className="absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform peer-checked:translate-x-[18px]" />
+          <div className="w-10 h-[22px] bg-[#D1D5DB] rounded-full peer-checked:bg-bg-dark transition-colors" />
+          <div className="absolute top-[3px] left-[3px] w-4 h-4 bg-bg-primary rounded-full shadow-sm transition-transform peer-checked:translate-x-[18px]" />
         </div>
         <div>
-          <p className="text-sm font-medium text-[#1A1A1A] font-[family-name:var(--font-roboto)]">
+          <p className="text-sm font-medium text-text-primary font-body">
             Afficher les variantes en rupture
           </p>
-          <p className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-0.5">
+          <p className="text-xs text-text-secondary font-body mt-0.5">
             Si désactivé, les variantes individuelles (couleur/taille) à stock 0 seront masquées de la fiche produit et du catalogue.
           </p>
         </div>
@@ -85,7 +85,7 @@ export default function StockDisplayConfig({ showOutOfStockVariants, showOutOfSt
           {isPending ? "Enregistrement..." : "Enregistrer"}
         </button>
         {msg && (
-          <span className={`text-xs font-[family-name:var(--font-roboto)] ${msg.ok ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
+          <span className={`text-xs font-body ${msg.ok ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
             {msg.text}
           </span>
         )}

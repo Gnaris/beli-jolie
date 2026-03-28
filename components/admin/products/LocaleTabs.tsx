@@ -26,12 +26,12 @@ export default function LocaleTabs({
             key={locale}
             type="button"
             onClick={() => onChange(locale)}
-            className={`relative px-3 py-1.5 text-xs font-semibold rounded-lg transition-all font-[family-name:var(--font-roboto)] ${
+            className={`relative px-3 py-1.5 text-xs font-semibold rounded-lg transition-all font-body ${
               isActive
-                ? "bg-[#1A1A1A] text-white shadow-sm"
+                ? "bg-bg-dark text-text-inverse shadow-sm"
                 : isMissingDb
                 ? "bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-300"
-                : "bg-[#F7F7F7] text-[#6B6B6B] hover:bg-[#EFEFEF] hover:text-[#1A1A1A] border border-[#E5E5E5]"
+                : "bg-[#F7F7F7] text-text-secondary hover:bg-bg-tertiary hover:text-text-primary border border-border"
             }`}
           >
             {localeLabels[locale] ?? locale.toUpperCase()}
@@ -46,7 +46,7 @@ export default function LocaleTabs({
                 <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-400 text-white text-[9px] font-bold border border-white">
                   !
                 </span>
-                <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/warn:block w-52 bg-[#1A1A1A] text-white text-xs rounded-lg px-3 py-2 z-50 pointer-events-none shadow-lg whitespace-normal text-left font-normal">
+                <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/warn:block w-52 bg-bg-dark text-text-inverse text-xs rounded-lg px-3 py-2 z-50 pointer-events-none shadow-lg whitespace-normal text-left font-normal">
                   Traduction manquante pour &ldquo;{localeLabels[locale]}&rdquo; — le produit s&apos;affichera en français pour cette langue
                   <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1A1A1A]" />
                 </span>

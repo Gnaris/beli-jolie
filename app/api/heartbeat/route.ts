@@ -24,6 +24,15 @@ export async function POST(req: NextRequest) {
 
     const now = new Date();
 
+    // Verify user still exists (JWT may outlive deleted users)
+    const userExists = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true },
+    });
+    if (!userExists) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
+
     if (isNewSession) {
       // New session: reset connectedAt and counters
       await prisma.userActivity.upsert({

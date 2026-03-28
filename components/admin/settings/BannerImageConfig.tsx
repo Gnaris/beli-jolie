@@ -87,14 +87,14 @@ export default function BannerImageConfig({ currentImage }: BannerImageConfigPro
               unoptimized
             />
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-              <svg className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <svg className="w-6 h-6 text-text-inverse opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6" />
               </svg>
             </div>
           </>
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#1A1A1A]">
-            <p className="text-white/40 text-xs font-[family-name:var(--font-roboto)]">
+          <div className="absolute inset-0 flex items-center justify-center bg-bg-dark">
+            <p className="text-text-inverse/40 text-xs font-body">
               Aucune image
             </p>
           </div>
@@ -121,7 +121,7 @@ export default function BannerImageConfig({ currentImage }: BannerImageConfigPro
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={uploading || saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1A1A1A] text-white hover:bg-[#333] transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)]"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-bg-dark text-text-inverse hover:bg-primary-hover transition-colors disabled:opacity-50 font-body"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
@@ -134,13 +134,13 @@ export default function BannerImageConfig({ currentImage }: BannerImageConfigPro
               type="button"
               onClick={handleRemove}
               disabled={uploading || saving}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-[#EF4444]/30 text-[#EF4444] hover:bg-[#EF4444]/5 transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)]"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-[#EF4444]/30 text-[#EF4444] hover:bg-[#EF4444]/5 transition-colors disabled:opacity-50 font-body"
             >
               Supprimer
             </button>
           )}
         </div>
-        <p className="text-xs text-text-secondary font-[family-name:var(--font-roboto)]">
+        <p className="text-xs text-text-secondary font-body">
           1920×800px, JPG/PNG/WEBP, max 10 Mo.
         </p>
       </div>
@@ -154,7 +154,7 @@ export default function BannerImageConfig({ currentImage }: BannerImageConfigPro
           <button
             type="button"
             onClick={() => setLightbox(false)}
-            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors z-10"
+            className="absolute top-4 right-4 text-text-inverse/70 hover:text-text-inverse transition-colors z-10"
             aria-label="Fermer"
           >
             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

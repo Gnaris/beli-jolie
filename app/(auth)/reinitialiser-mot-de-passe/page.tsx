@@ -16,7 +16,7 @@ export default async function ResetPasswordPage({ searchParams }: { searchParams
     <div className="w-full max-w-md mx-auto">
       <ResetPasswordForm token={token ?? ""} />
       <p className="text-center mt-6">
-        <Link href="/connexion" className="text-sm font-medium text-text-secondary font-[family-name:var(--font-roboto)] hover:text-text-primary transition-colors">
+        <Link href="/connexion" className="text-sm font-medium text-text-secondary font-body hover:text-text-primary transition-colors">
           {t("backToLogin")}
         </Link>
       </p>

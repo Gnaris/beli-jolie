@@ -63,13 +63,13 @@ export default async function PublicCatalogPage({ params }: Props) {
           <div className="absolute inset-0 bg-black/40" />
         )}
         <div className="relative z-10">
-          <p className="text-white/70 text-xs uppercase tracking-widest font-[family-name:var(--font-roboto)] mb-1">
+          <p className="text-white/70 text-xs uppercase tracking-widest font-body mb-1">
             {shopName} — Catalogue
           </p>
-          <h1 className="font-[family-name:var(--font-poppins)] font-bold text-white text-2xl md:text-3xl tracking-tight">
+          <h1 className="font-heading font-bold text-white text-2xl md:text-3xl tracking-tight">
             {catalog.title}
           </h1>
-          <p className="text-white/60 text-sm mt-2 font-[family-name:var(--font-roboto)]">
+          <p className="text-white/60 text-sm mt-2 font-body">
             {catalog.products.length} produit{catalog.products.length !== 1 ? "s" : ""} sélectionné{catalog.products.length !== 1 ? "s" : ""}
           </p>
         </div>
@@ -79,7 +79,7 @@ export default async function PublicCatalogPage({ params }: Props) {
       <main className="max-w-6xl mx-auto px-4 py-10">
         {catalog.products.length === 0 ? (
           <div className="text-center py-20">
-            <p className="text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Ce catalogue est vide.</p>
+            <p className="text-text-muted font-body">Ce catalogue est vide.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -102,10 +102,10 @@ export default async function PublicCatalogPage({ params }: Props) {
               return (
                 <div
                   key={product.id}
-                  className="bg-white rounded-2xl overflow-hidden shadow-[0_1px_6px_rgba(0,0,0,0.07)] hover:shadow-[0_4px_18px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-200"
+                  className="bg-bg-primary rounded-2xl overflow-hidden shadow-[0_1px_6px_rgba(0,0,0,0.07)] hover:shadow-[0_4px_18px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-200"
                 >
                   {/* Image */}
-                  <div className="relative aspect-[4/5] bg-[#F7F7F8] overflow-hidden">
+                  <div className="relative aspect-[4/5] bg-bg-secondary overflow-hidden">
                     {image ? (
                       <img
                         src={image}
@@ -129,21 +129,21 @@ export default async function PublicCatalogPage({ params }: Props) {
 
                   {/* Infos */}
                   <div className="p-4">
-                    <p className="text-[10px] text-[#9CA3AF] uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
+                    <p className="text-[10px] text-text-muted uppercase tracking-wider font-body mb-1">
                       {product.category.name}
                     </p>
-                    <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm leading-snug line-clamp-2 mb-2">
+                    <h2 className="font-heading font-semibold text-text-primary text-sm leading-snug line-clamp-2 mb-2">
                       {product.name}
                     </h2>
-                    <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-3">
+                    <p className="text-xs text-text-muted font-body mb-3">
                       Réf. {product.reference}
                     </p>
                     {price !== undefined && (
                       <p
-                        className="font-[family-name:var(--font-poppins)] font-bold text-base"
+                        className="font-heading font-bold text-base"
                         style={{ color: primary }}
                       >
-                        {price.toFixed(2)} €<span className="text-xs font-normal text-[#9CA3AF] ml-1">HT / unité</span>
+                        {price.toFixed(2)} €<span className="text-xs font-normal text-text-muted ml-1">HT / unité</span>
                       </p>
                     )}
                   </div>
@@ -155,8 +155,8 @@ export default async function PublicCatalogPage({ params }: Props) {
       </main>
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <footer className="text-center py-8 border-t border-[#E5E5E5]">
-        <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+      <footer className="text-center py-8 border-t border-border">
+        <p className="text-xs text-text-muted font-body">
           © {shopName} — Catalogue généré le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
         </p>
       </footer>

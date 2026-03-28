@@ -240,7 +240,7 @@ export default function LegalRichTextEditor({
         onInput={handleInput}
         onKeyDown={handleKeyDown}
         data-placeholder={placeholder}
-        className="min-h-[400px] max-h-[600px] overflow-y-auto p-4 text-sm text-text-primary font-[family-name:var(--font-roboto)] focus:outline-none [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-text-muted [&:empty]:before:pointer-events-none [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:font-[family-name:var(--font-poppins)] [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:font-[family-name:var(--font-poppins)] [&_h3]:mt-4 [&_h3]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:mt-3 [&_h4]:mb-1 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-0.5 [&_a]:text-blue-600 [&_a]:underline [&_p]:my-1.5 [&_strong]:font-semibold"
+        className="min-h-[400px] max-h-[600px] overflow-y-auto p-4 text-sm text-text-primary font-body focus:outline-none [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-text-muted [&:empty]:before:pointer-events-none [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:font-heading [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:font-heading [&_h3]:mt-4 [&_h3]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:mt-3 [&_h4]:mb-1 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-0.5 [&_a]:text-blue-600 [&_a]:underline [&_p]:my-1.5 [&_strong]:font-semibold"
         role="textbox"
         aria-label="Contenu du document légal"
         aria-multiline="true"

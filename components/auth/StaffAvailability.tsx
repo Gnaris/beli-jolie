@@ -38,7 +38,7 @@ export default function StaffAvailability({ variant = "light" }: { variant?: "li
         }`}>
           <div className="w-2.5 h-2.5 bg-[#22C55E] rounded-full animate-pulse" />
         </div>
-        <p className={`text-xs font-[family-name:var(--font-roboto)] leading-relaxed ${
+        <p className={`text-xs font-body leading-relaxed ${
           dark ? "text-white/50" : "text-text-secondary"
         }`}>
           <span className={`font-semibold ${dark ? "text-[#4ADE80]" : "text-[#22C55E]"}`}>Staff en ligne</span> — Notre équipe est disponible et valide les inscriptions en quelques secondes.
@@ -58,7 +58,7 @@ export default function StaffAvailability({ variant = "light" }: { variant?: "li
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
         </svg>
       </div>
-      <p className={`text-xs font-[family-name:var(--font-roboto)] leading-relaxed ${
+      <p className={`text-xs font-body leading-relaxed ${
         dark ? "text-white/50" : "text-text-secondary"
       }`}>
         <span className={`font-semibold ${dark ? "text-[#FBBF24]" : "text-[#F59E0B]"}`}>Hors horaires</span> — Notre équipe n&apos;est plus en service actuellement. Votre inscription sera vérifiée dès 9h du matin (heure de Paris).

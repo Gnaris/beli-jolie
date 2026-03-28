@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { autoTranslateColor } from "@/lib/auto-translate";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -18,7 +19,8 @@ export async function createColor(formData: FormData) {
   const hex  = (formData.get("hex")  as string)?.trim() || null;
   if (!name) throw new Error("Le nom est requis.");
 
-  await prisma.color.create({ data: { name, hex } });
+  const color = await prisma.color.create({ data: { name, hex } });
+  autoTranslateColor(color.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
   revalidatePath("/admin/produits/nouveau");

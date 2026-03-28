@@ -95,17 +95,17 @@ export default async function CollectionDetailPage({ params }: PageProps) {
             </div>
           )}
           <div className="container-site py-6">
-            <div className="flex items-center gap-2 text-xs text-text-muted font-[family-name:var(--font-roboto)] mb-2">
+            <div className="flex items-center gap-2 text-xs text-text-muted font-body mb-2">
               <Link href="/collections" className="hover:text-text-primary transition-colors">
                 {t("breadcrumb")}
               </Link>
               <span>/</span>
               <span className="text-text-primary">{collection.name}</span>
             </div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary">
+            <h1 className="font-heading text-2xl font-semibold text-text-primary">
               {collection.name}
             </h1>
-            <p className="mt-1 text-sm text-text-muted font-[family-name:var(--font-roboto)]">
+            <p className="mt-1 text-sm text-text-muted font-body">
               {collection.products.length <= 1
                 ? t("products", { count: collection.products.length })
                 : t("products_plural", { count: collection.products.length })}
@@ -115,7 +115,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
 
         <main className="container-site py-8">
           {collection.products.length === 0 ? (
-            <div className="text-center py-20 text-text-muted font-[family-name:var(--font-roboto)]">
+            <div className="text-center py-20 text-text-muted font-body">
               {t("empty")}
             </div>
           ) : (

@@ -34,14 +34,14 @@ export default function BankTransferDetails({ orderId }: { orderId: string }) {
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        <span className="text-xs font-[family-name:var(--font-roboto)]">Chargement des coordonnees bancaires...</span>
+        <span className="text-xs font-body">Chargement des coordonnees bancaires...</span>
       </div>
     );
   }
 
   if (error || !details) {
     return (
-      <p className="text-xs font-[family-name:var(--font-roboto)] text-[#92400E] mt-2">
+      <p className="text-xs font-body text-[#92400E] mt-2">
         {error || "Coordonnees bancaires non disponibles. Contactez-nous si besoin."}
       </p>
     );
@@ -53,7 +53,7 @@ export default function BankTransferDetails({ orderId }: { orderId: string }) {
 
   return (
     <div className="mt-3 space-y-3">
-      <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#92400E] uppercase tracking-wider">
+      <p className="text-xs font-body font-semibold text-[#92400E] uppercase tracking-wider">
         Coordonnees pour le virement
       </p>
 
@@ -74,13 +74,13 @@ export default function BankTransferDetails({ orderId }: { orderId: string }) {
 
       <div className="flex items-center gap-3 pt-1">
         <div className="bg-[#FEF3C7] rounded-lg px-3 py-2">
-          <p className="text-xs font-[family-name:var(--font-roboto)] text-[#92400E]">
+          <p className="text-xs font-body text-[#92400E]">
             <span className="font-semibold">Montant exact :</span> {details.amount} {details.currency}
           </p>
         </div>
       </div>
 
-      <p className="text-[10px] font-[family-name:var(--font-roboto)] text-[#B45309]">
+      <p className="text-[10px] font-body text-[#B45309]">
         Indiquez imperativement la reference ci-dessus dans le motif du virement, sinon le paiement ne pourra pas etre rapproche automatiquement.
       </p>
     </div>
@@ -111,14 +111,14 @@ function DetailRow({
       highlight ? "bg-[#FDE68A]/40 border border-[#FDE68A]" : "bg-white/60 border border-[#FDE68A]/50"
     }`}>
       <div className="min-w-0">
-        <p className="text-[10px] font-[family-name:var(--font-roboto)] text-[#92400E] uppercase tracking-wider">{label}</p>
-        <p className={`text-xs font-mono text-[#1A1A1A] truncate ${highlight ? "font-bold" : "font-medium"}`}>
+        <p className="text-[10px] font-body text-[#92400E] uppercase tracking-wider">{label}</p>
+        <p className={`text-xs font-mono text-text-primary truncate ${highlight ? "font-bold" : "font-medium"}`}>
           {value}
         </p>
       </div>
       <button
         onClick={handleCopy}
-        className="text-[#92400E] hover:text-[#1A1A1A] transition-colors shrink-0"
+        className="text-[#92400E] hover:text-text-primary transition-colors shrink-0"
         title="Copier"
       >
         {copied ? (

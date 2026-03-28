@@ -29,7 +29,7 @@ export async function cancelOrder(orderId: string): Promise<void> {
 }
 import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
-import { getStripeInstance } from "@/lib/stripe";
+import { getStripeInstance, getConnectedAccountId } from "@/lib/stripe";
 import nodemailer from "nodemailer";
 import { getCachedShopName, getCachedCompanyInfo, getCachedGmailConfig } from "@/lib/cached-data";
 
@@ -149,7 +149,9 @@ export async function placeOrder(
   let paymentIntent;
   try {
     const stripe = await getStripeInstance();
-    paymentIntent = await stripe.paymentIntents.retrieve(input.stripePaymentIntentId);
+    const connectAccountId = await getConnectedAccountId();
+    const connectOpts = connectAccountId ? { stripeAccount: connectAccountId } : undefined;
+    paymentIntent = await stripe.paymentIntents.retrieve(input.stripePaymentIntentId, connectOpts);
   } catch (err) {
     console.error("[placeOrder] Erreur retrieve PI:", err);
     return { success: false, error: "Payment Intent introuvable." };

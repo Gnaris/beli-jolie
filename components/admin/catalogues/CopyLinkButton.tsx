@@ -20,7 +20,7 @@ export default function CopyLinkButton({ token }: Props) {
     <button
       onClick={handleCopy}
       title={copied ? "Lien copié !" : "Copier le lien"}
-      className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#E5E5E5] hover:bg-[#F7F7F8] transition-colors text-[#6B7280] hover:text-[#1A1A1A]"
+      className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors text-[#6B7280] hover:text-text-primary"
     >
       {copied ? (
         <svg className="w-4 h-4 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -49,11 +49,11 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
       <button
         onClick={() => setOpen((v) => !v)}
         disabled={isPending}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#E5E5E5] bg-white hover:bg-[#F7F7F8] text-sm font-medium text-[#1A1A1A] transition-colors disabled:opacity-50"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-bg-primary hover:bg-bg-secondary text-sm font-medium text-text-primary transition-colors disabled:opacity-50"
         aria-label="Change language"
       >
         {isPending ? (
-          <span className="w-4 h-4 border-2 border-[#E5E5E5] border-t-[#1A1A1A] rounded-full animate-spin" />
+          <span className="w-4 h-4 border-2 border-border border-t-text-primary rounded-full animate-spin" />
         ) : (
           <span className="text-base leading-none">{current.flag}</span>
         )}
@@ -69,15 +69,15 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
       </button>
 
       {open && (
-        <div className="absolute top-full mt-1 right-0 z-50 bg-white border border-[#E5E5E5] rounded-xl shadow-lg overflow-hidden min-w-[150px] animate-fadeIn">
+        <div className="absolute top-full mt-1 right-0 z-50 bg-bg-primary border border-border rounded-xl shadow-lg overflow-hidden min-w-[150px] animate-fadeIn">
           {LANGUAGES.map((lang) => (
             <button
               key={lang.code}
               onClick={() => handleSelect(lang.code)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm hover:bg-[#F7F7F8] transition-colors text-left ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm hover:bg-bg-secondary transition-colors text-left ${
                 lang.code === currentLocale
-                  ? "bg-[#F7F7F8] font-semibold text-[#1A1A1A]"
-                  : "text-[#444]"
+                  ? "bg-bg-secondary font-semibold text-text-primary"
+                  : "text-text-secondary"
               }`}
             >
               <span className="text-base">{lang.flag}</span>

@@ -40,7 +40,7 @@ export default function SuccessToast() {
           : "opacity-100 translate-x-0 animate-[slideIn_0.3s_ease-out]"
       }`}
     >
-      <div className="bg-white border border-[#A7F3D0] rounded-xl shadow-lg overflow-hidden">
+      <div className="bg-bg-primary border border-[#A7F3D0] rounded-xl shadow-lg overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="w-8 h-8 rounded-full bg-[#DCFCE7] flex items-center justify-center shrink-0">
             <svg className="w-4 h-4 text-[#16A34A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -48,16 +48,16 @@ export default function SuccessToast() {
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+            <p className="font-heading text-sm font-semibold text-text-primary">
               Commande validee
             </p>
-            <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] mt-0.5">
+            <p className="text-xs font-body text-text-secondary mt-0.5">
               Votre paiement a ete confirme avec succes.
             </p>
           </div>
           <button
             onClick={() => { setExiting(true); setTimeout(() => setVisible(false), 400); }}
-            className="text-[#9CA3AF] hover:text-[#1A1A1A] transition-colors shrink-0"
+            className="text-text-muted hover:text-text-primary transition-colors shrink-0"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

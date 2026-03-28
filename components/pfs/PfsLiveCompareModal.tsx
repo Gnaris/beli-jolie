@@ -284,7 +284,7 @@ function CompareField({
     }`}>
       {/* Section header with label + badge */}
       <div className="flex items-center gap-2 mb-3">
-        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)]">
+        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-heading">
           {label}
         </h4>
         {isDifferent ? (
@@ -835,7 +835,7 @@ export default function PfsLiveCompareModal({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <SyncIcon className="h-5 w-5 text-[#F59E0B]" />
-                <h2 className="text-lg font-semibold text-text-primary font-[family-name:var(--font-poppins)] truncate">
+                <h2 className="text-lg font-semibold text-text-primary font-heading truncate">
                   Synchronisation PFS en direct
                 </h2>
                 {existing && (
@@ -1079,7 +1079,7 @@ export default function PfsLiveCompareModal({
               {/* ─── Variants (only non-identical) ─── */}
               {variantMatches.filter(m => m.isDifferent || m.onlyIn !== "both").length > 0 && (
               <div className="rounded-xl border border-border p-4 bg-bg-secondary/30">
-                <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-[family-name:var(--font-poppins)] mb-3">
+                <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide font-heading mb-3">
                   Variantes
                 </h4>
                 <div className="space-y-3">

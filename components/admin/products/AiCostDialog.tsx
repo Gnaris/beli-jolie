@@ -38,10 +38,10 @@ export default function AiCostDialog({ estimatedCostUsd, onConfirm, onCancel }: 
             </svg>
           </div>
           <div>
-            <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
+            <h3 className="font-heading text-base font-semibold text-text-primary">
               Générer avec l&apos;IA
             </h3>
-            <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mt-1">
+            <p className="text-sm text-text-secondary font-body mt-1">
               L&apos;IA va analyser les images et les informations du produit pour générer
               le nom et la description dans toutes les langues.
             </p>
@@ -51,12 +51,12 @@ export default function AiCostDialog({ estimatedCostUsd, onConfirm, onCancel }: 
         {/* Cost */}
         <div className="bg-bg-secondary border border-border rounded-xl p-4 space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-text-secondary font-[family-name:var(--font-roboto)]">Coût estimé</span>
-            <span className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary">
+            <span className="text-sm text-text-secondary font-body">Coût estimé</span>
+            <span className="font-heading font-semibold text-text-primary">
               ~${estimatedCostUsd.toFixed(4)}
             </span>
           </div>
-          <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+          <p className="text-xs text-text-muted font-body">
             Facturé sur votre compte API Anthropic
           </p>
         </div>
@@ -66,14 +66,14 @@ export default function AiCostDialog({ estimatedCostUsd, onConfirm, onCancel }: 
           <button
             type="button"
             onClick={onConfirm}
-            className="flex-1 bg-[#1A1A1A] hover:bg-black text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
+            className="flex-1 bg-bg-dark hover:bg-black text-text-inverse text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-body"
           >
             Générer
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 border border-border text-text-secondary hover:border-[#1A1A1A] hover:text-text-primary text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
+            className="flex-1 border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-body"
           >
             Annuler
           </button>

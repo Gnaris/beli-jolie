@@ -79,7 +79,7 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
             label="Tout traduire"
             onlyMissing
           />
-          <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+          <span className="text-xs text-text-muted font-body">
             {filtered.length} mot{filtered.length !== 1 ? "s" : ""} clé{filtered.length !== 1 ? "s" : ""}
           </span>
           <button
@@ -93,18 +93,18 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
       </div>
 
       {error && (
-        <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)] px-1">{error}</p>
+        <p className="text-xs text-[#EF4444] font-body px-1">{error}</p>
       )}
 
       {/* Tableau */}
       {filtered.length === 0 ? (
-        <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] py-6 text-center border border-dashed border-border rounded-xl">
+        <p className="text-sm text-text-muted font-body py-6 text-center border border-dashed border-border rounded-xl">
           {search.trim() ? "Aucun mot clé trouvé" : "Aucun mot clé pour l\u2019instant."}
         </p>
       ) : (
         <div className="border border-border rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm font-[family-name:var(--font-roboto)]">
+            <table className="w-full text-sm font-body">
               <thead>
                 <tr className="bg-bg-secondary border-b border-border">
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Nom</th>
@@ -127,7 +127,7 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
                         <span className="relative group/tw inline-flex">
                           <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold cursor-default select-none">⚠</span>
                           <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/tw:block z-50 pointer-events-none">
-                            <span className="block w-40 bg-[#1A1A1A] text-white text-[11px] rounded-xl px-2.5 py-1.5 shadow-xl">
+                            <span className="block w-40 bg-bg-dark text-text-inverse text-[11px] rounded-xl px-2.5 py-1.5 shadow-xl">
                               Aucune traduction
                               <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1A1A1A]" />
                             </span>

@@ -16,7 +16,7 @@ export default function LogoutButton() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-1 flex items-center gap-2.5 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-[family-name:var(--font-roboto)] w-full"
+        className="mt-1 flex items-center gap-2.5 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-body w-full"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -43,10 +43,10 @@ export default function LogoutButton() {
                 </svg>
               </div>
               <div>
-                <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
+                <h3 className="font-heading text-base font-semibold text-text-primary">
                   Confirmer la deconnexion
                 </h3>
-                <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mt-1">
+                <p className="text-sm text-text-secondary font-body mt-1">
                   Voulez-vous vraiment quitter votre session administrateur ?
                 </p>
               </div>
@@ -59,14 +59,14 @@ export default function LogoutButton() {
                   try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
                   signOut({ callbackUrl: "/connexion" });
                 }}
-                className="flex-1 bg-bg-dark hover:bg-neutral-800 text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
+                className="flex-1 bg-bg-dark hover:bg-neutral-800 text-text-inverse text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-body"
               >
                 Se deconnecter
               </button>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="flex-1 border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
+                className="flex-1 border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary text-sm font-medium py-2.5 px-4 rounded-lg transition-colors font-body"
               >
                 Annuler
               </button>

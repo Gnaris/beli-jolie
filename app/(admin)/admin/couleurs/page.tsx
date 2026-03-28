@@ -38,7 +38,7 @@ export default async function CouleursPage() {
 
       {/* Liste */}
       <section className="space-y-3">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
+        <h2 className="font-heading text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
           Couleurs ({colors.length})
         </h2>
         <ColorsManager initialColors={colorItems} />

@@ -46,13 +46,13 @@ export default async function AdminCommandeDetailPage({
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <Link href="/admin/commandes"
-            className="text-xs text-text-muted hover:text-text-primary font-[family-name:var(--font-roboto)] flex items-center gap-1 mb-3 transition-colors">
+            className="text-xs text-text-muted hover:text-text-primary font-body flex items-center gap-1 mb-3 transition-colors">
             ← Toutes les commandes
           </Link>
           <h1 className="page-title">
             Commande {order.orderNumber}
           </h1>
-          <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mt-0.5">
+          <p className="text-sm text-text-secondary font-body mt-0.5">
             {new Date(order.createdAt).toLocaleDateString("fr-FR", {
               weekday: "long", day: "numeric", month: "long", year: "numeric",
             })}
@@ -100,7 +100,7 @@ export default async function AdminCommandeDetailPage({
       {/* Facture client */}
       <section className="card overflow-hidden">
         <div className="px-5 py-3.5 border-b border-border table-header">
-          <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
+          <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
             Facture client
           </h2>
         </div>
@@ -117,7 +117,7 @@ export default async function AdminCommandeDetailPage({
           {/* Articles */}
           <section className="card overflow-hidden">
             <div className="px-5 py-3.5 border-b border-border table-header">
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
+              <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Articles commandés ({order.items.length})
               </h2>
             </div>
@@ -142,7 +142,7 @@ export default async function AdminCommandeDetailPage({
 
                   {/* Infos */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)]">
+                    <p className="text-sm font-medium text-text-primary font-body">
                       {item.productName}
                     </p>
                     <p className="text-xs font-mono text-text-muted mt-0.5">{item.productRef}</p>
@@ -178,10 +178,10 @@ export default async function AdminCommandeDetailPage({
 
                   {/* Prix */}
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-text-primary font-[family-name:var(--font-poppins)]">
+                    <p className="text-sm font-semibold text-text-primary font-heading">
                       {fmt(item.lineTotal)}
                     </p>
-                    <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+                    <p className="text-xs text-text-muted font-body mt-0.5">
                       {item.quantity} × {fmt(item.unitPrice)}
                     </p>
                   </div>
@@ -193,7 +193,7 @@ export default async function AdminCommandeDetailPage({
           {/* Client */}
           <section className="card overflow-hidden">
             <div className="px-5 py-3.5 border-b border-border table-header">
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
+              <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Client
               </h2>
             </div>
@@ -215,11 +215,11 @@ export default async function AdminCommandeDetailPage({
           {/* Récap financier */}
           <section className="card overflow-hidden">
             <div className="px-5 py-3.5 border-b border-border table-header">
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
+              <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Récapitulatif
               </h2>
             </div>
-            <div className="px-5 py-4 space-y-2 text-sm font-[family-name:var(--font-roboto)]">
+            <div className="px-5 py-4 space-y-2 text-sm font-body">
               <div className="flex justify-between text-text-secondary">
                 <span>Sous-total HT</span>
                 <span className="font-medium text-text-primary">{fmt(order.subtotalHT)}</span>
@@ -236,7 +236,7 @@ export default async function AdminCommandeDetailPage({
               </div>
               <div className="border-t border-border pt-3 flex justify-between items-center">
                 <span className="font-semibold text-text-primary">Total TTC</span>
-                <span className="font-[family-name:var(--font-poppins)] font-semibold text-lg text-text-primary">
+                <span className="font-heading font-semibold text-lg text-text-primary">
                   {fmt(order.totalTTC)}
                 </span>
               </div>
@@ -246,11 +246,11 @@ export default async function AdminCommandeDetailPage({
           {/* Livraison */}
           <section className="card overflow-hidden">
             <div className="px-5 py-3.5 border-b border-border table-header">
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary uppercase tracking-wide">
+              <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
                 Livraison
               </h2>
             </div>
-            <div className="px-5 py-4 space-y-3 text-sm font-[family-name:var(--font-roboto)]">
+            <div className="px-5 py-4 space-y-3 text-sm font-body">
               <p className="font-medium text-text-primary">{order.carrierName}</p>
               {order.eeTrackingId && (
                 <p className="text-xs font-mono text-text-secondary bg-bg-tertiary px-2 py-1 rounded inline-block">
@@ -277,7 +277,7 @@ function InfoRow({ label, value, mono = false }: { label: string; value: string;
   return (
     <div>
       <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">{label}</p>
-      <p className={`mt-0.5 text-sm text-text-primary ${mono ? "font-mono" : "font-[family-name:var(--font-roboto)]"}`}>
+      <p className={`mt-0.5 text-sm text-text-primary ${mono ? "font-mono" : "font-body"}`}>
         {value}
       </p>
     </div>

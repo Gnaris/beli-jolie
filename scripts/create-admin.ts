@@ -2,80 +2,144 @@
  * Script de création du compte administrateur
  * Usage : npx tsx scripts/create-admin.ts
  *
- * Variables requises dans .env :
- *   ADMIN_EMAIL    — email du compte admin
- *   ADMIN_PASSWORD — mot de passe du compte admin
+ * Vérifie s'il existe déjà un admin, sinon demande email + mot de passe.
  */
 
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import * as readline from "readline";
 
 const prisma = new PrismaClient();
 
-const ADMIN_EMAIL    = process.env.ADMIN_EMAIL;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+function ask(question: string, hidden = false): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    if (hidden) {
+      // Masquer la saisie du mot de passe
+      process.stdout.write(question);
+      const stdin = process.stdin;
+      const wasRaw = stdin.isRaw;
+      if (stdin.setRawMode) stdin.setRawMode(true);
+      stdin.resume();
+
+      let password = "";
+      const onData = (char: Buffer) => {
+        const c = char.toString("utf8");
+        if (c === "\n" || c === "\r" || c === "\u0004") {
+          stdin.removeListener("data", onData);
+          if (stdin.setRawMode) stdin.setRawMode(wasRaw ?? false);
+          process.stdout.write("\n");
+          rl.close();
+          resolve(password);
+        } else if (c === "\u0003") {
+          // Ctrl+C
+          process.exit(1);
+        } else if (c === "\u007F" || c === "\b") {
+          // Backspace
+          if (password.length > 0) {
+            password = password.slice(0, -1);
+            process.stdout.write("\b \b");
+          }
+        } else {
+          password += c;
+          process.stdout.write("*");
+        }
+      };
+      stdin.on("data", onData);
+    } else {
+      rl.question(question, (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      });
+    }
+  });
+}
 
 async function main() {
-  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
-    console.error("❌ Variables ADMIN_EMAIL et ADMIN_PASSWORD requises dans .env");
-    process.exit(1);
-  }
-
-  console.log("🔧 Création du compte administrateur...\n");
+  console.log("\n========================================");
+  console.log("   Configuration du compte admin");
+  console.log("========================================\n");
 
   // Vérifier si un admin existe déjà
-  const existing = await prisma.user.findUnique({
-    where: { email: ADMIN_EMAIL },
+  const existingAdmin = await prisma.user.findFirst({
+    where: { role: "ADMIN" },
   });
 
-  if (existing) {
-    console.log(`⚠️  Un compte avec l'email ${ADMIN_EMAIL} existe déjà.`);
-    console.log(`   Rôle   : ${existing.role}`);
-    console.log(`   Statut : ${existing.status}`);
-
-    // Si ce n'est pas un admin, on le met à jour
-    if (existing.role !== "ADMIN") {
-      await prisma.user.update({
-        where: { email: ADMIN_EMAIL },
-        data: { role: "ADMIN", status: "APPROVED" },
-      });
-      console.log("✅ Rôle mis à jour → ADMIN");
-    }
+  if (existingAdmin) {
+    console.log("Un compte admin existe deja :");
+    console.log(`  Email  : ${existingAdmin.email}`);
+    console.log(`  Statut : ${existingAdmin.status}`);
+    console.log("\nAucune action necessaire.\n");
     return;
   }
 
-  // Hash du mot de passe
-  const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 12);
+  // Pas d'admin → demander les infos
+  const email = await ask("Email admin : ");
+  if (!email) {
+    console.error("Email requis.");
+    process.exit(1);
+  }
 
-  // Création de l'admin
-  const admin = await prisma.user.create({
+  const password = await ask("Mot de passe : ", true);
+  if (!password || password.length < 6) {
+    console.error("Mot de passe requis (6 caracteres minimum).");
+    process.exit(1);
+  }
+
+  const confirmPassword = await ask("Confirmer le mot de passe : ", true);
+  if (password !== confirmPassword) {
+    console.error("Les mots de passe ne correspondent pas.");
+    process.exit(1);
+  }
+
+  // Vérifier si l'email est déjà pris
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (existingUser) {
+    // L'utilisateur existe mais n'est pas admin → le promouvoir
+    await prisma.user.update({
+      where: { email },
+      data: { role: "ADMIN", status: "APPROVED" },
+    });
+    console.log(`\nCompte existant promu admin : ${email}\n`);
+    return;
+  }
+
+  // Hash + création
+  const hashedPassword = await bcrypt.hash(password, 12);
+
+  await prisma.user.create({
     data: {
-      email:     ADMIN_EMAIL,
-      password:  hashedPassword,
+      email,
+      password: hashedPassword,
       firstName: "Admin",
-      lastName:  "Admin",
-      company:   "Admin",
-      phone:     "0600000000",
-      siret:     "00000000000000",
-      kbisPath:  "private/uploads/kbis/admin.pdf",
-      role:      "ADMIN",
-      status:    "APPROVED",
+      lastName: "Admin",
+      company: "Admin",
+      phone: "0000000000",
+      siret: "00000000000000",
+      kbisPath: "private/uploads/kbis/admin.pdf",
+      role: "ADMIN",
+      status: "APPROVED",
     },
   });
 
-  console.log("✅ Compte admin créé avec succès !\n");
-  console.log("┌─────────────────────────────────────────┐");
-  console.log(`│  Email        : ${admin.email.padEnd(23)}│`);
-  console.log(`│  Mot de passe : (défini dans .env)      │`);
-  console.log(`│  Rôle         : ADMIN                   │`);
-  console.log("└─────────────────────────────────────────┘");
-  console.log("\n🔐 Connectez-vous sur http://localhost:3000/connexion");
+  console.log("\n========================================");
+  console.log("   Compte admin cree avec succes !");
+  console.log("========================================");
+  console.log(`  Email : ${email}`);
+  console.log("\nConnectez-vous sur votre site a /connexion\n");
 }
 
 main()
   .catch((e) => {
-    console.error("❌ Erreur :", e.message);
+    console.error("Erreur :", e.message);
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());

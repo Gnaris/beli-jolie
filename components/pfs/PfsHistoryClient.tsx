@@ -149,7 +149,7 @@ export default function PfsHistoryClient() {
       </div>
 
       <div>
-        <h1 className="page-title font-[family-name:var(--font-poppins)]">Résumé PFS</h1>
+        <h1 className="page-title font-heading">Résumé PFS</h1>
         <p className="page-subtitle">
           Consultez les synchronisations PFS passées et leurs statistiques
         </p>
@@ -215,7 +215,7 @@ export default function PfsHistoryClient() {
                     <td className="px-4 py-3">
                       <Link
                         href={`/admin/pfs/resume/${job.id}`}
-                        className="text-sm font-medium text-text-primary hover:underline font-[family-name:var(--font-poppins)]"
+                        className="text-sm font-medium text-text-primary hover:underline font-heading"
                       >
                         {formatDate(job.createdAt)}
                       </Link>
@@ -301,7 +301,7 @@ export default function PfsHistoryClient() {
                       className="checkbox-custom"
                       aria-label={`Sélectionner la synchronisation du ${formatDate(job.createdAt)}`}
                     />
-                    <span className="text-sm font-medium text-text-primary font-[family-name:var(--font-poppins)]">
+                    <span className="text-sm font-medium text-text-primary font-heading">
                       {formatDate(job.createdAt)}
                     </span>
                   </div>
@@ -377,7 +377,7 @@ function StatCell({ label, value, color }: { label: string; value: number; color
   return (
     <div className="bg-bg-secondary rounded-lg py-2 px-1">
       <div
-        className="text-base font-semibold font-[family-name:var(--font-poppins)]"
+        className="text-base font-semibold font-heading"
         style={value > 0 && color ? { color } : undefined}
       >
         {value}

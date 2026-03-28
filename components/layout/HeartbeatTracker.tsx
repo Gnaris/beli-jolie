@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 
 const HEARTBEAT_INTERVAL = 30_000; // 30 seconds
@@ -34,17 +34,23 @@ export default function HeartbeatTracker() {
       sessionStorage.setItem(SESSION_KEY, Date.now().toString());
     }
 
-    const sendHeartbeat = (newSession = false) => {
-      fetch("/api/heartbeat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          page: pathnameRef.current,
-          isNewSession: newSession,
-        }),
-      }).catch(() => {
-        // Silently ignore heartbeat failures
-      });
+    const sendHeartbeat = async (newSession = false) => {
+      try {
+        const res = await fetch("/api/heartbeat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            page: pathnameRef.current,
+            isNewSession: newSession,
+          }),
+        });
+        if (res.status === 401) {
+          // User no longer exists in DB — clear session and redirect
+          signOut({ callbackUrl: "/connexion" });
+        }
+      } catch {
+        // Silently ignore network failures
+      }
     };
 
     const sendDisconnect = () => {

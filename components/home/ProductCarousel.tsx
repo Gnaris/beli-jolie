@@ -110,14 +110,14 @@ function CarouselCard({ product, clientDiscount, showPromoBadge }: { product: Ca
 
           {/* Promo badge */}
           {(showPromoBadge || anyColorHasDiscount) && hasProductDiscount && (
-            <span className="absolute top-2.5 right-2.5 bg-[#EF4444] text-white text-[10px] font-bold font-[family-name:var(--font-poppins)] px-2.5 py-0.5 rounded-full shadow-sm uppercase tracking-wide">
+            <span className="absolute top-2.5 right-2.5 bg-[#EF4444] text-white text-[10px] font-bold font-heading px-2.5 py-0.5 rounded-full shadow-sm uppercase tracking-wide">
               {tProduct("promo")}
             </span>
           )}
 
           {/* Coloris badge — only if no promo badge */}
           {product.colors.length > 1 && !(showPromoBadge || anyColorHasDiscount) && (
-            <span className="absolute top-2.5 right-2.5 bg-bg-primary text-text-muted text-[10px] font-[family-name:var(--font-roboto)] px-2 py-0.5 rounded-full border border-border">
+            <span className="absolute top-2.5 right-2.5 bg-bg-primary text-text-muted text-[10px] font-body px-2 py-0.5 rounded-full border border-border">
               {t("colors", { count: product.colors.length })}
             </span>
           )}
@@ -141,31 +141,31 @@ function CarouselCard({ product, clientDiscount, showPromoBadge }: { product: Ca
         )}
 
         <Link href={`/produits/${product.id}`}>
-          <p className="font-[family-name:var(--font-roboto)] font-semibold text-sm text-text-primary line-clamp-2 leading-snug hover:text-text-secondary transition-colors">
+          <p className="font-body font-semibold text-sm text-text-primary line-clamp-2 leading-snug hover:text-text-secondary transition-colors">
             {tp(product.name)}
           </p>
         </Link>
 
-        <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+        <p className="text-xs text-text-muted font-body">
           {translateCat(product.category)}
         </p>
 
         {/* Prix */}
         <div className="flex items-baseline gap-1.5 mt-auto flex-wrap">
           {showStrikethrough && (
-            <span className="font-[family-name:var(--font-roboto)] text-xs text-text-muted line-through">
+            <span className="font-body text-xs text-text-muted line-through">
               {strikethroughPrice.toFixed(2)} &euro;
             </span>
           )}
           {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
-            <span className="text-[10px] font-[family-name:var(--font-roboto)] text-[#EF4444] font-medium">
+            <span className="text-[10px] font-body text-[#EF4444] font-medium">
               -{clientDiscount.discountValue}%
             </span>
           )}
-          <span className={`font-[family-name:var(--font-poppins)] font-semibold text-base ${showStrikethrough ? "text-[#EF4444]" : "text-text-primary"}`}>
+          <span className={`font-heading font-semibold text-base ${showStrikethrough ? "text-[#EF4444]" : "text-text-primary"}`}>
             {(hasClientDiscount ? finalPrice : minDiscountedPrice).toFixed(2)} &euro;
           </span>
-          <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+          <span className="text-xs text-text-muted font-body">
             {tProduct("htUnit")}
           </span>
         </div>
@@ -202,7 +202,7 @@ export default function ProductCarousel({
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
+            <h2 className="font-heading text-xl font-semibold text-text-primary">
               {title}
             </h2>
             <div className="h-px w-12 bg-border mt-2" />
@@ -249,7 +249,7 @@ export default function ProductCarousel({
             </button>
             <Link
               href={viewMoreHref}
-              className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors font-[family-name:var(--font-roboto)] ml-1"
+              className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors font-body ml-1"
             >
               {viewMoreLabel} &rarr;
             </Link>

@@ -90,7 +90,7 @@ export default function CompanyInfoForm({ initialData }: CompanyInfoFormProps) {
 
       {message && (
         <div
-          className={`mt-4 rounded-lg px-4 py-3 text-sm font-[family-name:var(--font-roboto)] ${
+          className={`mt-4 rounded-lg px-4 py-3 text-sm font-body ${
             message.type === "success"
               ? "bg-green-50 text-green-700 border border-green-200"
               : "bg-red-50 text-red-700 border border-red-200"

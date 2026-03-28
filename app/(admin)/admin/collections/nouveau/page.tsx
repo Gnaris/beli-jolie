@@ -72,7 +72,7 @@ export default function NewCollectionPage() {
           <h1 className="page-title">
             Nouvelle collection
           </h1>
-          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+          <p className="page-subtitle font-body">
             Créez une collection et ajoutez-y des produits après.
           </p>
         </div>
@@ -88,7 +88,7 @@ export default function NewCollectionPage() {
 
         {/* Nom */}
         <div>
-          <label className="field-label font-[family-name:var(--font-roboto)]">
+          <label className="field-label font-body">
             Nom de la collection <span className="text-error">*</span>
           </label>
           <input
@@ -103,7 +103,7 @@ export default function NewCollectionPage() {
 
         {/* Image */}
         <div>
-          <label className="field-label font-[family-name:var(--font-roboto)]">
+          <label className="field-label font-body">
             Image de la collection
           </label>
 
@@ -113,7 +113,7 @@ export default function NewCollectionPage() {
               <button
                 type="button"
                 onClick={() => { setImage(null); setPreview(null); }}
-                className="absolute top-2 right-2 bg-white/90 text-text-primary rounded-full p-1 hover:bg-white transition-colors shadow-sm"
+                className="absolute top-2 right-2 bg-bg-primary/90 text-text-primary rounded-full p-1 hover:bg-bg-primary transition-colors shadow-sm"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -128,14 +128,14 @@ export default function NewCollectionPage() {
               className="w-full h-40 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-2 text-text-muted hover:border-border-dark hover:text-text-secondary transition-colors"
             >
               {uploading ? (
-                <span className="text-sm font-[family-name:var(--font-roboto)]">Téléchargement…</span>
+                <span className="text-sm font-body">Téléchargement…</span>
               ) : (
                 <>
                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                       d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
                   </svg>
-                  <span className="text-sm font-[family-name:var(--font-roboto)]">Cliquer pour ajouter une image</span>
+                  <span className="text-sm font-body">Cliquer pour ajouter une image</span>
                   <span className="text-xs">JPG, PNG, WEBP — max 5 Mo</span>
                 </>
               )}

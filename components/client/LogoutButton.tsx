@@ -29,7 +29,7 @@ export default function LogoutButton() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] hover:text-[#1A1A1A] bg-white border border-[#E5E5E5] rounded-lg hover:border-[#1A1A1A] transition-all"
+        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-body font-medium text-text-secondary hover:text-text-primary bg-bg-primary border border-border rounded-lg hover:border-bg-dark transition-all"
         aria-label={t("logout")}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -46,7 +46,7 @@ export default function LogoutButton() {
           onMouseUp={backdrop.onMouseUp}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-fadeIn"
+            className="bg-bg-primary rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-fadeIn"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Icon */}
@@ -58,12 +58,12 @@ export default function LogoutButton() {
             </div>
 
             {/* Title */}
-            <h3 className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#1A1A1A] text-center">
+            <h3 className="font-heading text-lg font-semibold text-text-primary text-center">
               {t("logoutConfirmTitle")}
             </h3>
 
             {/* Message */}
-            <p className="text-sm font-[family-name:var(--font-roboto)] text-[#6B6B6B] text-center mt-2">
+            <p className="text-sm font-body text-text-secondary text-center mt-2">
               {t("logoutConfirmMessage")}
             </p>
 
@@ -72,7 +72,7 @@ export default function LogoutButton() {
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="flex-1 px-4 py-2.5 text-sm font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] bg-[#F7F7F8] border border-[#E5E5E5] rounded-xl hover:bg-[#EFEFEF] transition-colors"
+                className="flex-1 px-4 py-2.5 text-sm font-body font-medium text-text-secondary bg-bg-secondary border border-border rounded-xl hover:bg-bg-tertiary transition-colors"
               >
                 {t("logoutConfirmCancel")}
               </button>
@@ -82,7 +82,7 @@ export default function LogoutButton() {
                   try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
                   signOut({ callbackUrl: "/connexion" });
                 }}
-                className="flex-1 px-4 py-2.5 text-sm font-[family-name:var(--font-roboto)] font-medium text-white bg-[#1A1A1A] rounded-xl hover:bg-[#333] transition-colors"
+                className="flex-1 px-4 py-2.5 text-sm font-body font-medium text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors"
               >
                 {t("logoutConfirmYes")}
               </button>

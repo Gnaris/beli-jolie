@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
+import { useDeeplEnabled } from "@/components/admin/DeeplConfigContext";
 
 interface TranslateAllItem {
   /** Unique identifier (entity id) */
@@ -30,6 +31,7 @@ export default function TranslateAllButton({
   label = "Tout traduire",
   onlyMissing = false,
 }: TranslateAllButtonProps) {
+  const deeplEnabled = useDeeplEnabled();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
@@ -140,13 +142,15 @@ export default function TranslateAllButton({
     }
   }
 
+  if (!deeplEnabled) return null;
+
   return (
     <div className="inline-flex flex-col items-start">
       <button
         type="button"
         onClick={handleClick}
         disabled={loading || toTranslate.length === 0}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1A1A] hover:bg-black text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-[family-name:var(--font-roboto)]"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-bg-dark hover:bg-black text-text-inverse text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
       >
         {loading ? (
           <>
@@ -181,7 +185,7 @@ export default function TranslateAllButton({
       </button>
 
       {error && (
-        <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)] mt-1 max-w-[300px]">
+        <p className="text-xs text-[#EF4444] font-body mt-1 max-w-[300px]">
           {error}
         </p>
       )}

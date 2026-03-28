@@ -7,7 +7,7 @@
  *   2. POST /api/v3/shipments/checkout → trackingId + label
  *
  * Configuration via les paramètres admin :
- *   - Clé API : SiteConfig "easy_express_api_key" (fallback env EASY_EXPRESS_API_KEY)
+ *   - Clé API : SiteConfig "easy_express_api_key" (paramètres admin uniquement)
  *   - Adresse expéditeur : CompanyInfo (informations société)
  */
 
@@ -30,10 +30,9 @@ function countryToCode(country?: string | null): string {
   return map[trimmed.toLowerCase()] ?? "FR";
 }
 
-/** Récupère la clé API : DB (paramètres admin) puis fallback env var */
+/** Récupère la clé API depuis la DB (paramètres admin uniquement) */
 async function getApiKey(): Promise<string | null> {
-  const dbKey = await getCachedEasyExpressApiKey();
-  return dbKey || process.env.EASY_EXPRESS_API_KEY || null;
+  return await getCachedEasyExpressApiKey();
 }
 
 function bearerHeaders(apiKey: string) {

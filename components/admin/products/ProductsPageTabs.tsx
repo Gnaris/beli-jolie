@@ -46,7 +46,7 @@ export default function ProductsPageTabs({ activeTab, warnings = {} }: Props) {
           <button
             key={tab.key}
             onClick={() => handleTabChange(tab.key)}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-sm font-[family-name:var(--font-roboto)] rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3.5 py-2.5 text-sm font-body rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
               isActive
                 ? "border-text-primary text-text-primary bg-bg-primary font-medium"
                 : "border-transparent text-text-muted hover:text-text-secondary hover:bg-bg-secondary/50"

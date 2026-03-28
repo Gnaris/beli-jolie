@@ -20,11 +20,11 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  PENDING:    { bg: "bg-[#FEF3C7]",   text: "text-[#92400E]",  dot: "bg-[#F59E0B]"  },
-  PROCESSING: { bg: "bg-blue-50",     text: "text-blue-700",   dot: "bg-blue-500"   },
-  SHIPPED:    { bg: "bg-purple-50",   text: "text-purple-700", dot: "bg-purple-500" },
-  DELIVERED:  { bg: "bg-[#DCFCE7]",   text: "text-[#166534]",  dot: "bg-[#22C55E]"  },
-  CANCELLED:  { bg: "bg-[#F7F7F8]",   text: "text-[#9CA3AF]",  dot: "bg-[#9CA3AF]" },
+  PENDING:    { bg: "bg-amber-50",     text: "text-amber-800",   dot: "bg-warning"    },
+  PROCESSING: { bg: "bg-blue-50",     text: "text-blue-700",    dot: "bg-info"       },
+  SHIPPED:    { bg: "bg-purple-50",   text: "text-purple-700",  dot: "bg-purple-500" },
+  DELIVERED:  { bg: "bg-emerald-50",  text: "text-emerald-800", dot: "bg-success"    },
+  CANCELLED:  { bg: "bg-bg-secondary", text: "text-text-muted",  dot: "bg-text-muted" },
 };
 
 /* -- Mini bar chart (SVG) -- */
@@ -38,7 +38,7 @@ function BarChart({ data }: { data: { label: string; value: number }[] }) {
             className="w-full bg-accent rounded-t-sm transition-all duration-300 hover:bg-accent-dark"
             style={{ height: `${Math.round((d.value / max) * 80)}px`, minHeight: d.value > 0 ? "4px" : "0" }}
           />
-          <span className="text-[9px] font-[family-name:var(--font-roboto)] text-text-muted leading-none">
+          <span className="text-[9px] font-body text-text-muted leading-none">
             {d.label}
           </span>
         </div>
@@ -62,14 +62,14 @@ function StatCard({
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="text-[11px] font-[family-name:var(--font-roboto)] text-text-muted uppercase tracking-wider font-bold">
+        <p className="text-[11px] font-body text-text-muted uppercase tracking-wider font-bold">
           {label}
         </p>
-        <p className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary mt-0.5">
+        <p className="font-heading text-2xl font-semibold text-text-primary mt-0.5">
           {value}
         </p>
         {sub && (
-          <p className="text-xs font-[family-name:var(--font-roboto)] text-text-muted mt-0.5">{sub}</p>
+          <p className="text-xs font-body text-text-muted mt-0.5">{sub}</p>
         )}
       </div>
     </div>
@@ -219,10 +219,10 @@ export default async function DashboardPage() {
           {/* En-tete */}
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-[#1A1A1A]">
+              <h1 className="font-heading text-xl font-semibold text-text-primary">
                 {t("greeting", { name: user.firstName })}
               </h1>
-              <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] mt-0.5">
+              <p className="text-sm text-text-secondary font-body mt-0.5">
                 {user.company} — {t("memberSince", { date: formattedDate })}
               </p>
             </div>
@@ -231,13 +231,13 @@ export default async function DashboardPage() {
 
           {/* Bandeau statut si pas APPROVED */}
           {user.status !== "APPROVED" && (
-            <div className={`${user.status === "PENDING" ? "bg-[#FEF3C7] border-[#FDE68A] text-[#92400E]" : "bg-[#FEE2E2] border-[#FECACA] text-[#991B1B]"} border rounded-xl p-4 flex items-start gap-3`}>
-              <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${user.status === "PENDING" ? "bg-[#F59E0B]" : "bg-[#EF4444]"}`} />
+            <div className={`${user.status === "PENDING" ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-red-50 border-red-200 text-red-800"} border rounded-xl p-4 flex items-start gap-3`}>
+              <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${user.status === "PENDING" ? "bg-warning" : "bg-red-500"}`} />
               <div>
-                <p className="text-sm font-[family-name:var(--font-roboto)] font-semibold">
+                <p className="text-sm font-body font-semibold">
                   {user.status === "PENDING" ? t("pendingValidation") : t("rejected")}
                 </p>
-                <p className="text-sm font-[family-name:var(--font-roboto)] opacity-80 mt-0.5">
+                <p className="text-sm font-body opacity-80 mt-0.5">
                   {user.status === "PENDING"
                     ? t("pendingValidationDesc")
                     : t("rejectedDesc")}
@@ -299,10 +299,10 @@ export default async function DashboardPage() {
             {/* Graphique commandes par mois */}
             <div className="bg-bg-primary rounded-xl border border-border p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
+                <h2 className="font-heading text-sm font-semibold text-text-primary">
                   {t("chartTitle")}
                 </h2>
-                <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-accent transition-colors">
+                <Link href="/commandes" className="text-xs font-body text-text-secondary hover:text-accent transition-colors">
                   {t("viewAll")}
                 </Link>
               </div>
@@ -312,15 +312,15 @@ export default async function DashboardPage() {
             {/* Top produits commandes */}
             <div className="bg-bg-primary rounded-xl border border-border p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
+                <h2 className="font-heading text-sm font-semibold text-text-primary">
                   {t("topProducts")}
                 </h2>
-                <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-accent transition-colors">
+                <Link href="/commandes" className="text-xs font-body text-text-secondary hover:text-accent transition-colors">
                   {t("viewAll")}
                 </Link>
               </div>
               {topProducts.length === 0 ? (
-                <p className="text-sm font-[family-name:var(--font-roboto)] text-text-muted py-6 text-center">
+                <p className="text-sm font-body text-text-muted py-6 text-center">
                   {t("noOrdersYet")}
                 </p>
               ) : (
@@ -329,21 +329,21 @@ export default async function DashboardPage() {
                     const pct = Math.round((p.count / topProducts[0].count) * 100);
                     return (
                       <div key={i} className="flex items-center gap-3">
-                        <span className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF] w-4 shrink-0">
+                        <span className="text-xs font-body text-text-muted w-4 shrink-0">
                           {i + 1}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A] truncate">
+                          <p className="text-sm font-body text-text-primary truncate">
                             {p.name}
                           </p>
                           <div className="h-1.5 bg-[#F0F0F0] rounded-full mt-1">
                             <div
-                              className="h-1.5 bg-[#1A1A1A] rounded-full"
+                              className="h-1.5 bg-bg-dark rounded-full"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
                         </div>
-                        <span className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-[#1A1A1A] shrink-0">
+                        <span className="text-xs font-body font-semibold text-text-primary shrink-0">
                           x{p.count}
                         </span>
                       </div>
@@ -355,26 +355,26 @@ export default async function DashboardPage() {
           </div>
 
           {/* -- Commandes recentes -- */}
-          <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-[#E5E5E5] flex items-center justify-between">
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+          <div className="bg-bg-primary rounded-xl border border-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+              <h2 className="font-heading text-sm font-semibold text-text-primary">
                 {t("recentOrders")}
               </h2>
-              <Link href="/commandes" className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors">
+              <Link href="/commandes" className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors">
                 {t("viewAllOrders")}
               </Link>
             </div>
             {recentOrders.length === 0 ? (
               <div className="p-8 text-center">
-                <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF]">
+                <p className="text-sm font-body text-text-muted">
                   {t("noOrdersYet")}
                 </p>
-                <Link href="/produits" className="inline-flex mt-4 justify-center text-xs px-4 py-2 bg-[#1A1A1A] text-white rounded-lg font-[family-name:var(--font-roboto)] font-medium hover:bg-[#333] transition-colors">
+                <Link href="/produits" className="inline-flex mt-4 justify-center text-xs px-4 py-2 bg-bg-dark text-text-inverse rounded-lg font-body font-medium hover:bg-primary-hover transition-colors">
                   {t("viewCatalogue")}
                 </Link>
               </div>
             ) : (
-              <div className="divide-y divide-[#F0F0F0]">
+              <div className="divide-y divide-border-light">
                 {recentOrders.map((order) => {
                   const cfg = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
                   const date = new Date(order.createdAt).toLocaleDateString("fr-FR", {
@@ -382,23 +382,23 @@ export default async function DashboardPage() {
                   });
                   const totalQty = order.items.reduce((s, i) => s + i.quantity, 0);
                   return (
-                    <div key={order.id} className="px-5 py-3.5 flex flex-wrap items-center gap-3 hover:bg-[#F7F7F8] transition-colors">
+                    <div key={order.id} className="px-5 py-3.5 flex flex-wrap items-center gap-3 hover:bg-bg-secondary transition-colors">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+                          <span className="font-heading text-sm font-semibold text-text-primary">
                             {order.orderNumber}
                           </span>
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-[family-name:var(--font-roboto)] font-medium ${cfg.bg} ${cfg.text}`}>
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-body font-medium ${cfg.bg} ${cfg.text}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                             {tOrders(`statuses.${order.status}`)}
                           </span>
                         </div>
-                        <p className="text-xs font-[family-name:var(--font-roboto)] text-[#9CA3AF] mt-0.5">
+                        <p className="text-xs font-body text-text-muted mt-0.5">
                           {date} — {totalQty} {totalQty > 1 ? tOrders("items_plural") : tOrders("items")}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+                        <p className="font-heading text-sm font-semibold text-text-primary">
                           {order.totalTTC.toFixed(2)} {"\u20AC"}
                         </p>
                       </div>
@@ -410,26 +410,26 @@ export default async function DashboardPage() {
           </div>
 
           {/* -- Favoris recents -- */}
-          <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-[#E5E5E5] flex items-center justify-between">
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+          <div className="bg-bg-primary rounded-xl border border-border overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+              <h2 className="font-heading text-sm font-semibold text-text-primary">
                 {t("myFavorites")}
               </h2>
-              <Link href="/favoris" className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors">
+              <Link href="/favoris" className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors">
                 {t("viewAllFavorites")}
               </Link>
             </div>
             {favorites.length === 0 ? (
               <div className="p-8 text-center">
-                <p className="text-sm font-[family-name:var(--font-roboto)] text-[#9CA3AF]">
+                <p className="text-sm font-body text-text-muted">
                   {t("noFavorites")}
                 </p>
-                <Link href="/produits" className="inline-flex mt-4 justify-center text-xs px-4 py-2 bg-[#1A1A1A] text-white rounded-lg font-[family-name:var(--font-roboto)] font-medium hover:bg-[#333] transition-colors">
+                <Link href="/produits" className="inline-flex mt-4 justify-center text-xs px-4 py-2 bg-bg-dark text-text-inverse rounded-lg font-body font-medium hover:bg-primary-hover transition-colors">
                   {t("discoverCatalogue")}
                 </Link>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-[#F0F0F0]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border-light">
                 {favorites.map((fav) => {
                   const primaryColor = fav.product.colors[0];
                   const img = favFirstImageMap.get(fav.product.id);
@@ -437,10 +437,10 @@ export default async function DashboardPage() {
                     <Link
                       key={fav.id}
                       href={`/produits/${fav.product.id}`}
-                      className="p-4 hover:bg-[#F7F7F8] transition-colors group"
+                      className="p-4 hover:bg-bg-secondary transition-colors group"
                     >
                       {img ? (
-                        <div className="aspect-square bg-[#EFEFEF] rounded-xl overflow-hidden mb-2 relative">
+                        <div className="aspect-square bg-bg-tertiary rounded-xl overflow-hidden mb-2 relative">
                           <Image
                             src={img}
                             alt={fav.product.name}
@@ -451,17 +451,17 @@ export default async function DashboardPage() {
                           />
                         </div>
                       ) : (
-                        <div className="aspect-square bg-[#EFEFEF] rounded-xl mb-2 flex items-center justify-center">
-                          <svg className="w-6 h-6 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="aspect-square bg-bg-tertiary rounded-xl mb-2 flex items-center justify-center">
+                          <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
                           </svg>
                         </div>
                       )}
-                      <p className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#1A1A1A] truncate">
+                      <p className="text-xs font-body font-medium text-text-primary truncate">
                         {fav.product.name}
                       </p>
                       {primaryColor && (
-                        <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] mt-0.5">
+                        <p className="text-xs font-body text-text-secondary mt-0.5">
                           {primaryColor.unitPrice.toFixed(2)} {"\u20AC"}
                         </p>
                       )}
@@ -487,12 +487,12 @@ export default async function DashboardPage() {
 
         {/* -- Colonne droite : Historique des produits commandes -- */}
         <aside className="hidden lg:block w-[460px] shrink-0">
-          <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden sticky top-24">
-            <div className="px-6 py-4 border-b border-[#E5E5E5]">
-              <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-[#1A1A1A]">
+          <div className="bg-bg-primary rounded-xl border border-border overflow-hidden sticky top-24">
+            <div className="px-6 py-4 border-b border-border">
+              <h2 className="font-heading text-base font-semibold text-text-primary">
                 {t("purchaseHistory")}
               </h2>
-              <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+              <p className="text-xs text-text-muted font-body mt-0.5">
                 {allOrderedProducts.length > 1
                   ? t("productsOrdered_plural", { count: allOrderedProducts.length })
                   : t("productsOrdered", { count: allOrderedProducts.length })}
@@ -501,7 +501,7 @@ export default async function DashboardPage() {
 
             {allOrderedProducts.length === 0 ? (
               <div className="p-8 text-center">
-                <p className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                <p className="text-sm text-text-muted font-body">
                   {t("noPurchases")}
                 </p>
               </div>
@@ -512,10 +512,10 @@ export default async function DashboardPage() {
                     <Link
                       key={i}
                       href={`/produits?q=${encodeURIComponent(product.ref)}`}
-                      className="group bg-[#F7F7F8] rounded-xl overflow-hidden hover:shadow-md transition-all"
+                      className="group bg-bg-secondary rounded-xl overflow-hidden hover:shadow-md transition-all"
                     >
                       {/* Image large */}
-                      <div className="aspect-square bg-[#EFEFEF] overflow-hidden relative">
+                      <div className="aspect-square bg-bg-tertiary overflow-hidden relative">
                         {product.image ? (
                           <Image
                             src={product.image}
@@ -527,7 +527,7 @@ export default async function DashboardPage() {
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
-                            <svg className="w-8 h-8 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
                             </svg>
                           </div>
@@ -535,17 +535,17 @@ export default async function DashboardPage() {
                       </div>
                       {/* Info */}
                       <div className="p-3">
-                        <p className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#1A1A1A] truncate">
+                        <p className="text-xs font-body font-medium text-text-primary truncate">
                           {product.name}
                         </p>
-                        <p className="text-[10px] text-[#9CA3AF] font-mono truncate mt-0.5">
+                        <p className="text-[10px] text-text-muted font-mono truncate mt-0.5">
                           {product.ref} · {product.colorName}
                         </p>
                         <div className="flex items-center justify-between mt-2">
-                          <span className="text-xs font-[family-name:var(--font-poppins)] font-bold text-[#1A1A1A]">
+                          <span className="text-xs font-heading font-bold text-text-primary">
                             x{product.totalQty}
                           </span>
-                          <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] bg-white px-2 py-0.5 rounded-full">
+                          <span className="text-[10px] text-text-muted font-body bg-bg-primary px-2 py-0.5 rounded-full">
                             {product.orderCount > 1
                               ? t("orderCount_plural", { count: product.orderCount })
                               : t("orderCount", { count: product.orderCount })}

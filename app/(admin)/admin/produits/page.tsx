@@ -6,7 +6,7 @@ import AdminProductsFilters from "@/components/admin/products/AdminProductsFilte
 import AdminProductsTable from "@/components/admin/products/AdminProductsTable";
 import AdminPagination from "@/components/admin/products/AdminPagination";
 import ProductsPageTabs from "@/components/admin/products/ProductsPageTabs";
-import { getCachedAdminWarnings } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedHasPfsConfig } from "@/lib/cached-data";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -149,7 +149,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     where.colors = { ...where.colors, some: { ...where.colors?.some, stock: { lte: stockBelow } } };
   }
 
-  const [products, totalCount, categories] = await Promise.all([
+  const [products, totalCount, categories, hasPfsConfig] = await Promise.all([
     prisma.product.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -180,6 +180,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     }),
     prisma.product.count({ where }),
     prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    getCachedHasPfsConfig(),
   ]);
 
   const productIds = products.map((p) => p.id);
@@ -232,7 +233,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       <div className="flex items-center justify-between">
         <div>
           <h1 className="page-title">Produits</h1>
-          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+          <p className="page-subtitle font-body">
             {totalCount} produit{totalCount > 1 ? "s" : ""} au catalogue
           </p>
         </div>
@@ -260,12 +261,12 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       </div>
 
       {/* Tableau */}
-      <AdminProductsTable products={serializedProducts} totalCount={totalCount} />
+      <AdminProductsTable products={serializedProducts} totalCount={totalCount} hasPfsConfig={hasPfsConfig} />
 
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-1">
-          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+          <p className="text-xs text-text-muted font-body">
             {(currentPage - 1) * perPage + 1}–{Math.min(currentPage * perPage, totalCount)} sur {totalCount}
           </p>
           <Suspense>
@@ -312,15 +313,15 @@ async function CategoriesContent() {
     <div className="max-w-6xl mx-auto space-y-8">
       <div>
         <h1 className="page-title">Catégories &amp; sous-catégories</h1>
-        <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+        <p className="page-subtitle font-body">
           Organisez votre catalogue produits
         </p>
       </div>
 
       <div className="bg-bg-primary border border-border rounded-xl p-5 flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-text-primary font-[family-name:var(--font-poppins)]">Nouvelle catégorie</p>
-          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+          <p className="text-sm font-semibold text-text-primary font-heading">Nouvelle catégorie</p>
+          <p className="text-xs text-text-muted font-body mt-0.5">
             Saisissez le nom dans toutes les langues souhaitées.
           </p>
         </div>
@@ -383,7 +384,7 @@ async function CouleursContent() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
+        <h2 className="font-heading text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
           Couleurs ({colors.length})
         </h2>
         <ColorsManager initialColors={colorItems} />

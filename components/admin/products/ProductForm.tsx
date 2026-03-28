@@ -52,6 +52,7 @@ interface ProductFormProps {
   availableTags?: { id: string; name: string }[];
   mode?: "create" | "edit";
   productId?: string;
+  hasPfsConfig?: boolean;
   initialData?: {
     reference: string;
     name: string;
@@ -172,11 +173,11 @@ function TagsDropdown({
   }
 
   return (
-    <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+    <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">Mots clés & Tags</p>
+        <p className="text-sm font-semibold text-text-primary font-heading">Mots clés & Tags</p>
         <button type="button" onClick={onCreateClick}
-          className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+          className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
         >+ Créer</button>
       </div>
 
@@ -185,7 +186,7 @@ function TagsDropdown({
         <div className="flex flex-wrap gap-1.5">
           {tagNames.map((name) => (
             <span key={name}
-              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-[#1A1A1A] text-white font-[family-name:var(--font-roboto)]"
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-bg-dark text-text-inverse font-body"
             >
               {name}
               <button type="button" onClick={() => removeTag(name)}
@@ -205,31 +206,31 @@ function TagsDropdown({
           aria-expanded={open}
           aria-haspopup="listbox"
           aria-label="Sélectionner des mots-clés"
-          className={`w-full flex items-center justify-between px-3 py-2.5 border rounded-lg text-sm font-[family-name:var(--font-roboto)] transition-colors ${
-            open ? "border-[#1A1A1A] ring-1 ring-[#1A1A1A]" : "border-[#E5E5E5] hover:border-[#CBCBCB]"
+          className={`w-full flex items-center justify-between px-3 py-2.5 border rounded-lg text-sm font-body transition-colors ${
+            open ? "border-[#1A1A1A] ring-1 ring-[#1A1A1A]" : "border-border hover:border-[#CBCBCB]"
           }`}
         >
-          <span className={tagNames.length > 0 ? "text-[#1A1A1A]" : "text-[#9CA3AF]"}>
+          <span className={tagNames.length > 0 ? "text-text-primary" : "text-text-muted"}>
             {tagNames.length > 0
               ? `${tagNames.length} mot${tagNames.length > 1 ? "s" : ""}-clé${tagNames.length > 1 ? "s" : ""} sélectionné${tagNames.length > 1 ? "s" : ""}`
               : "Sélectionner des mots-clés…"}
           </span>
-          <svg className={`w-4 h-4 text-[#6B6B6B] transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg className={`w-4 h-4 text-text-secondary transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </button>
 
         {open && (
-          <div className="absolute z-30 mt-1 w-full bg-white border border-[#E5E5E5] rounded-xl shadow-lg overflow-hidden">
+          <div className="absolute z-30 mt-1 w-full bg-bg-primary border border-border rounded-xl shadow-lg overflow-hidden">
             {/* Search input */}
-            <div className="p-2 border-b border-[#F0F0F0]">
+            <div className="p-2 border-b border-border-light">
               <input
                 ref={inputRef}
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Rechercher un mot-clé…"
-                className="w-full px-2.5 py-2 text-sm border border-[#E5E5E5] rounded-md font-[family-name:var(--font-roboto)] focus:outline-none focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]"
+                className="w-full px-2.5 py-2 text-sm border border-border rounded-md font-body focus:outline-none focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]"
               />
             </div>
 
@@ -242,14 +243,14 @@ function TagsDropdown({
                     role="option"
                     aria-selected={selected}
                     onClick={() => toggleTag(t.name)}
-                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left font-[family-name:var(--font-roboto)] transition-colors hover:bg-[#F7F7F8] ${
-                      selected ? "text-[#1A1A1A] font-medium" : "text-[#6B6B6B]"
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left font-body transition-colors hover:bg-bg-secondary ${
+                      selected ? "text-text-primary font-medium" : "text-text-secondary"
                     }`}
                   >
                     <span className={`flex items-center justify-center w-4 h-4 rounded border text-[10px] ${
                       selected
-                        ? "bg-[#1A1A1A] border-[#1A1A1A] text-white"
-                        : "border-[#D1D5DB] bg-white"
+                        ? "bg-bg-dark border-[#1A1A1A] text-text-inverse"
+                        : "border-[#D1D5DB] bg-bg-primary"
                     }`}>
                       {selected && "✓"}
                     </span>
@@ -257,7 +258,7 @@ function TagsDropdown({
                   </button>
                 );
               }) : (
-                <p className="px-3 py-3 text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+                <p className="px-3 py-3 text-xs text-text-secondary font-body">
                   Aucun mot-clé trouvé.
                 </p>
               )}
@@ -267,13 +268,13 @@ function TagsDropdown({
       </div>
 
       {/* Best Seller */}
-      <div className="pt-3 border-t border-[#F0F0F0]">
+      <div className="pt-3 border-t border-border-light">
         <label className="flex items-center gap-3 cursor-pointer group">
           <input type="checkbox" checked={isBestSeller} onChange={(e) => setIsBestSeller(e.target.checked)}
-            className="w-4 h-4 border-[#E5E5E5] accent-[#1A1A1A]" />
+            className="w-4 h-4 border-border accent-[#1A1A1A]" />
           <div>
-            <span className="text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">Best Seller</span>
-            <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">Mettre en avant dans les filtres</p>
+            <span className="text-sm font-body font-semibold text-text-secondary">Best Seller</span>
+            <p className="text-xs text-text-muted font-body mt-0.5">Mettre en avant dans les filtres</p>
           </div>
         </label>
       </div>
@@ -291,6 +292,7 @@ export default function ProductForm({
   availableTags = [],
   mode = "create",
   productId,
+  hasPfsConfig = false,
   initialData,
 }: ProductFormProps) {
   const [isPending, startTransition] = useTransition();
@@ -954,8 +956,8 @@ export default function ProductForm({
     const outOfStock = isOutOfStock();
 
     // Warn: saving an ONLINE product with errors → auto downgrade to OFFLINE
-    const shouldSyncPfs = { current: true };
-    const showPfsCheckbox = mode === "edit" && productId && !hasVariantsWithMissingPriceWeightOrStock();
+    const shouldSyncPfs = { current: hasPfsConfig };
+    const showPfsCheckbox = hasPfsConfig && mode === "edit" && productId && !hasVariantsWithMissingPriceWeightOrStock();
     const pfsCheckboxOption = showPfsCheckbox ? {
       checkbox: {
         label: "Synchroniser également les marketplaces (PFS)",
@@ -1148,11 +1150,11 @@ export default function ProductForm({
           <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
 
             {/* ── BLOC PRINCIPAL ── */}
-            <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+            <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
 
               {/* Header: titre + langue tabs + bouton IA */}
               <div className="flex flex-wrap items-center gap-3">
-                <p className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)] shrink-0">
+                <p className="text-sm font-semibold text-text-primary font-heading shrink-0">
                   Fiche produit
                 </p>
                 <div className="flex-1 flex flex-wrap items-center gap-2">
@@ -1169,7 +1171,7 @@ export default function ProductForm({
                   type="button"
                   onClick={handleAiEstimate}
                   disabled={aiLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1A1A] hover:bg-black text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)] shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-dark hover:bg-black text-text-inverse text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 font-body shrink-0"
                 >
                   {aiLoading ? (
                     <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -1185,7 +1187,7 @@ export default function ProductForm({
                   type="button"
                   onClick={handleTranslateAll}
                   disabled={translateLoading || (!name.trim() && !description.trim())}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F7F7F8] hover:bg-[#E5E5E5] text-[#1A1A1A] border border-[#E5E5E5] text-xs font-medium rounded-lg transition-colors disabled:opacity-50 font-[family-name:var(--font-roboto)] shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-[#E5E5E5] text-text-primary border border-border text-xs font-medium rounded-lg transition-colors disabled:opacity-50 font-body shrink-0"
                 >
                   {translateLoading ? (
                     <span className="w-3.5 h-3.5 border-2 border-[#1A1A1A]/30 border-t-[#1A1A1A] rounded-full animate-spin" />
@@ -1201,22 +1203,22 @@ export default function ProductForm({
 
               {/* AI feedback */}
               {aiError && (
-                <p className="text-xs text-[#DC2626] font-[family-name:var(--font-roboto)] bg-[#FEF2F2] px-3 py-2 rounded-lg">
+                <p className="text-xs text-[#DC2626] font-body bg-[#FEF2F2] px-3 py-2 rounded-lg">
                   {aiError}
                 </p>
               )}
               {aiSuccess && (
-                <p className="text-xs text-[#15803D] font-[family-name:var(--font-roboto)] bg-[#F0FDF4] px-3 py-2 rounded-lg">
+                <p className="text-xs text-[#15803D] font-body bg-[#F0FDF4] px-3 py-2 rounded-lg">
                   {aiSuccess}
                 </p>
               )}
               {translateError && (
-                <p className="text-xs text-[#DC2626] font-[family-name:var(--font-roboto)] bg-[#FEF2F2] px-3 py-2 rounded-lg">
+                <p className="text-xs text-[#DC2626] font-body bg-[#FEF2F2] px-3 py-2 rounded-lg">
                   {translateError}
                 </p>
               )}
               {translateSuccess && (
-                <p className="text-xs text-[#15803D] font-[family-name:var(--font-roboto)] bg-[#F0FDF4] px-3 py-2 rounded-lg">
+                <p className="text-xs text-[#15803D] font-body bg-[#F0FDF4] px-3 py-2 rounded-lg">
                   {translateSuccess}
                 </p>
               )}
@@ -1230,12 +1232,12 @@ export default function ProductForm({
               {/* Non-FR hint + missing translation warning */}
               {activeLocale !== "fr" && (
                 <div className="space-y-2">
-                  <div className="bg-[#F7F7F8] border border-[#E5E5E5] rounded-lg px-3 py-2 text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+                  <div className="bg-bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-text-secondary font-body">
                     Langue active : <strong>{LOCALE_LABELS[activeLocale]}</strong> — le nom et la description seront sauvegardés en tant que traduction.
                     Les champs Catégorie, Sous-catégories, Tags, Composition et Couleurs restent en français.
                   </div>
                   {missingDbLocales?.has(activeLocale) && (
-                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-[family-name:var(--font-roboto)]">
+                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-body">
                       <span className="text-base leading-none mt-0.5">⚠️</span>
                       <span>
                         <strong>Traduction manquante</strong> — Aucune traduction enregistrée en <strong>{LOCALE_LABELS[activeLocale]}</strong>.
@@ -1250,7 +1252,7 @@ export default function ProductForm({
               {/* Nom */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">
+                  <label className="block text-sm font-body font-semibold text-text-secondary">
                     Nom du produit *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
                   </label>
                 </div>
@@ -1269,10 +1271,10 @@ export default function ProductForm({
                 {/* Catégorie */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">Catégorie *</label>
+                    <label className="block text-sm font-body font-semibold text-text-secondary">Catégorie *</label>
                     <button type="button"
                       onClick={() => setModalType("category")}
-                      className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+                      className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
                     >+ Créer</button>
                   </div>
                   <div className={!categoryId ? "rounded-lg ring-1 ring-[#EF4444]" : ""}>
@@ -1291,31 +1293,31 @@ export default function ProductForm({
                 {/* Sous-catégories */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">
+                    <label className="block text-sm font-body font-semibold text-text-secondary">
                       Sous-catégories
                       {subCategoryIds.length > 0 && (
-                        <span className="ml-2 font-normal text-[#9CA3AF]">({subCategoryIds.length})</span>
+                        <span className="ml-2 font-normal text-text-muted">({subCategoryIds.length})</span>
                       )}
                     </label>
                     {categoryId && (
                       <button type="button"
                         onClick={() => setModalType("subcategory")}
-                        className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+                        className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
                       >+ Créer</button>
                     )}
                   </div>
                   {!categoryId ? (
-                    <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] py-2">Sélectionnez d&apos;abord une catégorie.</p>
+                    <p className="text-xs text-text-muted font-body py-2">Sélectionnez d&apos;abord une catégorie.</p>
                   ) : subCategories.length === 0 ? (
-                    <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] py-2">Aucune sous-catégorie — créez-en une.</p>
+                    <p className="text-xs text-text-muted font-body py-2">Aucune sous-catégorie — créez-en une.</p>
                   ) : (
                     <div className="flex flex-wrap gap-2 min-h-[38px] items-start">
                       {subCategories.map((sub) => {
                         const selected = subCategoryIds.includes(sub.id);
                         return (
                           <button key={sub.id} type="button" onClick={() => toggleSubCategory(sub.id)}
-                            className={`px-3 py-1.5 text-sm border rounded-lg transition-colors font-[family-name:var(--font-roboto)] ${
-                              selected ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#1A1A1A]"
+                            className={`px-3 py-1.5 text-sm border rounded-lg transition-colors font-body ${
+                              selected ? "bg-bg-dark text-text-inverse border-[#1A1A1A]" : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
                             }`}
                           >{sub.name}</button>
                         );
@@ -1330,10 +1332,10 @@ export default function ProductForm({
                 {/* Pays de fabrication */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">Pays de fabrication</label>
+                    <label className="block text-sm font-body font-semibold text-text-secondary">Pays de fabrication</label>
                     <button type="button"
                       onClick={() => setModalType("country")}
-                      className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+                      className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
                     >+ Créer</button>
                   </div>
                   <CustomSelect
@@ -1350,10 +1352,10 @@ export default function ProductForm({
                 {/* Saison */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">Saison</label>
+                    <label className="block text-sm font-body font-semibold text-text-secondary">Saison</label>
                     <button type="button"
                       onClick={() => setModalType("season")}
-                      className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+                      className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
                     >+ Créer</button>
                   </div>
                   <CustomSelect
@@ -1371,7 +1373,7 @@ export default function ProductForm({
               {/* Description */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B]">
+                  <label className="block text-sm font-body font-semibold text-text-secondary">
                     Description *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
                   </label>
                 </div>
@@ -1401,10 +1403,10 @@ export default function ProductForm({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
             {/* ── BLOC DIMENSIONS ── */}
-            <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+            <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
               <div>
-                <p className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">Dimensions</p>
-                <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+                <p className="text-sm font-semibold text-text-primary font-heading">Dimensions</p>
+                <p className="text-xs text-text-muted font-body mt-0.5">
                   En millimètres (mm) — laisser vide si non applicable.
                 </p>
               </div>
@@ -1433,19 +1435,19 @@ export default function ProductForm({
             </div>
 
             {/* ── BLOC COMPOSITION ── */}
-            <div className={`bg-white border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
-              compositions.length === 0 || Math.abs(totalPct - 100) > 0.5 ? "border-[#EF4444]" : "border-[#E5E5E5]"
+            <div className={`bg-bg-primary border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
+              compositions.length === 0 || Math.abs(totalPct - 100) > 0.5 ? "border-[#EF4444]" : "border-border"
             }`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)]">Composition</p>
-                  <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+                  <p className="text-sm font-semibold text-text-primary font-heading">Composition</p>
+                  <p className="text-xs text-text-muted font-body mt-0.5">
                     Matériaux et pourcentages.
                   </p>
                 </div>
                 <button type="button"
                   onClick={() => setModalType("composition")}
-                  className="text-xs text-[#1A1A1A] hover:text-[#000000] font-medium font-[family-name:var(--font-roboto)] transition-colors"
+                  className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
                 >+ Créer un matériau</button>
               </div>
 
@@ -1465,13 +1467,13 @@ export default function ProductForm({
                     />
                   </div>
                   <button type="button" onClick={addComposition} disabled={!newCompId}
-                    className="px-4 py-2.5 bg-[#1A1A1A] text-white text-sm font-medium rounded-lg hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-[family-name:var(--font-roboto)]"
+                    className="px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-medium rounded-lg hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-body"
                   >Ajouter</button>
                 </div>
               )}
 
               {localCompositions.length === 0 && (
-                <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                <p className="text-xs text-text-muted font-body">
                   Aucun matériau — cliquez sur &ldquo;+ Créer un matériau&rdquo; pour en ajouter.
                 </p>
               )}
@@ -1479,10 +1481,10 @@ export default function ProductForm({
               {compositions.length > 0 && (
                 <>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+                    <span className="text-sm text-text-secondary font-body">
                       {compositions.length} matériau{compositions.length > 1 ? "x" : ""}
                     </span>
-                    <span className={`text-sm font-semibold px-3 py-1 rounded-full font-[family-name:var(--font-roboto)] ${
+                    <span className={`text-sm font-semibold px-3 py-1 rounded-full font-body ${
                       Math.abs(totalPct - 100) <= 0.5
                         ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                         : "bg-[#FEE2E2] text-[#DC2626] border border-[#FECACA]"
@@ -1490,22 +1492,22 @@ export default function ProductForm({
                       Total : {totalPct.toFixed(1)} %{Math.abs(totalPct - 100) <= 0.5 ? " ✓" : " ≠ 100%"}
                     </span>
                   </div>
-                  <ul className="divide-y divide-[#E5E5E5] border border-[#E5E5E5] rounded-xl overflow-hidden">
+                  <ul className="divide-y divide-[#E5E5E5] border border-border rounded-xl overflow-hidden">
                     {compositions.map((item) => {
                       const comp = localCompositions.find((c) => c.id === item.compositionId);
                       return (
                         <li key={item.compositionId} className="flex items-center justify-between px-4 py-2.5 gap-3">
-                          <span className="text-sm font-medium text-[#1A1A1A] font-[family-name:var(--font-roboto)] flex-1 min-w-0 truncate">
+                          <span className="text-sm font-medium text-text-primary font-body flex-1 min-w-0 truncate">
                             {comp?.name ?? item.compositionId}
                           </span>
                           <div className="flex items-center gap-1.5 shrink-0">
                             <input type="number" min="0" max="100" step="0.1" value={item.percentage}
                               onChange={(e) => updateCompositionPct(item.compositionId, e.target.value)}
                               className="w-20 field-input px-2 py-1.5 text-sm text-right" />
-                            <span className="text-sm text-[#6B6B6B]">%</span>
+                            <span className="text-sm text-text-secondary">%</span>
                           </div>
                           <button type="button" onClick={() => removeComposition(item.compositionId)}
-                            className="text-[#1A1A1A] hover:text-[#DC2626] transition-colors text-sm shrink-0"
+                            className="text-text-primary hover:text-[#DC2626] transition-colors text-sm shrink-0"
                           >Retirer</button>
                         </li>
                       );
@@ -1518,12 +1520,12 @@ export default function ProductForm({
         </div>
 
         {/* ── Variantes couleur ── */}
-        <section className="bg-white border border-[#E5E5E5] rounded-2xl p-8 space-y-5 shadow-card">
-          <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-4">
-            <h2 className="font-[family-name:var(--font-poppins)] text-xl font-bold text-[#1A1A1A]">
+        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
+          <div className="flex items-center justify-between border-b border-border pb-4">
+            <h2 className="font-heading text-xl font-bold text-text-primary">
               Variantes
             </h2>
-            <span className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+            <span className="text-sm text-text-muted font-body">
               {variants.length} variante{variants.length > 1 ? "s" : ""}
             </span>
           </div>
@@ -1543,12 +1545,12 @@ export default function ProductForm({
         </section>
 
         {/* ── Produits similaires ── */}
-        <section className="bg-white border border-[#E5E5E5] rounded-2xl p-8 space-y-5 shadow-card">
-          <div className="border-b border-[#E5E5E5] pb-4">
-            <h2 className="font-[family-name:var(--font-poppins)] text-xl font-bold text-[#1A1A1A]">
+        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
+          <div className="border-b border-border pb-4">
+            <h2 className="font-heading text-xl font-bold text-text-primary">
               Produits similaires
             </h2>
-            <p className="text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-1">
+            <p className="text-sm text-text-muted font-body mt-1">
               Ces produits seront affichés dans la section &quot;Vous aimerez aussi&quot; sur la fiche client.
             </p>
           </div>
@@ -1562,17 +1564,17 @@ export default function ProductForm({
         </section>
 
         <div className="sticky bottom-0 z-10 flex justify-center py-4">
-          <div className="bg-white rounded-2xl px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-[#E5E5E5] space-y-3 w-fit max-w-full">
+          <div className="bg-bg-primary rounded-2xl px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-border space-y-3 w-fit max-w-full">
             {/* ── Erreurs ── */}
             {error && (
-              <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-[family-name:var(--font-roboto)] rounded-xl">
+              <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-xl">
                 {error}
               </div>
             )}
 
             {onlineErrors.length > 0 && (
-              <div className="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-[family-name:var(--font-roboto)] rounded-xl space-y-2">
-                <p className="font-semibold font-[family-name:var(--font-poppins)]">
+              <div className="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-xl space-y-2">
+                <p className="font-semibold font-heading">
                   Ce produit ne peut pas être mis en ligne :
                 </p>
                 <ul className="space-y-1 list-none">
@@ -1611,7 +1613,7 @@ export default function ProductForm({
                     setError("");
                     setProductStatus("ONLINE");
                   }}
-                  className="flex items-center gap-2 px-6 py-3.5 bg-[#22C55E] hover:bg-[#16A34A] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-[family-name:var(--font-roboto)]"
+                  className="flex items-center gap-2 px-6 py-3.5 bg-[#22C55E] hover:bg-[#16A34A] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1623,7 +1625,7 @@ export default function ProductForm({
                   type="button"
                   disabled={isPending}
                   onClick={() => setProductStatus("OFFLINE")}
-                  className="flex items-center gap-2 px-6 py-3.5 bg-[#F7F7F8] hover:bg-[#F0F0F0] text-[#6B6B6B] text-sm font-semibold rounded-xl border border-[#E5E5E5] transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-[family-name:var(--font-roboto)]"
+                  className="flex items-center gap-2 px-6 py-3.5 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
@@ -1694,9 +1696,9 @@ export default function ProductForm({
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B] mb-1.5">
+      <label className="block text-sm font-body font-semibold text-text-secondary mb-1.5">
         {label}
-        {hint && <span className="ml-2 font-normal text-[#9CA3AF]">— {hint}</span>}
+        {hint && <span className="ml-2 font-normal text-text-muted">— {hint}</span>}
       </label>
       {children}
     </div>
@@ -1775,20 +1777,20 @@ function SimilarProductPicker({
           placeholder="Rechercher un produit par nom ou reference..."
           className="field-input !pl-10"
         />
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
         </svg>
         {loading && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="w-4 h-4 border-2 border-[#E5E5E5] border-t-[#1A1A1A] rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-border border-t-[#1A1A1A] rounded-full animate-spin" />
           </div>
         )}
       </div>
 
       {search.trim().length >= 1 && (
-        <div className="border border-[#E5E5E5] rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+        <div className="border border-border rounded-xl overflow-hidden max-h-80 overflow-y-auto">
           {filteredResults.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+            <p className="px-4 py-3 text-sm text-text-muted font-body">
               {loading ? "Recherche…" : "Aucun résultat."}
             </p>
           ) : (
@@ -1797,21 +1799,21 @@ function SimilarProductPicker({
                 key={product.id}
                 type="button"
                 onClick={() => handleSelect(product)}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#F7F7F8] transition-colors border-b border-[#F0F0F0] last:border-b-0"
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg-secondary transition-colors border-b border-border-light last:border-b-0"
               >
                 {product.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={product.image} alt="" className="w-10 h-10 object-cover rounded-lg border border-[#E5E5E5]" />
+                  <img src={product.image} alt="" className="w-10 h-10 object-cover rounded-lg border border-border" />
                 ) : (
                   <div className="w-10 h-10 rounded-lg bg-[#F0F0F0] flex items-center justify-center shrink-0">
-                    <svg className="w-5 h-5 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
                     </svg>
                   </div>
                 )}
                 <div className="flex-1 text-left min-w-0">
-                  <p className="text-sm font-medium text-[#1A1A1A] font-[family-name:var(--font-roboto)] truncate">{product.name}</p>
-                  <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">{product.reference} · {product.category}</p>
+                  <p className="text-sm font-medium text-text-primary font-body truncate">{product.name}</p>
+                  <p className="text-xs text-text-muted font-body">{product.reference} · {product.category}</p>
                 </div>
               </button>
             ))
@@ -1821,16 +1823,16 @@ function SimilarProductPicker({
 
       {selectedProducts.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide font-[family-name:var(--font-roboto)]">
+          <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
             Sélectionnés ({selectedProducts.length})
           </p>
           <div className="flex flex-wrap gap-2">
             {selectedProducts.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 bg-[#F7F7F8] border border-[#E5E5E5] rounded-lg px-3 py-1.5">
-                <span className="text-sm font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{p.name}</span>
-                <span className="text-xs text-[#9CA3AF] font-mono">{p.reference}</span>
+              <div key={p.id} className="flex items-center gap-2 bg-bg-secondary border border-border rounded-lg px-3 py-1.5">
+                <span className="text-sm font-body text-text-primary">{p.name}</span>
+                <span className="text-xs text-text-muted font-mono">{p.reference}</span>
                 <button type="button" onClick={() => handleRemove(p.id)}
-                  className="text-[#9CA3AF] hover:text-[#DC2626] transition-colors ml-1"
+                  className="text-text-muted hover:text-[#DC2626] transition-colors ml-1"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

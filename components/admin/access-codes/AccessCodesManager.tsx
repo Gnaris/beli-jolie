@@ -113,10 +113,10 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
         {!showCreate ? (
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
+              <h2 className="font-heading text-sm font-semibold text-text-primary">
                 Nouveau code d&apos;accès
               </h2>
-              <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+              <p className="text-xs text-text-muted font-body mt-0.5">
                 Générez un code à partager avec un prospect. Expire après 1 semaine.
               </p>
             </div>
@@ -126,7 +126,7 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
           </div>
         ) : (
           <div className="space-y-4">
-            <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
+            <h2 className="font-heading text-sm font-semibold text-text-primary">
               Créer un code d&apos;accès
             </h2>
             <div>
@@ -148,7 +148,7 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
 
             {/* Pré-remplissage inscription */}
             <div>
-              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-widest mb-2">
+              <p className="text-xs font-body font-semibold text-text-muted uppercase tracking-widest mb-2">
                 Pré-remplir l&apos;inscription (optionnel)
               </p>
               <p className="text-xs text-text-muted mb-3">
@@ -227,7 +227,7 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
 
       {/* Légende des statuts */}
       <section className="card p-5">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary mb-3">
+        <h2 className="font-heading text-sm font-semibold text-text-primary mb-3">
           Légende des statuts
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -240,7 +240,7 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
           ].map((s) => (
             <div key={s.label} className="flex items-start gap-2.5">
               <span className={`badge ${s.cls} shrink-0 mt-0.5`}>{s.label}</span>
-              <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] leading-relaxed">{s.desc}</p>
+              <p className="text-xs text-text-muted font-body leading-relaxed">{s.desc}</p>
             </div>
           ))}
         </div>
@@ -248,7 +248,7 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
 
       {/* Liste des codes */}
       <section className="space-y-2">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
+        <h2 className="font-heading text-sm font-semibold text-text-secondary uppercase tracking-wider border-b border-border pb-2">
           Codes ({codes.length})
         </h2>
 
@@ -266,7 +266,7 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
                     {/* Infos principales */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-1">
-                        <span className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary tracking-wider">
+                        <span className="font-heading text-base font-bold text-text-primary tracking-wider">
                           {item.code}
                         </span>
                         <span className={`badge ${status.class}`}>
@@ -290,12 +290,12 @@ export default function AccessCodesManager({ initialCodes }: { initialCodes: Acc
                       </div>
 
                       {item.note && (
-                        <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mb-2 line-clamp-2">
+                        <p className="text-xs text-text-muted font-body mb-2 line-clamp-2">
                           {item.note}
                         </p>
                       )}
 
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted font-body">
                         <span>Créé le {formatDate(item.createdAt)}</span>
                         <span>Expire le {formatDate(item.expiresAt)}</span>
                         <span>{item.viewCount} page{item.viewCount !== 1 ? "s" : ""} vue{item.viewCount !== 1 ? "s" : ""}</span>

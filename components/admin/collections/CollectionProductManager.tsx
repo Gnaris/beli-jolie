@@ -179,7 +179,7 @@ export default function CollectionProductManager({
 
       {/* Search & add */}
       <div>
-        <label className="block text-sm font-medium text-text-primary mb-1.5 font-[family-name:var(--font-roboto)]">
+        <label className="block text-sm font-medium text-text-primary mb-1.5 font-body">
           Ajouter un produit
         </label>
         <div className="relative">
@@ -217,7 +217,7 @@ export default function CollectionProductManager({
             </ul>
           )}
         </div>
-        <p className="mt-1 text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+        <p className="mt-1 text-xs text-text-muted font-body">
           Saisissez au moins 2 caracteres pour rechercher.
         </p>
       </div>
@@ -225,18 +225,18 @@ export default function CollectionProductManager({
       {/* Products list */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)]">
+          <p className="text-sm font-medium text-text-primary font-body">
             Produits dans la collection ({items.length})
           </p>
           {saving && (
-            <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+            <span className="text-xs text-text-muted font-body">
               Enregistrement...
             </span>
           )}
         </div>
 
         {items.length === 0 ? (
-          <div className="border border-dashed border-border rounded-xl py-10 text-center text-text-muted text-sm font-[family-name:var(--font-roboto)]">
+          <div className="border border-dashed border-border rounded-xl py-10 text-center text-text-muted text-sm font-body">
             Aucun produit dans cette collection. Ajoutez-en via la recherche ci-dessus.
           </div>
         ) : (
@@ -278,7 +278,7 @@ export default function CollectionProductManager({
 
                   {/* Infos */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text-primary truncate font-[family-name:var(--font-roboto)]">
+                    <p className="text-sm font-medium text-text-primary truncate font-body">
                       {item.product.name}
                     </p>
                     <p className="text-xs text-text-muted font-mono">{item.product.reference}</p>
@@ -315,7 +315,7 @@ export default function CollectionProductManager({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") onPositionChange(item.productId, (e.target as HTMLInputElement).value);
                     }}
-                    className="w-12 text-center border border-border rounded-lg text-sm py-1 text-text-primary font-[family-name:var(--font-roboto)] shrink-0 focus:outline-none focus:border-bg-dark"
+                    className="w-12 text-center border border-border rounded-lg text-sm py-1 text-text-primary font-body shrink-0 focus:outline-none focus:border-bg-dark"
                     title="Position"
                   />
 

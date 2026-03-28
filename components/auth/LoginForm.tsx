@@ -67,10 +67,10 @@ export default function LoginForm() {
     <div className="w-full max-w-sm mx-auto bg-bg-primary rounded-xl border border-border p-6 md:p-8 shadow-lg">
       {/* Titre */}
       <div className="mb-8">
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-text-primary tracking-tight">
+        <h1 className="font-heading text-2xl font-bold text-text-primary tracking-tight">
           {t("title")}
         </h1>
-        <p className="mt-1.5 font-[family-name:var(--font-roboto)] text-sm text-text-muted">
+        <p className="mt-1.5 font-body text-sm text-text-muted">
           {t("subtitle")}
         </p>
       </div>
@@ -80,7 +80,7 @@ export default function LoginForm() {
         {error && (
           <div
             role="alert"
-            className="bg-red-50 border border-red-200 text-error px-4 py-3 text-sm font-[family-name:var(--font-roboto)] rounded-lg"
+            className="bg-red-50 border border-red-200 text-error px-4 py-3 text-sm font-body rounded-lg"
           >
             <div className="flex items-start gap-2.5">
               <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -99,7 +99,7 @@ export default function LoginForm() {
                   });
                   setUnlockSent(true);
                 }}
-                className="mt-3 w-full text-center text-xs font-medium text-text-primary bg-white border border-border rounded-lg px-3 py-2 hover:bg-bg-secondary transition-colors"
+                className="mt-3 w-full text-center text-xs font-medium text-text-primary bg-bg-primary border border-border rounded-lg px-3 py-2 hover:bg-bg-secondary transition-colors"
               >
                 Demander le déblocage par email
               </button>
@@ -116,7 +116,7 @@ export default function LoginForm() {
         <div>
           <label
             htmlFor="email"
-            className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5"
+            className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5"
           >
             {t("email")}
           </label>
@@ -137,13 +137,13 @@ export default function LoginForm() {
           <div className="flex items-center justify-between mb-1.5">
             <label
               htmlFor="password"
-              className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide"
+              className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide"
             >
               {t("password")}
             </label>
             <Link
               href="/mot-de-passe-oublie"
-              className="text-xs font-[family-name:var(--font-roboto)] text-text-muted hover:text-text-primary transition-colors"
+              className="text-xs font-body text-text-muted hover:text-text-primary transition-colors"
             >
               {t("forgotPassword")}
             </Link>

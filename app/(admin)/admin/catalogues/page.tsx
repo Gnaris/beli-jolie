@@ -19,7 +19,7 @@ export default async function AdminCataloguesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="page-title">Catalogues</h1>
-          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+          <p className="page-subtitle font-body">
             Créez des catalogues partageables avec un lien unique.
           </p>
         </div>
@@ -28,23 +28,23 @@ export default async function AdminCataloguesPage() {
 
       {/* État vide */}
       {catalogs.length === 0 ? (
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] p-16 flex flex-col items-center text-center">
-          <div className="w-20 h-20 rounded-2xl bg-[#F7F7F8] flex items-center justify-center mb-5">
-            <svg className="w-9 h-9 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] p-16 flex flex-col items-center text-center">
+          <div className="w-20 h-20 rounded-2xl bg-bg-secondary flex items-center justify-center mb-5">
+            <svg className="w-9 h-9 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
             </svg>
           </div>
-          <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-lg mb-2">
+          <p className="font-heading font-semibold text-text-primary text-lg mb-2">
             Aucun catalogue
           </p>
-          <p className="text-sm text-[#6B7280] font-[family-name:var(--font-roboto)] mb-6 max-w-xs">
+          <p className="text-sm text-[#6B7280] font-body mb-6 max-w-xs">
             Créez votre premier catalogue pour partager une sélection de produits via un lien unique.
           </p>
           <CreateCatalogButton />
         </div>
       ) : (
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
+        <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
           <table className="w-full">
             <thead>
               <tr className="table-header">
@@ -59,10 +59,10 @@ export default async function AdminCataloguesPage() {
               {catalogs.map((cat) => (
                 <tr key={cat.id} className="table-row hover:bg-[#FAFAFA] transition-colors">
                   <td className="px-6 py-4">
-                    <p className="font-[family-name:var(--font-poppins)] font-medium text-[#1A1A1A] text-sm">
+                    <p className="font-heading font-medium text-text-primary text-sm">
                       {cat.title}
                     </p>
-                    <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5 font-mono">
+                    <p className="text-xs text-text-muted font-body mt-0.5 font-mono">
                       /catalogue/{cat.token.slice(0, 12)}…
                     </p>
                   </td>
@@ -81,7 +81,7 @@ export default async function AdminCataloguesPage() {
                   <td className="px-6 py-4 hidden lg:table-cell">
                     <div className="flex items-center gap-2">
                       <div
-                        className="w-5 h-5 rounded-full border border-[#E5E5E5]"
+                        className="w-5 h-5 rounded-full border border-border"
                         style={{ backgroundColor: cat.primaryColor }}
                       />
                       <span className="text-xs font-mono text-[#6B7280]">{cat.primaryColor}</span>
@@ -97,7 +97,7 @@ export default async function AdminCataloguesPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Visualiser le catalogue"
-                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#E5E5E5] hover:bg-[#F7F7F8] transition-colors text-[#6B7280] hover:text-[#1A1A1A]"
+                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors text-[#6B7280] hover:text-text-primary"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -109,7 +109,7 @@ export default async function AdminCataloguesPage() {
                       <Link
                         href={`/admin/catalogues/${cat.id}`}
                         title="Modifier le catalogue"
-                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#E5E5E5] hover:bg-[#F7F7F8] transition-colors text-[#6B7280] hover:text-[#1A1A1A]"
+                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors text-[#6B7280] hover:text-text-primary"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

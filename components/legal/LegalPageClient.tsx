@@ -27,10 +27,10 @@ export default function LegalPageClient({ title, content, updatedAt, pdfUrl }: L
         {/* Header */}
         <div className="flex items-start justify-between gap-4 mb-8">
           <div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-2xl md:text-3xl font-bold text-text-primary">
+            <h1 className="font-heading text-2xl md:text-3xl font-bold text-text-primary">
               {title}
             </h1>
-            <p className="text-sm text-text-muted mt-2 font-[family-name:var(--font-roboto)]">
+            <p className="text-sm text-text-muted mt-2 font-body">
               Dernière mise à jour : {new Date(updatedAt).toLocaleDateString("fr-FR", {
                 day: "2-digit",
                 month: "long",
@@ -54,9 +54,9 @@ export default function LegalPageClient({ title, content, updatedAt, pdfUrl }: L
 
         {/* Content */}
         <article
-          className="prose prose-sm max-w-none font-[family-name:var(--font-roboto)] text-text-primary
-            [&_h2]:font-[family-name:var(--font-poppins)] [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:text-text-primary [&_h2]:border-b [&_h2]:border-border [&_h2]:pb-2
-            [&_h3]:font-[family-name:var(--font-poppins)] [&_h3]:text-base [&_h3]:font-semibold [&_h3]:mt-6 [&_h3]:mb-2
+          className="prose prose-sm max-w-none font-body text-text-primary
+            [&_h2]:font-heading [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:text-text-primary [&_h2]:border-b [&_h2]:border-border [&_h2]:pb-2
+            [&_h3]:font-heading [&_h3]:text-base [&_h3]:font-semibold [&_h3]:mt-6 [&_h3]:mb-2
             [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:mt-4 [&_h4]:mb-1
             [&_p]:my-2 [&_p]:leading-relaxed
             [&_ul]:my-2 [&_ul]:pl-6 [&_ul]:list-disc

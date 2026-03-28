@@ -157,6 +157,19 @@ export const getCachedGmailConfig = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── PFS configured? (quick check, no decrypt) ─────────────────────────────
+export const getCachedHasPfsConfig = unstable_cache(
+  async () => {
+    const row = await prisma.siteConfig.findUnique({
+      where: { key: "pfs_email" },
+      select: { key: true },
+    });
+    return !!row;
+  },
+  ["has-pfs-config"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── PFS credentials (from SiteConfig) ──────────────────────────────────────
 export const getCachedPfsCredentials = unstable_cache(
   async () => {

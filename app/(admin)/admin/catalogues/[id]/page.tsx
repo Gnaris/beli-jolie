@@ -40,7 +40,7 @@ export default async function AdminCatalogEditPage({ params }: Props) {
     <div className="space-y-6">
       <div>
         <h1 className="page-title">Modifier le catalogue</h1>
-        <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+        <p className="page-subtitle font-body">
           Sélectionnez les produits, personnalisez le titre, la couleur ou la photo de fond.
         </p>
       </div>

@@ -21,7 +21,7 @@ export default async function AdminCollectionsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="page-title">Collections</h1>
-          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+          <p className="page-subtitle font-body">
             Gérez les collections de produits de la boutique.
           </p>
         </div>
@@ -47,17 +47,17 @@ export default async function AdminCollectionsPage() {
 
       {/* État vide */}
       {collections.length === 0 ? (
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] p-16 flex flex-col items-center text-center">
-          <div className="w-20 h-20 rounded-2xl bg-[#F7F7F8] flex items-center justify-center mb-5">
-            <svg className="w-9 h-9 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] p-16 flex flex-col items-center text-center">
+          <div className="w-20 h-20 rounded-2xl bg-bg-secondary flex items-center justify-center mb-5">
+            <svg className="w-9 h-9 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 01-1.125-1.125v-3.75zM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-8.25zM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 01-1.125-1.125v-2.25z" />
             </svg>
           </div>
-          <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-lg mb-2">
+          <p className="font-heading font-semibold text-text-primary text-lg mb-2">
             Aucune collection
           </p>
-          <p className="text-sm text-[#6B7280] font-[family-name:var(--font-roboto)] mb-6 max-w-xs">
+          <p className="text-sm text-[#6B7280] font-body mb-6 max-w-xs">
             Commencez par créer votre première collection pour organiser vos produits.
           </p>
           <Link
@@ -76,10 +76,10 @@ export default async function AdminCollectionsPage() {
           {collections.map((col) => (
             <div
               key={col.id}
-              className="group bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.10)] hover:scale-[1.02] transition-all duration-200"
+              className="group bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.10)] hover:scale-[1.02] transition-all duration-200"
             >
               {/* Image */}
-              <div className="relative aspect-[4/3] overflow-hidden bg-[#F7F7F8]">
+              <div className="relative aspect-[4/3] overflow-hidden bg-bg-secondary">
                 {col.image ? (
                   <>
                     <img
@@ -91,7 +91,7 @@ export default async function AdminCollectionsPage() {
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
                     {/* Nom sur l'overlay */}
                     <div className="absolute bottom-0 left-0 right-0 px-4 pb-3">
-                      <p className="font-[family-name:var(--font-poppins)] font-semibold text-white text-sm leading-tight line-clamp-2">
+                      <p className="font-heading font-semibold text-text-inverse text-sm leading-tight line-clamp-2">
                         {col.name}
                       </p>
                     </div>
@@ -112,7 +112,7 @@ export default async function AdminCollectionsPage() {
                 {/* Nom (si pas d'image) + badge produits */}
                 <div className="flex items-start justify-between gap-2 mb-3">
                   {!col.image && (
-                    <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm leading-tight line-clamp-2 flex-1">
+                    <p className="font-heading font-semibold text-text-primary text-sm leading-tight line-clamp-2 flex-1">
                       {col.name}
                     </p>
                   )}

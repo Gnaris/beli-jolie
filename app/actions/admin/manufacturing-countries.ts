@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { autoTranslateManufacturingCountry } from "@/lib/auto-translate";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -15,7 +16,8 @@ export async function createManufacturingCountry(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
   const isoCode = (formData.get("isoCode") as string)?.trim() || null;
-  await prisma.manufacturingCountry.create({ data: { name, isoCode } });
+  const country = await prisma.manufacturingCountry.create({ data: { name, isoCode } });
+  autoTranslateManufacturingCountry(country.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("manufacturing-countries", "default");
 }

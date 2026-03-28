@@ -38,7 +38,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="min-h-screen bg-[#1A1A1A] flex flex-col items-center justify-center px-6 py-12">
+    <div className="min-h-screen bg-bg-dark flex flex-col items-center justify-center px-6 py-12">
       {/* Animated background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
@@ -54,7 +54,7 @@ export default function Error({
       <div className="relative z-10 max-w-lg w-full text-center">
         {/* Logo */}
         <div className="mb-10">
-          <span className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-white tracking-tight">
+          <span className="font-heading text-2xl font-bold text-white tracking-tight">
             Notre site
           </span>
         </div>
@@ -78,7 +78,7 @@ export default function Error({
         </div>
 
         {/* Title */}
-        <h1 className="font-[family-name:var(--font-poppins)] text-3xl font-bold text-white mb-4 leading-tight">
+        <h1 className="font-heading text-3xl font-bold text-white mb-4 leading-tight">
           Une erreur est survenue
         </h1>
 
@@ -86,18 +86,18 @@ export default function Error({
         <div className="mx-auto mb-6 w-12 h-px bg-white/20" />
 
         {/* Message */}
-        <p className="font-[family-name:var(--font-roboto)] text-white/60 text-base leading-relaxed mb-4">
+        <p className="font-body text-white/60 text-base leading-relaxed mb-4">
           Nous avons détecté un problème technique. Notre équipe est
           automatiquement notifiée et travaille à le résoudre.
         </p>
-        <p className="font-[family-name:var(--font-roboto)] text-white/60 text-base leading-relaxed mb-10">
+        <p className="font-body text-white/60 text-base leading-relaxed mb-10">
           Merci pour votre patience et votre confiance.
         </p>
 
         {/* Status badge */}
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-8">
           <span className="w-2 h-2 rounded-full bg-[#F59E0B] animate-pulse" />
-          <span className="font-[family-name:var(--font-roboto)] text-white/50 text-sm">
+          <span className="font-body text-white/50 text-sm">
             Résolution en cours
           </span>
         </div>
@@ -106,7 +106,7 @@ export default function Error({
         <div>
           <button
             onClick={reset}
-            className="px-6 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm font-medium hover:bg-white/15 transition-colors font-[family-name:var(--font-roboto)]"
+            className="px-6 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm font-medium hover:bg-white/15 transition-colors font-body"
           >
             Réessayer
           </button>
@@ -115,7 +115,7 @@ export default function Error({
 
       {/* Footer */}
       <div className="relative z-10 mt-12 text-center">
-        <p className="font-[family-name:var(--font-roboto)] text-white/20 text-xs">
+        <p className="font-body text-white/20 text-xs">
           Plateforme réservée aux professionnels revendeurs
         </p>
       </div>

@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { autoTranslateComposition } from "@/lib/auto-translate";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -14,7 +15,8 @@ export async function createComposition(formData: FormData) {
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
-  await prisma.composition.create({ data: { name } });
+  const composition = await prisma.composition.create({ data: { name } });
+  autoTranslateComposition(composition.id, name);
   revalidatePath("/admin/produits");
 }
 

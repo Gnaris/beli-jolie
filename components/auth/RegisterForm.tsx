@@ -203,10 +203,10 @@ export default function RegisterForm({ productCount }: { productCount?: number }
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary mb-3 tracking-tight">
+          <h2 className="font-heading text-2xl font-semibold text-text-primary mb-3 tracking-tight">
             {t("successTitle")}
           </h2>
-          <p className="font-[family-name:var(--font-roboto)] text-text-muted text-sm leading-relaxed mb-8">
+          <p className="font-body text-text-muted text-sm leading-relaxed mb-8">
             {successMessage}
           </p>
           <Link href={autoApproved ? "/connexion" : "/"} className="btn-primary justify-center">
@@ -224,16 +224,16 @@ export default function RegisterForm({ productCount }: { productCount?: number }
   return (
     <div className="w-full max-w-2xl">
       <div className="mb-8">
-        <div className="inline-flex items-center gap-2 bg-bg-dark text-text-inverse text-xs font-[family-name:var(--font-roboto)] font-semibold px-4 py-1.5 rounded-full mb-4 uppercase tracking-wider">
+        <div className="inline-flex items-center gap-2 bg-bg-dark text-text-inverse text-xs font-body font-semibold px-4 py-1.5 rounded-full mb-4 uppercase tracking-wider">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z" />
           </svg>
           Espace B2B
         </div>
-        <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-text-primary tracking-tight">
+        <h1 className="font-heading text-2xl font-bold text-text-primary tracking-tight">
           {t("title")}
         </h1>
-        <p className="mt-1.5 font-[family-name:var(--font-roboto)] text-sm text-text-muted">
+        <p className="mt-1.5 font-body text-sm text-text-muted">
           {t("subtitle")}
         </p>
       </div>
@@ -242,17 +242,17 @@ export default function RegisterForm({ productCount }: { productCount?: number }
       <div className={`grid ${formattedCount ? "grid-cols-3" : "grid-cols-2"} gap-3 mb-6`}>
         {formattedCount && (
           <div className="bg-bg-primary rounded-xl border border-border p-4 text-center">
-            <p className="font-[family-name:var(--font-poppins)] text-xl font-bold text-text-primary">{formattedCount}</p>
-            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">références en ligne</p>
+            <p className="font-heading text-xl font-bold text-text-primary">{formattedCount}</p>
+            <p className="text-xs text-text-muted font-body mt-0.5">références en ligne</p>
           </div>
         )}
         <div className="bg-bg-primary rounded-xl border border-border p-4 text-center">
-          <p className="font-[family-name:var(--font-poppins)] text-xl font-bold text-text-primary">9h — 22h</p>
-          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">validation rapide</p>
+          <p className="font-heading text-xl font-bold text-text-primary">9h — 22h</p>
+          <p className="text-xs text-text-muted font-body mt-0.5">validation rapide</p>
         </div>
         <div className="bg-bg-primary rounded-xl border border-border p-4 text-center">
-          <p className="font-[family-name:var(--font-poppins)] text-xl font-bold text-text-primary">Prix HT</p>
-          <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">tarifs grossiste</p>
+          <p className="font-heading text-xl font-bold text-text-primary">Prix HT</p>
+          <p className="text-xs text-text-muted font-body mt-0.5">tarifs grossiste</p>
         </div>
       </div>
 
@@ -264,7 +264,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
       {/* ── Code d'invitation ── */}
       <div className="mb-6">
         <div className="bg-bg-primary rounded-xl border border-border p-4">
-          <label htmlFor="inviteCode" className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary mb-2">
+          <label htmlFor="inviteCode" className="flex items-center gap-2 text-sm font-body font-medium text-text-primary mb-2">
             <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
             </svg>
@@ -297,7 +297,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                   setInviteError("");
                   document.cookie = "bj_access_code=; max-age=0; path=/";
                 }}
-                className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted hover:text-error border border-border rounded-lg transition-colors"
+                className="px-3 py-2 text-sm font-body text-text-muted hover:text-error border border-border rounded-lg transition-colors"
                 aria-label="Retirer le code"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -327,7 +327,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
               <svg className="w-4 h-4 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <p className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary leading-relaxed">
+              <p className="text-xs font-body text-text-secondary leading-relaxed">
                 Code d&apos;accès validé — votre compte sera activé immédiatement après inscription, sans vérification.
               </p>
             </div>
@@ -335,7 +335,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
 
           {/* Message d'erreur */}
           {inviteStatus === "error" && inviteError && (
-            <p className="mt-2 text-xs text-error font-[family-name:var(--font-roboto)]">{inviteError}</p>
+            <p className="mt-2 text-xs text-error font-body">{inviteError}</p>
           )}
         </div>
       </div>
@@ -344,7 +344,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
         <form onSubmit={handleSubmit} noValidate encType="multipart/form-data">
 
           {globalError && (
-            <div role="alert" className="bg-red-50 border border-red-200 text-error px-4 py-3 text-sm font-[family-name:var(--font-roboto)] flex items-start gap-2.5 mb-6 rounded-lg">
+            <div role="alert" className="bg-red-50 border border-red-200 text-error px-4 py-3 text-sm font-body flex items-start gap-2.5 mb-6 rounded-lg">
               <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
               </svg>
@@ -356,7 +356,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
 
             {/* Section Identité */}
             <div>
-              <p className="text-[11px] font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-widest mb-3">
+              <p className="text-[11px] font-body font-semibold text-text-muted uppercase tracking-widest mb-3">
                 {t("sectionIdentity")}
               </p>
               <div className="space-y-4">
@@ -390,7 +390,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
             {/* Section Informations légales */}
             <div className="pt-6">
               <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-6" />
-              <p className="text-[11px] font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-widest mb-3">
+              <p className="text-[11px] font-body font-semibold text-text-muted uppercase tracking-widest mb-3">
                 {t("sectionLegal")}
               </p>
               <div className="space-y-4">
@@ -400,7 +400,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                   onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
 
                 <div>
-                  <label htmlFor="vatNumber" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
+                  <label htmlFor="vatNumber" className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5">
                     {t("vatNumber")}{" "}
                     <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
                   </label>
@@ -410,7 +410,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                     placeholder="FR12345678901" maxLength={20}
                     className={`field-input ${fieldErrors.vatNumber ? "border-error" : ""}`}
                   />
-                  <p className="text-xs text-text-muted mt-1 font-[family-name:var(--font-roboto)]">
+                  <p className="text-xs text-text-muted mt-1 font-body">
                     {t("vatNumberHint")}
                   </p>
                   {fieldErrors.vatNumber && <p className="text-xs text-error mt-1">{fieldErrors.vatNumber}</p>}
@@ -418,7 +418,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
 
                 {/* Kbis upload */}
                 <div>
-                  <label htmlFor="kbis" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
+                  <label htmlFor="kbis" className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5">
                     {t("kbis")}{" "}
                     <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
                   </label>
@@ -438,24 +438,24 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                         <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        <span className="text-sm font-[family-name:var(--font-roboto)] font-medium">{kbisFile.name}</span>
+                        <span className="text-sm font-body font-medium">{kbisFile.name}</span>
                       </div>
                     ) : (
                       <>
                         <svg className="w-8 h-8 text-text-muted mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                         </svg>
-                        <p className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary">{t("kbisClick")}</p>
+                        <p className="text-sm font-body text-text-secondary">{t("kbisClick")}</p>
                         <p className="text-xs text-text-muted mt-1">{t("kbisFormats")}</p>
                       </>
                     )}
                   </div>
-                  {kbisError && <p className="text-xs text-error mt-1 font-[family-name:var(--font-roboto)]" role="alert">{kbisError}</p>}
+                  {kbisError && <p className="text-xs text-error mt-1 font-body" role="alert">{kbisError}</p>}
                 </div>
 
                 {/* Document libre */}
                 <div>
-                  <label htmlFor="document" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
+                  <label htmlFor="document" className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5">
                     Document complémentaire{" "}
                     <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
                   </label>
@@ -475,7 +475,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                         <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        <span className="text-sm font-[family-name:var(--font-roboto)] font-medium">{docFile.name}</span>
+                        <span className="text-sm font-body font-medium">{docFile.name}</span>
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setDocFile(null); if (docInputRef.current) docInputRef.current.value = ""; }}
@@ -492,13 +492,13 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                         <svg className="w-8 h-8 text-text-muted mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                         </svg>
-                        <p className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary">Cliquez pour envoyer un document</p>
+                        <p className="text-sm font-body text-text-secondary">Cliquez pour envoyer un document</p>
                         <p className="text-xs text-text-muted mt-1">PDF, JPG, PNG, DOC, DOCX — max 10 Mo</p>
                       </>
                     )}
                   </div>
-                  {docError && <p className="text-xs text-error mt-1 font-[family-name:var(--font-roboto)]" role="alert">{docError}</p>}
-                  <p className="text-xs text-text-muted mt-1 font-[family-name:var(--font-roboto)]">
+                  {docError && <p className="text-xs text-error mt-1 font-body" role="alert">{docError}</p>}
+                  <p className="text-xs text-text-muted mt-1 font-body">
                     Tout document utile à votre dossier (licence, attestation, etc.)
                   </p>
                 </div>
@@ -508,11 +508,11 @@ export default function RegisterForm({ productCount }: { productCount?: number }
             {/* Section Message */}
             <div className="pt-6">
               <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-6" />
-              <p className="text-[11px] font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-widest mb-3">
+              <p className="text-[11px] font-body font-semibold text-text-muted uppercase tracking-widest mb-3">
                 {t("sectionMessage")}
               </p>
               <div>
-                <label htmlFor="registrationMessage" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
+                <label htmlFor="registrationMessage" className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5">
                   {t("message")}{" "}
                   <span className="text-text-muted font-normal">{t("vatNumberOptional")}</span>
                 </label>
@@ -525,7 +525,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                   rows={5}
                   className={`field-input resize-y min-h-[120px] ${fieldErrors.registrationMessage ? "border-error" : ""}`}
                 />
-                <p className="text-xs text-text-muted mt-1 font-[family-name:var(--font-roboto)]">
+                <p className="text-xs text-text-muted mt-1 font-body">
                   {fields.registrationMessage.length}/2000
                 </p>
                 {fieldErrors.registrationMessage && (
@@ -537,12 +537,12 @@ export default function RegisterForm({ productCount }: { productCount?: number }
             {/* Section Sécurité */}
             <div className="pt-6">
               <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent mb-6" />
-              <p className="text-[11px] font-[family-name:var(--font-roboto)] font-semibold text-text-muted uppercase tracking-widest mb-3">
+              <p className="text-[11px] font-body font-semibold text-text-muted uppercase tracking-widest mb-3">
                 {t("sectionSecurity")}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="password" className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
+                  <label htmlFor="password" className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5">
                     {t("password")} <span className="text-text-muted">*</span>
                   </label>
                   <div className="relative">
@@ -563,7 +563,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
                     </button>
                   </div>
                   {fieldErrors.password && <p className="text-xs text-error mt-1">{fieldErrors.password}</p>}
-                  <p className="text-xs text-text-muted mt-1 font-[family-name:var(--font-roboto)]">{t("passwordHint")}</p>
+                  <p className="text-xs text-text-muted mt-1 font-body">{t("passwordHint")}</p>
                 </div>
                 <FormField id="confirmPassword" label={t("confirm")} type="password"
                   value={fields.confirmPassword} error={fieldErrors.confirmPassword}
@@ -589,7 +589,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
           </div>
         </form>
 
-        <p className="mt-6 text-center text-sm font-[family-name:var(--font-roboto)] text-text-muted">
+        <p className="mt-6 text-center text-sm font-body text-text-muted">
           {t("hasAccount")}{" "}
           <Link href="/connexion" className="text-text-primary font-medium hover:underline transition-colors">
             {t("loginLink")}
@@ -607,7 +607,7 @@ function FormField({ id, label, type, value, error, placeholder, autoComplete, m
 }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary uppercase tracking-wide mb-1.5">
+      <label htmlFor={id} className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5">
         {label} {optional
           ? <span className="text-text-muted font-normal">(optionnel)</span>
           : <span className="text-text-muted">*</span>}
@@ -621,7 +621,7 @@ function FormField({ id, label, type, value, error, placeholder, autoComplete, m
         aria-describedby={error ? `${id}-error` : undefined}
         aria-invalid={!!error}
       />
-      {error && <p id={`${id}-error`} role="alert" className="text-xs text-error mt-1 font-[family-name:var(--font-roboto)]">{error}</p>}
+      {error && <p id={`${id}-error`} role="alert" className="text-xs text-error mt-1 font-body">{error}</p>}
     </div>
   );
 }

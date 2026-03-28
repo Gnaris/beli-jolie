@@ -63,10 +63,10 @@ export default function DarkModeToggle({ currentTheme }: Props) {
           )}
         </div>
         <div>
-          <p className="font-[family-name:var(--font-roboto)] text-sm font-medium">
+          <p className="font-body text-sm font-medium">
             {isDark ? "Mode nuit activé" : "Mode jour activé"}
           </p>
-          <p className="font-[family-name:var(--font-roboto)] text-xs text-[#6B6B6B] mt-0.5">
+          <p className="font-body text-xs text-text-secondary mt-0.5">
             {isDark
               ? "L'interface admin utilise un thème sombre."
               : "L'interface admin utilise le thème clair par défaut."}
@@ -87,7 +87,7 @@ export default function DarkModeToggle({ currentTheme }: Props) {
         role="switch"
       >
         <span
-          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+          className={`inline-block h-5 w-5 transform rounded-full bg-bg-primary shadow-sm transition-transform ${
             isDark ? "translate-x-6" : "translate-x-1"
           }`}
         >

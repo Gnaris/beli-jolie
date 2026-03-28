@@ -108,11 +108,11 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
 
   function renderSection(section: DisplaySection, index: number) {
     return (
-      <div key={section.id} className="border border-[#E5E5E5] rounded-xl bg-[#FAFAFA] p-4 space-y-3">
+      <div key={section.id} className="border border-border rounded-xl bg-[#FAFAFA] p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-base">{sectionIcon(section.type)}</span>
-            <span className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+            <span className="font-heading text-sm font-semibold text-text-primary">
               {index + 1}. {sectionLabel(section.type)}
             </span>
           </div>
@@ -140,7 +140,7 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
 
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Quantité</label>
+            <label className="text-xs text-text-secondary font-body">Quantité</label>
             <input
               type="number" min={1} max={100} value={section.quantity}
               onChange={e => updateSection(section.id, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
@@ -151,7 +151,7 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
           {section.type === "category" && (
             <>
               <div className="flex-1 min-w-[140px]">
-                <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Catégorie</label>
+                <label className="text-xs text-text-secondary font-body">Catégorie</label>
                 <CustomSelect
                   value={section.categoryId ?? ""}
                   onChange={v => {
@@ -163,7 +163,7 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
                 />
               </div>
               <div>
-                <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Tri</label>
+                <label className="text-xs text-text-secondary font-body">Tri</label>
                 <CustomSelect
                   value={section.sortBy ?? "random"}
                   onChange={v => updateSection(section.id, { sortBy: v as "new" | "bestseller" | "random" })}
@@ -176,12 +176,12 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
 
           {section.type === "collection" && (
             <div className="flex-1 min-w-[200px]">
-              <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+              <label className="text-xs text-text-secondary font-body">
                 Collections ({section.collectionIds?.length ?? 0} sélectionnée{(section.collectionIds?.length ?? 0) > 1 ? "s" : ""})
               </label>
-              <div className="border border-[#E5E5E5] rounded-lg max-h-32 overflow-auto bg-white">
+              <div className="border border-border rounded-lg max-h-32 overflow-auto bg-bg-primary">
                 {collections.map(c => (
-                  <label key={c.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#F7F7F8] cursor-pointer text-sm">
+                  <label key={c.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-bg-secondary cursor-pointer text-sm">
                     <input
                       type="checkbox"
                       checked={section.collectionIds?.includes(c.id) ?? false}
@@ -191,11 +191,11 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
                       }}
                       className="accent-[#1A1A1A]"
                     />
-                    <span className="text-[#1A1A1A] font-[family-name:var(--font-roboto)]">{c.name}</span>
+                    <span className="text-text-primary font-body">{c.name}</span>
                   </label>
                 ))}
                 {collections.length === 0 && (
-                  <p className="text-xs text-[#6B6B6B] px-3 py-2 italic">Aucune collection</p>
+                  <p className="text-xs text-text-secondary px-3 py-2 italic">Aucune collection</p>
                 )}
               </div>
             </div>
@@ -203,7 +203,7 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
 
           {section.type === "tag" && (
             <div className="flex-1 min-w-[140px]">
-              <label className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Mot-clé</label>
+              <label className="text-xs text-text-secondary font-body">Mot-clé</label>
               <CustomSelect
                 value={section.tagId ?? ""}
                 onChange={v => {
@@ -229,15 +229,15 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
           <label className="flex items-start gap-3 cursor-pointer group">
             <input type="radio" name="displayMode" checked={mode === "date"} onChange={() => setMode("date")} className="mt-1 accent-[#1A1A1A]" />
             <div>
-              <span className="text-sm font-medium text-[#1A1A1A] font-[family-name:var(--font-roboto)] group-hover:underline">Par date</span>
-              <p className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Du plus récent au plus ancien (par défaut)</p>
+              <span className="text-sm font-medium text-text-primary font-body group-hover:underline">Par date</span>
+              <p className="text-xs text-text-secondary font-body">Du plus récent au plus ancien (par défaut)</p>
             </div>
           </label>
           <label className="flex items-start gap-3 cursor-pointer group">
             <input type="radio" name="displayMode" checked={mode === "custom"} onChange={() => setMode("custom")} className="mt-1 accent-[#1A1A1A]" />
             <div>
-              <span className="text-sm font-medium text-[#1A1A1A] font-[family-name:var(--font-roboto)] group-hover:underline">Personnalisé</span>
-              <p className="text-xs text-[#6B6B6B] font-[family-name:var(--font-roboto)]">Sections prioritaires (nouveautés, best sellers, catégories...)</p>
+              <span className="text-sm font-medium text-text-primary font-body group-hover:underline">Personnalisé</span>
+              <p className="text-xs text-text-secondary font-body">Sections prioritaires (nouveautés, best sellers, catégories...)</p>
             </div>
           </label>
         </div>
@@ -246,10 +246,10 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
       {/* Sections (custom mode) */}
       {mode === "custom" && (
         <div className="space-y-3">
-          <h4 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">Sections prioritaires</h4>
+          <h4 className="font-heading text-sm font-semibold text-text-primary">Sections prioritaires</h4>
 
           {sections.length === 0 && (
-            <p className="text-sm text-[#6B6B6B] italic font-[family-name:var(--font-roboto)]">
+            <p className="text-sm text-text-secondary italic font-body">
               Aucune section. Affichage aléatoire.
             </p>
           )}
@@ -260,7 +260,7 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-[#3B82F6] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
             </svg>
-            <p className="text-xs text-[#1E40AF] font-[family-name:var(--font-roboto)]">
+            <p className="text-xs text-[#1E40AF] font-body">
               Les produits restants s&apos;afficheront aléatoirement, renouvelés chaque jour. Pas de doublons.
             </p>
           </div>
@@ -275,10 +275,10 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
             {addMenuOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setAddMenuOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-[#E5E5E5] rounded-lg shadow-lg py-1 min-w-[180px]">
+                <div className="absolute left-0 top-full mt-1 z-20 bg-bg-primary border border-border rounded-lg shadow-lg py-1 min-w-[180px]">
                   {SECTION_TYPES.map(t => (
                     <button key={t.value} type="button" onClick={() => addSection(t.value)}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-[#F7F7F8] font-[family-name:var(--font-roboto)] flex items-center gap-2">
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-bg-secondary font-body flex items-center gap-2">
                       <span>{t.icon}</span> {t.label}
                     </button>
                   ))}

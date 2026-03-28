@@ -70,14 +70,14 @@ export default function AccountEditor({ user }: AccountEditorProps) {
   ];
 
   return (
-    <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-[#E5E5E5] flex items-center justify-between">
-        <h2 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A]">
+    <div className="bg-bg-primary rounded-xl border border-border overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+        <h2 className="font-heading text-sm font-semibold text-text-primary">
           {t("profileSection")}
         </h2>
         <div className="flex items-center gap-2">
           {success && (
-            <span className="text-xs text-emerald-600 font-[family-name:var(--font-roboto)] flex items-center gap-1">
+            <span className="text-xs text-emerald-600 font-body flex items-center gap-1">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
@@ -88,7 +88,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors flex items-center gap-1"
+              className="text-xs font-body font-medium text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
@@ -101,14 +101,14 @@ export default function AccountEditor({ user }: AccountEditorProps) {
                 type="button"
                 onClick={handleSave}
                 disabled={isPending}
-                className="text-xs font-[family-name:var(--font-roboto)] font-medium bg-[#1A1A1A] text-white px-3 py-1.5 rounded-lg hover:bg-[#333] transition-colors disabled:opacity-50"
+                className="text-xs font-body font-medium bg-bg-dark text-text-inverse px-3 py-1.5 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50"
               >
                 {isPending ? "..." : t("save")}
               </button>
               <button
                 type="button"
                 onClick={handleCancel}
-                className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors"
+                className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors"
               >
                 {t("cancel")}
               </button>
@@ -119,21 +119,21 @@ export default function AccountEditor({ user }: AccountEditorProps) {
 
       {error && (
         <div className="px-5 py-2 bg-red-50 border-b border-red-100">
-          <p className="text-xs text-red-600 font-[family-name:var(--font-roboto)]">{error}</p>
+          <p className="text-xs text-red-600 font-body">{error}</p>
         </div>
       )}
 
-      <div className="divide-y divide-[#F0F0F0]">
+      <div className="divide-y divide-border-light">
         {/* Email + SIRET (non editable) */}
         {[
           { label: t("email"), value: user.email },
           { label: t("siret"), value: user.siret, mono: true },
         ].map(({ label, value, mono }) => (
           <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
-            <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#9CA3AF] uppercase tracking-wider w-24 shrink-0">
+            <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-24 shrink-0">
               {label}
             </span>
-            <span className={`text-sm text-[#1A1A1A] ${mono ? "font-mono" : "font-[family-name:var(--font-roboto)]"}`}>
+            <span className={`text-sm text-text-primary ${mono ? "font-mono" : "font-body"}`}>
               {value}
             </span>
           </div>
@@ -142,7 +142,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
         {/* Champs editables */}
         {fields.map(({ label, value, setter, required, mono }) => (
           <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
-            <span className="text-xs font-[family-name:var(--font-roboto)] font-medium text-[#9CA3AF] uppercase tracking-wider w-24 shrink-0">
+            <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-24 shrink-0">
               {label}{required && !editing ? "" : ""}
             </span>
             {editing ? (
@@ -150,12 +150,12 @@ export default function AccountEditor({ user }: AccountEditorProps) {
                 type="text"
                 value={value}
                 onChange={(e) => setter(e.target.value)}
-                className={`flex-1 text-sm text-[#1A1A1A] ${mono ? "font-mono" : "font-[family-name:var(--font-roboto)]"} border border-[#E5E5E5] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#1A1A1A] transition-colors`}
+                className={`flex-1 text-sm text-text-primary ${mono ? "font-mono" : "font-body"} border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:border-bg-dark transition-colors`}
                 placeholder={label}
               />
             ) : (
-              <span className={`text-sm text-[#1A1A1A] ${mono ? "font-mono" : "font-[family-name:var(--font-roboto)]"}`}>
-                {value || <span className="text-[#9CA3AF] italic">{t("notProvided")}</span>}
+              <span className={`text-sm text-text-primary ${mono ? "font-mono" : "font-body"}`}>
+                {value || <span className="text-text-muted italic">{t("notProvided")}</span>}
               </span>
             )}
           </div>

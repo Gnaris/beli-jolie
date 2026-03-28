@@ -275,8 +275,8 @@ export default function ImportHistoryClient({
         onClick={onClick}
         className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
           active
-            ? "bg-[#1A1A1A] text-white"
-            : "bg-white text-[#666] border border-[#E5E5E5] hover:border-[#1A1A1A]"
+            ? "bg-bg-dark text-text-inverse"
+            : "bg-bg-primary text-[#666] border border-border hover:border-bg-dark"
         }`}
       >
         {children}
@@ -313,8 +313,8 @@ export default function ImportHistoryClient({
           onClick={() => handlePage(p)}
           className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
             p === page
-              ? "bg-[#1A1A1A] text-white"
-              : "text-[#666] hover:bg-[#F7F7F8]"
+              ? "bg-bg-dark text-text-inverse"
+              : "text-[#666] hover:bg-bg-secondary"
           }`}
         >
           {p}
@@ -328,19 +328,19 @@ export default function ImportHistoryClient({
   // ─────────────────────────────────────────────
 
   return (
-    <div className="space-y-6 animate-fadeIn font-[family-name:var(--font-roboto)]">
+    <div className="space-y-6 animate-fadeIn font-body">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link
           href="/admin/produits/importer"
-          className="text-[#666] hover:text-[#1A1A1A] transition-colors text-sm"
+          className="text-[#666] hover:text-text-primary transition-colors text-sm"
         >
           &larr; Retour à l&apos;import
         </Link>
       </div>
 
       <div>
-        <h1 className="page-title font-[family-name:var(--font-poppins)]">
+        <h1 className="page-title font-heading">
           Historique des imports
         </h1>
         <p className="page-subtitle">
@@ -349,7 +349,7 @@ export default function ImportHistoryClient({
       </div>
 
       {/* Filters + Delete bar */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-[#666] mr-1">Type :</span>
@@ -405,12 +405,12 @@ export default function ImportHistoryClient({
       {/* Content */}
       {loading && (
         <div className="flex justify-center py-12">
-          <div className="w-8 h-8 border-2 border-[#E5E5E5] border-t-[#1A1A1A] rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-border border-t-[#1A1A1A] rounded-full animate-spin" />
         </div>
       )}
 
       {!loading && jobs.length === 0 && (
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-12 shadow-[0_1px_4px_rgba(0,0,0,0.06)] text-center">
+        <div className="bg-bg-primary border border-border rounded-2xl p-12 shadow-[0_1px_4px_rgba(0,0,0,0.06)] text-center">
           <p className="text-[#999] text-lg mb-4">Aucun import pour le moment</p>
           <Link href="/admin/produits/importer" className="btn-primary inline-block">
             Lancer un import
@@ -421,7 +421,7 @@ export default function ImportHistoryClient({
       {!loading && jobs.length > 0 && (
         <>
           {/* Desktop table */}
-          <div className="hidden md:block bg-white border border-[#E5E5E5] rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
+          <div className="hidden md:block bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
             <table className="w-full">
               <thead>
                 <tr className="table-header">
@@ -433,7 +433,7 @@ export default function ImportHistoryClient({
                         if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < jobs.length;
                       }}
                       onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-[#D1D5DB] text-[#1A1A1A] focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
+                      className="w-4 h-4 rounded border-[#D1D5DB] text-text-primary focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
                       aria-label="Tout sélectionner"
                     />
                   </th>
@@ -474,7 +474,7 @@ export default function ImportHistoryClient({
                   if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < jobs.length;
                 }}
                 onChange={toggleSelectAll}
-                className="w-5 h-5 rounded border-[#D1D5DB] text-[#1A1A1A] focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
+                className="w-5 h-5 rounded border-[#D1D5DB] text-text-primary focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
                 aria-label="Tout sélectionner"
               />
               <span className="text-sm text-[#666]">Tout sélectionner</span>
@@ -556,7 +556,7 @@ function JobRowDesktop({
             type="checkbox"
             checked={selected}
             onChange={onSelect}
-            className="w-4 h-4 rounded border-[#D1D5DB] text-[#1A1A1A] focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
+            className="w-4 h-4 rounded border-[#D1D5DB] text-text-primary focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
             aria-label={`Sélectionner ${job.filename || job.id}`}
           />
         </td>
@@ -564,14 +564,14 @@ function JobRowDesktop({
           <span
             className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
               job.type === "PRODUCTS"
-                ? "bg-[#F0F0F0] text-[#1A1A1A]"
+                ? "bg-[#F0F0F0] text-text-primary"
                 : "bg-[#E8F0FE] text-[#3B82F6]"
             }`}
           >
             {job.type === "PRODUCTS" ? "Produits" : "Images"}
           </span>
         </td>
-        <td className="px-4 py-3 text-sm text-[#1A1A1A] max-w-[200px] truncate">
+        <td className="px-4 py-3 text-sm text-text-primary max-w-[200px] truncate">
           {job.filename || "—"}
         </td>
         <td className="px-4 py-3 text-sm text-[#666]">
@@ -581,7 +581,7 @@ function JobRowDesktop({
           <StatusBadge job={job} />
         </td>
         <td className="px-4 py-3 text-sm">
-          <span className="text-[#1A1A1A]">
+          <span className="text-text-primary">
             {job.successItems}/{job.totalItems} importé{job.successItems !== 1 ? "s" : ""}
           </span>
           {job.errorItems > 0 && (
@@ -630,7 +630,7 @@ function JobCardMobile({
   ActionsCell: React.FC<{ job: ImportJobWithDraft }>;
 }) {
   return (
-    <div className={`bg-white border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden ${selected ? "border-[#3B82F6] bg-[#F0F7FF]" : "border-[#E5E5E5]"}`}>
+    <div className={`bg-bg-primary border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden ${selected ? "border-[#3B82F6] bg-[#F0F7FF]" : "border-border"}`}>
       <div className="p-4 cursor-pointer" onClick={onToggle}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
@@ -639,13 +639,13 @@ function JobCardMobile({
               checked={selected}
               onChange={onSelect}
               onClick={(e) => e.stopPropagation()}
-              className="w-5 h-5 rounded border-[#D1D5DB] text-[#1A1A1A] focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
+              className="w-5 h-5 rounded border-[#D1D5DB] text-text-primary focus:ring-[#1A1A1A] cursor-pointer accent-[#1A1A1A]"
               aria-label={`Sélectionner ${job.filename || job.id}`}
             />
             <span
               className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
                 job.type === "PRODUCTS"
-                  ? "bg-[#F0F0F0] text-[#1A1A1A]"
+                  ? "bg-[#F0F0F0] text-text-primary"
                   : "bg-[#E8F0FE] text-[#3B82F6]"
               }`}
             >
@@ -661,18 +661,18 @@ function JobCardMobile({
         <div className="space-y-1.5 text-sm">
           <div className="flex justify-between">
             <span className="text-[#666]">Fichier</span>
-            <span className="text-[#1A1A1A] truncate max-w-[180px]">
+            <span className="text-text-primary truncate max-w-[180px]">
               {job.filename || "—"}
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-[#666]">Date</span>
-            <span className="text-[#1A1A1A]">{formatDate(job.createdAt)}</span>
+            <span className="text-text-primary">{formatDate(job.createdAt)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-[#666]">Résultat</span>
             <span>
-              <span className="text-[#1A1A1A]">
+              <span className="text-text-primary">
                 {job.successItems}/{job.totalItems} importé{job.successItems !== 1 ? "s" : ""}
               </span>
               {job.errorItems > 0 && (
@@ -684,7 +684,7 @@ function JobCardMobile({
           </div>
         </div>
 
-        <div className="mt-3 pt-3 border-t border-[#E5E5E5]" onClick={(e) => e.stopPropagation()}>
+        <div className="mt-3 pt-3 border-t border-border" onClick={(e) => e.stopPropagation()}>
           <ActionsCell job={job} />
         </div>
       </div>
@@ -716,24 +716,24 @@ function JobDetailPanel({ job }: { job: ImportJobWithDraft }) {
     : null;
 
   return (
-    <div className="bg-[#FAFAFA] border-t border-[#E5E5E5] px-6 py-5 space-y-5">
+    <div className="bg-[#FAFAFA] border-t border-border px-6 py-5 space-y-5">
       {/* Info grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div>
           <p className="text-xs text-[#999] uppercase tracking-wide mb-1">Type</p>
-          <p className="text-sm font-medium text-[#1A1A1A]">{job.type === "PRODUCTS" ? "Données produits" : "Images produits"}</p>
+          <p className="text-sm font-medium text-text-primary">{job.type === "PRODUCTS" ? "Données produits" : "Images produits"}</p>
         </div>
         <div>
           <p className="text-xs text-[#999] uppercase tracking-wide mb-1">Fichier</p>
-          <p className="text-sm text-[#1A1A1A] break-all">{job.filename || "—"}</p>
+          <p className="text-sm text-text-primary break-all">{job.filename || "—"}</p>
         </div>
         <div>
           <p className="text-xs text-[#999] uppercase tracking-wide mb-1">Date de lancement</p>
-          <p className="text-sm text-[#1A1A1A]">{formatDate(job.createdAt)}</p>
+          <p className="text-sm text-text-primary">{formatDate(job.createdAt)}</p>
         </div>
         <div>
           <p className="text-xs text-[#999] uppercase tracking-wide mb-1">Durée</p>
-          <p className="text-sm text-[#1A1A1A]">
+          <p className="text-sm text-text-primary">
             {isProcessing ? (
               <span className="text-amber-600">En cours...</span>
             ) : (
@@ -747,16 +747,16 @@ function JobDetailPanel({ job }: { job: ImportJobWithDraft }) {
       <div>
         <p className="text-xs text-[#999] uppercase tracking-wide mb-3">Résumé</p>
         <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-xl p-3 bg-white border border-[#E5E5E5] text-center">
-            <p className="text-2xl font-bold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">{job.totalItems}</p>
+          <div className="rounded-xl p-3 bg-bg-primary border border-border text-center">
+            <p className="text-2xl font-bold font-heading text-text-primary">{job.totalItems}</p>
             <p className="text-xs text-[#666] mt-0.5">{job.type === "PRODUCTS" ? "Produits total" : "Images total"}</p>
           </div>
           <div className="rounded-xl p-3 bg-green-50 border border-green-200 text-center">
-            <p className="text-2xl font-bold font-[family-name:var(--font-poppins)] text-green-700">{job.successItems}</p>
+            <p className="text-2xl font-bold font-heading text-green-700">{job.successItems}</p>
             <p className="text-xs text-green-600 mt-0.5">{job.type === "PRODUCTS" ? "Créés" : "Importées"}</p>
           </div>
           <div className={`rounded-xl p-3 border text-center ${job.errorItems > 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
-            <p className={`text-2xl font-bold font-[family-name:var(--font-poppins)] ${job.errorItems > 0 ? "text-red-700" : "text-green-700"}`}>{job.errorItems}</p>
+            <p className={`text-2xl font-bold font-heading ${job.errorItems > 0 ? "text-red-700" : "text-green-700"}`}>{job.errorItems}</p>
             <p className={`text-xs mt-0.5 ${job.errorItems > 0 ? "text-red-600" : "text-green-600"}`}>Erreurs</p>
           </div>
         </div>
@@ -802,9 +802,9 @@ function JobDetailPanel({ job }: { job: ImportJobWithDraft }) {
           <p className="text-xs text-[#999] uppercase tracking-wide mb-3">
             Produits créés ({productDetails.products.length})
           </p>
-          <div className="bg-white border border-[#E5E5E5] rounded-xl overflow-hidden">
+          <div className="bg-bg-primary border border-border rounded-xl overflow-hidden">
             {/* Header */}
-            <div className="grid grid-cols-[1fr_1.5fr_1fr_2fr] gap-2 px-4 py-2.5 bg-[#F7F7F8] border-b border-[#E5E5E5] text-xs font-medium text-[#666] uppercase tracking-wide">
+            <div className="grid grid-cols-[1fr_1.5fr_1fr_2fr] gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border text-xs font-medium text-[#666] uppercase tracking-wide">
               <div>Référence</div>
               <div>Nom</div>
               <div>Catégorie</div>
@@ -814,14 +814,14 @@ function JobDetailPanel({ job }: { job: ImportJobWithDraft }) {
             <div className="divide-y divide-[#F0F0F0] max-h-[400px] overflow-y-auto">
               {productDetails.products.map((p, idx) => (
                 <div key={idx} className="grid grid-cols-[1fr_1.5fr_1fr_2fr] gap-2 px-4 py-3 items-start">
-                  <p className="font-mono text-sm font-semibold text-[#1A1A1A]">{p.reference}</p>
-                  <p className="text-sm text-[#1A1A1A] truncate">{p.name}</p>
+                  <p className="font-mono text-sm font-semibold text-text-primary">{p.reference}</p>
+                  <p className="text-sm text-text-primary truncate">{p.name}</p>
                   <p className="text-sm text-[#666]">{p.category || "—"}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {p.variants.map((v, vi) => (
                       <span
                         key={vi}
-                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-[#F7F7F8] border border-[#E5E5E5] text-[#444]"
+                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-bg-secondary border border-border text-[#444]"
                       >
                         <span className="font-medium">{v.color}</span>
                         <span className="text-[10px] text-[#999]">
@@ -846,9 +846,9 @@ function JobDetailPanel({ job }: { job: ImportJobWithDraft }) {
           </p>
           <div className="space-y-3 max-h-[500px] overflow-y-auto">
             {Object.entries(imagesByRef).map(([ref, imgs]) => (
-              <div key={ref} className="bg-white border border-[#E5E5E5] rounded-xl overflow-hidden">
-                <div className="px-4 py-2.5 bg-[#F7F7F8] border-b border-[#E5E5E5] flex items-center justify-between">
-                  <span className="font-mono text-sm font-semibold text-[#1A1A1A]">{ref}</span>
+              <div key={ref} className="bg-bg-primary border border-border rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-bg-secondary border-b border-border flex items-center justify-between">
+                  <span className="font-mono text-sm font-semibold text-text-primary">{ref}</span>
                   <span className="text-xs text-[#666]">{imgs.length} image(s)</span>
                 </div>
                 <div className="divide-y divide-[#F0F0F0]">
@@ -856,11 +856,11 @@ function JobDetailPanel({ job }: { job: ImportJobWithDraft }) {
                     <div key={ii} className="grid grid-cols-[2fr_1.5fr_auto] gap-3 px-4 py-2.5 items-center">
                       <p className="text-xs text-[#444] break-all leading-tight">{img.filename}</p>
                       <div className="flex items-center gap-2">
-                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-[#F7F7F8] border border-[#E5E5E5] text-[#1A1A1A]">
+                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-bg-secondary border border-border text-text-primary">
                           {img.color}
                         </span>
                       </div>
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-[#F7F7F8] border border-[#E5E5E5] text-xs font-bold text-[#1A1A1A]">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-bg-secondary border border-border text-xs font-bold text-text-primary">
                         {img.position}
                       </span>
                     </div>

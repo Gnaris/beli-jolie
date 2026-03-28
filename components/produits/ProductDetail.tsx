@@ -130,10 +130,10 @@ function RelatedCard({ product }: { product: RelatedProduct }) {
       </div>
       <div className="p-3.5">
         <p className="text-xs font-mono text-text-muted">{product.reference}</p>
-        <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] mt-0.5 line-clamp-2">
+        <p className="text-sm font-medium text-text-primary font-body mt-0.5 line-clamp-2">
           {tp(product.name)}
         </p>
-        <p className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-text-primary mt-1">
+        <p className="text-sm font-heading font-semibold text-text-primary mt-1">
           {product.minPrice.toFixed(2)} €
         </p>
       </div>
@@ -274,10 +274,10 @@ export default function ProductDetail({
           type="button"
           onClick={() => toggleRestockAlert(v.id, v.id)}
           disabled={alertLoading[v.id]}
-          className={`w-full h-10 text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors flex items-center justify-center gap-1.5 rounded-lg border ${
+          className={`w-full h-10 text-xs font-heading font-semibold transition-colors flex items-center justify-center gap-1.5 rounded-lg border ${
             restockAlerts[v.id]
               ? "bg-bg-secondary text-text-primary border-border"
-              : "bg-bg-dark text-text-inverse border-transparent hover:bg-[#333333]"
+              : "bg-bg-dark text-text-inverse border-transparent hover:bg-primary-hover"
           }`}
         >
           {alertLoading[v.id] ? (
@@ -302,7 +302,7 @@ export default function ProductDetail({
           >−</button>
           <input type="number" min={1} max={effectiveStock || undefined} value={qty} aria-label="Quantité"
             onChange={(e) => { const val = parseInt(e.target.value); if (!isNaN(val) && val >= 1) setQuantities((q) => ({ ...q, [v.id]: val })); }}
-            className="w-12 h-10 text-center text-sm font-[family-name:var(--font-roboto)] text-text-primary border-x border-border focus:outline-none bg-bg-primary"
+            className="w-12 h-10 text-center text-sm font-body text-text-primary border-x border-border focus:outline-none bg-bg-primary"
           />
           <button type="button" aria-label="Augmenter la quantité"
             onClick={() => setQuantities((q) => ({ ...q, [v.id]: (q[v.id] ?? 1) + 1 }))}
@@ -310,8 +310,8 @@ export default function ProductDetail({
           >+</button>
         </div>
         <button type="button" disabled={effectiveStock === 0 || isPending} onClick={() => handleAddToCart(v.id, qty)}
-          className={`flex-1 h-10 text-text-inverse text-xs font-[family-name:var(--font-poppins)] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg ${
-            addedOptId === v.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-[#333333]"
+          className={`flex-1 h-10 text-text-inverse text-xs font-heading font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg ${
+            addedOptId === v.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-primary-hover"
           }`}
         >
           {addedOptId === v.id ? (
@@ -364,9 +364,9 @@ export default function ProductDetail({
           </div>
 
           {selectedImgs.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto py-2 px-0.5">
+            <div className="flex gap-2 overflow-x-auto py-2 px-0.5 snap-x snap-mandatory scroll-smooth scrollbar-none [-webkit-overflow-scrolling:touch]">
               {selectedImgs.map((img, i) => (
-                <div key={i} className="relative shrink-0">
+                <div key={i} className="relative shrink-0 snap-start">
                   <Image
                     src={img.path}
                     alt={`${tp(name)} ${i + 1}`}
@@ -401,17 +401,17 @@ export default function ProductDetail({
           {/* Prix */}
           <div>
             {(hasClientDiscount || hasAnyProductDiscount) && (
-              <p className="font-[family-name:var(--font-roboto)] text-sm text-text-muted line-through">
+              <p className="font-body text-sm text-text-muted line-through">
                 {(hasClientDiscount ? minPrice : minBasePrice).toFixed(2)} €
               </p>
             )}
             <div className="flex items-baseline gap-2">
               {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
-                <span className="text-sm font-[family-name:var(--font-roboto)] text-[#EF4444] font-medium">
+                <span className="text-sm font-body text-[#EF4444] font-medium">
                   -{clientDiscount.discountValue}%
                 </span>
               )}
-              <p className={`font-[family-name:var(--font-poppins)] text-3xl font-semibold ${(hasClientDiscount || hasAnyProductDiscount) ? "text-[#EF4444]" : "text-text-primary"}`}>
+              <p className={`font-heading text-3xl font-semibold ${(hasClientDiscount || hasAnyProductDiscount) ? "text-[#EF4444]" : "text-text-primary"}`}>
                 {(hasClientDiscount ? minPriceAfterClient : minPrice).toFixed(2)} €
                 <span className="text-sm text-text-muted font-normal ml-1">{t("htUnit")}</span>
               </p>
@@ -419,7 +419,7 @@ export default function ProductDetail({
           </div>
 
           {/* Nom */}
-          <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary leading-snug">
+          <h1 className="font-heading text-2xl font-semibold text-text-primary leading-snug">
             {tp(name)}
           </h1>
 
@@ -430,7 +430,7 @@ export default function ProductDetail({
                 <Link
                   key={tag.id}
                   href={`/produits?tag=${tag.id}`}
-                  className="text-xs px-3 py-1 rounded-full bg-bg-secondary text-text-secondary border border-border font-[family-name:var(--font-roboto)] hover:bg-bg-tertiary transition-colors"
+                  className="text-xs px-3 py-1 rounded-full bg-bg-secondary text-text-secondary border border-border font-body hover:bg-bg-tertiary transition-colors"
                 >
                   {tp(tag.name)}
                 </Link>
@@ -441,10 +441,10 @@ export default function ProductDetail({
           {/* Selecteur couleur */}
           {uniqueColors.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider">
+              <p className="text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">
                 {t("color")} — <span className="font-normal text-text-primary">{tp(displayedColorName)}</span>
               </p>
-              <div className="flex gap-2.5 flex-wrap">
+              <div className="flex gap-2.5 sm:gap-2.5 flex-wrap">
                 {uniqueColors.map((c) => (
                   <button
                     key={c.groupKey}
@@ -453,7 +453,7 @@ export default function ProductDetail({
                     onMouseEnter={() => setHoveredGroupKey(c.groupKey)}
                     onMouseLeave={() => setHoveredGroupKey(null)}
                     onClick={() => handleColorClick(c.groupKey)}
-                    className={`relative rounded-full transition-all duration-300 swatch-pulse flex items-center justify-center w-[28px] h-[28px] ${
+                    className={`relative rounded-full transition-all duration-300 swatch-pulse flex items-center justify-center w-[36px] h-[36px] sm:w-[28px] sm:h-[28px] ${
                       selectedGroupKey === c.groupKey
                         ? "ring-2 ring-text-primary ring-offset-2 scale-110 shadow-md"
                         : "ring-1 ring-border hover:ring-border-dark hover:scale-110"
@@ -463,7 +463,7 @@ export default function ProductDetail({
                       hex={c.hex}
                       patternImage={c.patternImage}
                       subColors={c.subColors?.map(sc => ({ hex: sc.hex, patternImage: sc.patternImage }))}
-                      size={28}
+                      size={36}
                       rounded="full"
                       border={false}
                     />
@@ -477,7 +477,7 @@ export default function ProductDetail({
           )}
 
           {/* Breadcrumb categorie */}
-          <div className="flex items-center gap-2 flex-wrap text-sm font-[family-name:var(--font-roboto)] text-text-muted">
+          <div className="flex items-center gap-2 flex-wrap text-sm font-body text-text-muted">
             <span>{tc(category)}</span>
             {subCategories.map((sc) => (
               <span key={sc} className="flex items-center gap-2">
@@ -490,24 +490,24 @@ export default function ProductDetail({
           {/* Description + Composition + Dimensions */}
           <div className="border-t border-border pt-5 space-y-5">
             <div>
-              <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider mb-2">
+              <p className="text-xs font-body font-semibold text-text-secondary uppercase tracking-wider mb-2">
                 {t("description")}
               </p>
-              <p className="text-sm text-text-primary font-[family-name:var(--font-roboto)] leading-relaxed">
+              <p className="text-sm text-text-primary font-body leading-relaxed">
                 {tp(description)}
               </p>
             </div>
 
             {compositions.length > 0 && (
               <div>
-                <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider mb-2">
+                <p className="text-xs font-body font-semibold text-text-secondary uppercase tracking-wider mb-2">
                   {t("composition")}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {compositions.map((comp) => (
                     <span
                       key={comp.name}
-                      className="inline-flex items-center gap-1 text-xs bg-bg-tertiary text-text-primary px-2.5 py-1 rounded-full font-[family-name:var(--font-roboto)] border border-border"
+                      className="inline-flex items-center gap-1 text-xs bg-bg-tertiary text-text-primary px-2.5 py-1 rounded-full font-body border border-border"
                     >
                       {tp(comp.name)}
                       <span className="text-text-secondary">— {comp.percentage}%</span>
@@ -519,14 +519,14 @@ export default function ProductDetail({
 
             {dimRows.length > 0 && (
               <div>
-                <p className="text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-secondary uppercase tracking-wider mb-2">
+                <p className="text-xs font-body font-semibold text-text-secondary uppercase tracking-wider mb-2">
                   {t("dimensions")}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {dimRows.map((d) => (
                     <span
                       key={d.label}
-                      className="inline-flex items-center gap-1 text-xs bg-bg-tertiary text-text-secondary px-2.5 py-1 rounded-full font-[family-name:var(--font-roboto)] border border-border"
+                      className="inline-flex items-center gap-1 text-xs bg-bg-tertiary text-text-secondary px-2.5 py-1 rounded-full font-body border border-border"
                     >
                       {d.label}
                       <span className="text-text-muted">— {d.value} mm</span>
@@ -542,7 +542,7 @@ export default function ProductDetail({
       {/* -- Options de commande (2 colonnes : Unités gauche | Paquets droite) -- */}
       {(selectedUnitVariants.length > 0 || selectedPackVariants.length > 0) && (
         <section className="mt-10 border-t border-border pt-8">
-          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary mb-6 section-title">
+          <h2 className="font-heading text-xl font-semibold text-text-primary mb-6 section-title">
             {t("orderOptions")}
           </h2>
           <div className={
@@ -554,7 +554,7 @@ export default function ProductDetail({
             {/* ── Colonne gauche : Unités ────────────────────────────── */}
             {selectedUnitVariants.length > 0 && (
               <div className="space-y-3">
-                <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary pb-3 border-b border-border">
+                <h3 className="font-heading text-sm font-semibold text-text-primary pb-3 border-b border-border">
                   Unités
                 </h3>
                 {selectedUnitVariants.map((v) => {
@@ -583,15 +583,15 @@ export default function ProductDetail({
                             border={true}
                           />
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] truncate">
+                            <p className="text-sm font-medium text-text-primary font-body truncate">
                               {fullColorName || t("unitOption")}
                             </p>
                             {v.sizes?.length > 0 && (
-                              <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+                              <p className="text-xs text-text-muted font-body mt-0.5">
                                 {v.sizes[0]?.name}
                               </p>
                             )}
-                            <p className="text-xs text-text-muted mt-0.5 font-[family-name:var(--font-roboto)]">
+                            <p className="text-xs text-text-muted mt-0.5 font-body">
                               {effectiveStock > 0
                                 ? <span className="text-text-secondary">&#10003; {effectiveStock} {effectiveStock !== 1 ? t("available_plural") : t("available")}</span>
                                 : <span className="text-text-primary">{t("outOfStock")}</span>
@@ -612,11 +612,11 @@ export default function ProductDetail({
                               )}
                             </div>
                           )}
-                          <p className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
+                          <p className={`font-heading font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
                             {displayPrice.toFixed(2)} €
                           </p>
                           {qty > 1 && (
-                            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                            <p className="text-xs text-text-muted font-body">
                               = {(displayPrice * qty).toFixed(2)} € total
                             </p>
                           )}
@@ -632,7 +632,7 @@ export default function ProductDetail({
             {/* ── Colonne droite : Paquets ───────────────────────────── */}
             {selectedPackVariants.length > 0 && (
               <div className="space-y-3">
-                <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary pb-3 border-b border-border">
+                <h3 className="font-heading text-sm font-semibold text-text-primary pb-3 border-b border-border">
                   Paquets
                 </h3>
                 {selectedPackVariants.map((v) => {
@@ -649,7 +649,7 @@ export default function ProductDetail({
                     <div key={v.id} className="bg-bg-primary border border-border rounded-xl px-4 py-4 space-y-3 hover:border-border-dark transition-colors">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)]">
+                          <p className="text-sm font-medium text-text-primary font-body">
                             {t("packOption", { qty: v.packQuantity ?? 1 })}
                           </p>
                           {(v.packColorLines?.[0]?.colors?.length ?? 0) > 0 && (() => {
@@ -664,7 +664,7 @@ export default function ProductDetail({
                                   rounded="full"
                                   border={true}
                                 />
-                                <span className="text-xs text-text-secondary font-[family-name:var(--font-roboto)] truncate">
+                                <span className="text-xs text-text-secondary font-body truncate">
                                   {line.colors.map(c => c.name).join(" / ")}
                                 </span>
                               </div>
@@ -673,7 +673,7 @@ export default function ProductDetail({
                           {v.sizes?.length > 0 && (
                             <div className="mt-1 space-y-0.5">
                               {v.sizes.map((s) => (
-                                <p key={s.name} className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                                <p key={s.name} className="text-xs text-text-muted font-body">
                                   {s.name} × {s.quantity}
                                   {s.pricePerUnit != null && (
                                     <span className="text-text-secondary ml-1">— {s.pricePerUnit.toFixed(2)} €/u</span>
@@ -682,7 +682,7 @@ export default function ProductDetail({
                               ))}
                             </div>
                           )}
-                          <p className="text-xs text-text-muted mt-0.5 font-[family-name:var(--font-roboto)]">
+                          <p className="text-xs text-text-muted mt-0.5 font-body">
                             {effectiveStock > 0
                               ? <span className="text-text-secondary">&#10003; {effectiveStock} {effectiveStock !== 1 ? t("available_plural") : t("available")}</span>
                               : <span className="text-text-primary">{t("outOfStock")}</span>
@@ -702,11 +702,11 @@ export default function ProductDetail({
                               )}
                             </div>
                           )}
-                          <p className={`font-[family-name:var(--font-poppins)] font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
+                          <p className={`font-heading font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
                             {displayPrice.toFixed(2)} €
                           </p>
                           {qty > 1 && (
-                            <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+                            <p className="text-xs text-text-muted font-body">
                               = {(displayPrice * qty).toFixed(2)} € total
                             </p>
                           )}
@@ -726,8 +726,8 @@ export default function ProductDetail({
 
       {/* -- Produits similaires --------------------------------------- */}
       {similarProducts.length > 0 && (
-        <section className="mt-16 border-t border-border pt-12">
-          <h2 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary mb-6 section-title">
+        <section className="mt-16 border-t border-border pt-12 pb-20 lg:pb-0">
+          <h2 className="font-heading text-xl font-semibold text-text-primary mb-6 section-title">
             {t("similar")}
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -740,10 +740,54 @@ export default function ProductDetail({
         </section>
       )}
 
+      {/* Sticky mobile add-to-cart bar */}
+      {selectedUnitVariants.length > 0 && (() => {
+        const firstV = selectedUnitVariants[0];
+        const stickyPrice = computePrice(firstV);
+        const stickyClientPrice = applyClientDiscount(stickyPrice, clientDiscount);
+        const stickyDisplayPrice = clientDiscount ? stickyClientPrice : stickyPrice;
+        const stickyStock = firstV.stock;
+        const stickyQty = quantities[firstV.id] ?? 1;
+        return (
+          <div className="fixed bottom-0 left-0 right-0 z-40 bg-bg-primary border-t border-border px-4 py-3 flex items-center gap-3 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] lg:hidden safe-area-bottom">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-heading font-semibold text-text-primary truncate">
+                {stickyDisplayPrice.toFixed(2)} € <span className="text-xs text-text-muted font-normal">{t("htUnit")}</span>
+              </p>
+              <p className="text-xs text-text-muted font-body truncate">
+                {stickyStock > 0 ? `${stickyStock} ${t("available")}` : t("outOfStock")}
+              </p>
+            </div>
+            <div className="flex items-center border border-border rounded-lg overflow-hidden shrink-0">
+              <button type="button" aria-label="Diminuer"
+                onClick={() => setQuantities((q) => ({ ...q, [firstV.id]: Math.max(1, (q[firstV.id] ?? 1) - 1) }))}
+                className="w-10 h-11 flex items-center justify-center text-text-secondary text-base"
+              >−</button>
+              <span className="w-8 h-11 flex items-center justify-center text-sm font-body text-text-primary border-x border-border">{stickyQty}</span>
+              <button type="button" aria-label="Augmenter"
+                onClick={() => setQuantities((q) => ({ ...q, [firstV.id]: (q[firstV.id] ?? 1) + 1 }))}
+                className="w-10 h-11 flex items-center justify-center text-text-secondary text-base"
+              >+</button>
+            </div>
+            <button type="button" disabled={stickyStock === 0 || isPending} onClick={() => handleAddToCart(firstV.id, stickyQty)}
+              className={`h-11 px-5 text-text-inverse text-xs font-heading font-semibold rounded-lg shrink-0 flex items-center gap-1.5 transition-colors disabled:opacity-40 ${
+                addedOptId === firstV.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-primary-hover"
+              }`}
+            >
+              {addedOptId === firstV.id ? (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
+              )}
+            </button>
+          </div>
+        );
+      })()}
+
       {/* Lightbox */}
       {zoomedSrc && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-lightbox-in"
+          className="fixed inset-0 z-50 bg-black/90 sm:bg-black/80 flex items-center justify-center p-0 sm:p-4 animate-lightbox-in touch-manipulation"
           onClick={() => setZoomedSrc(null)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -751,12 +795,12 @@ export default function ProductDetail({
             src={zoomedSrc}
             alt={t("preview")}
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl rounded-xl animate-lightbox-img-in"
+            className="max-h-[100dvh] max-w-[100vw] sm:max-h-[90vh] sm:max-w-[90vw] object-contain sm:shadow-2xl sm:rounded-xl animate-lightbox-img-in touch-pinch-zoom"
           />
           <button
             type="button"
             onClick={() => setZoomedSrc(null)}
-            className="absolute top-4 right-4 w-9 h-9 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center text-xl backdrop-blur-sm transition-transform hover:scale-110 animate-zoom-fade"
+            className="absolute top-4 right-4 w-11 h-11 sm:w-9 sm:h-9 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center text-xl backdrop-blur-sm transition-transform hover:scale-110 animate-zoom-fade"
           >
             ×
           </button>

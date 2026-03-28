@@ -131,7 +131,7 @@ export default function SizesManager({
     <>
       {/* Create form */}
       <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h2 className="text-sm font-semibold text-text-primary font-[family-name:var(--font-poppins)] mb-4">
+        <h2 className="text-sm font-semibold text-text-primary font-heading mb-4">
           Nouvelle taille
         </h2>
 
@@ -156,7 +156,7 @@ export default function SizesManager({
         {/* Category checkboxes for new size */}
         {categories.length > 0 && (
           <div className="mb-4">
-            <p className="text-xs text-text-secondary mb-2 font-[family-name:var(--font-roboto)]">
+            <p className="text-xs text-text-secondary mb-2 font-body">
               Associer aux catégories :
             </p>
             <CategoryPicker
@@ -170,33 +170,33 @@ export default function SizesManager({
         {/* PFS Size Mapping */}
         <div className="border border-border rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 bg-bg-secondary border-b border-border flex items-center justify-between">
-            <p className="text-xs font-semibold text-text-secondary font-[family-name:var(--font-roboto)] uppercase tracking-wider">
+            <p className="text-xs font-semibold text-text-secondary font-body uppercase tracking-wider">
               Mapping Marketplaces
             </p>
-            <span className="text-[10px] text-[#EF4444] font-semibold font-[family-name:var(--font-roboto)]">Requis *</span>
+            <span className="text-[10px] text-[#EF4444] font-semibold font-body">Requis *</span>
           </div>
           <div className="p-4">
-            <p className="text-xs font-medium text-text-primary font-[family-name:var(--font-roboto)] mb-2 flex items-center gap-1.5">
+            <p className="text-xs font-medium text-text-primary font-body mb-2 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" />
               Paris Fashion Shop
             </p>
             {pfsLoading ? (
-              <div className="flex items-center gap-2 text-text-secondary text-sm font-[family-name:var(--font-roboto)]">
+              <div className="flex items-center gap-2 text-text-secondary text-sm font-body">
                 <div className="animate-spin h-4 w-4 border-2 border-text-secondary border-t-transparent rounded-full shrink-0" />
                 Chargement…
               </div>
             ) : pfsError ? (
               <div className="space-y-1">
-                <p className="text-xs text-red-500 font-[family-name:var(--font-roboto)]">
+                <p className="text-xs text-red-500 font-body">
                   Mapping non disponible
                 </p>
-                <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)] break-all">
+                <p className="text-[11px] text-text-muted font-body break-all">
                   {pfsError}
                 </p>
                 <button
                   type="button"
                   onClick={pfsRetry}
-                  className="text-xs text-text-secondary hover:text-text-primary underline font-[family-name:var(--font-roboto)] transition-colors"
+                  className="text-xs text-text-secondary hover:text-text-primary underline font-body transition-colors"
                 >
                   Réessayer
                 </button>
@@ -210,7 +210,7 @@ export default function SizesManager({
                 className="w-full max-w-sm"
               />
             ) : (
-              <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+              <p className="text-xs text-text-muted font-body">
                 Aucune taille PFS disponible
               </p>
             )}
@@ -221,13 +221,13 @@ export default function SizesManager({
       {/* Sizes list */}
       <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h2 className="text-sm font-semibold text-text-primary font-[family-name:var(--font-poppins)]">
+          <h2 className="text-sm font-semibold text-text-primary font-heading">
             Tailles existantes ({initialSizes.length})
           </h2>
         </div>
 
         {initialSizes.length === 0 ? (
-          <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] p-6">
+          <p className="text-sm text-text-secondary font-body p-6">
             Aucune taille créée.
           </p>
         ) : editId ? (
@@ -256,7 +256,7 @@ export default function SizesManager({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm font-[family-name:var(--font-roboto)]">
+            <table className="w-full text-sm font-body">
               <thead>
                 <tr className="bg-bg-secondary border-b border-border">
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Nom</th>
@@ -269,7 +269,7 @@ export default function SizesManager({
                 {initialSizes.map((size) => (
                   <tr key={size.id} className="hover:bg-bg-secondary/50 transition-colors">
                     <td className="px-4 py-3">
-                      <span className="font-medium text-text-primary font-[family-name:var(--font-poppins)]">{size.name}</span>
+                      <span className="font-medium text-text-primary font-heading">{size.name}</span>
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
                       {size.categoryNames.length > 0 ? (
@@ -368,7 +368,7 @@ function CategoryPicker({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Rechercher une catégorie…"
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-lg bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] font-[family-name:var(--font-roboto)]"
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-lg bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] font-body"
             />
           </div>
         </div>
@@ -377,16 +377,16 @@ function CategoryPicker({
       {/* Scrollable list */}
       <div className="max-h-48 overflow-y-auto p-2 space-y-0.5">
         {sorted.length === 0 ? (
-          <p className="text-xs text-text-muted text-center py-3 font-[family-name:var(--font-roboto)]">Aucune catégorie trouvée</p>
+          <p className="text-xs text-text-muted text-center py-3 font-body">Aucune catégorie trouvée</p>
         ) : (
           sorted.map((cat) => {
             const isChecked = selected.includes(cat.id);
             return (
               <label
                 key={cat.id}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer text-xs transition-colors font-[family-name:var(--font-roboto)] ${
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer text-xs transition-colors font-body ${
                   isChecked
-                    ? "bg-[#1A1A1A] text-white"
+                    ? "bg-bg-dark text-text-inverse"
                     : "text-text-primary hover:bg-bg-secondary"
                 }`}
               >
@@ -397,10 +397,10 @@ function CategoryPicker({
                   className="sr-only"
                 />
                 <span className={`flex items-center justify-center w-4 h-4 rounded border shrink-0 transition-colors ${
-                  isChecked ? "bg-white border-white" : "border-border bg-bg-primary"
+                  isChecked ? "bg-bg-primary border-white" : "border-border bg-bg-primary"
                 }`}>
                   {isChecked && (
-                    <svg className="w-2.5 h-2.5 text-[#1A1A1A]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                    <svg className="w-2.5 h-2.5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   )}
@@ -415,7 +415,7 @@ function CategoryPicker({
       {/* Footer: count */}
       {selected.length > 0 && (
         <div className="px-3 py-1.5 border-t border-border bg-bg-secondary">
-          <p className="text-[10px] text-text-secondary font-[family-name:var(--font-roboto)]">
+          <p className="text-[10px] text-text-secondary font-body">
             {selected.length} catégorie{selected.length > 1 ? "s" : ""} sélectionnée{selected.length > 1 ? "s" : ""}
           </p>
         </div>

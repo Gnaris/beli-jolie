@@ -27,10 +27,10 @@ export default function StatsStrip({ productCount, collectionCount }: StatsStrip
               className="text-center py-4 animate-zoom-fade"
               style={{ animationDelay: `${i * 0.1}s` }}
             >
-              <p className="font-[family-name:var(--font-poppins)] text-2xl sm:text-3xl font-bold text-text-primary">
+              <p className="font-heading text-2xl sm:text-3xl font-bold text-text-primary">
                 {stat.value}
               </p>
-              <p className="font-[family-name:var(--font-roboto)] text-xs sm:text-sm text-text-muted mt-1 tracking-wide uppercase">
+              <p className="font-body text-xs sm:text-sm text-text-muted mt-1 tracking-wide uppercase">
                 {stat.label}
               </p>
               <div className="h-px w-8 bg-accent/40 mx-auto mt-3" />

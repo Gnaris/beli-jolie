@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { fetchEasyExpressRates } from "@/lib/easy-express";
+import { getCachedEasyExpressApiKey } from "@/lib/cached-data";
 import { z } from "zod";
 
 const carriersSchema = z.object({
@@ -36,11 +37,15 @@ export async function POST(request: NextRequest) {
 
   const { zipCode, country, weightKg } = parsed.data;
 
-  // Si pas de clé API → fallback immédiat
-  if (!process.env.EASY_EXPRESS_API_KEY) {
+  // Vérifier la clé API (DB uniquement, configurée via paramètres admin)
+  const apiKey = await getCachedEasyExpressApiKey();
+
+  // Si aucune clé API configurée → pas de transporteur disponible
+  if (!apiKey) {
     return NextResponse.json({
       transactionId: "",
-      carriers: getFallbackCarriers(country, weightKg),
+      carriers: [],
+      noCarrierConfigured: true,
     });
   }
 

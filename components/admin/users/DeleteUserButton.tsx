@@ -38,23 +38,23 @@ export default function DeleteUserButton({ userId, userName }: { userId: string;
                 </svg>
               </div>
               <div>
-                <h3 className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-[#1A1A1A]">
+                <h3 className="font-heading text-lg font-semibold text-text-primary">
                   Supprimer le client
                 </h3>
-                <p className="text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)]">
+                <p className="text-sm text-text-secondary font-body">
                   Cette action est irreversible.
                 </p>
               </div>
             </div>
 
             <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-              <p className="text-sm text-red-800 font-[family-name:var(--font-roboto)]">
+              <p className="text-sm text-red-800 font-body">
                 Vous etes sur le point de supprimer definitivement le compte de <strong>{userName}</strong> ainsi que toutes ses donnees associees (panier, favoris, adresses).
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-[family-name:var(--font-roboto)] font-semibold text-[#6B6B6B] mb-1.5">
+              <label className="block text-sm font-body font-semibold text-text-secondary mb-1.5">
                 Tapez <span className="font-mono text-red-600 bg-red-50 px-1.5 py-0.5 rounded">Supprimer</span> pour confirmer
               </label>
               <input
@@ -72,7 +72,7 @@ export default function DeleteUserButton({ userId, userName }: { userId: string;
                 type="button"
                 onClick={handleDelete}
                 disabled={confirmText !== "Supprimer" || isPending}
-                className="flex-1 bg-red-600 text-white text-sm font-[family-name:var(--font-roboto)] font-medium py-2.5 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 bg-red-600 text-white text-sm font-body font-medium py-2.5 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {isPending ? "Suppression..." : "Supprimer definitivement"}
               </button>

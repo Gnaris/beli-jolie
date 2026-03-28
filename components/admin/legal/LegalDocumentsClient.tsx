@@ -168,7 +168,7 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
           </svg>
         </div>
-        <h3 className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-text-primary mb-2">
+        <h3 className="font-heading text-lg font-semibold text-text-primary mb-2">
           Aucun document légal
         </h3>
         <p className="text-sm text-text-secondary mb-6 max-w-md mx-auto">
@@ -208,7 +208,7 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
               </svg>
             </button>
             <div>
-              <h2 className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-text-primary">
+              <h2 className="font-heading text-lg font-semibold text-text-primary">
                 {typeInfo.label}
               </h2>
               <p className="text-xs text-text-muted">
@@ -265,7 +265,7 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
+                <h3 className="font-heading text-base font-semibold text-text-primary">
                   Guide des variables
                 </h3>
               </div>
@@ -316,7 +316,7 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
         {showVersions && (
           <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
             <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border">
-              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
+              <h3 className="font-heading text-base font-semibold text-text-primary">
                 Historique des versions
               </h3>
               <button onClick={() => { setShowVersions(false); setSelectedVersion(null); setPreviewVersion(null); }} className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors" aria-label="Fermer l'historique">
@@ -407,9 +407,9 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
                       {/* Preview content */}
                       <div className="p-4 sm:p-6 max-h-[400px] overflow-y-auto">
                         <article
-                          className="prose prose-sm max-w-none text-sm font-[family-name:var(--font-roboto)] text-text-primary
-                            [&_h2]:text-base [&_h2]:font-semibold [&_h2]:font-[family-name:var(--font-poppins)] [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-text-primary
-                            [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:font-[family-name:var(--font-poppins)] [&_h3]:mt-3 [&_h3]:mb-1
+                          className="prose prose-sm max-w-none text-sm font-body text-text-primary
+                            [&_h2]:text-base [&_h2]:font-semibold [&_h2]:font-heading [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-text-primary
+                            [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:font-heading [&_h3]:mt-3 [&_h3]:mb-1
                             [&_p]:my-1.5 [&_p]:leading-relaxed
                             [&_ul]:my-1 [&_ul]:pl-5 [&_ul]:list-disc
                             [&_ol]:my-1 [&_ol]:pl-5 [&_ol]:list-decimal
@@ -499,7 +499,7 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
                     </svg>
                   </div>
                   <div>
-                    <h3 className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
+                    <h3 className="font-heading text-sm font-semibold text-text-primary">
                       {typeInfo.label}
                     </h3>
                     <p className="text-xs text-text-muted mt-0.5">
@@ -519,7 +519,7 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
                     className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${doc.isActive ? "bg-green-500" : "bg-gray-300"}`}
                     aria-label={doc.isActive ? "Désactiver" : "Activer"}
                   >
-                    <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${doc.isActive ? "translate-x-4" : "translate-x-1"}`} />
+                    <span className={`inline-block h-3.5 w-3.5 rounded-full bg-bg-primary transition-transform ${doc.isActive ? "translate-x-4" : "translate-x-1"}`} />
                   </button>
                 </div>
               </div>

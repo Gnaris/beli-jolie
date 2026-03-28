@@ -156,13 +156,13 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] py-6 text-center border border-dashed border-border rounded-xl">
+        <p className="text-sm text-text-muted font-body py-6 text-center border border-dashed border-border rounded-xl">
           {search.trim() ? "Aucune catégorie trouvée" : "Aucune catégorie"}
         </p>
       ) : (
         <div className="border border-border rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm font-[family-name:var(--font-roboto)]">
+            <table className="w-full text-sm font-body">
               <thead>
                 <tr className="bg-bg-secondary border-b border-border">
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 w-8"></th>
@@ -211,7 +211,7 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
                             <span className="relative group/subwarn inline-flex ml-1" onClick={(e) => e.stopPropagation()}>
                               <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[8px] font-bold cursor-default select-none">⚠</span>
                               <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/subwarn:block z-50 pointer-events-none">
-                                <span className="block w-52 bg-[#1A1A1A] text-white text-xs rounded-xl px-3 py-2.5 shadow-xl">
+                                <span className="block w-52 bg-bg-dark text-text-inverse text-xs rounded-xl px-3 py-2.5 shadow-xl">
                                   <span className="font-semibold block mb-1">Sous-catégories sans traduction</span>
                                   <span className="flex flex-col gap-0.5">
                                     {subCatWarnings.map((sub) => (
@@ -236,7 +236,7 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
                             <span className="relative group/tw inline-flex">
                               <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold cursor-default select-none">⚠</span>
                               <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/tw:block z-50 pointer-events-none">
-                                <span className="block w-40 bg-[#1A1A1A] text-white text-[11px] rounded-xl px-2.5 py-1.5 shadow-xl">
+                                <span className="block w-40 bg-bg-dark text-text-inverse text-[11px] rounded-xl px-2.5 py-1.5 shadow-xl">
                                   Aucune traduction
                                   <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1A1A1A]" />
                                 </span>
@@ -297,7 +297,7 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
                           <td colSpan={7} className="p-0">
                             <div className="bg-bg-tertiary/50 border-t border-border px-6 py-4">
                               <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-poppins)]">
+                                <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-heading">
                                   Sous-catégories de {cat.name}
                                 </h3>
                                 <button
@@ -310,12 +310,12 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
                               </div>
 
                               {cat.subCategories.length === 0 ? (
-                                <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] py-4 text-center border border-dashed border-border rounded-xl bg-bg-primary">
+                                <p className="text-sm text-text-muted font-body py-4 text-center border border-dashed border-border rounded-xl bg-bg-primary">
                                   Aucune sous-catégorie
                                 </p>
                               ) : (
                                 <div className="border border-border rounded-xl overflow-hidden bg-bg-primary">
-                                  <table className="w-full text-sm font-[family-name:var(--font-roboto)]">
+                                  <table className="w-full text-sm font-body">
                                     <tbody className="divide-y divide-border">
                                       {cat.subCategories.map((sub) => (
                                         <tr key={sub.id} className="hover:bg-bg-secondary/50 transition-colors">
@@ -327,7 +327,7 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
                                               <span className="relative group/tw inline-flex">
                                                 <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold cursor-default select-none">⚠</span>
                                                 <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/tw:block z-50 pointer-events-none">
-                                                  <span className="block w-40 bg-[#1A1A1A] text-white text-[11px] rounded-xl px-2.5 py-1.5 shadow-xl">
+                                                  <span className="block w-40 bg-bg-dark text-text-inverse text-[11px] rounded-xl px-2.5 py-1.5 shadow-xl">
                                                     Aucune traduction
                                                     <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1A1A1A]" />
                                                   </span>

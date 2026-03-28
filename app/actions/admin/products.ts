@@ -9,6 +9,7 @@ import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
 import { pfsUpdateStatus, type PfsStatus } from "@/lib/pfs-api-write";
+import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -150,13 +151,16 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 
   // Upsert tags
   const tagRecords = await Promise.all(
-    input.tagNames.map((n) =>
-      prisma.tag.upsert({
+    input.tagNames.map(async (n) => {
+      const tag = await prisma.tag.upsert({
         where: { name: n.trim().toLowerCase() },
         create: { name: n.trim().toLowerCase() },
         update: {},
-      })
-    )
+      });
+      // Auto-translate new tags (fire-and-forget, checks if translations exist)
+      autoTranslateTag(tag.id, n.trim().toLowerCase());
+      return tag;
+    })
   );
 
   const product = await prisma.product.create({
@@ -301,6 +305,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   }
 
   // Traductions manuelles
+  const existingLocales: string[] = [];
   if (input.translations && input.translations.length > 0) {
     const validTranslations = input.translations.filter((t) => t.name.trim() || t.description.trim());
     if (validTranslations.length > 0) {
@@ -313,8 +318,12 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         })),
         skipDuplicates: true,
       });
+      existingLocales.push(...validTranslations.map((t) => t.locale));
     }
   }
+
+  // Auto-translate missing locales (fire-and-forget)
+  autoTranslateProduct(product.id, input.name, input.description, existingLocales);
 
   revalidatePath("/admin/produits");
   revalidateTag("products", "default");
@@ -655,8 +664,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       });
     }
   } else {
-    // Aucune traduction fournie : invalider le cache pour forcer une re-traduction auto
+    // Aucune traduction fournie : invalider le cache et auto-traduire
     await invalidateProductTranslations(id);
+    autoTranslateProduct(id, input.name, input.description);
   }
 
   // Restock alerts: check if any variant went from stock=0 to stock>0

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
+import { useDeeplEnabled } from "@/components/admin/DeeplConfigContext";
 
 interface TranslateButtonProps {
   /** French text to translate */
@@ -21,6 +22,7 @@ export default function TranslateButton({
   size = "sm",
   disabled = false,
 }: TranslateButtonProps) {
+  const deeplEnabled = useDeeplEnabled();
   const [loading, setLoading] = useState(false);
   const [quotaError, setQuotaError] = useState<string | null>(null);
   const { confirm } = useConfirm();
@@ -99,6 +101,8 @@ export default function TranslateButton({
     }
   }
 
+  if (!deeplEnabled) return null;
+
   const isSm = size === "sm";
 
   return (
@@ -108,10 +112,10 @@ export default function TranslateButton({
         onClick={handleClick}
         disabled={disabled || loading || !text.trim() || !!quotaError}
         title={quotaError ?? "Traduire vers toutes les langues"}
-        className={`inline-flex items-center gap-1 font-[family-name:var(--font-roboto)] font-medium transition-colors rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${
+        className={`inline-flex items-center gap-1 font-body font-medium transition-colors rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${
           isSm
-            ? "text-xs px-2 py-1 bg-[#F7F7F8] hover:bg-[#E5E5E5] text-[#1A1A1A] border border-[#E5E5E5]"
-            : "text-sm px-3 py-1.5 bg-[#1A1A1A] hover:bg-black text-white"
+            ? "text-xs px-2 py-1 bg-bg-secondary hover:bg-[#E5E5E5] text-text-primary border border-border"
+            : "text-sm px-3 py-1.5 bg-bg-dark hover:bg-black text-text-inverse"
         }`}
       >
         {loading ? (
@@ -135,7 +139,7 @@ export default function TranslateButton({
       </button>
 
       {quotaError && (
-        <p className="text-xs text-[#EF4444] font-[family-name:var(--font-roboto)] mt-1 max-w-[250px]">
+        <p className="text-xs text-[#EF4444] font-body mt-1 max-w-[250px]">
           {quotaError}
         </p>
       )}

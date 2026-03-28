@@ -241,7 +241,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
           <div className="container-site py-10 relative">
 
             {/* Fil d'Ariane */}
-            <nav className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-8">
+            <nav className="flex items-center gap-2 text-sm font-body text-text-muted mb-8">
               <Link href="/produits" className="hover:text-text-primary transition-colors">
                 {tProducts("breadcrumb")}
               </Link>

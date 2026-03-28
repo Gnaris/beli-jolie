@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
+import { autoTranslateCollection } from "@/lib/auto-translate";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -57,6 +58,7 @@ export async function createCollection(formData: FormData) {
       image: parsed.data.image || null,
     },
   });
+  autoTranslateCollection(collection.id, parsed.data.name);
 
   revalidatePath("/admin/collections");
   revalidateTag("collections", "default");

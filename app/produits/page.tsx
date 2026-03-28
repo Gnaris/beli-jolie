@@ -276,10 +276,10 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
       <div className="bg-bg-primary border-b border-border relative overflow-hidden">
         <ScatteredDecorations variant="sparse" seed={1} />
         <div className="container-site py-6 relative">
-          <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
+          <h1 className="font-heading text-xl font-semibold text-text-primary">
             {t("title")}
           </h1>
-          <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+          <p className="text-sm text-text-muted font-body mt-0.5">
             {t("subtitle")}
           </p>
         </div>

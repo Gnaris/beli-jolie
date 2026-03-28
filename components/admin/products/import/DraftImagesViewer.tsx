@@ -484,13 +484,13 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
         </div>
       )}
 
-      <p className="text-sm text-[#666] font-[family-name:var(--font-roboto)]">
+      <p className="text-sm text-[#666] font-body">
         {rows.length} image(s) en erreur. Pour chaque image, corrigez l&apos;association ou ignorez-la.
       </p>
 
       {/* Desktop table */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden hidden lg:block">
-        <div className="grid grid-cols-[80px_1fr_1fr_1fr_1fr_200px] gap-4 px-6 py-3 bg-[#F7F7F8] border-b border-[#E5E5E5] text-xs font-medium text-[#666] uppercase tracking-wide">
+      <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden hidden lg:block">
+        <div className="grid grid-cols-[80px_1fr_1fr_1fr_1fr_200px] gap-4 px-6 py-3 bg-bg-secondary border-b border-border text-xs font-medium text-[#666] uppercase tracking-wide">
           <div>Aperçu</div>
           <div>Fichier</div>
           <div>Référence</div>
@@ -512,7 +512,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
               <div key={`${row.filename}-${i}`}>
                 <div className="grid grid-cols-[80px_1fr_1fr_1fr_1fr_200px] gap-4 items-start px-6 py-4">
                   {/* Preview */}
-                  <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-[#F7F7F8] border border-[#E5E5E5] flex-shrink-0">
+                  <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-bg-secondary border border-border flex-shrink-0">
                     {row.tempPath ? (
                       <Image
                         src={`/${row.tempPath}`}
@@ -528,26 +528,26 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
 
                   {/* Filename */}
                   <div>
-                    <p className="text-sm font-medium text-[#1A1A1A] break-all leading-tight">{row.filename}</p>
+                    <p className="text-sm font-medium text-text-primary break-all leading-tight">{row.filename}</p>
                   </div>
 
                   {/* Reference */}
                   <div>
-                    <span className={`text-sm ${row.reference ? "text-[#1A1A1A] font-medium" : "text-red-500 italic"}`}>
+                    <span className={`text-sm ${row.reference ? "text-text-primary font-medium" : "text-red-500 italic"}`}>
                       {row.reference || "Manquante"}
                     </span>
                   </div>
 
                   {/* Color */}
                   <div>
-                    <span className={`text-sm ${row.color ? "text-[#1A1A1A] font-medium" : "text-red-500 italic"}`}>
+                    <span className={`text-sm ${row.color ? "text-text-primary font-medium" : "text-red-500 italic"}`}>
                       {row.color || "Manquante"}
                     </span>
                   </div>
 
                   {/* Position */}
                   <div>
-                    <span className={`text-sm ${row.position > 0 ? "text-[#1A1A1A] font-medium" : "text-red-500 italic"}`}>
+                    <span className={`text-sm ${row.position > 0 ? "text-text-primary font-medium" : "text-red-500 italic"}`}>
                       {row.position > 0 ? row.position : "Invalide"}
                     </span>
                   </div>
@@ -568,7 +568,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             setRefSearch("");
                             setSearchedProduct(null);
                           }}
-                          className="text-xs px-2 py-1 border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
+                          className="text-xs px-2 py-1 border border-border rounded-lg hover:bg-bg-secondary transition-colors"
                         >
                           Assigner référence
                         </button>
@@ -576,7 +576,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                       {canAssignColor && !isFixing && !isFixingRef && (
                         <button
                           onClick={() => { setFixing(i); setFixingRef(null); setNewColorName(""); }}
-                          className="text-xs px-2 py-1 border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
+                          className="text-xs px-2 py-1 border border-border rounded-lg hover:bg-bg-secondary transition-colors"
                         >
                           Assigner couleur
                         </button>
@@ -601,8 +601,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
 
                 {/* Reference assignment panel */}
                 {isFixingRef && (
-                  <div className="mx-6 mb-4 p-4 bg-[#F7F7F8] border border-[#E5E5E5] rounded-xl">
-                    <p className="text-sm font-medium text-[#1A1A1A] mb-3">
+                  <div className="mx-6 mb-4 p-4 bg-bg-secondary border border-border rounded-xl">
+                    <p className="text-sm font-medium text-text-primary mb-3">
                       Rechercher et assigner une référence produit
                     </p>
                     <div className="relative mb-3">
@@ -626,7 +626,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                                 setRefSearch(ref);
                                 searchProductByRef(ref);
                               }}
-                              className="text-xs px-2 py-1 border border-[#E5E5E5] bg-white rounded-lg hover:border-[#1A1A1A] transition-colors"
+                              className="text-xs px-2 py-1 border border-border bg-bg-primary rounded-lg hover:border-bg-dark transition-colors"
                             >
                               {ref}
                             </button>
@@ -643,8 +643,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                     )}
 
                     {searchedProduct && (
-                      <div className="mt-3 p-3 bg-white border border-[#E5E5E5] rounded-lg">
-                        <p className="text-sm font-medium text-[#1A1A1A] mb-1">
+                      <div className="mt-3 p-3 bg-bg-primary border border-border rounded-lg">
+                        <p className="text-sm font-medium text-text-primary mb-1">
                           {searchedProduct.reference} — {searchedProduct.name}
                         </p>
                         <p className="text-xs text-[#666] mb-3">Sélectionnez une variante couleur :</p>
@@ -654,7 +654,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                               key={c.id}
                               onClick={() => assignRefAndColor(i, searchedProduct.id, c.id)}
                               disabled={isLoading}
-                              className="flex items-center gap-2 px-3 py-1.5 border border-[#E5E5E5] bg-white rounded-lg hover:border-[#1A1A1A] transition-colors text-sm"
+                              className="flex items-center gap-2 px-3 py-1.5 border border-border bg-bg-primary rounded-lg hover:border-bg-dark transition-colors text-sm"
                             >
                               <ColorSwatch
                                 hex={c.hex}
@@ -699,8 +699,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
 
                 {/* Color assignment panel */}
                 {isFixing && canAssignColor && (
-                  <div className="mx-6 mb-4 p-4 bg-[#F7F7F8] border border-[#E5E5E5] rounded-xl">
-                    <p className="text-sm font-medium text-[#1A1A1A] mb-3">
+                  <div className="mx-6 mb-4 p-4 bg-bg-secondary border border-border rounded-xl">
+                    <p className="text-sm font-medium text-text-primary mb-3">
                       Assigner à une variante de couleur existante
                     </p>
                     <div className="flex flex-col gap-1.5 mb-4">
@@ -709,7 +709,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                           key={c.id}
                           onClick={() => assignColor(i, c.id)}
                           disabled={isLoading}
-                          className="flex items-center gap-2.5 px-3 py-2 border border-[#E5E5E5] bg-white rounded-lg hover:border-[#1A1A1A] transition-colors text-sm text-left"
+                          className="flex items-center gap-2.5 px-3 py-2 border border-border bg-bg-primary rounded-lg hover:border-bg-dark transition-colors text-sm text-left"
                         >
                           <ColorSwatch
                             hex={c.hex}
@@ -718,13 +718,13 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             size={20}
                             rounded="full"
                           />
-                          <span className="flex-1 font-[family-name:var(--font-roboto)]">{c.name}</span>
+                          <span className="flex-1 font-body">{c.name}</span>
                         </button>
                       ))}
                     </div>
 
-                    <div className="border-t border-[#E5E5E5] pt-4">
-                      <p className="text-sm font-medium text-[#1A1A1A] mb-3">
+                    <div className="border-t border-border pt-4">
+                      <p className="text-sm font-medium text-text-primary mb-3">
                         Ou créer une nouvelle variante couleur
                       </p>
                       <button
@@ -762,11 +762,11 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
           return (
             <div
               key={`mobile-${row.filename}-${i}`}
-              className="bg-white border border-[#E5E5E5] rounded-2xl p-4"
+              className="bg-bg-primary border border-border rounded-2xl p-4"
             >
               <div className="flex gap-3">
                 {/* Preview */}
-                <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-[#F7F7F8] border border-[#E5E5E5] flex-shrink-0">
+                <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-bg-secondary border border-border flex-shrink-0">
                   {row.tempPath ? (
                     <Image
                       src={`/${row.tempPath}`}
@@ -782,25 +782,25 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
 
                 <div className="flex-1 min-w-0">
                   {/* Filename */}
-                  <p className="text-sm font-medium text-[#1A1A1A] break-all leading-tight">{row.filename}</p>
+                  <p className="text-sm font-medium text-text-primary break-all leading-tight">{row.filename}</p>
 
                   {/* Ref / Color / Position */}
                   <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-xs text-[#666]">
                     <span>
                       Réf:{" "}
-                      <span className={row.reference ? "text-[#1A1A1A] font-medium" : "text-red-500 italic"}>
+                      <span className={row.reference ? "text-text-primary font-medium" : "text-red-500 italic"}>
                         {row.reference || "Manquante"}
                       </span>
                     </span>
                     <span>
                       Couleur:{" "}
-                      <span className={row.color ? "text-[#1A1A1A] font-medium" : "text-red-500 italic"}>
+                      <span className={row.color ? "text-text-primary font-medium" : "text-red-500 italic"}>
                         {row.color || "Manquante"}
                       </span>
                     </span>
                     <span>
                       Pos:{" "}
-                      <span className={row.position > 0 ? "text-[#1A1A1A] font-medium" : "text-red-500 italic"}>
+                      <span className={row.position > 0 ? "text-text-primary font-medium" : "text-red-500 italic"}>
                         {row.position > 0 ? row.position : "Invalide"}
                       </span>
                     </span>
@@ -823,7 +823,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                           setRefSearch("");
                           setSearchedProduct(null);
                         }}
-                        className="text-xs px-2 py-1 border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
+                        className="text-xs px-2 py-1 border border-border rounded-lg hover:bg-bg-secondary transition-colors"
                       >
                         Assigner référence
                       </button>
@@ -831,7 +831,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                     {canAssignColor && !isFixing && !isFixingRef && (
                       <button
                         onClick={() => { setFixing(i); setFixingRef(null); setNewColorName(""); }}
-                        className="text-xs px-2 py-1 border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
+                        className="text-xs px-2 py-1 border border-border rounded-lg hover:bg-bg-secondary transition-colors"
                       >
                         Assigner couleur
                       </button>
@@ -857,8 +857,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
 
               {/* Mobile reference assignment panel */}
               {isFixingRef && (
-                <div className="mt-3 p-3 bg-[#F7F7F8] border border-[#E5E5E5] rounded-xl">
-                  <p className="text-sm font-medium text-[#1A1A1A] mb-2">
+                <div className="mt-3 p-3 bg-bg-secondary border border-border rounded-xl">
+                  <p className="text-sm font-medium text-text-primary mb-2">
                     Assigner une référence
                   </p>
                   <input
@@ -881,7 +881,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             setRefSearch(ref);
                             searchProductByRef(ref);
                           }}
-                          className="text-xs px-2 py-1 border border-[#E5E5E5] bg-white rounded-lg hover:border-[#1A1A1A] transition-colors"
+                          className="text-xs px-2 py-1 border border-border bg-bg-primary rounded-lg hover:border-bg-dark transition-colors"
                         >
                           {ref}
                         </button>
@@ -897,8 +897,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                   )}
 
                   {searchedProduct && (
-                    <div className="mt-2 p-3 bg-white border border-[#E5E5E5] rounded-lg">
-                      <p className="text-sm font-medium text-[#1A1A1A] mb-1">
+                    <div className="mt-2 p-3 bg-bg-primary border border-border rounded-lg">
+                      <p className="text-sm font-medium text-text-primary mb-1">
                         {searchedProduct.reference} — {searchedProduct.name}
                       </p>
                       <p className="text-xs text-[#666] mb-2">Sélectionnez une couleur :</p>
@@ -908,7 +908,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             key={c.id}
                             onClick={() => assignRefAndColor(i, searchedProduct.id, c.id)}
                             disabled={isLoading}
-                            className="flex items-center gap-2 px-3 py-1.5 border border-[#E5E5E5] bg-white rounded-lg hover:border-[#1A1A1A] transition-colors text-sm"
+                            className="flex items-center gap-2 px-3 py-1.5 border border-border bg-bg-primary rounded-lg hover:border-bg-dark transition-colors text-sm"
                           >
                             <ColorSwatch
                               hex={c.hex}
@@ -953,8 +953,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
 
               {/* Mobile color assignment panel */}
               {isFixing && canAssignColor && (
-                <div className="mt-3 p-3 bg-[#F7F7F8] border border-[#E5E5E5] rounded-xl">
-                  <p className="text-sm font-medium text-[#1A1A1A] mb-2">
+                <div className="mt-3 p-3 bg-bg-secondary border border-border rounded-xl">
+                  <p className="text-sm font-medium text-text-primary mb-2">
                     Assigner à une variante
                   </p>
                   <div className="flex flex-col gap-1.5 mb-3">
@@ -963,7 +963,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                         key={c.id}
                         onClick={() => assignColor(i, c.id)}
                         disabled={isLoading}
-                        className="flex items-center gap-2.5 px-3 py-2 border border-[#E5E5E5] bg-white rounded-lg hover:border-[#1A1A1A] transition-colors text-sm text-left"
+                        className="flex items-center gap-2.5 px-3 py-2 border border-border bg-bg-primary rounded-lg hover:border-bg-dark transition-colors text-sm text-left"
                       >
                         <ColorSwatch
                           hex={c.hex}
@@ -972,13 +972,13 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                           size={20}
                           rounded="full"
                         />
-                        <span className="flex-1 font-[family-name:var(--font-roboto)]">{c.name}</span>
+                        <span className="flex-1 font-body">{c.name}</span>
                       </button>
                     ))}
                   </div>
 
-                  <div className="border-t border-[#E5E5E5] pt-3">
-                    <p className="text-sm font-medium text-[#1A1A1A] mb-2">
+                  <div className="border-t border-border pt-3">
+                    <p className="text-sm font-medium text-text-primary mb-2">
                       Ou créer une nouvelle variante
                     </p>
                     <button
@@ -1007,7 +1007,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
         <div className="fixed inset-0 z-[9000] flex items-center justify-center p-4" onMouseDown={backdropColorModal.onMouseDown} onMouseUp={backdropColorModal.onMouseUp}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
           <div
-            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden"
+            className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden"
             style={{ maxHeight: "min(90vh, 780px)" }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1015,17 +1015,17 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
             {!showVariantForm ? (
               <>
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5] shrink-0">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
                   <div>
-                    <h3 className="text-sm font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+                    <h3 className="text-sm font-semibold font-heading text-text-primary">
                       Sélectionner les couleurs
                     </h3>
-                    <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+                    <p className="text-[11px] text-text-muted font-body mt-0.5">
                       Étape 1/2 — 1re couleur = principale
                     </p>
                   </div>
-                  <button type="button" onClick={closeColorModal} className="w-8 h-8 flex items-center justify-center hover:bg-[#F7F7F8] rounded-lg transition-colors" aria-label="Fermer">
-                    <svg className="w-4 h-4 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <button type="button" onClick={closeColorModal} className="w-8 h-8 flex items-center justify-center hover:bg-bg-secondary rounded-lg transition-colors" aria-label="Fermer">
+                    <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
@@ -1033,13 +1033,13 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
 
                 {/* Selected colors — draggable chips */}
                 {selectedColors.length > 0 && (
-                  <div className="px-5 py-3 bg-[#F7F7F8] border-b border-[#E5E5E5] shrink-0">
+                  <div className="px-5 py-3 bg-bg-secondary border-b border-border shrink-0">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">
+                      <span className="text-[11px] font-semibold text-text-secondary font-body uppercase tracking-wide">
                         Sélection ({selectedColors.length})
                       </span>
                       {selectedColors.length > 1 && (
-                        <span className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                        <span className="text-[10px] text-text-muted font-body">
                           Glissez pour réordonner
                         </span>
                       )}
@@ -1055,9 +1055,9 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             onDragStart={(e) => handleChipDragStart(e, idx)}
                             onDragOver={(e) => handleChipDragOver(e, idx)}
                             onDragEnd={handleChipDragEnd}
-                            className={`flex items-center gap-2 bg-white border-2 rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing transition-all select-none
+                            className={`flex items-center gap-2 bg-bg-primary border-2 rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing transition-all select-none
                               ${isDragging ? "opacity-40 scale-95" : ""}
-                              ${isDragOver ? "border-[#1A1A1A] shadow-md" : "border-[#E5E5E5]"}
+                              ${isDragOver ? "border-[#1A1A1A] shadow-md" : "border-border"}
                             `}
                           >
                             {/* Drag handle */}
@@ -1067,12 +1067,12 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                               <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
                             </svg>
                             <span className={`text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shrink-0
-                              ${idx === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}
+                              ${idx === 0 ? "bg-bg-dark text-text-inverse" : "bg-[#E5E5E5] text-text-secondary"}
                             `}>
                               {idx + 1}
                             </span>
                             <ColorSwatch hex={s.colorHex} patternImage={s.patternImage} size={22} rounded="full" />
-                            <span className="text-xs font-medium font-[family-name:var(--font-roboto)] text-[#1A1A1A] max-w-[100px] truncate">
+                            <span className="text-xs font-medium font-body text-text-primary max-w-[100px] truncate">
                               {s.colorName}
                             </span>
                             {idx === 0 && (
@@ -1097,9 +1097,9 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                 )}
 
                 {/* Search */}
-                <div className="px-5 py-3 border-b border-[#E5E5E5] shrink-0">
-                  <div className="flex items-center gap-2 bg-[#F7F7F8] border border-[#E5E5E5] px-3 py-2.5 rounded-xl">
-                    <svg className="w-4 h-4 text-[#9CA3AF] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="px-5 py-3 border-b border-border shrink-0">
+                  <div className="flex items-center gap-2 bg-bg-secondary border border-border px-3 py-2.5 rounded-xl">
+                    <svg className="w-4 h-4 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
                     </svg>
                     <input
@@ -1108,10 +1108,10 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                       value={colorSearch}
                       onChange={(e) => setColorSearch(e.target.value)}
                       placeholder="Rechercher une couleur..."
-                      className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder-[#9CA3AF] outline-none min-w-0 font-[family-name:var(--font-roboto)]"
+                      className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted outline-none min-w-0 font-body"
                     />
                     {colorSearch && (
-                      <button type="button" onClick={() => setColorSearch("")} className="w-5 h-5 flex items-center justify-center text-[#9CA3AF] hover:text-[#1A1A1A]">
+                      <button type="button" onClick={() => setColorSearch("")} className="w-5 h-5 flex items-center justify-center text-text-muted hover:text-text-primary">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -1123,9 +1123,9 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                 {/* Color grid */}
                 <div className="flex-1 overflow-y-auto px-5 py-3" style={{ minHeight: 160 }}>
                   {loadingColors ? (
-                    <div className="py-10 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Chargement...</div>
+                    <div className="py-10 text-center text-sm text-text-muted font-body">Chargement...</div>
                   ) : filteredModalColors.length === 0 ? (
-                    <div className="py-10 text-center text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Aucun résultat</div>
+                    <div className="py-10 text-center text-sm text-text-muted font-body">Aucun résultat</div>
                   ) : (
                     <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                       {filteredModalColors.map((opt) => {
@@ -1138,8 +1138,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             onClick={() => toggleColor(opt)}
                             className={`relative flex flex-col items-center gap-1.5 p-2.5 rounded-xl border-2 transition-all text-center
                               ${isChecked
-                                ? "border-[#1A1A1A] bg-[#F7F7F8] shadow-sm"
-                                : "border-transparent hover:border-[#E5E5E5] hover:bg-[#FAFAFA]"
+                                ? "border-[#1A1A1A] bg-bg-secondary shadow-sm"
+                                : "border-transparent hover:border-border hover:bg-[#FAFAFA]"
                               }
                             `}
                             title={opt.name}
@@ -1147,7 +1147,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             {/* Checkmark badge */}
                             {isChecked && (
                               <span className={`absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full text-[9px] font-bold shadow-sm
-                                ${position === 0 ? "bg-[#22C55E] text-white" : "bg-[#1A1A1A] text-white"}
+                                ${position === 0 ? "bg-[#22C55E] text-white" : "bg-bg-dark text-text-inverse"}
                               `}>
                                 {position + 1}
                               </span>
@@ -1155,7 +1155,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             {/* Color swatch */}
                             <div
                               className={`w-10 h-10 rounded-full border-2 transition-all shrink-0
-                                ${isChecked ? "border-[#1A1A1A] scale-110" : "border-[#E5E5E5]"}
+                                ${isChecked ? "border-[#1A1A1A] scale-110" : "border-border"}
                               `}
                               style={
                                 opt.patternImage
@@ -1164,7 +1164,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                               }
                             />
                             {/* Name */}
-                            <span className="text-[10px] leading-tight font-[family-name:var(--font-roboto)] text-[#6B6B6B] w-full truncate">
+                            <span className="text-[10px] leading-tight font-body text-text-secondary w-full truncate">
                               {opt.name}
                             </span>
                           </button>
@@ -1175,12 +1175,12 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                 </div>
 
                 {/* Create new color — collapsible */}
-                <div className="border-t border-[#E5E5E5] shrink-0">
+                <div className="border-t border-border shrink-0">
                   {!creatingColor ? (
                     <button
                       type="button"
                       onClick={() => setCreatingColor(true)}
-                      className="w-full flex items-center justify-center gap-2 px-5 py-3 text-sm text-[#6B6B6B] font-medium hover:text-[#1A1A1A] hover:bg-[#FAFAFA] transition-colors"
+                      className="w-full flex items-center justify-center gap-2 px-5 py-3 text-sm text-text-secondary font-medium hover:text-text-primary hover:bg-[#FAFAFA] transition-colors"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1190,14 +1190,14 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                   ) : (
                     <div className="px-5 py-4 bg-[#FAFAFA] space-y-3">
                       <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide">Nouvelle couleur</p>
+                        <p className="text-[11px] font-semibold text-text-secondary font-body uppercase tracking-wide">Nouvelle couleur</p>
                         <button
                           type="button"
                           onClick={() => { setCreatingColor(false); setNewColorName(""); setNewColorPatternFile(null); setNewColorPatternPreview(null); }}
                           className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-[#E5E5E5] transition-colors"
                           aria-label="Fermer"
                         >
-                          <svg className="w-3.5 h-3.5 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                           </svg>
                         </button>
@@ -1210,12 +1210,12 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                           onChange={(e) => setNewColorName(e.target.value)}
                           autoFocus
                         />
-                        <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden shrink-0">
+                        <div className="flex rounded-lg border border-border overflow-hidden shrink-0">
                           <button
                             type="button"
                             onClick={() => setNewColorMode("hex")}
                             className={`text-[11px] px-2.5 py-2 transition-colors ${
-                              newColorMode === "hex" ? "bg-[#1A1A1A] text-white" : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                              newColorMode === "hex" ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
                             }`}
                           >
                             Unie
@@ -1223,8 +1223,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                           <button
                             type="button"
                             onClick={() => setNewColorMode("pattern")}
-                            className={`text-[11px] px-2.5 py-2 border-l border-[#E5E5E5] transition-colors ${
-                              newColorMode === "pattern" ? "bg-[#1A1A1A] text-white" : "bg-white text-[#6B6B6B] hover:bg-[#F7F7F8]"
+                            className={`text-[11px] px-2.5 py-2 border-l border-border transition-colors ${
+                              newColorMode === "pattern" ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
                             }`}
                           >
                             Motif
@@ -1238,7 +1238,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                               type="color"
                               value={newColorHex}
                               onChange={(e) => setNewColorHex(e.target.value)}
-                              className="w-9 h-9 rounded-lg cursor-pointer border border-[#E5E5E5] shrink-0"
+                              className="w-9 h-9 rounded-lg cursor-pointer border border-border shrink-0"
                             />
                             <input
                               className="field-input w-24 font-mono text-xs"
@@ -1251,7 +1251,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             {newColorPatternPreview ? (
                               <div className="flex items-center gap-2">
                                 <div
-                                  className="w-9 h-9 rounded-lg border border-[#E5E5E5] shrink-0"
+                                  className="w-9 h-9 rounded-lg border border-border shrink-0"
                                   style={{ backgroundImage: `url(${newColorPatternPreview})`, backgroundSize: "cover", backgroundPosition: "center" }}
                                 />
                                 <button
@@ -1264,10 +1264,10 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                               </div>
                             ) : (
                               <label className="flex items-center gap-2 px-3 py-2 border border-dashed border-[#D0D0D0] rounded-lg cursor-pointer hover:border-[#9CA3AF] transition-colors">
-                                <svg className="w-4 h-4 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                 </svg>
-                                <span className="text-[11px] text-[#9CA3AF]">PNG, JPG, WebP — max 500 Ko</span>
+                                <span className="text-[11px] text-text-muted">PNG, JPG, WebP — max 500 Ko</span>
                                 <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handlePatternFileChange} />
                               </label>
                             )}
@@ -1287,13 +1287,13 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                 </div>
 
                 {/* Footer — page 1 */}
-                <div className="flex items-center justify-between px-5 py-3.5 border-t border-[#E5E5E5] bg-white shrink-0">
-                  <span className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                <div className="flex items-center justify-between px-5 py-3.5 border-t border-border bg-bg-primary shrink-0">
+                  <span className="text-xs text-text-muted font-body">
                     {selectedColors.length === 0 ? "Aucune couleur" : `${selectedColors.length} couleur${selectedColors.length > 1 ? "s" : ""}`}
                   </span>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={closeColorModal}
-                      className="px-4 py-2.5 text-xs font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors"
+                      className="px-4 py-2.5 text-xs font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
                     >
                       Annuler
                     </button>
@@ -1301,7 +1301,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                       type="button"
                       onClick={() => setShowVariantForm(true)}
                       disabled={selectedColors.length === 0}
-                      className="px-4 py-2.5 text-xs font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-lg hover:bg-[#333] transition-colors disabled:opacity-40 flex items-center gap-1.5"
+                      className="px-4 py-2.5 text-xs font-medium font-body text-text-inverse bg-bg-dark rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-40 flex items-center gap-1.5"
                     >
                       Suivant
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1315,49 +1315,49 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
               /* ═══ PAGE 2: Variant attributes form ═══ */
               <>
                 {/* Header — page 2 */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E5] shrink-0">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
                       onClick={() => setShowVariantForm(false)}
-                      className="w-8 h-8 flex items-center justify-center hover:bg-[#F7F7F8] rounded-lg transition-colors"
+                      className="w-8 h-8 flex items-center justify-center hover:bg-bg-secondary rounded-lg transition-colors"
                       aria-label="Retour"
                     >
-                      <svg className="w-4 h-4 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
                     <div>
-                      <h3 className="text-sm font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+                      <h3 className="text-sm font-semibold font-heading text-text-primary">
                         Attributs de la variante
                       </h3>
-                      <p className="text-[11px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mt-0.5">
+                      <p className="text-[11px] text-text-muted font-body mt-0.5">
                         Étape 2/2 — Renseignez les détails
                       </p>
                     </div>
                   </div>
-                  <button type="button" onClick={closeColorModal} className="w-8 h-8 flex items-center justify-center hover:bg-[#F7F7F8] rounded-lg transition-colors" aria-label="Fermer">
-                    <svg className="w-4 h-4 text-[#6B6B6B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <button type="button" onClick={closeColorModal} className="w-8 h-8 flex items-center justify-center hover:bg-bg-secondary rounded-lg transition-colors" aria-label="Fermer">
+                    <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
 
                 {/* Selected colors summary */}
-                <div className="px-5 py-3 bg-[#F7F7F8] border-b border-[#E5E5E5] shrink-0">
-                  <p className="text-[11px] font-semibold text-[#6B6B6B] font-[family-name:var(--font-roboto)] uppercase tracking-wide mb-2">
+                <div className="px-5 py-3 bg-bg-secondary border-b border-border shrink-0">
+                  <p className="text-[11px] font-semibold text-text-secondary font-body uppercase tracking-wide mb-2">
                     Couleurs sélectionnées
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedColors.map((s, idx) => (
-                      <div key={s.colorId} className="flex items-center gap-1.5 bg-white border border-[#E5E5E5] rounded-full px-2.5 py-1">
+                      <div key={s.colorId} className="flex items-center gap-1.5 bg-bg-primary border border-border rounded-full px-2.5 py-1">
                         <span className={`text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full shrink-0
-                          ${idx === 0 ? "bg-[#1A1A1A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}
+                          ${idx === 0 ? "bg-bg-dark text-text-inverse" : "bg-[#E5E5E5] text-text-secondary"}
                         `}>
                           {idx + 1}
                         </span>
                         <ColorSwatch hex={s.colorHex} patternImage={s.patternImage} size={14} rounded="full" />
-                        <span className="text-[11px] font-[family-name:var(--font-roboto)] text-[#1A1A1A]">{s.colorName}</span>
+                        <span className="text-[11px] font-body text-text-primary">{s.colorName}</span>
                       </div>
                     ))}
                   </div>
@@ -1427,8 +1427,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                         onClick={() => setVariantSaleType("UNIT")}
                         className={`flex-1 text-sm px-4 py-2.5 rounded-lg border transition-colors font-medium ${
                           variantSaleType === "UNIT"
-                            ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                            : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"
+                            ? "bg-bg-dark text-text-inverse border-[#1A1A1A]"
+                            : "bg-bg-primary text-text-secondary border-border hover:border-[#9CA3AF]"
                         }`}
                       >
                         Unité
@@ -1438,8 +1438,8 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                         onClick={() => setVariantSaleType("PACK")}
                         className={`flex-1 text-sm px-4 py-2.5 rounded-lg border transition-colors font-medium ${
                           variantSaleType === "PACK"
-                            ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                            : "bg-white text-[#6B6B6B] border-[#E5E5E5] hover:border-[#9CA3AF]"
+                            ? "bg-bg-dark text-text-inverse border-[#1A1A1A]"
+                            : "bg-bg-primary text-text-secondary border-border hover:border-[#9CA3AF]"
                         }`}
                       >
                         Pack
@@ -1470,7 +1470,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                       <svg className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      <p className="text-[11px] text-amber-700 font-[family-name:var(--font-roboto)]">
+                      <p className="text-[11px] text-amber-700 font-body">
                         Remplissez les champs obligatoires (<span className="text-red-500">*</span>) pour continuer.
                       </p>
                     </div>
@@ -1478,11 +1478,11 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                 </div>
 
                 {/* Footer — page 2 */}
-                <div className="flex items-center justify-between px-5 py-3.5 border-t border-[#E5E5E5] bg-white shrink-0">
+                <div className="flex items-center justify-between px-5 py-3.5 border-t border-border bg-bg-primary shrink-0">
                   <button
                     type="button"
                     onClick={() => setShowVariantForm(false)}
-                    className="px-4 py-2.5 text-xs font-medium font-[family-name:var(--font-roboto)] text-[#6B6B6B] bg-white border border-[#E5E5E5] rounded-lg hover:bg-[#F7F7F8] transition-colors flex items-center gap-1.5"
+                    className="px-4 py-2.5 text-xs font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-lg hover:bg-bg-secondary transition-colors flex items-center gap-1.5"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -1493,7 +1493,7 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                     type="button"
                     onClick={() => createVariantAndAssign(colorModalIdx)}
                     disabled={!canSubmitVariant || loading === colorModalIdx}
-                    className="px-5 py-2.5 text-xs font-medium font-[family-name:var(--font-roboto)] text-white bg-[#1A1A1A] rounded-lg hover:bg-[#333] transition-colors disabled:opacity-40"
+                    className="px-5 py-2.5 text-xs font-medium font-body text-text-inverse bg-bg-dark rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-40"
                   >
                     {loading === colorModalIdx ? "Création..." : "Créer et assigner"}
                   </button>

@@ -64,9 +64,9 @@ function formatEur(value: number) {
 function RevenueTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-[#E5E5E5] rounded-xl px-4 py-3 shadow-md text-sm font-[family-name:var(--font-roboto)]">
-      <p className="font-semibold text-[#1A1A1A] mb-1">{label}</p>
-      <p className="text-[#1A1A1A]">{formatEur(payload[0].value)}</p>
+    <div className="bg-bg-primary border border-border rounded-xl px-4 py-3 shadow-md text-sm font-body">
+      <p className="font-semibold text-text-primary mb-1">{label}</p>
+      <p className="text-text-primary">{formatEur(payload[0].value)}</p>
     </div>
   );
 }
@@ -75,9 +75,9 @@ function RevenueTooltip({ active, payload, label }: any) {
 function OrdersTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-[#E5E5E5] rounded-xl px-4 py-3 shadow-md text-sm font-[family-name:var(--font-roboto)]">
-      <p className="font-semibold text-[#1A1A1A] mb-1">{label}</p>
-      <p className="text-[#1A1A1A]">{payload[0].value} commande{payload[0].value !== 1 ? "s" : ""}</p>
+    <div className="bg-bg-primary border border-border rounded-xl px-4 py-3 shadow-md text-sm font-body">
+      <p className="font-semibold text-text-primary mb-1">{label}</p>
+      <p className="text-text-primary">{payload[0].value} commande{payload[0].value !== 1 ? "s" : ""}</p>
     </div>
   );
 }
@@ -98,7 +98,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Revenue AreaChart */}
         <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm mb-4">
+          <p className="font-heading font-semibold text-text-primary text-sm mb-4">
             Revenus sur 6 mois
           </p>
           <ResponsiveContainer width="100%" height={220}>
@@ -138,7 +138,7 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
 
         {/* Orders BarChart */}
         <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm mb-4">
+          <p className="font-heading font-semibold text-text-primary text-sm mb-4">
             Commandes sur 6 mois
           </p>
           <ResponsiveContainer width="100%" height={220}>
@@ -167,11 +167,11 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Status PieChart */}
         <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm mb-4">
+          <p className="font-heading font-semibold text-text-primary text-sm mb-4">
             Distribution des statuts
           </p>
           {statusData.length === 0 ? (
-            <div className="flex items-center justify-center h-[220px] text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+            <div className="flex items-center justify-center h-[220px] text-sm text-text-muted font-body">
               Aucune commande
             </div>
           ) : (
@@ -218,11 +218,11 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
 
         {/* Top 5 products — horizontal bars */}
         <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          <p className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-sm mb-4">
+          <p className="font-heading font-semibold text-text-primary text-sm mb-4">
             Top 5 produits commandés
           </p>
           {topProducts.length === 0 ? (
-            <div className="flex items-center justify-center h-[180px] text-sm text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+            <div className="flex items-center justify-center h-[180px] text-sm text-text-muted font-body">
               Aucune donnée
             </div>
           ) : (
@@ -232,16 +232,16 @@ export default function DashboardCharts({ monthlyData, statusDist, topProducts }
                 return (
                   <div key={i}>
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-[family-name:var(--font-roboto)] text-[#1A1A1A] font-medium truncate max-w-[75%]">
+                      <span className="text-xs font-body text-text-primary font-medium truncate max-w-[75%]">
                         {product.name}
                       </span>
-                      <span className="text-xs font-[family-name:var(--font-roboto)] text-[#6B7280] shrink-0 ml-2">
+                      <span className="text-xs font-body text-[#6B7280] shrink-0 ml-2">
                         {product.qty} unité{product.qty !== 1 ? "s" : ""}
                       </span>
                     </div>
                     <div className="w-full bg-[#F0F0F0] rounded-full h-2">
                       <div
-                        className="bg-[#1A1A1A] h-2 rounded-full transition-all duration-500"
+                        className="bg-bg-dark h-2 rounded-full transition-all duration-500"
                         style={{ width: `${pct}%` }}
                       />
                     </div>

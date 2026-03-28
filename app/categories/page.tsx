@@ -40,10 +40,10 @@ export default async function CategoriesPage() {
         <div className="bg-bg-primary border-b border-border relative overflow-hidden">
           <ScatteredDecorations variant="sparse" seed={3} />
           <div className="container-site py-8 relative">
-            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-semibold text-text-primary">
+            <h1 className="font-heading text-2xl font-semibold text-text-primary">
               {t("title")}
             </h1>
-            <p className="mt-1 text-sm text-text-muted font-[family-name:var(--font-roboto)]">
+            <p className="mt-1 text-sm text-text-muted font-body">
               {t("subtitle", { count: categories.length })}
             </p>
           </div>
@@ -52,7 +52,7 @@ export default async function CategoriesPage() {
         <main className="container-site py-8 relative overflow-hidden">
           <ScatteredDecorations variant="sparse" seed={300} />
           {categories.length === 0 ? (
-            <div className="text-center py-20 text-text-muted font-[family-name:var(--font-roboto)]">
+            <div className="text-center py-20 text-text-muted font-body">
               {t("empty")}
             </div>
           ) : (
@@ -68,10 +68,10 @@ export default async function CategoriesPage() {
                     className="flex items-center justify-between px-5 py-4 hover:bg-bg-secondary transition-colors group"
                   >
                     <div>
-                      <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-base text-text-primary group-hover:text-accent transition-colors">
+                      <h2 className="font-heading font-semibold text-base text-text-primary group-hover:text-accent transition-colors">
                         {cat.name}
                       </h2>
-                      <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+                      <p className="text-xs text-text-muted font-body mt-0.5">
                         {cat._count.products <= 1
                           ? t("products", { count: cat._count.products })
                           : t("products_plural", { count: cat._count.products })}
@@ -94,7 +94,7 @@ export default async function CategoriesPage() {
                         <Link
                           key={sub.id}
                           href={`/produits?cat=${cat.id}&subcat=${sub.id}`}
-                          className="inline-flex items-center text-xs text-text-secondary bg-gradient-to-r from-bg-tertiary to-bg-secondary border border-border hover:bg-accent hover:text-text-inverse hover:border-accent px-3 py-1.5 rounded-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm font-[family-name:var(--font-roboto)]"
+                          className="inline-flex items-center text-xs text-text-secondary bg-gradient-to-r from-bg-tertiary to-bg-secondary border border-border hover:bg-accent hover:text-text-inverse hover:border-accent px-3 py-1.5 rounded-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm font-body"
                         >
                           {sub.name}
                         </Link>

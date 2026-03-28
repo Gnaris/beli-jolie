@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 
 // ─────────────────────────────────────────────
@@ -52,14 +52,21 @@ export default function CustomSelect({
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const optionRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number; direction: "down" | "up" }>({ top: 0, left: 0, width: 0, direction: "down" });
 
   useEffect(() => { setMounted(true); }, []);
 
   const selected = options.find((o) => o.value === value);
+
+  // Filter options by search query
+  const displayedOptions = searchable && searchQuery.trim()
+    ? options.filter((o) => o.label.toLowerCase().includes(searchQuery.toLowerCase()))
+    : options;
 
   // Calculate position when opening
   useEffect(() => {
@@ -77,41 +84,94 @@ export default function CustomSelect({
     });
   }, [open, options.length]);
 
-  // Auto-focus search input + reset query on open/close
+  // Auto-focus search input + reset query on open/close, set initial highlighted index
   useEffect(() => {
-    if (!open) { setSearchQuery(""); return; }
+    if (!open) { setSearchQuery(""); setHighlightedIndex(-1); return; }
+    // Set highlighted to current selected item's index
+    const selectedIdx = displayedOptions.findIndex((o) => o.value === value);
+    setHighlightedIndex(selectedIdx >= 0 ? selectedIdx : -1);
     if (searchable) {
       const timer = setTimeout(() => searchInputRef.current?.focus(), 40);
       return () => clearTimeout(timer);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, searchable]);
 
-  // Close on escape
+  // Reset highlighted index when search query changes
+  useEffect(() => {
+    if (!open) return;
+    const selectedIdx = displayedOptions.findIndex((o) => o.value === value);
+    setHighlightedIndex(selectedIdx >= 0 ? selectedIdx : (displayedOptions.length > 0 ? 0 : -1));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
+  // Scroll highlighted option into view
+  useEffect(() => {
+    if (highlightedIndex >= 0) {
+      const el = optionRefs.current.get(highlightedIndex);
+      el?.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightedIndex]);
+
+  // Find next non-disabled index in a given direction
+  const findNextEnabledIndex = useCallback((startIndex: number, direction: 1 | -1): number => {
+    const len = displayedOptions.length;
+    if (len === 0) return -1;
+    let idx = startIndex;
+    for (let i = 0; i < len; i++) {
+      idx = ((idx + direction) % len + len) % len;
+      if (!displayedOptions[idx].disabled) return idx;
+    }
+    return -1; // all disabled
+  }, [displayedOptions]);
+
+  // Keyboard navigation
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") { setOpen(false); triggerRef.current?.focus(); }
+      switch (e.key) {
+        case "Escape":
+          setOpen(false);
+          triggerRef.current?.focus();
+          break;
+        case "ArrowDown": {
+          e.preventDefault();
+          setHighlightedIndex((prev) => findNextEnabledIndex(prev, 1));
+          break;
+        }
+        case "ArrowUp": {
+          e.preventDefault();
+          setHighlightedIndex((prev) => findNextEnabledIndex(prev, -1));
+          break;
+        }
+        case "Enter": {
+          e.preventDefault();
+          if (highlightedIndex >= 0 && highlightedIndex < displayedOptions.length) {
+            const opt = displayedOptions[highlightedIndex];
+            if (!opt.disabled) {
+              handleSelect(opt.value);
+            }
+          }
+          break;
+        }
+      }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
-
-  // Filter options by search query
-  const displayedOptions = searchable && searchQuery.trim()
-    ? options.filter((o) => o.label.toLowerCase().includes(searchQuery.toLowerCase()))
-    : options;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, highlightedIndex, displayedOptions, findNextEnabledIndex]);
 
   // Size classes
   const isSm = size === "sm";
   const isDark = variant === "dark";
 
   const triggerClasses = isDark
-    ? `flex items-center gap-2 w-full text-left font-[family-name:var(--font-roboto)] transition-all duration-150 cursor-pointer rounded-lg border ${
+    ? `flex items-center gap-2 w-full text-left font-body transition-all duration-150 cursor-pointer rounded-lg border ${
         isSm ? "px-2.5 py-1.5 text-[11px]" : "px-3 py-2 text-xs"
       } font-medium text-white bg-white/[0.12] border-white/20 hover:bg-white/[0.18] hover:border-white/30 disabled:opacity-40 disabled:cursor-not-allowed`
-    : `flex items-center gap-2 w-full text-left font-[family-name:var(--font-roboto)] transition-all duration-150 cursor-pointer rounded-lg border ${
+    : `flex items-center gap-2 w-full text-left font-body transition-all duration-150 cursor-pointer rounded-lg border ${
         isSm ? "px-2.5 py-1.5 text-[11px]" : "px-3 py-[9px] text-xs"
-      } font-medium text-[#1A1A1A] bg-white border-[#E5E5E5] hover:border-[#1A1A1A] disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_1px_2px_rgba(0,0,0,0.04)]`;
+      } font-medium text-text-primary bg-bg-primary border-border hover:border-bg-dark disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_1px_2px_rgba(0,0,0,0.04)]`;
 
   function handleSelect(val: string) {
     onChange(val);
@@ -135,7 +195,7 @@ export default function CustomSelect({
         }}
       >
         <div
-          className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden"
+          className="bg-bg-primary rounded-xl border border-border overflow-hidden"
           style={{
             boxShadow: "0 12px 40px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
             animation: menuPos.direction === "down"
@@ -144,9 +204,9 @@ export default function CustomSelect({
           }}
         >
           {searchable && (
-            <div className="px-2 pt-2 pb-1.5 border-b border-[#F0F0F0] bg-white sticky top-0 z-10">
+            <div className="px-2 pt-2 pb-1.5 border-b border-border-light bg-bg-primary sticky top-0 z-10">
               <div className="relative">
-                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#9CA3AF] pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0Z" />
                 </svg>
                 <input
@@ -155,29 +215,39 @@ export default function CustomSelect({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Rechercher…"
-                  className="w-full pl-6 pr-2.5 py-1.5 text-[11px] border border-[#E5E5E5] rounded-lg focus:outline-none focus:border-[#1A1A1A] bg-[#F7F7F8] font-[family-name:var(--font-roboto)] text-[#1A1A1A] placeholder:text-[#9CA3AF]"
+                  className="w-full pl-6 pr-2.5 py-1.5 text-[11px] border border-border rounded-lg focus:outline-none focus:border-bg-dark bg-bg-secondary font-body text-text-primary placeholder:text-text-muted"
                 />
               </div>
             </div>
           )}
-          <div className="py-1 max-h-[268px] overflow-auto">
+          <div className="py-1 max-h-[268px] overflow-auto" role="listbox">
             {displayedOptions.length === 0 ? (
-              <p className="px-3.5 py-3 text-[11px] text-[#9CA3AF] text-center">Aucun résultat</p>
+              <p className="px-3.5 py-3 text-[11px] text-text-muted text-center">Aucun résultat</p>
             ) : (
-              displayedOptions.map((opt) => {
+              displayedOptions.map((opt, idx) => {
                 const isSelected = opt.value === value;
+                const isHighlighted = idx === highlightedIndex;
                 return (
                   <button
                     key={opt.value}
+                    ref={(el) => {
+                      if (el) optionRefs.current.set(idx, el);
+                      else optionRefs.current.delete(idx);
+                    }}
                     type="button"
+                    role="option"
+                    aria-selected={isSelected}
                     disabled={opt.disabled}
                     onClick={() => handleSelect(opt.value)}
-                    className={`w-full flex items-center gap-2.5 text-left font-[family-name:var(--font-roboto)] transition-colors duration-100 disabled:opacity-30 disabled:cursor-not-allowed ${
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    className={`w-full flex items-center gap-2.5 text-left font-body transition-colors duration-100 disabled:opacity-30 disabled:cursor-not-allowed ${
                       isSm ? "px-3 py-2 text-[11px]" : "px-3.5 py-2.5 text-xs"
                     } ${
                       isSelected
-                        ? "bg-[#F7F7F8] text-[#1A1A1A] font-semibold"
-                        : "text-[#6B6B6B] hover:bg-[#F7F7F8] hover:text-[#1A1A1A]"
+                        ? "bg-bg-secondary text-text-primary font-semibold"
+                        : isHighlighted
+                          ? "bg-bg-secondary text-text-primary"
+                          : "text-text-secondary hover:bg-bg-secondary hover:text-text-primary"
                     }`}
                   >
                     {opt.icon && (
@@ -187,7 +257,7 @@ export default function CustomSelect({
                         stroke="currentColor"
                         viewBox="0 0 24 24"
                         strokeWidth={1.5}
-                        style={{ color: isSelected ? "#1A1A1A" : "#9CA3AF" }}
+                        style={{ color: isSelected ? "var(--color-text-primary)" : "var(--color-text-muted)" }}
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" d={opt.icon} />
                       </svg>

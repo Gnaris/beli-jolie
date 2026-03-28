@@ -210,7 +210,7 @@ export default function ComposeEmailDrawer() {
           className="flex items-center justify-between px-4 py-2.5 bg-bg-dark cursor-pointer select-none shrink-0"
           onClick={toggleMinimize}
         >
-          <h3 className="text-sm font-medium text-text-inverse font-[family-name:var(--font-poppins)] truncate">
+          <h3 className="text-sm font-medium text-text-inverse font-heading truncate">
             {isMinimized && subject ? subject : "Nouveau message"}
           </h3>
           <div className="flex items-center gap-1 shrink-0">
@@ -262,7 +262,7 @@ export default function ComposeEmailDrawer() {
                 <div className="flex-1 relative">
                   {userId && toName ? (
                     <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1 bg-bg-secondary border border-border rounded-full px-2.5 py-0.5 text-sm font-[family-name:var(--font-roboto)]">
+                      <span className="inline-flex items-center gap-1 bg-bg-secondary border border-border rounded-full px-2.5 py-0.5 text-sm font-body">
                         <span className="text-text-primary">{toName}</span>
                         <span className="text-text-muted text-xs">({toEmail})</span>
                         <button
@@ -290,7 +290,7 @@ export default function ComposeEmailDrawer() {
                       onChange={(e) => handleToChange(e.target.value)}
                       onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
                       placeholder="Rechercher un client ou saisir une adresse..."
-                      className="w-full bg-transparent text-sm text-text-primary font-[family-name:var(--font-roboto)] placeholder:text-text-muted focus:outline-none"
+                      className="w-full bg-transparent text-sm text-text-primary font-body placeholder:text-text-muted focus:outline-none"
                       autoComplete="off"
                     />
                   )}
@@ -314,7 +314,7 @@ export default function ComposeEmailDrawer() {
                             </span>
                           </div>
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-text-primary truncate font-[family-name:var(--font-roboto)]">
+                            <p className="text-sm font-medium text-text-primary truncate font-body">
                               {user.firstName} {user.lastName}
                               <span className="text-text-muted font-normal ml-1">({user.company})</span>
                             </p>
@@ -337,7 +337,7 @@ export default function ComposeEmailDrawer() {
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                   placeholder="Objet du message"
-                  className="flex-1 bg-transparent text-sm text-text-primary font-[family-name:var(--font-roboto)] placeholder:text-text-muted focus:outline-none"
+                  className="flex-1 bg-transparent text-sm text-text-primary font-body placeholder:text-text-muted focus:outline-none"
                 />
               </div>
             </div>
@@ -354,7 +354,7 @@ export default function ComposeEmailDrawer() {
                   {attachments.map((att) => (
                     <div
                       key={att.id}
-                      className="inline-flex items-center gap-1.5 bg-bg-primary border border-border rounded-lg px-2.5 py-1.5 text-xs font-[family-name:var(--font-roboto)] max-w-[200px]"
+                      className="inline-flex items-center gap-1.5 bg-bg-primary border border-border rounded-lg px-2.5 py-1.5 text-xs font-body max-w-[200px]"
                     >
                       <svg className="w-3.5 h-3.5 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
@@ -413,7 +413,7 @@ export default function ComposeEmailDrawer() {
                 type="button"
                 onClick={handleSend}
                 disabled={sending || !toEmail || !subject}
-                className="inline-flex items-center gap-2 bg-bg-dark text-text-inverse text-sm font-medium font-[family-name:var(--font-roboto)] px-5 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 bg-bg-dark text-text-inverse text-sm font-medium font-body px-5 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {sending ? (
                   <>

@@ -41,10 +41,10 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
               />
             </svg>
             <div>
-              <p className="font-[family-name:var(--font-roboto)] text-sm font-semibold text-[#7C3900]">
+              <p className="font-body text-sm font-semibold text-[#7C3900]">
                 Site en maintenance
               </p>
-              <p className="font-[family-name:var(--font-roboto)] text-sm text-[#92400E] mt-0.5">
+              <p className="font-body text-sm text-[#92400E] mt-0.5">
                 Notre plateforme est temporairement indisponible. Vous pouvez vous connecter
                 ou créer un compte, mais l&apos;accès au site sera limité jusqu&apos;à la fin de la
                 maintenance.
@@ -56,7 +56,7 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
 
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border lg:hidden">
-        <Link href="/" className="font-[family-name:var(--font-poppins)] text-lg font-bold text-text-primary animate-blur-in">
+        <Link href="/" className="font-heading text-lg font-bold text-text-primary animate-blur-in">
           {shopName}
         </Link>
         <LanguageSwitcher currentLocale={currentLocale} />
@@ -74,17 +74,17 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
           </div>
 
           <div className="relative z-10">
-            <Link href="/" className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-white animate-blur-in">
+            <Link href="/" className="font-heading text-2xl font-bold text-white animate-blur-in">
               {shopName}
             </Link>
           </div>
 
           <div className="relative z-10 space-y-6">
-            <h2 className="font-[family-name:var(--font-poppins)] text-3xl xl:text-4xl font-semibold text-white leading-tight">
+            <h2 className="font-heading text-3xl xl:text-4xl font-semibold text-white leading-tight">
               Votre partenaire<br />
               <span className="text-white/50">grossiste B2B</span>
             </h2>
-            <p className="text-white/40 text-sm leading-relaxed font-[family-name:var(--font-roboto)] max-w-xs">
+            <p className="text-white/40 text-sm leading-relaxed font-body max-w-xs">
               Accédez à notre catalogue de produits. Prix grossiste, livraison rapide, qualité premium.
             </p>
             <div className="flex gap-8 pt-4">
@@ -94,8 +94,8 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
                 { value: "B2B", label: "Professionnel" },
               ].map((stat) => (
                 <div key={stat.label}>
-                  <p className="font-[family-name:var(--font-poppins)] text-lg font-bold text-white">{stat.value}</p>
-                  <p className="text-white/30 text-xs font-[family-name:var(--font-roboto)] mt-0.5">{stat.label}</p>
+                  <p className="font-heading text-lg font-bold text-white">{stat.value}</p>
+                  <p className="text-white/30 text-xs font-body mt-0.5">{stat.label}</p>
                 </div>
               ))}
             </div>
@@ -118,7 +118,7 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
 
       {/* Footer — mobile only */}
       <footer className="px-6 py-4 border-t border-border text-center lg:hidden">
-        <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)]">
+        <p className="text-xs text-text-muted font-body">
           Plateforme réservée aux professionnels revendeurs
         </p>
       </footer>

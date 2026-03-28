@@ -245,7 +245,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
           {/* Logo — centered on mobile, left on desktop */}
           <Link
             href="/"
-            className="relative font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary tracking-tight shrink-0 group shimmer-overlay overflow-hidden lg:mr-0 max-lg:absolute max-lg:left-1/2 max-lg:-translate-x-1/2"
+            className="relative font-heading text-base font-bold text-text-primary tracking-tight shrink-0 group shimmer-overlay overflow-hidden lg:mr-0 max-lg:absolute max-lg:left-1/2 max-lg:-translate-x-1/2"
           >
             {shopName}
           </Link>
@@ -269,7 +269,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                 key={link.href}
                 href={link.href}
                 data-nav-active={isActive(link.href) ? "true" : undefined}
-                className={`relative z-10 px-3 py-1.5 text-sm rounded-md transition-colors duration-200 font-[family-name:var(--font-roboto)] ${
+                className={`relative z-10 px-3 py-1.5 text-sm rounded-md transition-colors duration-200 font-body ${
                   isActive(link.href)
                     ? "text-text-primary font-medium"
                     : "text-text-secondary hover:text-text-primary"
@@ -296,7 +296,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                   aria-expanded={showResults}
                   aria-autocomplete="list"
                   role="combobox"
-                  className="w-full bg-bg-secondary border border-border-light rounded-lg pl-9 pr-4 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-text-primary transition-colors"
+                  className="w-full bg-bg-secondary border border-border-light rounded-lg pl-9 pr-4 py-2 text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-text-primary transition-colors"
                 />
                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -314,7 +314,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
               <div role="listbox" aria-label={t("searchResults")} className="absolute top-full left-0 right-0 mt-2 bg-bg-primary border border-border rounded-xl shadow-[0_10px_32px_rgba(0,0,0,0.15)] overflow-hidden z-50 max-h-96 overflow-y-auto animate-fadeIn">
                 {searchResults.length === 0 ? (
                   <div className="px-4 py-6 text-center">
-                    <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
+                    <p className="text-sm text-text-muted font-body">
                       {t("searchNoResults")} &quot;{searchQuery}&quot;
                     </p>
                   </div>
@@ -340,15 +340,15 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary truncate">{r.name}</p>
+                          <p className="text-sm font-body font-medium text-text-primary truncate">{r.name}</p>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] font-mono text-text-muted">{r.reference}</span>
                             <span className="text-[10px] text-text-muted">·</span>
-                            <span className="text-[10px] text-text-muted font-[family-name:var(--font-roboto)]">{r.category}</span>
+                            <span className="text-[10px] text-text-muted font-body">{r.category}</span>
                           </div>
                         </div>
                         {r.price !== null && (
-                          <span className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-text-primary shrink-0">
+                          <span className="text-sm font-heading font-semibold text-text-primary shrink-0">
                             {r.price.toFixed(2)} €
                           </span>
                         )}
@@ -361,7 +361,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                         setShowResults(false);
                         setSearchQuery("");
                       }}
-                      className="w-full px-4 py-3 text-center text-sm font-[family-name:var(--font-roboto)] font-medium text-text-primary hover:bg-bg-secondary transition-colors"
+                      className="w-full px-4 py-3 text-center text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors"
                     >
                       {t("searchResults")} →
                     </button>
@@ -398,9 +398,9 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
               <div className="hidden lg:flex items-center gap-2">
                 <Link href="/espace-pro" className="flex items-center gap-2.5 px-3 py-1.5 bg-bg-secondary rounded-lg border border-border-light hover:border-border-dark transition-colors">
                   <div className="w-6 h-6 rounded-full bg-bg-dark flex items-center justify-center shrink-0">
-                    <span className="text-text-inverse text-[10px] font-bold font-[family-name:var(--font-roboto)]">{initials}</span>
+                    <span className="text-text-inverse text-[10px] font-bold font-body">{initials}</span>
                   </div>
-                  <span className="text-sm font-medium text-text-primary font-[family-name:var(--font-roboto)] max-w-[120px] truncate">
+                  <span className="text-sm font-medium text-text-primary font-body max-w-[120px] truncate">
                     {company}
                   </span>
                 </Link>
@@ -442,7 +442,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
               <Link
                 href="/"
                 onClick={() => setMobileOpen(false)}
-                className="font-[family-name:var(--font-poppins)] text-base font-bold text-text-primary"
+                className="font-heading text-base font-bold text-text-primary"
               >
                 {shopName}
               </Link>
@@ -456,7 +456,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
 
             {/* Links */}
             <nav className="flex-1 px-4 py-4 overflow-y-auto space-y-1">
-              <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-[family-name:var(--font-roboto)] px-3 pb-1 pt-2">
+              <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-body px-3 pb-1 pt-2">
                 {t("shop")}
               </p>
               {NAV_LINKS.map((link) => (
@@ -464,7 +464,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                   key={link.href}
                   href={link.href}
                   onClick={() => setMobileOpen(false)}
-                  className={`flex items-center px-3 py-2.5 text-sm rounded-lg transition-colors font-[family-name:var(--font-roboto)] ${
+                  className={`flex items-center px-3 py-2.5 text-sm rounded-lg transition-colors font-body ${
                     isActive(link.href)
                       ? "bg-bg-tertiary text-text-primary font-medium"
                       : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
@@ -476,7 +476,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
 
               {showClientUI && (
                 <>
-                  <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-[family-name:var(--font-roboto)] px-3 pb-1 pt-4">
+                  <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-body px-3 pb-1 pt-4">
                     {t("account")}
                   </p>
                   {CLIENT_LINKS.map((link) => (
@@ -484,7 +484,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                       key={link.href}
                       href={link.href}
                       onClick={() => setMobileOpen(false)}
-                      className={`flex items-center justify-between px-3 py-2.5 text-sm rounded-lg transition-colors font-[family-name:var(--font-roboto)] ${
+                      className={`flex items-center justify-between px-3 py-2.5 text-sm rounded-lg transition-colors font-body ${
                         isActive(link.href)
                           ? "bg-bg-tertiary text-text-primary font-medium"
                           : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
@@ -503,7 +503,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
 
               {/* Language switcher in mobile drawer */}
               <div className="px-3 pt-4">
-                <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-[family-name:var(--font-roboto)] pb-2">
+                <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-body pb-2">
                   {t("language")}
                 </p>
                 <LanguageSwitcher currentLocale={locale} />
@@ -519,8 +519,8 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                       <span className="text-text-inverse text-[11px] font-bold">{initials}</span>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-text-primary truncate font-[family-name:var(--font-roboto)]">{company}</p>
-                      <p className="text-xs text-text-muted truncate font-[family-name:var(--font-roboto)]">{session.user.email}</p>
+                      <p className="text-sm font-medium text-text-primary truncate font-body">{company}</p>
+                      <p className="text-xs text-text-muted truncate font-body">{session.user.email}</p>
                     </div>
                   </div>
                   <button
@@ -529,7 +529,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                       setMobileOpen(false);
                       signOut({ callbackUrl: "/" });
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-[family-name:var(--font-roboto)]"
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-body"
                   >
                     <IconLogout />
                     {t("logout")}
@@ -555,7 +555,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
       {/* ── Bandeau mode aperçu admin ── */}
       {session?.user?.role === "ADMIN" && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-bg-dark text-text-inverse px-4 py-3 flex items-center justify-between gap-4 shadow-[0_-2px_12px_rgba(0,0,0,0.3)]">
-          <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)]">
+          <div className="flex items-center gap-2 text-sm font-body">
             <svg className="w-4 h-4 text-warning shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -567,7 +567,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
             <button
               type="submit"
               disabled={previewPending}
-              className="text-xs font-[family-name:var(--font-roboto)] font-semibold bg-bg-primary text-text-primary px-4 py-1.5 rounded-lg hover:bg-border-light transition-colors whitespace-nowrap disabled:opacity-60"
+              className="text-xs font-body font-semibold bg-bg-primary text-text-primary px-4 py-1.5 rounded-lg hover:bg-border-light transition-colors whitespace-nowrap disabled:opacity-60"
             >
               {previewPending ? "..." : t("backToAdmin")}
             </button>

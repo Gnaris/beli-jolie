@@ -151,7 +151,7 @@ export default function EditCollectionPage() {
           <h1 className="page-title">
             {collection.name}
           </h1>
-          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+          <p className="page-subtitle font-body">
             Modifier la collection
           </p>
         </div>
@@ -159,7 +159,7 @@ export default function EditCollectionPage() {
 
       {/* Infos générales */}
       <div className="card p-6 space-y-5">
-        <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary">
+        <h2 className="font-heading text-base font-semibold text-text-primary">
           Informations générales
         </h2>
 
@@ -178,7 +178,7 @@ export default function EditCollectionPage() {
           {/* Nom (FR) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="field-label font-[family-name:var(--font-roboto)] mb-0">
+              <label className="field-label font-body mb-0">
                 Nom (Français) <span className="text-error">*</span>
               </label>
               <TranslateButton
@@ -198,13 +198,13 @@ export default function EditCollectionPage() {
 
           {/* Traductions */}
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-text-muted font-body mb-3">
               Traductions (optionnel)
             </p>
             <div className="grid grid-cols-2 gap-3">
               {VALID_LOCALES.filter((l) => l !== "fr").map((locale) => (
                 <div key={locale}>
-                  <label className="field-label uppercase tracking-wider text-xs font-semibold font-[family-name:var(--font-roboto)]">
+                  <label className="field-label uppercase tracking-wider text-xs font-semibold font-body">
                     {LOCALE_FULL_NAMES[locale]}
                   </label>
                   <input
@@ -224,7 +224,7 @@ export default function EditCollectionPage() {
 
           {/* Image */}
           <div>
-            <label className="field-label font-[family-name:var(--font-roboto)]">
+            <label className="field-label font-body">
               Image
             </label>
             {preview ? (
@@ -233,7 +233,7 @@ export default function EditCollectionPage() {
                 <button
                   type="button"
                   onClick={() => { setImage(null); setPreview(null); }}
-                  className="absolute top-1.5 right-1.5 bg-white/90 rounded-full p-1 hover:bg-white shadow-sm"
+                  className="absolute top-1.5 right-1.5 bg-bg-primary/90 rounded-full p-1 hover:bg-bg-primary shadow-sm"
                 >
                   <svg className="w-3.5 h-3.5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -245,7 +245,7 @@ export default function EditCollectionPage() {
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading}
-                className="w-40 h-40 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-1.5 text-text-muted hover:border-border-dark hover:text-text-secondary transition-colors text-xs font-[family-name:var(--font-roboto)]"
+                className="w-40 h-40 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-1.5 text-text-muted hover:border-border-dark hover:text-text-secondary transition-colors text-xs font-body"
               >
                 {uploading ? "Téléchargement…" : (
                   <>
@@ -279,7 +279,7 @@ export default function EditCollectionPage() {
 
       {/* Products manager */}
       <div className="card p-6">
-        <h2 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary mb-5">
+        <h2 className="font-heading text-base font-semibold text-text-primary mb-5">
           Produits de la collection
         </h2>
         <CollectionProductManager
@@ -294,7 +294,7 @@ export default function EditCollectionPage() {
         <Link
           href={`/collections/${params.id}`}
           target="_blank"
-          className="text-sm text-text-secondary hover:text-text-primary hover:underline font-[family-name:var(--font-roboto)]"
+          className="text-sm text-text-secondary hover:text-text-primary hover:underline font-body"
         >
           Voir la collection en vitrine →
         </Link>

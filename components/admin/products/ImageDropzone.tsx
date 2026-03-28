@@ -121,10 +121,10 @@ export default function ImageDropzone({
               key={pos}
               className={`relative aspect-square border-2 rounded-lg overflow-hidden transition-all ${
                 isDragOver
-                  ? "border-[#1A1A1A] bg-[#F7F7F8] scale-[1.02]"
+                  ? "border-[#1A1A1A] bg-bg-secondary scale-[1.02]"
                   : img
-                    ? "border-[#E5E5E5] bg-white"
-                    : "border-dashed border-[#D1D5DB] bg-[#FAFAFA] hover:border-[#9CA3AF] hover:bg-[#F7F7F8]"
+                    ? "border-border bg-bg-primary"
+                    : "border-dashed border-[#D1D5DB] bg-[#FAFAFA] hover:border-[#9CA3AF] hover:bg-bg-secondary"
               } ${isDraggedFrom ? "opacity-30 scale-95" : ""} ${
                 isUploading ? "opacity-60 pointer-events-none" : ""
               }`}
@@ -135,11 +135,11 @@ export default function ImageDropzone({
               {isUploading ? (
                 /* Uploading state */
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-                  <svg className="animate-spin w-5 h-5 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24">
+                  <svg className="animate-spin w-5 h-5 text-text-muted" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span className="text-[9px] text-[#9CA3AF] font-[family-name:var(--font-roboto)]">Upload...</span>
+                  <span className="text-[9px] text-text-muted font-body">Upload...</span>
                 </div>
               ) : img ? (
                 /* Filled slot */
@@ -172,7 +172,7 @@ export default function ImageDropzone({
                     </svg>
                   </span>
                   {/* Position badge */}
-                  <span className="absolute bottom-0 left-0 bg-[#1A1A1A]/60 text-white text-[9px] px-1.5 py-0.5 select-none font-[family-name:var(--font-roboto)]">
+                  <span className="absolute bottom-0 left-0 bg-bg-dark/60 text-text-inverse text-[9px] px-1.5 py-0.5 select-none font-body">
                     {pos + 1}
                   </span>
                 </div>
@@ -193,7 +193,7 @@ export default function ImageDropzone({
                     onChange={(e) => { handleFileChange(pos, e.target.files); e.target.value = ""; }}
                     id={`image-slot-${colorIndex}-${pos}`}
                   />
-                  <span className="text-lg font-bold text-[#D1D5DB] font-[family-name:var(--font-poppins)] leading-none">
+                  <span className="text-lg font-bold text-[#D1D5DB] font-heading leading-none">
                     {pos + 1}
                   </span>
                   <svg className="w-4 h-4 text-[#D1D5DB] mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -206,7 +206,7 @@ export default function ImageDropzone({
         })}
       </div>
 
-      <p className="text-[10px] text-[#9CA3AF] mt-1.5 font-[family-name:var(--font-roboto)]">
+      <p className="text-[10px] text-text-muted mt-1.5 font-body">
         JPG, PNG, WEBP — max 3 Mo — glissez entre les positions pour réordonner ou vers une autre couleur pour déplacer
       </p>
 
@@ -227,7 +227,7 @@ export default function ImageDropzone({
           <button
             type="button"
             onClick={() => setZoomedSrc(null)}
-            className="absolute top-4 right-4 w-9 h-9 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-colors text-xl"
+            className="absolute top-4 right-4 w-9 h-9 bg-bg-primary/10 hover:bg-bg-primary/20 text-text-inverse rounded-full flex items-center justify-center transition-colors text-xl"
           >
             ×
           </button>

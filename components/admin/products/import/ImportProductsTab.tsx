@@ -194,23 +194,23 @@ export default function ImportProductsTab() {
   return (
     <div className="space-y-6">
       {/* ── Format guide ── */}
-      <div className="bg-[#F7F7F8] border border-[#E5E5E5] rounded-2xl p-6">
-        <h3 className="font-semibold text-[#1A1A1A] mb-3 font-[family-name:var(--font-poppins)]">Format d'importation</h3>
+      <div className="bg-bg-secondary border border-border rounded-2xl p-6">
+        <h3 className="font-semibold text-text-primary mb-3 font-heading">Format d'importation</h3>
         <div className="grid md:grid-cols-2 gap-4 text-sm text-[#666]">
-          <ul className="space-y-1 font-[family-name:var(--font-roboto)]">
-            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">reference</code> — Référence unique</li>
-            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">name</code> — Nom (FR)</li>
-            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">color</code> — Couleur (ex: Doré, Doré/Rouge/Noir pour multi-couleur)</li>
-            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">sale_type</code> — UNIT ou PACK</li>
-            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">unit_price</code> — Prix HT (€)</li>
-            <li><span className="text-red-500">*</span> <code className="bg-white px-1 rounded text-xs">stock</code> — Stock</li>
-            <li><code className="bg-white px-1 rounded text-xs">pack_qty</code> · <code className="bg-white px-1 rounded text-xs">category</code> · <code className="bg-white px-1 rounded text-xs">tags</code></li>
-            <li><code className="bg-white px-1 rounded text-xs">sub_categories</code> · <code className="bg-white px-1 rounded text-xs">composition</code></li>
-            <li><code className="bg-white px-1 rounded text-xs">similar_refs</code> — Réf. produits similaires (ex: BJ-002,BJ-003)</li>
+          <ul className="space-y-1 font-body">
+            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">reference</code> — Référence unique</li>
+            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">name</code> — Nom (FR)</li>
+            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">color</code> — Couleur (ex: Doré, Doré/Rouge/Noir pour multi-couleur)</li>
+            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">sale_type</code> — UNIT ou PACK</li>
+            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">unit_price</code> — Prix HT (€)</li>
+            <li><span className="text-red-500">*</span> <code className="bg-bg-primary px-1 rounded text-xs">stock</code> — Stock</li>
+            <li><code className="bg-bg-primary px-1 rounded text-xs">pack_qty</code> · <code className="bg-bg-primary px-1 rounded text-xs">category</code> · <code className="bg-bg-primary px-1 rounded text-xs">tags</code></li>
+            <li><code className="bg-bg-primary px-1 rounded text-xs">sub_categories</code> · <code className="bg-bg-primary px-1 rounded text-xs">composition</code></li>
+            <li><code className="bg-bg-primary px-1 rounded text-xs">similar_refs</code> — Réf. produits similaires (ex: BJ-002,BJ-003)</li>
           </ul>
           <div>
-            <p className="font-medium text-[#1A1A1A] mb-2">Règles</p>
-            <ul className="space-y-1 font-[family-name:var(--font-roboto)]">
+            <p className="font-medium text-text-primary mb-2">Règles</p>
+            <ul className="space-y-1 font-body">
               <li>• Excel : <strong>une ligne = une variante couleur</strong> — même référence = même produit</li>
               <li>• Les couleurs et catégories doivent exister en base</li>
               <li>• Produits créés en statut <strong>Hors ligne</strong></li>
@@ -218,8 +218,8 @@ export default function ImportProductsTab() {
               <li>• <strong>Traitement en arrière-plan</strong> : vous pouvez fermer la page après confirmation</li>
             </ul>
             <div className="mt-3 flex gap-2">
-              <button onClick={() => downloadTemplate("json")} className="text-xs px-3 py-1.5 border border-[#E5E5E5] rounded-lg hover:bg-white transition-colors">↓ Template JSON</button>
-              <button onClick={() => downloadTemplate("xlsx")} className="text-xs px-3 py-1.5 border border-[#E5E5E5] rounded-lg hover:bg-white transition-colors">↓ Template Excel</button>
+              <button onClick={() => downloadTemplate("json")} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-bg-primary transition-colors">↓ Template JSON</button>
+              <button onClick={() => downloadTemplate("xlsx")} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-bg-primary transition-colors">↓ Template Excel</button>
             </div>
           </div>
         </div>
@@ -230,8 +230,8 @@ export default function ImportProductsTab() {
         {(["upload", "preview", "done"] as Step[]).map((s, i) => (
           <div key={s} className="flex items-center gap-2">
             {i > 0 && <div className="w-8 h-px bg-[#E5E5E5]" />}
-            <div className={`flex items-center gap-2 ${step === s ? "text-[#1A1A1A] font-medium" : step === "done" || (step === "preview" && s === "upload") ? "text-green-600" : "text-[#999]"}`}>
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${step === s ? "bg-[#1A1A1A] text-white" : step === "done" || (step === "preview" && s === "upload") ? "bg-green-100 text-green-600" : "bg-[#F7F7F8] text-[#999]"}`}>
+            <div className={`flex items-center gap-2 ${step === s ? "text-text-primary font-medium" : step === "done" || (step === "preview" && s === "upload") ? "text-green-600" : "text-[#999]"}`}>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${step === s ? "bg-bg-dark text-text-inverse" : step === "done" || (step === "preview" && s === "upload") ? "bg-green-100 text-green-600" : "bg-bg-secondary text-[#999]"}`}>
                 {step === "done" || (step === "preview" && s === "upload") ? "✓" : i + 1}
               </span>
               {s === "upload" ? "Fichier" : s === "preview" ? "Résumé" : "Importé"}
@@ -242,9 +242,9 @@ export default function ImportProductsTab() {
 
       {/* ── Step: Upload ── */}
       {step === "upload" && (
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
           <div
-            className="border-2 border-dashed border-[#E5E5E5] rounded-xl p-10 text-center cursor-pointer hover:border-[#1A1A1A] transition-colors"
+            className="border-2 border-dashed border-border rounded-xl p-10 text-center cursor-pointer hover:border-bg-dark transition-colors"
             onClick={() => fileRef.current?.click()}
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
@@ -253,12 +253,12 @@ export default function ImportProductsTab() {
             <div className="text-4xl mb-3">📄</div>
             {file ? (
               <div>
-                <p className="font-medium text-[#1A1A1A]">{file.name}</p>
+                <p className="font-medium text-text-primary">{file.name}</p>
                 <p className="text-sm text-[#666]">{(file.size / 1024).toFixed(1)} Ko</p>
               </div>
             ) : (
               <div>
-                <p className="text-[#1A1A1A] font-medium">Glissez votre fichier ici</p>
+                <p className="text-text-primary font-medium">Glissez votre fichier ici</p>
                 <p className="text-sm text-[#666] mt-1">ou cliquez pour sélectionner</p>
                 <p className="text-xs text-[#999] mt-2">Formats : .json, .xlsx, .xls</p>
               </div>
@@ -295,8 +295,8 @@ export default function ImportProductsTab() {
           )}
 
           {/* Product table — grouped */}
-          <div className="bg-white border border-[#E5E5E5] rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-            <div className="grid grid-cols-[auto_1fr_1fr_2fr_auto] gap-4 px-6 py-3 bg-[#F7F7F8] border-b border-[#E5E5E5] text-xs font-medium text-[#666] uppercase tracking-wide">
+          <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+            <div className="grid grid-cols-[auto_1fr_1fr_2fr_auto] gap-4 px-6 py-3 bg-bg-secondary border-b border-border text-xs font-medium text-[#666] uppercase tracking-wide">
               <div>Statut</div>
               <div>Référence</div>
               <div>Nom / Catégorie</div>
@@ -338,7 +338,7 @@ export default function ImportProductsTab() {
 
       {/* ── Step: Done — processing with real-time progress ── */}
       {step === "done" && importResult && (
-        <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)] text-center space-y-5">
+        <div className="bg-bg-primary border border-border rounded-2xl p-8 shadow-[0_1px_4px_rgba(0,0,0,0.06)] text-center space-y-5">
           {/* Icon — spinner while processing, checkmark or X when done */}
           {jobStatus === "COMPLETED" ? (
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${jobProgress.errors > 0 ? "bg-amber-50" : "bg-green-50"}`}>
@@ -362,7 +362,7 @@ export default function ImportProductsTab() {
           )}
 
           {/* Title */}
-          <p className="text-xl font-semibold font-[family-name:var(--font-poppins)] text-[#1A1A1A]">
+          <p className="text-xl font-semibold font-heading text-text-primary">
             {jobStatus === "COMPLETED"
               ? (jobProgress.errors > 0 ? "Import terminé avec des erreurs" : "Import terminé avec succès !")
               : jobStatus === "FAILED"
@@ -386,7 +386,7 @@ export default function ImportProductsTab() {
                   }}
                 />
               </div>
-              <p className="text-xs text-[#999] mt-3 font-[family-name:var(--font-roboto)]">
+              <p className="text-xs text-[#999] mt-3 font-body">
                 Le serveur vérifie chaque ligne (couleurs, catégories, etc.). Vous pouvez fermer cette page.
               </p>
             </div>
@@ -396,16 +396,16 @@ export default function ImportProductsTab() {
           {jobStatus === "COMPLETED" && (
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-3 max-w-lg mx-auto">
-                <div className="rounded-xl p-3 bg-[#F7F7F8] border border-[#E5E5E5]">
-                  <p className="text-2xl font-bold font-[family-name:var(--font-poppins)]">{jobProgress.total}</p>
+                <div className="rounded-xl p-3 bg-bg-secondary border border-border">
+                  <p className="text-2xl font-bold font-heading">{jobProgress.total}</p>
                   <p className="text-xs text-[#666]">Total</p>
                 </div>
                 <div className="rounded-xl p-3 bg-green-50 border border-green-200">
-                  <p className="text-2xl font-bold text-green-700 font-[family-name:var(--font-poppins)]">{jobProgress.success}</p>
+                  <p className="text-2xl font-bold text-green-700 font-heading">{jobProgress.success}</p>
                   <p className="text-xs text-green-600">Importés</p>
                 </div>
                 <div className={`rounded-xl p-3 border ${jobProgress.errors > 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
-                  <p className={`text-2xl font-bold font-[family-name:var(--font-poppins)] ${jobProgress.errors > 0 ? "text-red-700" : "text-green-700"}`}>{jobProgress.errors}</p>
+                  <p className={`text-2xl font-bold font-heading ${jobProgress.errors > 0 ? "text-red-700" : "text-green-700"}`}>{jobProgress.errors}</p>
                   <p className={`text-xs ${jobProgress.errors > 0 ? "text-red-600" : "text-green-600"}`}>Erreurs</p>
                 </div>
               </div>
@@ -457,11 +457,11 @@ export default function ImportProductsTab() {
 // ─────────────────────────────────────────────
 
 function StatCard({ label, value, color }: { label: string; value: number; color: "neutral" | "green" | "red" }) {
-  const colors = { neutral: "bg-[#F7F7F8] text-[#1A1A1A]", green: "bg-green-50 text-green-700", red: "bg-red-50 text-red-700" };
+  const colors = { neutral: "bg-bg-secondary text-text-primary", green: "bg-green-50 text-green-700", red: "bg-red-50 text-red-700" };
   return (
-    <div className={`rounded-xl p-4 ${colors[color]} border border-[#E5E5E5]`}>
-      <p className="text-2xl font-bold font-[family-name:var(--font-poppins)]">{value}</p>
-      <p className="text-xs mt-0.5 font-[family-name:var(--font-roboto)] opacity-80">{label}</p>
+    <div className={`rounded-xl p-4 ${colors[color]} border border-border`}>
+      <p className="text-2xl font-bold font-heading">{value}</p>
+      <p className="text-xs mt-0.5 font-body opacity-80">{label}</p>
     </div>
   );
 }
@@ -596,10 +596,10 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
     <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="font-semibold text-[#1A1A1A] font-[family-name:var(--font-poppins)] text-sm">
+          <h3 className="font-semibold text-text-primary font-heading text-sm">
             Éléments manquants ({remaining.length})
           </h3>
-          <p className="text-xs text-amber-700 mt-0.5 font-[family-name:var(--font-roboto)]">
+          <p className="text-xs text-amber-700 mt-0.5 font-body">
             Ces éléments n'existent pas encore en base. Créez-les pour débloquer l'import.
           </p>
         </div>
@@ -647,7 +647,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                           <button
                             type="button"
                             onClick={() => setColorModes((prev) => ({ ...prev, [entity.name]: mode === "hex" ? "pattern" : "hex" }))}
-                            className="w-6 h-6 rounded border border-[#E5E5E5] flex items-center justify-center cursor-pointer hover:border-[#1A1A1A] transition-colors"
+                            className="w-6 h-6 rounded border border-border flex items-center justify-center cursor-pointer hover:border-bg-dark transition-colors"
                             title={mode === "hex" ? "Passer en mode motif/image" : "Passer en mode couleur unie"}
                           >
                             {mode === "hex" ? (
@@ -662,18 +662,18 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                               type="color"
                               value={colorHexes[entity.name] ?? "#9CA3AF"}
                               onChange={(e) => setColorHexes((prev) => ({ ...prev, [entity.name]: e.target.value }))}
-                              className="w-6 h-6 rounded border border-[#E5E5E5] cursor-pointer p-0"
+                              className="w-6 h-6 rounded border border-border cursor-pointer p-0"
                               title="Choisir la couleur hex"
                             />
                           ) : (
                             <>
                               {patternPath ? (
-                                <div className="relative w-6 h-6 rounded border border-[#E5E5E5] overflow-hidden group">
+                                <div className="relative w-6 h-6 rounded border border-border overflow-hidden group">
                                   <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); removePattern(entity.name); }}
-                                    className="absolute inset-0 bg-black/50 text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                    className="absolute inset-0 bg-black/50 text-text-inverse text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
                                     title="Supprimer le motif"
                                   >
                                     ✕
@@ -681,7 +681,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                                 </div>
                               ) : (
                                 <label
-                                  className={`w-6 h-6 rounded border border-dashed border-[#999] flex items-center justify-center cursor-pointer hover:border-[#1A1A1A] transition-colors ${isUploading ? "opacity-50 pointer-events-none" : ""}`}
+                                  className={`w-6 h-6 rounded border border-dashed border-[#999] flex items-center justify-center cursor-pointer hover:border-bg-dark transition-colors ${isUploading ? "opacity-50 pointer-events-none" : ""}`}
                                   title="Uploader une image motif (PNG, JPG, WebP — max 500KB)"
                                 >
                                   {isUploading ? (
@@ -717,8 +717,8 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                           isCreated
                             ? "bg-green-50 border-green-200 text-green-700 cursor-default"
                             : isCreating
-                            ? "bg-white border-[#E5E5E5] text-[#999] cursor-wait"
-                            : "bg-white border-[#E5E5E5] text-[#1A1A1A] hover:border-[#1A1A1A] hover:bg-[#F7F7F8] cursor-pointer"
+                            ? "bg-bg-primary border-border text-[#999] cursor-wait"
+                            : "bg-bg-primary border-border text-text-primary hover:border-bg-dark hover:bg-bg-secondary cursor-pointer"
                         }`}
                       >
                         {isCreated ? (
@@ -769,13 +769,13 @@ function ProductPreviewRow({ product: p }: { product: PreviewProduct }) {
 
         {/* Reference */}
         <div>
-          <p className="font-mono text-sm font-medium text-[#1A1A1A]">{p.reference}</p>
+          <p className="font-mono text-sm font-medium text-text-primary">{p.reference}</p>
           {p.referenceExists && <p className="text-xs text-red-500">Déjà existante</p>}
         </div>
 
         {/* Name + Category */}
         <div>
-          <p className="text-sm font-medium text-[#1A1A1A] truncate">{p.name || "—"}</p>
+          <p className="text-sm font-medium text-text-primary truncate">{p.name || "—"}</p>
           {p.category && (
             <p className={`text-xs ${p.categoryFound ? "text-[#666]" : "text-red-500"}`}>
               {p.category}{!p.categoryFound && " ✗"}
@@ -788,7 +788,7 @@ function ProductPreviewRow({ product: p }: { product: PreviewProduct }) {
           {p.variants.map((v, i) => (
             <span
               key={i}
-              className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${v.errors.length > 0 ? "bg-red-50 border-red-200 text-red-700" : "bg-[#F7F7F8] border-[#E5E5E5] text-[#444]"}`}
+              className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${v.errors.length > 0 ? "bg-red-50 border-red-200 text-red-700" : "bg-bg-secondary border-border text-[#444]"}`}
             >
               {!v.colorFound && <span>⚠️</span>}
               {v.color || "?"}
@@ -810,11 +810,11 @@ function ProductPreviewRow({ product: p }: { product: PreviewProduct }) {
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="px-6 pb-4 bg-[#FAFAFA] border-t border-[#F0F0F0]">
+        <div className="px-6 pb-4 bg-[#FAFAFA] border-t border-border-light">
           <div className="grid gap-2 pt-3">
             {p.variants.map((v, i) => (
-              <div key={i} className={`flex items-start gap-3 p-2 rounded-lg text-sm ${v.errors.length > 0 ? "bg-red-50" : "bg-white"}`}>
-                <div className="w-1/4 font-medium text-[#1A1A1A]">{v.color || "—"}</div>
+              <div key={i} className={`flex items-start gap-3 p-2 rounded-lg text-sm ${v.errors.length > 0 ? "bg-red-50" : "bg-bg-primary"}`}>
+                <div className="w-1/4 font-medium text-text-primary">{v.color || "—"}</div>
                 <div className="text-[#666]">{v.saleType}{v.saleType === "PACK" ? ` × ${v.packQuantity}` : ""} · {v.unitPrice}€ · stock: {v.stock}</div>
                 {v.errors.length > 0 && (
                   <div className="ml-auto text-red-600 text-xs">{v.errors.join(" · ")}</div>

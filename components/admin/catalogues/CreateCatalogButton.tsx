@@ -36,7 +36,7 @@ export default function CreateCatalogButton() {
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
           <div className="bg-bg-primary rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-[#1A1A1A] text-lg mb-4">
+            <h2 className="font-heading font-semibold text-text-primary text-lg mb-4">
               Nouveau catalogue
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">

@@ -28,7 +28,7 @@ export default async function BrouillonPage({ params }: PageProps) {
     <div className="space-y-6 animate-fadeIn">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Link href="/admin/produits/importer" className="text-[#666] hover:text-[#1A1A1A] text-sm">
+        <Link href="/admin/produits/importer" className="text-[#666] hover:text-text-primary text-sm">
           ← Retour à l'importation
         </Link>
       </div>
@@ -36,7 +36,7 @@ export default async function BrouillonPage({ params }: PageProps) {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="page-title">Brouillon — Erreurs d'importation</h1>
-          <p className="page-subtitle font-[family-name:var(--font-roboto)]">
+          <p className="page-subtitle font-body">
             Fichier : <strong>{draft.filename ?? "—"}</strong> · {draft.successRows} importé(s) · {draft.errorRows} erreur(s)
           </p>
         </div>

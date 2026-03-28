@@ -36,7 +36,7 @@ export default function DeleteCatalogButton({ id, title }: Props) {
     <button
       onClick={() => setConfirm(true)}
       title={`Supprimer "${title}"`}
-      className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#E5E5E5] hover:bg-[#FEF2F2] hover:border-[#FCA5A5] hover:text-[#EF4444] transition-colors text-[#6B7280]"
+      className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-[#FEF2F2] hover:border-[#FCA5A5] hover:text-[#EF4444] transition-colors text-[#6B7280]"
     >
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

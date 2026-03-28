@@ -80,10 +80,10 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
       <ScatteredDecorations variant="dense" seed={2} />
       {/* En-tete */}
       <div className="mb-6">
-        <h1 className="font-[family-name:var(--font-poppins)] text-xl font-semibold text-text-primary">
+        <h1 className="font-heading text-xl font-semibold text-text-primary">
           {t("title")}
         </h1>
-        <p className="text-sm text-text-secondary font-[family-name:var(--font-roboto)] mt-0.5">
+        <p className="text-sm text-text-secondary font-body mt-0.5">
           {totalCount !== 1 ? t("count_plural", { count: totalCount }) : t("count", { count: totalCount })}
         </p>
       </div>
@@ -94,13 +94,13 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
           </svg>
-          <p className="text-sm font-[family-name:var(--font-roboto)] font-medium text-text-secondary mb-1">
+          <p className="text-sm font-body font-medium text-text-secondary mb-1">
             {t("empty")}
           </p>
-          <p className="text-xs font-[family-name:var(--font-roboto)] text-text-muted mb-5">
+          <p className="text-xs font-body text-text-muted mb-5">
             {t("emptyDesc")}
           </p>
-          <Link href="/produits" className="inline-flex items-center justify-center px-5 py-2.5 bg-bg-dark text-text-inverse text-sm font-[family-name:var(--font-roboto)] font-medium rounded-lg hover:bg-primary-hover transition-colors">
+          <Link href="/produits" className="inline-flex items-center justify-center px-5 py-2.5 bg-bg-dark text-text-inverse text-sm font-body font-medium rounded-lg hover:bg-primary-hover transition-colors">
             {t("browseCatalogue")}
           </Link>
         </div>
@@ -115,22 +115,22 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
             return (
               <div key={order.id} className="bg-bg-primary border border-border rounded-xl overflow-hidden transition-all duration-300 hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] hover:border-accent/20">
                 {/* En-tete commande */}
-                <div className="px-5 py-3.5 border-b border-border flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-text-primary">
+                <div className="px-4 sm:px-5 py-3.5 border-b border-border flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                    <span className="font-heading text-sm font-semibold text-text-primary">
                       {order.orderNumber}
                     </span>
                     <span className={`${cfg.badgeClass} text-xs`}>
                       {t(`statuses.${order.status}`)}
                     </span>
                   </div>
-                  <span className="text-xs font-[family-name:var(--font-roboto)] text-text-muted">{date}</span>
+                  <span className="text-xs font-body text-text-muted">{date}</span>
                 </div>
 
                 {/* Corps */}
-                <div className="px-5 py-4">
+                <div className="px-4 sm:px-5 py-4">
                   {/* Resume articles */}
-                  <p className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary mb-3">
+                  <p className="text-sm font-body text-text-secondary mb-3">
                     {totalItems} {totalItems !== 1 ? t("items_plural") : t("items")} —{" "}
                     {order.items.slice(0, 2).map((item, i) => (
                       <span key={i}>
@@ -155,8 +155,8 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
                   </p>
 
                   {/* Livraison + totaux */}
-                  <div className="flex flex-wrap items-end justify-between gap-3">
-                    <div className="text-xs font-[family-name:var(--font-roboto)] text-text-muted space-y-0.5">
+                  <div className="flex flex-wrap items-end justify-between gap-4">
+                    <div className="text-xs font-body text-text-muted space-y-0.5">
                       <p>
                         <span className="font-medium text-text-secondary">{t("shippingLabel")}</span>{" "}
                         {order.carrierName}
@@ -182,12 +182,12 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
                     </div>
 
                     <div className="text-right">
-                      <p className="text-xs font-[family-name:var(--font-roboto)] text-text-muted">{t("totalTTC")}</p>
-                      <p className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-text-primary">
+                      <p className="text-xs font-body text-text-muted">{t("totalTTC")}</p>
+                      <p className="font-heading text-lg font-semibold text-text-primary">
                         {order.totalTTC.toFixed(2)} {"\u20AC"}
                       </p>
                       {order.tvaRate === 0 && (
-                        <p className="text-[10px] font-[family-name:var(--font-roboto)] text-text-muted">{t("tvaExempt")}</p>
+                        <p className="text-[10px] font-body text-text-muted">{t("tvaExempt")}</p>
                       )}
                     </div>
                   </div>
@@ -195,7 +195,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
                   {/* Actions */}
                   <div className="flex items-center gap-3 mt-4 pt-3 border-t border-border">
                     <Link href={`/commandes/${order.id}`}
-                      className="flex items-center gap-1.5 text-xs font-[family-name:var(--font-roboto)] text-text-secondary hover:text-accent hover:border-accent transition-all duration-200 border border-border rounded-lg px-3 py-2">
+                      className="flex items-center gap-1.5 text-xs font-body text-text-secondary hover:text-accent hover:border-accent transition-all duration-200 border border-border rounded-lg px-3 py-2 min-h-[44px]">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                           d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
@@ -222,18 +222,18 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
           {page > 1 && (
             <Link
               href={`/commandes?page=${page - 1}`}
-              className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+              className="px-4 py-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
             >
               &larr;
             </Link>
           )}
-          <span className="text-sm font-[family-name:var(--font-roboto)] text-text-muted">
+          <span className="text-sm font-body text-text-muted">
             {page} / {totalPages}
           </span>
           {page < totalPages && (
             <Link
               href={`/commandes?page=${page + 1}`}
-              className="px-3 py-2 text-sm font-[family-name:var(--font-roboto)] text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+              className="px-4 py-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-sm font-body text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
             >
               &rarr;
             </Link>

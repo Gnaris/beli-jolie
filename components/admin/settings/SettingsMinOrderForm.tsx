@@ -48,7 +48,7 @@ export default function SettingsMinOrderForm({ currentValue }: Props) {
             placeholder="0"
             disabled={loading}
           />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-[#6B6B6B] font-[family-name:var(--font-roboto)] pointer-events-none">
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-text-secondary font-body pointer-events-none">
             € HT
           </span>
         </div>

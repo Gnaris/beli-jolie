@@ -550,7 +550,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
                   )}
-                  <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm sm:text-base">
+                  <h2 className="font-heading font-semibold text-text-primary text-sm sm:text-base">
                     {isJobRunning
                       ? "Synchronisation en cours..."
                       : job.status === "COMPLETED"
@@ -591,19 +591,19 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
               {/* Stats grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" role="group" aria-label="Statistiques de synchronisation">
                 <div className="rounded-xl bg-[#22C55E]/10 p-3 text-center" aria-label={`${counts.ready + counts.approved} produits téléchargés`}>
-                  <div className="text-xl sm:text-2xl font-bold font-[family-name:var(--font-poppins)] text-[#22C55E]">
+                  <div className="text-xl sm:text-2xl font-bold font-heading text-[#22C55E]">
                     {counts.ready + counts.approved}
                   </div>
                   <div className="text-[11px] text-[#22C55E]/80 mt-0.5">Téléchargés</div>
                 </div>
                 <div className="rounded-xl bg-[#EF4444]/10 p-3 text-center" aria-label={`${counts.error} erreurs`}>
-                  <div className="text-xl sm:text-2xl font-bold font-[family-name:var(--font-poppins)] text-[#EF4444]">
+                  <div className="text-xl sm:text-2xl font-bold font-heading text-[#EF4444]">
                     {counts.error}
                   </div>
                   <div className="text-[11px] text-[#EF4444]/80 mt-0.5">Erreurs</div>
                 </div>
                 <div className="rounded-xl bg-[#F59E0B]/10 p-3 text-center" aria-label={`${isJobRunning ? Math.max(0, (job.totalProducts || 0) - job.processedProducts) : counts.preparing} produits restants`}>
-                  <div className="text-xl sm:text-2xl font-bold font-[family-name:var(--font-poppins)] text-[#F59E0B]">
+                  <div className="text-xl sm:text-2xl font-bold font-heading text-[#F59E0B]">
                     {isJobRunning
                       ? Math.max(0, (job.totalProducts || 0) - job.processedProducts)
                       : counts.preparing}
@@ -611,7 +611,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
                   <div className="text-[11px] text-[#F59E0B]/80 mt-0.5">Produits restants</div>
                 </div>
                 <div className="rounded-xl bg-[#8B5CF6]/10 p-3 text-center" aria-label={`${pendingImages} images en attente`}>
-                  <div className="text-xl sm:text-2xl font-bold font-[family-name:var(--font-poppins)] text-[#8B5CF6]">
+                  <div className="text-xl sm:text-2xl font-bold font-heading text-[#8B5CF6]">
                     {pendingImages}
                   </div>
                   <div className="text-[11px] text-[#8B5CF6]/80 mt-0.5">
@@ -620,7 +620,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
                   </div>
                 </div>
                 <div className="rounded-xl bg-bg-secondary p-3 text-center" aria-label={`${job.totalProducts || totalAll} produits au total`}>
-                  <div className="text-xl sm:text-2xl font-bold font-[family-name:var(--font-poppins)] text-text-primary">
+                  <div className="text-xl sm:text-2xl font-bold font-heading text-text-primary">
                     {job.totalProducts || totalAll}
                   </div>
                   <div className="text-[11px] text-text-secondary mt-0.5">Total produits</div>
@@ -655,13 +655,13 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
                     type="button"
                     onClick={() => setShowProductLogs((v) => !v)}
                     aria-expanded={showProductLogs}
-                    className="w-full flex items-center justify-between px-4 py-3 bg-[#1A1A1A] text-white hover:bg-[#2A2A2A] transition-colors"
+                    className="w-full flex items-center justify-between px-4 py-3 bg-bg-dark text-text-inverse hover:bg-[#2A2A2A] transition-colors"
                   >
                     <div className="flex items-center gap-2">
                       <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
                       </svg>
-                      <span className="font-[family-name:var(--font-poppins)] font-semibold text-sm">
+                      <span className="font-heading font-semibold text-sm">
                         Produits ({logsData.productLogs.length})
                       </span>
                     </div>
@@ -684,13 +684,13 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
                     type="button"
                     onClick={() => setShowImageLogs((v) => !v)}
                     aria-expanded={showImageLogs}
-                    className="w-full flex items-center justify-between px-4 py-3 bg-[#1A1A1A] text-white hover:bg-[#2A2A2A] transition-colors"
+                    className="w-full flex items-center justify-between px-4 py-3 bg-bg-dark text-text-inverse hover:bg-[#2A2A2A] transition-colors"
                   >
                     <div className="flex items-center gap-2">
                       <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
                       </svg>
-                      <span className="font-[family-name:var(--font-poppins)] font-semibold text-sm">
+                      <span className="font-heading font-semibold text-sm">
                         Images {logsData.imageStats ? `(${logsData.imageStats.completed}/${logsData.imageStats.total})` : ""}
                       </span>
                     </div>

@@ -7,7 +7,7 @@ const DashboardCharts = dynamic(() => import("./DashboardCharts"), {
   loading: () => (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {[...Array(4)].map((_, i) => (
-        <div key={i} className="bg-white border border-[#E5E5E5] rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] h-[280px] animate-pulse" />
+        <div key={i} className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] h-[280px] animate-pulse" />
       ))}
     </div>
   ),

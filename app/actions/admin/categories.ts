@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { autoTranslateCategory, autoTranslateSubCategory } from "@/lib/auto-translate";
 
 /** Génère un slug à partir d'un nom */
 function toSlug(name: string): string {
@@ -32,9 +33,10 @@ export async function createCategory(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
 
-  await prisma.category.create({
+  const category = await prisma.category.create({
     data: { name, slug: toSlug(name) },
   });
+  autoTranslateCategory(category.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
   revalidateTag("sizes", "default");
@@ -89,9 +91,10 @@ export async function createSubCategory(formData: FormData) {
   const categoryId = formData.get("categoryId") as string;
   if (!name || !categoryId) throw new Error("Nom et catégorie requis.");
 
-  await prisma.subCategory.create({
+  const subCategory = await prisma.subCategory.create({
     data: { name, slug: toSlug(name), categoryId },
   });
+  autoTranslateSubCategory(subCategory.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
 }

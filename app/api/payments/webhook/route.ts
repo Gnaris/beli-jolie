@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStripeInstance, getStripeWebhookSecret } from "@/lib/stripe";
+import { getStripeInstance, getStripeWebhookSecret, getConnectedAccountId } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
@@ -29,6 +29,12 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("[Stripe Webhook] Signature invalide:", err);
     return NextResponse.json({ error: "Signature invalide." }, { status: 400 });
+  }
+
+  // En mode Connect, les events peuvent venir du compte connecté
+  const connectAccountId = await getConnectedAccountId();
+  if (connectAccountId && event.account) {
+    console.log(`[Stripe Webhook] Event Connect du compte: ${event.account}`);
   }
 
   switch (event.type) {

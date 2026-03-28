@@ -31,6 +31,7 @@ import {
 import { processProductImage } from "@/lib/image-processor";
 import { normalizeColorName } from "@/lib/import-processor";
 import { stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
+import { autoTranslateProduct } from "@/lib/auto-translate";
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -1133,6 +1134,10 @@ async function syncSingleProduct(
       }
       await Promise.all(dbOps);
 
+      // Auto-translate product name/description for missing locales
+      const pfsLocalesUpdate = translations.map((t) => t.locale);
+      autoTranslateProduct(productId, nameFr, descriptionFr, pfsLocalesUpdate);
+
       addLog(`  ✅ ${bjRef} mis à jour (${variants.length} var) — images en arrière-plan`);
 
       // Return image task to be run in background
@@ -1237,6 +1242,10 @@ async function syncSingleProduct(
       );
 
       await Promise.all(dbOps);
+
+      // Auto-translate product name/description for missing locales
+      const pfsLocales = translations.map((t) => t.locale);
+      autoTranslateProduct(product.id, nameFr, descriptionFr, pfsLocales);
 
       addLog(`  ✅ ${bjRef} créé (${variants.length} var) — images en arrière-plan`);
 

@@ -85,13 +85,13 @@ export default function CartModal({ userId, userName, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
-            <h3 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-base">
+            <h3 className="font-heading font-semibold text-text-primary text-base">
               Panier de {userName}
             </h3>
             {cart && !loading && (
-              <p className="text-xs text-text-muted font-[family-name:var(--font-roboto)] mt-0.5">
+              <p className="text-xs text-text-muted font-body mt-0.5">
                 {cart.itemCount} article{cart.itemCount !== 1 ? "s" : ""} — {cart.total.toFixed(2)} € HT
               </p>
             )}
@@ -111,14 +111,14 @@ export default function CartModal({ userId, userName, onClose }: Props) {
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="w-6 h-6 border-2 border-[#E5E5E5] border-t-[#1A1A1A] rounded-full animate-spin" />
+              <div className="w-6 h-6 border-2 border-border border-t-[#1A1A1A] rounded-full animate-spin" />
             </div>
           ) : !cart || cart.items.length === 0 ? (
             <div className="text-center py-12">
               <svg className="w-12 h-12 text-text-muted mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
               </svg>
-              <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">
+              <p className="text-sm text-text-muted font-body">
                 Panier vide
               </p>
             </div>
@@ -132,7 +132,7 @@ export default function CartModal({ userId, userName, onClose }: Props) {
                     className="flex gap-3 p-3 rounded-xl bg-bg-secondary"
                   >
                     {/* Image */}
-                    <div className="w-14 h-14 rounded-lg bg-white border border-[#E5E5E5] overflow-hidden flex-shrink-0">
+                    <div className="w-14 h-14 rounded-lg bg-bg-primary border border-border overflow-hidden flex-shrink-0">
                       {item.image ? (
                         <Image
                           src={item.image}
@@ -152,7 +152,7 @@ export default function CartModal({ userId, userName, onClose }: Props) {
 
                     {/* Details */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-text-primary truncate">
+                      <p className="text-sm font-heading font-semibold text-text-primary truncate">
                         {item.product.name}
                       </p>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
@@ -163,7 +163,7 @@ export default function CartModal({ userId, userName, onClose }: Props) {
                         <span className="flex items-center gap-1 text-[11px] text-text-muted">
                           {item.color.hex && (
                             <span
-                              className="w-2.5 h-2.5 rounded-full border border-[#E5E5E5] inline-block"
+                              className="w-2.5 h-2.5 rounded-full border border-border inline-block"
                               style={{ backgroundColor: item.color.hex }}
                             />
                           )}
@@ -177,7 +177,7 @@ export default function CartModal({ userId, userName, onClose }: Props) {
                         </span>
                       </div>
                       <div className="flex items-center justify-between mt-1.5">
-                        <span className="text-xs font-[family-name:var(--font-roboto)] text-text-secondary">
+                        <span className="text-xs font-body text-text-secondary">
                           Qté : <span className="font-semibold text-text-primary">{item.quantity}</span>
                         </span>
                         <div className="text-right">
@@ -186,7 +186,7 @@ export default function CartModal({ userId, userName, onClose }: Props) {
                               {(item.variant.unitPrice * item.quantity).toFixed(2)} €
                             </span>
                           )}
-                          <span className="text-sm font-[family-name:var(--font-poppins)] font-semibold text-text-primary">
+                          <span className="text-sm font-heading font-semibold text-text-primary">
                             {item.lineTotal.toFixed(2)} €
                           </span>
                         </div>
@@ -201,11 +201,11 @@ export default function CartModal({ userId, userName, onClose }: Props) {
 
         {/* Footer total */}
         {cart && cart.items.length > 0 && (
-          <div className="px-6 py-4 border-t border-[#E5E5E5] flex items-center justify-between">
-            <span className="text-sm font-[family-name:var(--font-roboto)] text-text-secondary">
+          <div className="px-6 py-4 border-t border-border flex items-center justify-between">
+            <span className="text-sm font-body text-text-secondary">
               Total HT
             </span>
-            <span className="text-lg font-[family-name:var(--font-poppins)] font-bold text-text-primary">
+            <span className="text-lg font-heading font-bold text-text-primary">
               {cart.total.toFixed(2)} €
             </span>
           </div>

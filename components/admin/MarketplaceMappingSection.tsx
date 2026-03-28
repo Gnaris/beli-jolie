@@ -208,7 +208,7 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
   if (loading) {
     return (
       <div className="border border-border rounded-xl p-4">
-        <div className="flex items-center gap-2 text-text-secondary text-sm font-[family-name:var(--font-roboto)]">
+        <div className="flex items-center gap-2 text-text-secondary text-sm font-body">
           <div className="animate-spin h-4 w-4 border-2 border-text-secondary border-t-transparent rounded-full shrink-0" />
           Chargement des marketplaces…
         </div>
@@ -219,18 +219,18 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
   if (error || !pfsData) {
     return (
       <div className="border border-dashed border-border rounded-xl p-4 space-y-2">
-        <p className="text-xs font-medium text-red-500 font-[family-name:var(--font-roboto)]">
+        <p className="text-xs font-medium text-red-500 font-body">
           Correspondance marketplace non disponible
         </p>
         {error && (
-          <p className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)] break-all">
+          <p className="text-[11px] text-text-muted font-body break-all">
             {error}
           </p>
         )}
         <button
           type="button"
           onClick={retry}
-          className="text-xs text-text-secondary hover:text-text-primary underline font-[family-name:var(--font-roboto)] transition-colors"
+          className="text-xs text-text-secondary hover:text-text-primary underline font-body transition-colors"
         >
           Réessayer
         </button>
@@ -242,10 +242,10 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
     <div className="border border-border rounded-xl overflow-hidden">
       {/* Section header */}
       <div className="px-4 py-2.5 bg-bg-secondary border-b border-border flex items-center justify-between">
-        <p className="text-xs font-semibold text-text-secondary font-[family-name:var(--font-roboto)] uppercase tracking-wider">
+        <p className="text-xs font-semibold text-text-secondary font-body uppercase tracking-wider">
           Correspondances Marketplaces
         </p>
-        <span className="text-[10px] text-[#EF4444] font-semibold font-[family-name:var(--font-roboto)]">Requis *</span>
+        <span className="text-[10px] text-[#EF4444] font-semibold font-body">Requis *</span>
       </div>
 
       <div className="p-4 space-y-3">
@@ -267,7 +267,7 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
 function MarketplaceBlock({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-xs font-medium text-text-primary font-[family-name:var(--font-roboto)] mb-2 flex items-center gap-1.5">
+      <p className="text-xs font-medium text-text-primary font-body mb-2 flex items-center gap-1.5">
         <span className="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" />
         {label}
       </p>

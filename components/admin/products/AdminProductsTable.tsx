@@ -57,6 +57,7 @@ interface AdminProduct {
 interface Props {
   products: AdminProduct[];
   totalCount: number;
+  hasPfsConfig?: boolean;
 }
 
 // ─── Variant Editor Row ────────────────────────────────────────────────────────
@@ -151,7 +152,7 @@ function VariantRow({
                     }}
                     title={fullName}
                   />
-                  <span className="text-xs font-medium font-[family-name:var(--font-roboto)] text-text-primary">
+                  <span className="text-xs font-medium font-body text-text-primary">
                     {fullName}
                   </span>
                 </>
@@ -159,7 +160,7 @@ function VariantRow({
             })()}
           </div>
         </td>
-        <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)]">
+        <td className="px-3 py-2.5 text-xs font-body">
           <span className={`badge text-[10px] ${variant.saleType === "UNIT" ? "badge-info" : "badge-purple"}`}>
             {variant.saleType === "UNIT" ? "Unité" : `Pack ×${variant.packQuantity}`}
           </span>
@@ -169,10 +170,10 @@ function VariantRow({
             </span>
           )}
         </td>
-        <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)] font-semibold text-text-primary">
+        <td className="px-3 py-2.5 text-xs font-body font-semibold text-text-primary">
           {variant.unitPrice.toFixed(2)} €
         </td>
-        <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)]">
+        <td className="px-3 py-2.5 text-xs font-body">
           <span className="inline-flex items-center gap-1"
             style={{
               color: variant.stock === 0 ? '#EF4444' : variant.stock <= 5 ? '#F59E0B' : '#1A1A1A',
@@ -185,10 +186,10 @@ function VariantRow({
             {variant.stock}
           </span>
         </td>
-        <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)] text-text-secondary">
+        <td className="px-3 py-2.5 text-xs font-body text-text-secondary">
           {variant.weight} kg
         </td>
-        <td className="px-3 py-2.5 text-xs font-[family-name:var(--font-roboto)]">
+        <td className="px-3 py-2.5 text-xs font-body">
           {variant.discountType && variant.discountValue
             ? (
               <span className="badge badge-success text-[10px]">
@@ -202,7 +203,7 @@ function VariantRow({
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="inline-flex items-center gap-1 text-[11px] font-medium font-[family-name:var(--font-roboto)] transition-all px-2.5 py-1 bg-bg-primary text-text-secondary border border-border-dark rounded-md shadow-sm hover:border-text-primary hover:text-text-primary"
+            className="inline-flex items-center gap-1 text-[11px] font-medium font-body transition-all px-2.5 py-1 bg-bg-primary text-text-secondary border border-border-dark rounded-md shadow-sm hover:border-text-primary hover:text-text-primary"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -235,7 +236,7 @@ function VariantRow({
                 border: '2px solid #fff', boxShadow: '0 0 0 1px #D1D1D1',
               }}
             />
-            <span className="text-xs font-medium font-[family-name:var(--font-roboto)] text-text-primary">
+            <span className="text-xs font-medium font-body text-text-primary">
               {variant.color.name}
             </span>
           </div>
@@ -295,7 +296,7 @@ function VariantRow({
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className={`inline-flex items-center gap-1 font-[family-name:var(--font-roboto)] transition-colors px-3 py-1.5 text-[11px] font-semibold bg-bg-dark text-text-inverse rounded-md border-none ${saving ? "cursor-wait opacity-60" : "cursor-pointer"}`}
+              className={`inline-flex items-center gap-1 font-body transition-colors px-3 py-1.5 text-[11px] font-semibold bg-bg-dark text-text-inverse rounded-md border-none ${saving ? "cursor-wait opacity-60" : "cursor-pointer"}`}
             >
               {saving ? (
                 <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -312,7 +313,7 @@ function VariantRow({
             <button
               type="button"
               onClick={() => setEditing(false)}
-              className="font-[family-name:var(--font-roboto)] transition-colors px-2.5 py-1.5 text-[11px] text-text-secondary bg-transparent border-none rounded-md cursor-pointer hover:bg-bg-primary hover:text-text-primary"
+              className="font-body transition-colors px-2.5 py-1.5 text-[11px] text-text-secondary bg-transparent border-none rounded-md cursor-pointer hover:bg-bg-primary hover:text-text-primary"
             >
               Annuler
             </button>
@@ -321,7 +322,7 @@ function VariantRow({
       </tr>
       {error && (
         <tr className="bg-[#FEF2F2]">
-          <td colSpan={8} className="px-5 py-2 text-xs font-[family-name:var(--font-roboto)] text-error">
+          <td colSpan={8} className="px-5 py-2 text-xs font-body text-error">
             <div className="flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
@@ -346,6 +347,7 @@ function ProductRow({
   selectedVariantIds,
   onToggleVariant,
   onToggleAllVariants,
+  hasPfsConfig = false,
 }: {
   product: AdminProduct;
   selected: boolean;
@@ -355,6 +357,7 @@ function ProductRow({
   selectedVariantIds: Set<string>;
   onToggleVariant: (id: string) => void;
   onToggleAllVariants: (ids: string[], select: boolean) => void;
+  hasPfsConfig?: boolean;
 }) {
   const [refreshing, startRefresh] = useTransition();
   const { confirm } = useConfirm();
@@ -532,7 +535,7 @@ function ProductRow({
                 Rupture variantes
               </span>
             )}
-            {product.pfsSyncStatus === "failed" && (
+            {hasPfsConfig && product.pfsSyncStatus === "failed" && (
               <span
                 className="badge badge-error text-[10px]"
                 title="Synchronisation PFS échouée"
@@ -540,7 +543,7 @@ function ProductRow({
                 PFS
               </span>
             )}
-            {product.pfsSyncStatus === "pending" && (
+            {hasPfsConfig && product.pfsSyncStatus === "pending" && (
               <span
                 className="badge badge-info text-[10px]"
                 title="Synchronisation PFS en cours"
@@ -553,7 +556,7 @@ function ProductRow({
 
         {/* Date de création */}
         <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
-          <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)] whitespace-nowrap">
+          <span className="text-xs text-text-muted font-body whitespace-nowrap">
             {new Date(product.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
           </span>
         </td>
@@ -638,7 +641,7 @@ function ProductRow({
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
                     <div className="w-[3px] h-4 rounded-sm bg-bg-dark" />
-                    <span className="font-[family-name:var(--font-poppins)] text-[11px] font-bold text-text-primary uppercase tracking-wider"
+                    <span className="font-heading text-[11px] font-bold text-text-primary uppercase tracking-wider"
                     >
                       {product.colors.length} variante{product.colors.length > 1 ? "s" : ""}
                     </span>
@@ -647,7 +650,7 @@ function ProductRow({
                     <button
                       type="button"
                       onClick={() => onToggleAllVariants(variantIds, !allVariantsSelected)}
-                      className={`inline-flex items-center gap-1.5 font-[family-name:var(--font-roboto)] transition-all px-2.5 py-1 text-[10px] font-semibold rounded-md border cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 font-body transition-all px-2.5 py-1 text-[10px] font-semibold rounded-md border cursor-pointer ${
                         allVariantsSelected
                           ? "border-bg-dark bg-bg-dark text-text-inverse"
                           : "border-border-dark bg-bg-primary text-text-secondary"
@@ -666,7 +669,7 @@ function ProductRow({
                 </div>
                 <Link
                   href={`/admin/produits/${product.id}/modifier`}
-                  className="inline-flex items-center gap-1.5 font-[family-name:var(--font-roboto)] transition-colors text-[11px] text-text-secondary hover:text-text-primary no-underline"
+                  className="inline-flex items-center gap-1.5 font-body transition-colors text-[11px] text-text-secondary hover:text-text-primary no-underline"
                 >
                   Édition complète
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -680,12 +683,12 @@ function ProductRow({
                 <thead>
                   <tr className="drawer-variant-th">
                     <th className="w-10 py-2 pl-5 pr-2"></th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Couleur</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Type</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
-                    <th className="px-3 py-2 text-left font-[family-name:var(--font-roboto)] text-[10px] font-bold text-text-muted uppercase tracking-wider">Remise</th>
+                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Couleur</th>
+                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Type</th>
+                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT</th>
+                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
+                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
+                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Remise</th>
                     <th className="px-3 py-2 text-right text-[10px]"></th>
                   </tr>
                 </thead>
@@ -788,7 +791,7 @@ function BulkVariantBar({
     >
       {/* Count badge */}
       <div className="flex items-center gap-2">
-        <span className="font-[family-name:var(--font-poppins)]"
+        <span className="font-heading"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -803,7 +806,7 @@ function BulkVariantBar({
         >
           {count}
         </span>
-        <span className="font-[family-name:var(--font-roboto)]" style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)' }}>
+        <span className="font-body" style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)' }}>
           variante{count > 1 ? "s" : ""}
         </span>
       </div>
@@ -815,7 +818,7 @@ function BulkVariantBar({
         <button
           type="button"
           onClick={() => setFieldMenuOpen(!fieldMenuOpen)}
-          className="font-[family-name:var(--font-roboto)]"
+          className="font-body"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -867,7 +870,7 @@ function BulkVariantBar({
                     key={f.value}
                     type="button"
                     onClick={() => { setField(f.value); setValue(""); setFieldMenuOpen(false); }}
-                    className="font-[family-name:var(--font-roboto)]"
+                    className="font-body"
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -909,7 +912,7 @@ function BulkVariantBar({
           <button
             type="button"
             onClick={() => setMode("set")}
-            className="font-[family-name:var(--font-roboto)]"
+            className="font-body"
             style={{
               padding: '7px 12px',
               fontSize: 11,
@@ -926,7 +929,7 @@ function BulkVariantBar({
           <button
             type="button"
             onClick={() => setMode("add")}
-            className="font-[family-name:var(--font-roboto)]"
+            className="font-body"
             style={{
               padding: '7px 12px',
               fontSize: 11,
@@ -949,7 +952,7 @@ function BulkVariantBar({
           <button
             type="button"
             onClick={() => setDiscountType("PERCENT")}
-            className="font-[family-name:var(--font-roboto)]"
+            className="font-body"
             style={{
               padding: '7px 12px',
               fontSize: 11,
@@ -966,7 +969,7 @@ function BulkVariantBar({
           <button
             type="button"
             onClick={() => setDiscountType("AMOUNT")}
-            className="font-[family-name:var(--font-roboto)]"
+            className="font-body"
             style={{
               padding: '7px 12px',
               fontSize: 11,
@@ -1005,7 +1008,7 @@ function BulkVariantBar({
         type="button"
         onClick={handleApply}
         disabled={isPending || (field !== "discountClear" && !value)}
-        className="flex items-center gap-1.5 font-[family-name:var(--font-roboto)]"
+        className="flex items-center gap-1.5 font-body"
         style={{
           padding: '7px 16px',
           fontSize: 12,
@@ -1038,7 +1041,7 @@ function BulkVariantBar({
       <button
         type="button"
         onClick={onClear}
-        className="font-[family-name:var(--font-roboto)]"
+        className="font-body"
         style={{
           fontSize: 12,
           color: 'rgba(255,255,255,0.4)',
@@ -1059,7 +1062,7 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants,
+  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, hasPfsConfig = false,
 }: {
   products: AdminProduct[];
   selectedIds: Set<string>;
@@ -1071,6 +1074,7 @@ function TableWithTopScroll({
   selectedVariantIds: Set<string>;
   toggleVariant: (id: string) => void;
   toggleAllVariants: (ids: string[], select: boolean) => void;
+  hasPfsConfig?: boolean;
 }) {
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -1134,7 +1138,7 @@ function TableWithTopScroll({
       </div>
       {/* Table */}
       <div ref={tableScrollRef} className="overflow-x-auto">
-        <table className="w-full text-sm font-[family-name:var(--font-roboto)]" style={{ minWidth: 800 }}>
+        <table className="w-full text-sm font-body" style={{ minWidth: 800 }}>
           <thead>
             <tr className="table-header">
               <th className="px-3 py-3 w-10">
@@ -1168,6 +1172,7 @@ function TableWithTopScroll({
                 selectedVariantIds={selectedVariantIds}
                 onToggleVariant={toggleVariant}
                 onToggleAllVariants={toggleAllVariants}
+                hasPfsConfig={hasPfsConfig}
               />
             ))}
           </tbody>
@@ -1179,7 +1184,7 @@ function TableWithTopScroll({
 
 // ─── Main Table ────────────────────────────────────────────────────────────────
 
-export default function AdminProductsTable({ products, totalCount: _totalCount }: Props) {
+export default function AdminProductsTable({ products, totalCount: _totalCount, hasPfsConfig = false }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
@@ -1348,8 +1353,8 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
           </svg>
         </div>
-        <p className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary mb-1">Aucun produit</p>
-        <p className="text-sm text-text-muted font-[family-name:var(--font-roboto)]">Aucun résultat pour ces critères.</p>
+        <p className="font-heading font-semibold text-text-primary mb-1">Aucun produit</p>
+        <p className="text-sm text-text-muted font-body">Aucun résultat pour ces critères.</p>
       </div>
     );
   }
@@ -1358,16 +1363,16 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
     <div className="space-y-3">
       {/* Barre d'actions en masse (produits) */}
       {someSelected && (
-        <div className="flex items-center gap-3 bg-[#1A1A1A] text-white rounded-xl px-4 py-3 animate-fadeIn">
-          <span className="text-sm font-[family-name:var(--font-roboto)] font-medium">
+        <div className="flex items-center gap-3 bg-bg-dark text-text-inverse rounded-xl px-4 py-3 animate-fadeIn">
+          <span className="text-sm font-body font-medium">
             {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
           </span>
-          <div className="h-4 w-px bg-white/20" />
+          <div className="h-4 w-px bg-bg-primary/20" />
           <button
             type="button"
             onClick={() => handleBulkStatus("ONLINE")}
             disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#22C55E] text-white text-xs font-medium rounded-lg hover:bg-[#16A34A] disabled:opacity-50 transition-colors font-[family-name:var(--font-roboto)]"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#22C55E] text-white text-xs font-medium rounded-lg hover:bg-[#16A34A] disabled:opacity-50 transition-colors font-body"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
@@ -1379,7 +1384,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
             type="button"
             onClick={() => handleBulkStatus("OFFLINE")}
             disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 text-white text-xs font-medium rounded-lg hover:bg-white/20 disabled:opacity-50 transition-colors font-[family-name:var(--font-roboto)]"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-primary/10 text-text-inverse text-xs font-medium rounded-lg hover:bg-bg-primary/20 disabled:opacity-50 transition-colors font-body"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
@@ -1390,20 +1395,20 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
             type="button"
             onClick={() => handleBulkStatus("ARCHIVED")}
             disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F59E0B]/80 text-white text-xs font-medium rounded-lg hover:bg-[#D97706] disabled:opacity-50 transition-colors font-[family-name:var(--font-roboto)]"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F59E0B]/80 text-white text-xs font-medium rounded-lg hover:bg-[#D97706] disabled:opacity-50 transition-colors font-body"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
             </svg>
             Archiver
           </button>
-          <div className="h-4 w-px bg-white/20" />
+          <div className="h-4 w-px bg-bg-primary/20" />
           {!confirmDelete ? (
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
               disabled={isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/80 text-white text-xs font-medium rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors font-[family-name:var(--font-roboto)]"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/80 text-white text-xs font-medium rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors font-body"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -1412,19 +1417,19 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
             </button>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-red-300 font-[family-name:var(--font-roboto)]">Confirmer ?</span>
+              <span className="text-xs text-red-300 font-body">Confirmer ?</span>
               <button
                 type="button"
                 onClick={handleBulkDelete}
                 disabled={isPending}
-                className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors font-[family-name:var(--font-roboto)]"
+                className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors font-body"
               >
                 Oui, supprimer {selectedIds.size}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="px-3 py-1.5 bg-white/10 text-white text-xs rounded-lg hover:bg-white/20 transition-colors font-[family-name:var(--font-roboto)]"
+                className="px-3 py-1.5 bg-bg-primary/10 text-text-inverse text-xs rounded-lg hover:bg-bg-primary/20 transition-colors font-body"
               >
                 Annuler
               </button>
@@ -1433,7 +1438,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
           <button
             type="button"
             onClick={() => { setSelectedIds(new Set()); setConfirmDelete(false); }}
-            className="ml-auto text-xs text-white/50 hover:text-white transition-colors font-[family-name:var(--font-roboto)]"
+            className="ml-auto text-xs text-text-inverse/50 hover:text-text-inverse transition-colors font-body"
           >
             Désélectionner
           </button>
@@ -1442,7 +1447,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
 
       {/* Message résultat bulk */}
       {bulkMessage && (
-        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-[family-name:var(--font-roboto)] ${
+        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-body ${
           bulkMessage.type === "success"
             ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
             : "bg-red-50 text-red-700 border border-red-200"
@@ -1459,7 +1464,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={products} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} />
+      <TableWithTopScroll products={products} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} hasPfsConfig={hasPfsConfig} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

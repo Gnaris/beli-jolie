@@ -240,7 +240,7 @@ export default function CatalogEditor({ catalog }: Props) {
 
         {/* Bloc infos */}
         <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] space-y-5">
-          <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm">
+          <h2 className="font-heading font-semibold text-text-primary text-sm">
             Informations
           </h2>
 
@@ -264,9 +264,9 @@ export default function CatalogEditor({ catalog }: Props) {
                   key={s}
                   type="button"
                   onClick={() => setStatus(s)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-[family-name:var(--font-roboto)] border transition-colors ${
+                  className={`flex-1 py-2 rounded-lg text-sm font-body border transition-colors ${
                     status === s
-                      ? "border-[#1A1A1A] bg-[#1A1A1A] text-white"
+                      ? "border-[#1A1A1A] bg-bg-dark text-text-inverse"
                       : "border-border bg-bg-primary text-[#6B7280] hover:border-[#9CA3AF]"
                   }`}
                 >
@@ -318,7 +318,7 @@ export default function CatalogEditor({ catalog }: Props) {
 
         {/* Bloc fond du catalogue : Couleur ou Photo */}
         <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] space-y-4">
-          <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm">
+          <h2 className="font-heading font-semibold text-text-primary text-sm">
             Fond du catalogue
           </h2>
 
@@ -327,7 +327,7 @@ export default function CatalogEditor({ catalog }: Props) {
             <button
               type="button"
               onClick={() => setCoverTab("color")}
-              className={`flex-1 py-1.5 text-xs font-[family-name:var(--font-roboto)] rounded-lg transition-colors ${
+              className={`flex-1 py-1.5 text-xs font-body rounded-lg transition-colors ${
                 coverTab === "color"
                   ? "bg-bg-primary shadow-sm text-text-primary font-medium"
                   : "text-[#6B7280] hover:text-text-primary"
@@ -338,7 +338,7 @@ export default function CatalogEditor({ catalog }: Props) {
             <button
               type="button"
               onClick={() => setCoverTab("photo")}
-              className={`flex-1 py-1.5 text-xs font-[family-name:var(--font-roboto)] rounded-lg transition-colors ${
+              className={`flex-1 py-1.5 text-xs font-body rounded-lg transition-colors ${
                 coverTab === "photo"
                   ? "bg-bg-primary shadow-sm text-text-primary font-medium"
                   : "text-[#6B7280] hover:text-text-primary"
@@ -350,7 +350,7 @@ export default function CatalogEditor({ catalog }: Props) {
 
           {coverTab === "color" ? (
             <>
-              <p className="text-xs text-[#6B7280] font-[family-name:var(--font-roboto)]">
+              <p className="text-xs text-[#6B7280] font-body">
                 Couleur utilisée pour l&apos;en-tête et les accents du catalogue.
               </p>
               <div className="flex flex-wrap gap-2">
@@ -388,7 +388,7 @@ export default function CatalogEditor({ catalog }: Props) {
             </>
           ) : (
             <>
-              <p className="text-xs text-[#6B7280] font-[family-name:var(--font-roboto)]">
+              <p className="text-xs text-[#6B7280] font-body">
                 La photo sera utilisée comme fond de l&apos;en-tête du catalogue partagé.
               </p>
               {coverImagePath ? (
@@ -413,15 +413,15 @@ export default function CatalogEditor({ catalog }: Props) {
                   className="w-full border-2 border-dashed border-border rounded-xl py-8 flex flex-col items-center gap-2 hover:border-[#9CA3AF] hover:bg-bg-secondary transition-colors disabled:opacity-50"
                 >
                   {uploadingCover ? (
-                    <span className="text-sm text-[#6B7280] font-[family-name:var(--font-roboto)]">Téléchargement…</span>
+                    <span className="text-sm text-[#6B7280] font-body">Téléchargement…</span>
                   ) : (
                     <>
-                      <svg className="w-8 h-8 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                           d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                       </svg>
-                      <span className="text-sm text-[#6B7280] font-[family-name:var(--font-roboto)]">Cliquer pour choisir une photo</span>
-                      <span className="text-xs text-[#9CA3AF]">JPG, PNG, WEBP · max 5 Mo</span>
+                      <span className="text-sm text-[#6B7280] font-body">Cliquer pour choisir une photo</span>
+                      <span className="text-xs text-text-muted">JPG, PNG, WEBP · max 5 Mo</span>
                     </>
                   )}
                 </button>
@@ -468,7 +468,7 @@ export default function CatalogEditor({ catalog }: Props) {
         {/* Produits sélectionnés */}
         <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm">
+            <h2 className="font-heading font-semibold text-text-primary text-sm">
               Produits sélectionnés
             </h2>
             <span className="text-xs px-2 py-1 rounded-full bg-[#F3F4F6] text-[#6B7280]">
@@ -479,12 +479,12 @@ export default function CatalogEditor({ catalog }: Props) {
           {selectedProducts.length === 0 ? (
             <div className="py-10 flex flex-col items-center text-center">
               <div className="w-14 h-14 rounded-xl bg-bg-secondary flex items-center justify-center mb-3">
-                <svg className="w-6 h-6 text-[#9CA3AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
                 </svg>
               </div>
-              <p className="text-sm text-[#6B7280] font-[family-name:var(--font-roboto)]">
+              <p className="text-sm text-[#6B7280] font-body">
                 Aucun produit. Recherchez des produits ci-dessous pour les ajouter.
               </p>
             </div>
@@ -533,10 +533,10 @@ export default function CatalogEditor({ catalog }: Props) {
 
                       {/* Infos */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-[family-name:var(--font-poppins)] font-medium text-text-primary truncate">
+                        <p className="text-sm font-heading font-medium text-text-primary truncate">
                           {row.product.name}
                         </p>
-                        <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                        <p className="text-xs text-text-muted font-body">
                           Réf. {row.product.reference}
                           {activeColor ? ` · ${activeColor.unitPrice.toFixed(2)} €` : ""}
                           {activeColor && (
@@ -549,7 +549,7 @@ export default function CatalogEditor({ catalog }: Props) {
                       <button
                         onClick={() => handleRemove(row.productId)}
                         disabled={isPending}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100 shrink-0"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100 shrink-0"
                         title="Retirer du catalogue"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -561,7 +561,7 @@ export default function CatalogEditor({ catalog }: Props) {
                     {/* ── Sélecteur couleur (si plusieurs couleurs) ────────── */}
                     {hasMultipleColors && (
                       <div className="mt-2.5 pt-2.5 border-t border-[#F3F4F6]">
-                        <p className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-1.5">
+                        <p className="text-[10px] text-text-muted font-body mb-1.5">
                           Couleur dans ce catalogue :
                         </p>
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -574,7 +574,7 @@ export default function CatalogEditor({ catalog }: Props) {
                             className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold transition-all ${
                               row.selectedColorId === null
                                 ? "border-[#1A1A1A] bg-bg-secondary text-text-primary scale-110"
-                                : "border-border bg-bg-secondary text-[#9CA3AF] hover:border-[#9CA3AF]"
+                                : "border-border bg-bg-secondary text-text-muted hover:border-[#9CA3AF]"
                             }`}
                           >
                             ★
@@ -608,7 +608,7 @@ export default function CatalogEditor({ catalog }: Props) {
                     {/* ── Sélecteur image (si la couleur active a plusieurs images) ── */}
                     {hasMultipleImages && (
                       <div className="mt-2.5 pt-2.5 border-t border-[#F3F4F6]">
-                        <p className="text-[10px] text-[#9CA3AF] font-[family-name:var(--font-roboto)] mb-1.5">
+                        <p className="text-[10px] text-text-muted font-body mb-1.5">
                           Image à afficher :
                         </p>
                         <div className="flex items-center gap-2 flex-wrap">
@@ -655,14 +655,14 @@ export default function CatalogEditor({ catalog }: Props) {
 
         {/* Recherche de produits à ajouter */}
         <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          <h2 className="font-[family-name:var(--font-poppins)] font-semibold text-text-primary text-sm mb-4">
+          <h2 className="font-heading font-semibold text-text-primary text-sm mb-4">
             Ajouter des produits
           </h2>
 
           {/* Barre de recherche — padding inline pour éviter la collision avec l'icône */}
           <div className="relative mb-4">
             <svg
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF] z-10"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted z-10"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -681,7 +681,7 @@ export default function CatalogEditor({ catalog }: Props) {
           </div>
 
           {filteredProducts.length === 0 ? (
-            <p className="text-center text-sm text-[#9CA3AF] py-6 font-[family-name:var(--font-roboto)]">
+            <p className="text-center text-sm text-text-muted py-6 font-body">
               {searchLoading ? "Recherche..." : search ? "Aucun produit trouve." : "Tapez pour rechercher un produit."}
             </p>
           ) : (
@@ -709,18 +709,18 @@ export default function CatalogEditor({ catalog }: Props) {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-[family-name:var(--font-poppins)] font-medium text-text-primary truncate">
+                      <p className="text-sm font-heading font-medium text-text-primary truncate">
                         {product.name}
                       </p>
-                      <p className="text-xs text-[#9CA3AF] font-[family-name:var(--font-roboto)]">
+                      <p className="text-xs text-text-muted font-body">
                         Réf. {product.reference}
                         {defaultVariant ? ` · ${defaultVariant.unitPrice.toFixed(2)} €` : ""}
                         {uniqueColors.length > 1 && (
-                          <span className="ml-1 text-[#9CA3AF]">· {uniqueColors.length} couleurs</span>
+                          <span className="ml-1 text-text-muted">· {uniqueColors.length} couleurs</span>
                         )}
                       </p>
                     </div>
-                    <div className="w-7 h-7 flex items-center justify-center rounded-lg text-[#9CA3AF] group-hover:text-[#22C55E] group-hover:bg-[#F0FDF4] transition-colors">
+                    <div className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted group-hover:text-[#22C55E] group-hover:bg-[#F0FDF4] transition-colors">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
                       </svg>

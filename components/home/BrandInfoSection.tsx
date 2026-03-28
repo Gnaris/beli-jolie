@@ -40,10 +40,10 @@ export default function BrandInfoSection() {
               <div className="w-14 h-14 rounded-xl bg-accent/5 border border-accent/15 flex items-center justify-center text-accent animate-zoom-fade stagger-2">
                 {block.icon}
               </div>
-              <h3 className="font-[family-name:var(--font-poppins)] text-base font-semibold text-text-primary animate-slide-up">
+              <h3 className="font-heading text-base font-semibold text-text-primary animate-slide-up">
                 {block.title}
               </h3>
-              <p className="text-sm text-text-muted leading-relaxed font-[family-name:var(--font-roboto)] max-w-[240px] animate-slide-right stagger-4">
+              <p className="text-sm text-text-muted leading-relaxed font-body max-w-[240px] animate-slide-right stagger-4">
                 {block.description}
               </p>
             </div>

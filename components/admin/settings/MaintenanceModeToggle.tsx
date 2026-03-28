@@ -49,10 +49,10 @@ export default function MaintenanceModeToggle({ currentValue, isAuto = false }: 
       {/* Toggle row */}
       <div className="flex items-center justify-between">
         <div>
-          <p className="font-[family-name:var(--font-roboto)] text-sm text-[#1A1A1A] font-medium">
+          <p className="font-body text-sm text-text-primary font-medium">
             {enabled ? "Maintenance activée" : "Site en ligne"}
           </p>
-          <p className="font-[family-name:var(--font-roboto)] text-xs text-[#6B6B6B] mt-0.5">
+          <p className="font-body text-xs text-text-secondary mt-0.5">
             {enabled
               ? "Seul l'administrateur peut accéder au site."
               : "Le site est accessible à tous les clients."}
@@ -71,7 +71,7 @@ export default function MaintenanceModeToggle({ currentValue, isAuto = false }: 
           role="switch"
         >
           <span
-            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+            className={`inline-block h-5 w-5 transform rounded-full bg-bg-primary shadow-sm transition-transform ${
               enabled ? "translate-x-6" : "translate-x-1"
             }`}
           />
@@ -83,7 +83,7 @@ export default function MaintenanceModeToggle({ currentValue, isAuto = false }: 
         <span
           className={`w-2 h-2 rounded-full ${enabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E]"}`}
         />
-        <span className="font-[family-name:var(--font-roboto)] text-sm text-[#6B6B6B]">
+        <span className="font-body text-sm text-text-secondary">
           {enabled
             ? isAuto
               ? "Maintenance automatique (erreurs détectées)"

@@ -154,16 +154,16 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
               onChange={(e) => setLocalQ(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Rechercher un produit, une référence..."
-              className="w-full pl-9 pr-3 py-2 border border-border bg-bg-primary text-sm font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors rounded-lg"
+              className="w-full pl-9 pr-3 py-2 border border-border bg-bg-primary text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors rounded-lg"
             />
           </div>
         </div>
 
         {/* Référence exacte */}
         <label
-          className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none shrink-0 text-xs font-[family-name:var(--font-roboto)] font-medium border rounded-lg transition-colors ${
+          className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none shrink-0 text-xs font-body font-medium border rounded-lg transition-colors ${
             localExactRef
-              ? "border-bg-dark bg-bg-dark text-white"
+              ? "border-bg-dark bg-bg-dark text-text-inverse"
               : "border-border bg-bg-primary text-text-secondary hover:border-bg-dark hover:text-text-primary"
           }`}
         >
@@ -187,7 +187,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
 
         {/* Quantité par page */}
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)] whitespace-nowrap">
+          <span className="text-xs text-text-muted font-body whitespace-nowrap">
             Afficher
           </span>
           <div className="flex items-center gap-1">
@@ -196,9 +196,9 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
                 key={n}
                 type="button"
                 onClick={() => navigate({ perPage: String(n) })}
-                className={`px-2.5 py-1 text-xs font-[family-name:var(--font-roboto)] border rounded-lg transition-colors ${
+                className={`px-2.5 py-1 text-xs font-body border rounded-lg transition-colors ${
                   String(n) === perPage
-                    ? "bg-bg-dark text-white border-bg-dark"
+                    ? "bg-bg-dark text-text-inverse border-bg-dark"
                     : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark hover:text-text-primary"
                 }`}
               >
@@ -213,18 +213,18 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
                 onChange={(e) => setCustomValue(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") applyCustom(); }}
                 placeholder={!isPreset ? perPage : "..."}
-                className={`w-14 px-2 py-1 text-xs border rounded-lg font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors ${
+                className={`w-14 px-2 py-1 text-xs border rounded-lg font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors ${
                   !isPreset ? "border-bg-dark bg-bg-secondary" : "border-border bg-bg-primary"
                 }`}
               />
               {customValue && (
-                <button type="button" onClick={applyCustom} className="px-2 py-1 text-xs bg-bg-dark text-white font-[family-name:var(--font-roboto)] rounded-lg hover:bg-neutral-800 transition-colors">
+                <button type="button" onClick={applyCustom} className="px-2 py-1 text-xs bg-bg-dark text-text-inverse font-body rounded-lg hover:bg-neutral-800 transition-colors">
                   OK
                 </button>
               )}
             </div>
           </div>
-          <span className="text-xs text-text-muted font-[family-name:var(--font-roboto)] whitespace-nowrap">
+          <span className="text-xs text-text-muted font-body whitespace-nowrap">
             / {totalCount}
           </span>
         </div>
@@ -234,7 +234,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
           <button
             type="button"
             onClick={resetAll}
-            className="text-xs text-text-muted hover:text-text-primary font-[family-name:var(--font-roboto)] underline shrink-0 transition-colors"
+            className="text-xs text-text-muted hover:text-text-primary font-body underline shrink-0 transition-colors"
           >
             Réinitialiser
           </button>
@@ -244,9 +244,9 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
         <button
           type="button"
           onClick={() => setFiltersOpen((v) => !v)}
-          className={`flex items-center gap-2 px-3 py-2 text-xs font-[family-name:var(--font-roboto)] font-medium border rounded-lg transition-colors shrink-0 ml-auto ${
+          className={`flex items-center gap-2 px-3 py-2 text-xs font-body font-medium border rounded-lg transition-colors shrink-0 ml-auto ${
             hasFilters
-              ? "border-bg-dark bg-bg-dark text-white"
+              ? "border-bg-dark bg-bg-dark text-text-inverse"
               : "border-border bg-bg-primary text-text-secondary hover:border-bg-dark hover:text-text-primary"
           }`}
         >
@@ -263,7 +263,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
             {/* Catégorie — applies immediately */}
             <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
                 Catégorie
               </label>
               <CustomSelect
@@ -279,7 +279,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
 
             {/* Statut — applies immediately */}
             <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
                 Statut
               </label>
               <CustomSelect
@@ -298,7 +298,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
 
             {/* Prix min — local state */}
             <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
                 Prix min (&euro;)
               </label>
               <input
@@ -309,13 +309,13 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
                 onChange={(e) => setLocalMinPrice(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="0"
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
+                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
               />
             </div>
 
             {/* Prix max — local state */}
             <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
                 Prix max (&euro;)
               </label>
               <input
@@ -326,13 +326,13 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
                 onChange={(e) => setLocalMaxPrice(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="&infin;"
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
+                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
               />
             </div>
 
             {/* Date du — local state */}
             <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
                 Créé depuis
               </label>
               <input
@@ -340,13 +340,13 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
                 value={localDateFrom}
                 onChange={(e) => setLocalDateFrom(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-[family-name:var(--font-roboto)] text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
+                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
               />
             </div>
 
             {/* Date au — local state */}
             <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
                 Créé avant
               </label>
               <input
@@ -354,13 +354,13 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
                 value={localDateTo}
                 onChange={(e) => setLocalDateTo(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-[family-name:var(--font-roboto)] text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
+                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary focus:outline-none focus:border-bg-dark transition-colors"
               />
             </div>
 
             {/* Stock ≤ X — local state */}
             <div>
-              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-[family-name:var(--font-roboto)] mb-1">
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
                 Stock &le;
               </label>
               <input
@@ -370,7 +370,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
                 onChange={(e) => setLocalStockBelow(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="ex: 5"
-                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-[family-name:var(--font-roboto)] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
+                className="w-full px-2.5 py-2 border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-bg-dark transition-colors"
               />
             </div>
           </div>
@@ -380,7 +380,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
             <button
               type="button"
               onClick={applyFilters}
-              className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm font-[family-name:var(--font-roboto)] font-medium rounded-lg transition-colors"
+              className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm font-body font-medium rounded-lg transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -389,7 +389,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
               Rechercher
             </button>
             {hasLocalChanges && (
-              <span className="text-[11px] text-text-muted font-[family-name:var(--font-roboto)] italic">
+              <span className="text-[11px] text-text-muted font-body italic">
                 Filtres modifiés — cliquez Rechercher ou appuyez Entrée
               </span>
             )}

@@ -27,7 +27,7 @@ export default async function CompositionsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <div className="flex items-center gap-2 text-sm font-[family-name:var(--font-roboto)] text-text-muted mb-1">
+          <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-1">
             <Link href="/admin" className="hover:text-text-primary transition-colors">Admin</Link>
             <span>/</span>
             <span className="text-text-secondary">Compositions</span>

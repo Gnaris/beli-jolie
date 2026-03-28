@@ -97,7 +97,7 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: strin
       style={{ animation: exiting ? undefined : "toastSlideIn 0.35s cubic-bezier(0.16,1,0.3,1)" }}
     >
       <div
-        className="bg-white rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.12)] overflow-hidden"
+        className="bg-bg-primary rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.12)] overflow-hidden"
         style={{ borderLeft: `3px solid ${c.borderColor}` }}
       >
         <div className="flex items-start gap-3 px-4 py-3">
@@ -123,11 +123,11 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: strin
 
           {/* Content */}
           <div className="flex-1 min-w-0">
-            <p className="font-[family-name:var(--font-poppins)] text-sm font-semibold text-[#1A1A1A] leading-tight">
+            <p className="font-heading text-sm font-semibold text-text-primary leading-tight">
               {item.title}
             </p>
             {item.message && (
-              <p className="text-xs font-[family-name:var(--font-roboto)] text-[#6B6B6B] mt-0.5 leading-relaxed">
+              <p className="text-xs font-body text-text-secondary mt-0.5 leading-relaxed">
                 {item.message}
               </p>
             )}
@@ -136,7 +136,7 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: strin
           {/* Close */}
           <button
             onClick={dismiss}
-            className="text-[#D1D5DB] hover:text-[#1A1A1A] transition-colors shrink-0 mt-0.5 p-0.5 rounded-md hover:bg-[#F7F7F8]"
+            className="text-[#D1D5DB] hover:text-text-primary transition-colors shrink-0 mt-0.5 p-0.5 rounded-md hover:bg-bg-secondary"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

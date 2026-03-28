@@ -278,7 +278,7 @@ export default function DraftProductsViewer({ draftId, initialRows, successCount
           {successCount != null && successCount > 0 && (
             <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
               <span className="text-green-600 text-sm font-semibold">✓</span>
-              <span className="text-sm text-green-700 font-medium font-[family-name:var(--font-roboto)]">
+              <span className="text-sm text-green-700 font-medium font-body">
                 {successCount} produit{successCount > 1 ? "s" : ""} importé{successCount > 1 ? "s" : ""} avec succès
               </span>
             </div>
@@ -286,14 +286,14 @@ export default function DraftProductsViewer({ draftId, initialRows, successCount
           {rows.length > 0 && (
             <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
               <span className="text-red-600 text-sm font-semibold">✕</span>
-              <span className="text-sm text-red-700 font-medium font-[family-name:var(--font-roboto)]">
+              <span className="text-sm text-red-700 font-medium font-body">
                 {rows.length} erreur{rows.length > 1 ? "s" : ""} à corriger
               </span>
             </div>
           )}
           {totalCount != null && (
-            <div className="flex items-center gap-2 bg-[#F7F7F8] border border-[#E5E5E5] rounded-xl px-4 py-2.5">
-              <span className="text-sm text-[#666] font-medium font-[family-name:var(--font-roboto)]">
+            <div className="flex items-center gap-2 bg-bg-secondary border border-border rounded-xl px-4 py-2.5">
+              <span className="text-sm text-[#666] font-medium font-body">
                 Total : {totalCount} ligne{totalCount > 1 ? "s" : ""}
               </span>
             </div>
@@ -306,7 +306,7 @@ export default function DraftProductsViewer({ draftId, initialRows, successCount
       )}
 
       {!showSummary && (
-        <p className="text-sm text-[#666] font-[family-name:var(--font-roboto)]">
+        <p className="text-sm text-[#666] font-body">
           {rows.length} ligne(s) en erreur. Corrigez ou utilisez les boutons de résolution rapide.
         </p>
       )}
@@ -318,12 +318,12 @@ export default function DraftProductsViewer({ draftId, initialRows, successCount
           const isFixingColorHere = fixingColor?.rowIndex === i;
 
           return (
-            <div key={i} className="bg-white border border-red-200 rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
+            <div key={i} className="bg-bg-primary border border-red-200 rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
               {/* Header */}
               <div className="bg-red-50 border-b border-red-200 px-6 py-3 flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-mono bg-red-100 text-red-700 px-2 py-0.5 rounded">Ligne {row._rowIndex}</span>
-                  <span className="font-medium text-[#1A1A1A] text-sm">
+                  <span className="font-medium text-text-primary text-sm">
                     {row.reference || "(sans référence)"} — {row.name || "(sans nom)"}
                   </span>
                 </div>
@@ -332,7 +332,7 @@ export default function DraftProductsViewer({ draftId, initialRows, successCount
                     <>
                       <button
                         onClick={() => { setEditing(i); setEditValues({ ...row }); setFeedback(null); }}
-                        className="text-xs px-3 py-1.5 border border-[#E5E5E5] bg-white rounded-lg hover:bg-[#F7F7F8] transition-colors"
+                        className="text-xs px-3 py-1.5 border border-border bg-bg-primary rounded-lg hover:bg-bg-secondary transition-colors"
                       >
                         ✏️ Modifier
                       </button>
@@ -406,7 +406,7 @@ export default function DraftProductsViewer({ draftId, initialRows, successCount
                       {/* Color chips: select from existing colors */}
                       {errType === "missing_color" && row.availableColors && row.availableColors.length > 0 && (
                         <div className="ml-6 mt-1">
-                          <p className="text-xs text-[#666] mb-1.5 font-[family-name:var(--font-roboto)]">
+                          <p className="text-xs text-[#666] mb-1.5 font-body">
                             Ou sélectionner une couleur existante :
                           </p>
                           <div className="flex flex-wrap gap-1.5">
@@ -415,14 +415,14 @@ export default function DraftProductsViewer({ draftId, initialRows, successCount
                                 key={c.id}
                                 onClick={() => fixSelectExistingColor(i, c.name)}
                                 disabled={isLoading}
-                                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-[#E5E5E5] bg-white hover:bg-[#F7F7F8] transition-colors font-medium disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-border bg-bg-primary hover:bg-bg-secondary transition-colors font-medium disabled:opacity-50"
                                 title={`${c.name} (${c.hex})`}
                               >
                                 <span
-                                  className="w-3.5 h-3.5 rounded-full border border-[#E5E5E5] shrink-0"
+                                  className="w-3.5 h-3.5 rounded-full border border-border shrink-0"
                                   style={{ backgroundColor: c.hex }}
                                 />
-                                <span className="text-[#1A1A1A]">{c.name}</span>
+                                <span className="text-text-primary">{c.name}</span>
                               </button>
                             ))}
                           </div>
@@ -447,7 +447,7 @@ export default function DraftProductsViewer({ draftId, initialRows, successCount
                           type="color"
                           value={fixColorHex}
                           onChange={(e) => setFixColorHex(e.target.value)}
-                          className="w-10 h-9 rounded cursor-pointer border border-[#E5E5E5]"
+                          className="w-10 h-9 rounded cursor-pointer border border-border"
                         />
                         <input
                           className="field-input w-28 font-mono text-sm"
@@ -556,7 +556,7 @@ function Field({ label, value }: { label: string; value: string | undefined | nu
   return (
     <div>
       <span className="text-xs text-[#999]">{label}</span>
-      <p className="text-sm text-[#1A1A1A] font-medium truncate">{value}</p>
+      <p className="text-sm text-text-primary font-medium truncate">{value}</p>
     </div>
   );
 }
