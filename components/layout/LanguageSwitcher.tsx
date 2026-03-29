@@ -55,9 +55,8 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
         {isPending ? (
           <span className="w-4 h-4 border-2 border-border border-t-text-primary rounded-full animate-spin" />
         ) : (
-          <span className="text-base leading-none">{current.flag}</span>
+          <span className="text-xs font-semibold text-text-secondary">{current.code.toUpperCase()}</span>
         )}
-        <span className="hidden sm:inline text-xs font-semibold text-[#555]">{current.code.toUpperCase()}</span>
         <svg
           className={`w-3 h-3 text-[#999] transition-transform ${open ? "rotate-180" : ""}`}
           fill="none"

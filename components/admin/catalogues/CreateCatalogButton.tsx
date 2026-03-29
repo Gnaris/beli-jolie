@@ -3,21 +3,28 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createCatalog } from "@/app/actions/admin/catalogs";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 export default function CreateCatalogButton() {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+    showLoading();
     startTransition(async () => {
-      const catalog = await createCatalog(title.trim());
-      setOpen(false);
-      setTitle("");
-      router.push(`/admin/catalogues/${catalog.id}`);
+      try {
+        const catalog = await createCatalog(title.trim());
+        setOpen(false);
+        setTitle("");
+        router.push(`/admin/catalogues/${catalog.id}`);
+      } finally {
+        hideLoading();
+      }
     });
   };
 

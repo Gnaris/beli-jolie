@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getCachedHasPfsConfig } from "@/lib/cached-data";
+import { getCachedPfsEnabled } from "@/lib/cached-data";
 import PfsReviewGrid from "@/components/pfs/PfsReviewGrid";
 
 export default async function PfsResumePage({ params }: { params: Promise<{ id: string }> }) {
-  const hasPfsConfig = await getCachedHasPfsConfig();
-  if (!hasPfsConfig) redirect("/admin/pfs");
+  const pfsEnabled = await getCachedPfsEnabled();
+  if (!pfsEnabled) redirect("/admin/pfs");
   const { id } = await params;
 
   return (

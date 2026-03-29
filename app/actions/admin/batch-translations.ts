@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { translateText, type Locale } from "@/lib/translate";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -129,4 +130,48 @@ export async function batchUpdateTranslations(
       revalidateTag("seasons", "default");
       break;
   }
+}
+
+/**
+ * Batch-translate products: saves translated names (from client)
+ * AND translates+saves descriptions server-side.
+ */
+export async function batchTranslateProducts(
+  items: { id: string; translations: Record<string, string> }[]
+) {
+  await requireAdmin();
+
+  const TARGET_LOCALES: Locale[] = ["en", "ar", "zh", "de", "es", "it"];
+
+  for (const item of items) {
+    // Fetch the product description
+    const product = await prisma.product.findUnique({
+      where: { id: item.id },
+      select: { description: true },
+    });
+
+    for (const locale of TARGET_LOCALES) {
+      const translatedName = item.translations[locale]?.trim();
+      if (!translatedName) continue;
+
+      // Translate description server-side
+      let translatedDesc = "";
+      if (product?.description?.trim()) {
+        try {
+          translatedDesc = await translateText(product.description, "fr", locale as Locale);
+        } catch {
+          // Silent — save name even if description fails
+        }
+      }
+
+      await prisma.productTranslation.upsert({
+        where: { productId_locale: { productId: item.id, locale } },
+        update: { name: translatedName, description: translatedDesc },
+        create: { productId: item.id, locale, name: translatedName, description: translatedDesc },
+      });
+    }
+  }
+
+  revalidatePath("/admin/produits");
+  revalidatePath("/produits");
 }

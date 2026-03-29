@@ -36,7 +36,7 @@ export async function createCategory(formData: FormData) {
   const category = await prisma.category.create({
     data: { name, slug: toSlug(name) },
   });
-  autoTranslateCategory(category.id, name);
+  await autoTranslateCategory(category.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
   revalidateTag("sizes", "default");
@@ -94,7 +94,7 @@ export async function createSubCategory(formData: FormData) {
   const subCategory = await prisma.subCategory.create({
     data: { name, slug: toSlug(name), categoryId },
   });
-  autoTranslateSubCategory(subCategory.id, name);
+  await autoTranslateSubCategory(subCategory.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
 }

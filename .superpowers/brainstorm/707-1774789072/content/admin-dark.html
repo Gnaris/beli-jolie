@@ -1,0 +1,104 @@
+<h2>Admin Dark Mode — Claymorphism</h2>
+<p class="subtitle">Comment adapter le clay au dark mode admin ? Le clay classique est fait pour les fonds clairs, il faut l'adapter.</p>
+
+<div class="cards">
+
+  <!-- Option A - Dark clay with blue glow -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px; background: #0F1117; min-height:220px;">
+      <!-- Sidebar mock -->
+      <div style="display:flex; gap:12px; height:190px;">
+        <div style="width:52px; background:#181B25; border-radius:14px; padding:8px 6px; display:flex; flex-direction:column; align-items:center; gap:8px; box-shadow: 4px 4px 12px rgba(0,0,0,0.4), -2px -2px 8px rgba(30,40,60,0.3); border:1px solid rgba(255,255,255,0.04);">
+          <div style="width:32px;height:32px;border-radius:10px;background:#1A56DB;box-shadow: 0 0 12px rgba(26,86,219,0.4), 3px 3px 8px rgba(0,0,0,0.3);"></div>
+          <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.05);box-shadow:inset 2px 2px 4px rgba(0,0,0,0.3), inset -1px -1px 3px rgba(255,255,255,0.03);"></div>
+          <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.05);box-shadow:inset 2px 2px 4px rgba(0,0,0,0.3), inset -1px -1px 3px rgba(255,255,255,0.03);"></div>
+          <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.05);box-shadow:inset 2px 2px 4px rgba(0,0,0,0.3), inset -1px -1px 3px rgba(255,255,255,0.03);"></div>
+        </div>
+        <!-- Main content -->
+        <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+          <!-- Stat cards row -->
+          <div style="display:flex; gap:8px;">
+            <div style="flex:1; background:#181B25; border-radius:14px; padding:10px; box-shadow: 6px 6px 16px rgba(0,0,0,0.4), -3px -3px 10px rgba(30,40,60,0.2); border:1px solid rgba(255,255,255,0.04);">
+              <div style="height:5px;width:40%;border-radius:3px;background:rgba(255,255,255,0.15);margin-bottom:6px;"></div>
+              <div style="font-size:16px;font-weight:700;color:#3F83F8;">248</div>
+            </div>
+            <div style="flex:1; background:#181B25; border-radius:14px; padding:10px; box-shadow: 6px 6px 16px rgba(0,0,0,0.4), -3px -3px 10px rgba(30,40,60,0.2); border:1px solid rgba(255,255,255,0.04);">
+              <div style="height:5px;width:50%;border-radius:3px;background:rgba(255,255,255,0.15);margin-bottom:6px;"></div>
+              <div style="font-size:16px;font-weight:700;color:#22C55E;">12,4k€</div>
+            </div>
+          </div>
+          <!-- Table mock -->
+          <div style="flex:1; background:#181B25; border-radius:14px; padding:10px; box-shadow: 6px 6px 16px rgba(0,0,0,0.4), -3px -3px 10px rgba(30,40,60,0.2); border:1px solid rgba(255,255,255,0.04);">
+            <div style="display:flex; gap:6px; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.06);">
+              <div style="height:5px;width:25%;border-radius:2px;background:rgba(255,255,255,0.2);"></div>
+              <div style="height:5px;width:20%;border-radius:2px;background:rgba(255,255,255,0.2);"></div>
+              <div style="height:5px;width:15%;border-radius:2px;background:rgba(255,255,255,0.2);"></div>
+            </div>
+            <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+              <div style="height:4px;width:25%;border-radius:2px;background:rgba(255,255,255,0.08);"></div>
+              <div style="height:4px;width:20%;border-radius:2px;background:rgba(255,255,255,0.08);"></div>
+              <div style="padding:2px 8px;border-radius:6px;background:rgba(34,197,94,0.15);font-size:8px;color:#86EFAC;">OK</div>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <div style="height:4px;width:25%;border-radius:2px;background:rgba(255,255,255,0.08);"></div>
+              <div style="height:4px;width:20%;border-radius:2px;background:rgba(255,255,255,0.08);"></div>
+              <div style="padding:2px 8px;border-radius:6px;background:rgba(245,158,11,0.15);font-size:8px;color:#FDE68A;">Att.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Dark Glow ⭐</h3>
+      <p>Fond très sombre (#0F1117), cartes légèrement plus claires (#181B25). Ombres profondes + léger glow bleu sur les éléments actifs. <strong>Élégant, mon recommandé.</strong></p>
+    </div>
+  </div>
+
+  <!-- Option B - Dark with colored surfaces -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px; background: #111827; min-height:220px;">
+      <div style="display:flex; gap:12px; height:190px;">
+        <div style="width:52px; background:#1E293B; border-radius:14px; padding:8px 6px; display:flex; flex-direction:column; align-items:center; gap:8px; box-shadow: 4px 4px 10px rgba(0,0,0,0.3), -2px -2px 6px rgba(50,60,80,0.15); border:1px solid rgba(255,255,255,0.06);">
+          <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg, #1A56DB, #3F83F8);box-shadow: 0 0 8px rgba(26,86,219,0.3);"></div>
+          <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.06);"></div>
+          <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.06);"></div>
+          <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.06);"></div>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+          <div style="display:flex; gap:8px;">
+            <div style="flex:1; background:#1E293B; border-radius:14px; padding:10px; box-shadow: 4px 4px 10px rgba(0,0,0,0.3), -2px -2px 6px rgba(50,60,80,0.12); border:1px solid rgba(255,255,255,0.06);">
+              <div style="height:5px;width:40%;border-radius:3px;background:rgba(255,255,255,0.2);margin-bottom:6px;"></div>
+              <div style="font-size:16px;font-weight:700;color:#93C5FD;">248</div>
+            </div>
+            <div style="flex:1; background:#1E293B; border-radius:14px; padding:10px; box-shadow: 4px 4px 10px rgba(0,0,0,0.3), -2px -2px 6px rgba(50,60,80,0.12); border:1px solid rgba(255,255,255,0.06);">
+              <div style="height:5px;width:50%;border-radius:3px;background:rgba(255,255,255,0.2);margin-bottom:6px;"></div>
+              <div style="font-size:16px;font-weight:700;color:#86EFAC;">12,4k€</div>
+            </div>
+          </div>
+          <div style="flex:1; background:#1E293B; border-radius:14px; padding:10px; box-shadow: 4px 4px 10px rgba(0,0,0,0.3), -2px -2px 6px rgba(50,60,80,0.12); border:1px solid rgba(255,255,255,0.06);">
+            <div style="display:flex; gap:6px; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.08);">
+              <div style="height:5px;width:25%;border-radius:2px;background:rgba(255,255,255,0.25);"></div>
+              <div style="height:5px;width:20%;border-radius:2px;background:rgba(255,255,255,0.25);"></div>
+              <div style="height:5px;width:15%;border-radius:2px;background:rgba(255,255,255,0.25);"></div>
+            </div>
+            <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+              <div style="height:4px;width:25%;border-radius:2px;background:rgba(255,255,255,0.1);"></div>
+              <div style="height:4px;width:20%;border-radius:2px;background:rgba(255,255,255,0.1);"></div>
+              <div style="padding:2px 8px;border-radius:6px;background:rgba(34,197,94,0.2);font-size:8px;color:#86EFAC;">OK</div>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <div style="height:4px;width:25%;border-radius:2px;background:rgba(255,255,255,0.1);"></div>
+              <div style="height:4px;width:20%;border-radius:2px;background:rgba(255,255,255,0.1);"></div>
+              <div style="padding:2px 8px;border-radius:6px;background:rgba(245,158,11,0.2);font-size:8px;color:#FDE68A;">Att.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Slate Classique</h3>
+      <p>Fond slate (#111827), cartes slate clair (#1E293B). Approche Tailwind UI classique avec ombres douces. <strong>Plus conventionnel, lisible.</strong></p>
+    </div>
+  </div>
+
+</div>

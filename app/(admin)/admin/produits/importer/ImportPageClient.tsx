@@ -74,10 +74,10 @@ export default function ImportPageClient({ hasPfsConfig }: { hasPfsConfig: boole
       {/* Marketplaces */}
       <div className="mt-10">
         <h2 className="text-lg font-semibold text-text-primary font-heading mb-1">
-          Marketplaces
+          Importer des produits
         </h2>
         <p className="text-sm text-text-muted font-body mb-4">
-          Synchronisez vos produits avec les plateformes externes
+          Importez vos produits depuis les plateformes externes
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Paris Fashion Shop */}
@@ -94,7 +94,7 @@ export default function ImportPageClient({ hasPfsConfig }: { hasPfsConfig: boole
                 </div>
                 <span className="font-medium text-sm text-text-primary font-body">Paris Fashion Shop</span>
               </div>
-              <p className="text-xs text-text-muted font-body">Sync bidirectionnelle PFS</p>
+              <p className="text-xs text-text-muted font-body">Importé depuis PFS</p>
             </Link>
           ) : (
             <div className="bg-bg-primary border border-border rounded-2xl p-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)] opacity-60 cursor-not-allowed">
@@ -107,7 +107,7 @@ export default function ImportPageClient({ hasPfsConfig }: { hasPfsConfig: boole
                 <span className="font-medium text-sm text-text-muted font-body">Paris Fashion Shop</span>
                 <span className="badge badge-neutral text-[10px] ml-auto">Non activé</span>
               </div>
-              <p className="text-xs text-text-muted font-body">Sync bidirectionnelle PFS</p>
+              <p className="text-xs text-text-muted font-body">Importé depuis PFS</p>
             </div>
           )}
 

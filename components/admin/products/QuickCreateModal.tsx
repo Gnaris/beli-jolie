@@ -14,6 +14,7 @@ import {
 } from "@/app/actions/admin/quick-create";
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
+import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
 import MarketplaceMappingSection, { type MappableEntityType } from "@/components/admin/MarketplaceMappingSection";
 
 export type QuickCreateType = "category" | "subcategory" | "composition" | "color" | "tag" | "country" | "season";
@@ -29,6 +30,8 @@ interface QuickCreateModalProps {
   defaultPfsCategoryId?: string;
   defaultPfsCategoryGender?: string;
   defaultPfsCategoryFamilyId?: string;
+  defaultHex?: string | null;
+  pfsEnabled?: boolean;
   /** PFS refs already linked to other seasons — shown strikethrough + disabled */
   usedPfsRefs?: string[];
   /** Edit mode — if set, the modal edits instead of creating */
@@ -89,9 +92,10 @@ const RTL = ["ar"];
 export default function QuickCreateModal({
   type, open, onClose, onCreated, categoryId, defaultName, defaultPfsRef,
   defaultPfsCategoryId, defaultPfsCategoryGender, defaultPfsCategoryFamilyId,
-  usedPfsRefs, editMode,
+  defaultHex, usedPfsRefs, editMode, pfsEnabled = true,
 }: QuickCreateModalProps) {
   const isEdit = !!editMode;
+  const autoTranslateEnabled = useAutoTranslateEnabled();
   const [mounted, setMounted] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const [hex, setHex] = useState("#9CA3AF");
@@ -127,7 +131,7 @@ export default function QuickCreateModal({
         setPfsCategoryFamilyId(editMode.pfsCategoryFamilyId ?? null);
       } else {
         setNames(defaultName ? { fr: defaultName } : {});
-        setHex("#9CA3AF");
+        setHex(defaultHex || "#9CA3AF");
         setColorMode("hex");
         setPatternFile(null);
         setPatternPreview(null);
@@ -266,7 +270,7 @@ export default function QuickCreateModal({
   if (!mounted || !open) return null;
 
   const frName = names["fr"]?.trim() ?? "";
-  const hasMappableType = MAPPABLE_TYPES.has(type);
+  const hasMappableType = pfsEnabled && MAPPABLE_TYPES.has(type);
 
   return createPortal(
     <div
@@ -302,11 +306,20 @@ export default function QuickCreateModal({
                 <p className="text-[11px] text-text-muted font-body uppercase tracking-wide">
                   Nom & traductions
                 </p>
-                <TranslateButton
-                  text={frName}
-                  onTranslated={(t) => setNames((prev) => ({ ...prev, ...t }))}
-                  disabled={!frName}
-                />
+                {autoTranslateEnabled && !isEdit ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium font-body text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Traduction auto activée
+                  </span>
+                ) : (
+                  <TranslateButton
+                    text={frName}
+                    onTranslated={(t) => setNames((prev) => ({ ...prev, ...t }))}
+                    disabled={!frName}
+                  />
+                )}
               </div>
 
               {/* FR field — prominent */}
@@ -421,7 +434,7 @@ export default function QuickCreateModal({
 
               <div className="w-[300px] shrink-0 p-6 overflow-y-auto">
                 <p className="text-[11px] text-text-muted font-body uppercase tracking-wide mb-4">
-                  Correspondances Marketplaces <span className="text-[#EF4444] font-semibold">*</span>
+                  Correspondances Marketplaces
                 </p>
 
                 {type === "category" ? (

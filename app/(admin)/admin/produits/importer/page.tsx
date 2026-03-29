@@ -1,7 +1,7 @@
-import { getCachedHasPfsConfig } from "@/lib/cached-data";
+import { getCachedPfsEnabled } from "@/lib/cached-data";
 import ImportPageClient from "./ImportPageClient";
 
 export default async function ImporterPage() {
-  const hasPfsConfig = await getCachedHasPfsConfig();
-  return <ImportPageClient hasPfsConfig={hasPfsConfig} />;
+  const pfsEnabled = await getCachedPfsEnabled();
+  return <ImportPageClient hasPfsConfig={pfsEnabled} />;
 }

@@ -13,7 +13,7 @@ export default function HeroBanner({ bannerImage, shopName }: HeroBannerProps) {
   const t = useTranslations("home");
 
   return (
-    <section className="bg-bg-dark relative overflow-hidden min-h-[320px] sm:min-h-[450px] md:min-h-[600px] flex items-end">
+    <section className="bg-bg-dark relative overflow-hidden min-h-[320px] sm:min-h-[450px] md:min-h-[600px] flex items-center">
       {/* Background */}
       <div className="absolute inset-0">
         {bannerImage ? (
@@ -29,14 +29,14 @@ export default function HeroBanner({ bannerImage, shopName }: HeroBannerProps) {
           <div className="w-full h-full bg-bg-dark" />
         )}
         {/* Gradient overlay — always present for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/10" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0F172A]/85 via-[#0F172A]/35 to-[#0F172A]/10" />
       </div>
 
       {/* Decorative accent line */}
       <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent opacity-60" />
 
       {/* Content overlay */}
-      <div className="relative z-10 container-site pb-10 sm:pb-14 md:pb-20 pt-24 sm:pt-32">
+      <div className="relative z-10 container-site pb-16 sm:pb-20 md:pb-28 pt-24 sm:pt-28">
         <div className="max-w-xl animate-slide-up">
           {/* Badge */}
           <span className="inline-block text-[10px] sm:text-xs font-body font-medium tracking-[0.15em] uppercase text-accent border border-accent/30 bg-accent/10 px-3 py-1 rounded-full mb-4 backdrop-blur-sm">
@@ -59,7 +59,7 @@ export default function HeroBanner({ bannerImage, shopName }: HeroBannerProps) {
           <div className="flex flex-wrap gap-3">
             <Link
               href="/produits"
-              className="btn-primary !bg-accent !border-accent hover:!bg-accent-dark hover:!border-accent-dark text-bg-dark font-semibold text-sm px-6 py-2.5 rounded-lg transition-all duration-200"
+              className="btn-primary text-white font-semibold text-sm px-6 py-2.5 rounded-xl"
             >
               {t("heroCta")} &rarr;
             </Link>

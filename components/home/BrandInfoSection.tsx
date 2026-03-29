@@ -35,7 +35,7 @@ export default function BrandInfoSection() {
           {blocks.map((block, i) => (
             <div
               key={BRAND_KEYS[i]}
-              className="group bg-bg-primary border border-border rounded-2xl p-8 text-center flex flex-col items-center gap-4 transition-all duration-300 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-1 hover:border-accent/30"
+              className="group bg-bg-primary border border-border rounded-[20px] p-8 text-center flex flex-col items-center gap-4 transition-all duration-300 shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)] hover:shadow-[10px_10px_24px_rgba(26,86,219,0.12),-8px_-8px_20px_rgba(255,255,255,0.9)] hover:-translate-y-1 hover:border-accent/30"
             >
               <div className="w-14 h-14 rounded-xl bg-accent/5 border border-accent/15 flex items-center justify-center text-accent animate-zoom-fade stagger-2">
                 {block.icon}

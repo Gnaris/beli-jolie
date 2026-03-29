@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { deleteCatalog } from "@/app/actions/admin/catalogs";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   id: string;
@@ -11,12 +12,13 @@ interface Props {
 export default function DeleteCatalogButton({ id, title }: Props) {
   const [confirm, setConfirm] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   if (confirm) {
     return (
       <div className="flex items-center gap-1">
         <button
-          onClick={() => startTransition(() => deleteCatalog(id))}
+          onClick={() => { showLoading(); startTransition(async () => { try { await deleteCatalog(id); } finally { hideLoading(); } }); }}
           disabled={isPending}
           className="text-xs px-2 py-1 rounded bg-[#EF4444] text-white hover:bg-[#DC2626] transition-colors disabled:opacity-50"
         >

@@ -9,7 +9,7 @@ export default function CtaBanner() {
   const { data: session } = useSession();
 
   return (
-    <section className="relative overflow-hidden bg-bg-dark py-16 sm:py-20">
+    <section className="relative overflow-hidden bg-[#0F172A] py-16 sm:py-20">
       {/* Decorative elements */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />

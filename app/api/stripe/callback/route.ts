@@ -38,6 +38,13 @@ export async function GET(req: Request) {
       );
     }
 
+    // Ajouter la commission par défaut si pas encore définie
+    if (!account.metadata?.commission_rate) {
+      await stripe.accounts.update(accountId, {
+        metadata: { commission_rate: "0.25" },
+      });
+    }
+
     // Stocker/mettre à jour l'account ID (chiffré)
     await prisma.siteConfig.upsert({
       where: { key: "stripe_connect_account_id" },
@@ -47,9 +54,9 @@ export async function GET(req: Request) {
 
     invalidateStripeCache();
     revalidatePath("/admin/parametres");
+    revalidatePath("/panier");
+    revalidatePath("/panier/commande");
     revalidateTag("site-config", "default");
-
-    console.log(`[Stripe Connect] Onboarding finalisé: ${accountId}`);
 
     return NextResponse.redirect(
       `${baseUrl}/admin/parametres?tab=paiement&connected=true`

@@ -1,11 +1,11 @@
-import { getCachedHasPfsConfig } from "@/lib/cached-data";
+import { getCachedPfsEnabled } from "@/lib/cached-data";
 import Link from "next/link";
 import PfsSyncPageClient from "./PfsSyncPageClient";
 
 export default async function PfsSyncPage() {
-  const hasPfsConfig = await getCachedHasPfsConfig();
+  const pfsEnabled = await getCachedPfsEnabled();
 
-  if (!hasPfsConfig) {
+  if (!pfsEnabled) {
     return (
       <div className="space-y-6 animate-fadeIn">
         <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-2">

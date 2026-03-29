@@ -86,7 +86,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
 
       {/* Slide-in drawer */}
       <nav
-        className={`fixed top-0 left-0 h-full w-[calc(100%-3rem)] max-w-[280px] bg-bg-primary border-r border-border z-50 transform transition-transform duration-200 ease-out lg:hidden ${
+        className={`fixed top-0 left-0 h-full w-[calc(100%-3rem)] max-w-[280px] bg-bg-primary/95 backdrop-blur-xl border-r border-border rounded-r-2xl shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)] z-50 transform transition-transform duration-200 ease-out lg:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -111,7 +111,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
         <div className="flex-1 px-3 py-4 overflow-y-auto">
           {NAV_SECTIONS.map((section, sectionIdx) => (
             <div key={section.title}>
-              <p className={`text-[10px] uppercase tracking-widest text-[#999] font-medium px-3 mb-2 ${sectionIdx === 0 ? "mt-1" : "mt-5"}`}>
+              <p className={`text-[10px] uppercase tracking-widest text-text-muted font-medium px-3 mb-2 ${sectionIdx === 0 ? "mt-1" : "mt-5"}`}>
                 {section.title}
               </p>
               <div className="space-y-0.5">
@@ -138,7 +138,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                       key={item.href}
                       href={item.href}
                       onClick={() => setOpen(false)}
-                      className="flex items-center gap-3 px-3 py-2.5 text-sm font-body text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors group"
+                      className="flex items-center gap-3 px-3 py-2.5 text-sm font-body text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded-[10px] transition-all group"
                     >
                       <svg className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />

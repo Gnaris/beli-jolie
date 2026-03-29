@@ -4,6 +4,15 @@ import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  autoTranslateCategory,
+  autoTranslateSubCategory,
+  autoTranslateComposition,
+  autoTranslateColor,
+  autoTranslateTag,
+  autoTranslateManufacturingCountry,
+  autoTranslateSeason,
+} from "@/lib/auto-translate";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -32,6 +41,13 @@ function buildTranslations(names: Record<string, string>, idKey: string, idValue
     }));
 }
 
+/** Get locales that were manually filled (non-fr, non-empty) */
+function getManualLocales(names: Record<string, string>): string[] {
+  return Object.entries(names)
+    .filter(([locale, val]) => locale !== "fr" && val?.trim())
+    .map(([locale]) => locale);
+}
+
 export async function createColorQuick(
   names: Record<string, string>,
   hex: string | null,
@@ -48,10 +64,8 @@ export async function createColorQuick(
   });
   if (existing) throw new Error(`La couleur "${frName}" existe déjà.`);
 
-  if (!pfsColorRef?.trim()) throw new Error("La correspondance PFS est requise.");
-
   const color = await prisma.color.create({
-    data: { name: frName, hex: hex || null, patternImage: patternImage || null, pfsColorRef: pfsColorRef.trim() },
+    data: { name: frName, hex: hex || null, patternImage: patternImage || null, pfsColorRef: pfsColorRef?.trim() || null },
     select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
   });
 
@@ -62,6 +76,7 @@ export async function createColorQuick(
       skipDuplicates: true,
     });
   }
+  await autoTranslateColor(color.id, frName, getManualLocales(names));
 
   revalidatePath("/admin/produits");
   revalidatePath("/admin/produits/nouveau");
@@ -84,13 +99,11 @@ export async function createCategoryQuick(
   });
   if (existing) throw new Error(`La catégorie "${frName}" existe déjà.`);
 
-  if (!pfsCategoryId?.trim()) throw new Error("La correspondance PFS est requise.");
-
   const category = await prisma.category.create({
     data: {
       name: frName,
       slug: toSlug(frName),
-      pfsCategoryId: pfsCategoryId.trim(),
+      pfsCategoryId: pfsCategoryId?.trim() || null,
       pfsGender: pfsGender || null,
       pfsFamilyId: pfsFamilyId || null,
     },
@@ -104,6 +117,7 @@ export async function createCategoryQuick(
       skipDuplicates: true,
     });
   }
+  await autoTranslateCategory(category.id, frName, getManualLocales(names));
 
   revalidatePath("/admin/produits");
   return category;
@@ -123,10 +137,8 @@ export async function createCompositionQuick(
   });
   if (existing) throw new Error(`La composition "${frName}" existe déjà.`);
 
-  if (!pfsCompositionRef?.trim()) throw new Error("La correspondance PFS est requise.");
-
   const composition = await prisma.composition.create({
-    data: { name: frName, pfsCompositionRef: pfsCompositionRef.trim() },
+    data: { name: frName, pfsCompositionRef: pfsCompositionRef?.trim() || null },
     select: { id: true, name: true },
   });
 
@@ -137,6 +149,7 @@ export async function createCompositionQuick(
       skipDuplicates: true,
     });
   }
+  await autoTranslateComposition(composition.id, frName, getManualLocales(names));
 
   revalidatePath("/admin/produits");
   return composition;
@@ -169,6 +182,7 @@ export async function createSubCategoryQuick(
       skipDuplicates: true,
     });
   }
+  await autoTranslateSubCategory(subCategory.id, frName, getManualLocales(names));
 
   revalidatePath("/admin/produits");
   return subCategory;
@@ -199,6 +213,7 @@ export async function createTagQuick(
       skipDuplicates: true,
     });
   }
+  await autoTranslateTag(tag.id, frName, getManualLocales(names));
 
   revalidatePath("/admin/produits");
   return tag;
@@ -219,10 +234,8 @@ export async function createManufacturingCountryQuick(
   });
   if (existing) throw new Error(`Le pays "${frName}" existe déjà.`);
 
-  if (!pfsCountryRef?.trim()) throw new Error("La correspondance PFS est requise.");
-
   const country = await prisma.manufacturingCountry.create({
-    data: { name: frName, isoCode: isoCode || null, pfsCountryRef: pfsCountryRef.trim() },
+    data: { name: frName, isoCode: isoCode || null, pfsCountryRef: pfsCountryRef?.trim() || null },
     select: { id: true, name: true },
   });
 
@@ -233,6 +246,7 @@ export async function createManufacturingCountryQuick(
       skipDuplicates: true,
     });
   }
+  await autoTranslateManufacturingCountry(country.id, frName, getManualLocales(names));
 
   revalidatePath("/admin/produits");
   return country;
@@ -256,16 +270,16 @@ export async function createSeasonQuick(
   const refs = (Array.isArray(pfsSeasonRefs) ? pfsSeasonRefs : pfsSeasonRefs ? [pfsSeasonRefs] : [])
     .map((r) => r.trim())
     .filter(Boolean);
-  if (refs.length === 0) throw new Error("La correspondance PFS est requise.");
-
-  // Check uniqueness
-  const conflicts = await prisma.seasonPfsRef.findMany({
-    where: { pfsRef: { in: refs } },
-    select: { pfsRef: true, season: { select: { name: true } } },
-  });
-  if (conflicts.length > 0) {
-    const detail = conflicts.map((c) => `« ${c.pfsRef} » (${c.season.name})`).join(", ");
-    throw new Error(`Correspondances PFS déjà utilisées : ${detail}`);
+  // Check uniqueness (only if refs provided)
+  if (refs.length > 0) {
+    const conflicts = await prisma.seasonPfsRef.findMany({
+      where: { pfsRef: { in: refs } },
+      select: { pfsRef: true, season: { select: { name: true } } },
+    });
+    if (conflicts.length > 0) {
+      const detail = conflicts.map((c) => `« ${c.pfsRef} » (${c.season.name})`).join(", ");
+      throw new Error(`Correspondances PFS déjà utilisées : ${detail}`);
+    }
   }
 
   const season = await prisma.season.create({
@@ -283,6 +297,7 @@ export async function createSeasonQuick(
       skipDuplicates: true,
     });
   }
+  await autoTranslateSeason(season.id, frName, getManualLocales(names));
 
   revalidatePath("/admin/produits");
   return season;

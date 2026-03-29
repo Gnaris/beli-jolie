@@ -26,6 +26,8 @@ type EntityTranslator = {
   idField: string;
   id: string;
   name: string;
+  /** Locales already provided manually — skip these */
+  skipLocales?: string[];
 };
 
 async function autoTranslateEntity(entity: EntityTranslator) {
@@ -33,10 +35,15 @@ async function autoTranslateEntity(entity: EntityTranslator) {
     const enabled = await isAutoTranslateEnabled();
     if (!enabled) return;
 
+    const localesToTranslate = entity.skipLocales?.length
+      ? TARGET_LOCALES.filter((l) => !entity.skipLocales!.includes(l))
+      : TARGET_LOCALES;
+    if (localesToTranslate.length === 0) return;
+
     const translations = await translateToAllLocales(entity.name);
     if (!translations || Object.keys(translations).length === 0) return;
 
-    for (const locale of TARGET_LOCALES) {
+    for (const locale of localesToTranslate) {
       const val = translations[locale]?.trim();
       if (!val) continue;
 
@@ -104,45 +111,44 @@ async function autoTranslateEntity(entity: EntityTranslator) {
   }
 }
 
-// ── Public helpers (fire-and-forget) ─────────────────────────────────────────
+// ── Public helpers (await-safe, errors silenced) ─────────────────────────────
 
-export function autoTranslateColor(id: string, name: string) {
-  autoTranslateEntity({ table: "color", idField: "colorId", id, name }).catch(() => {});
+export function autoTranslateColor(id: string, name: string, skipLocales?: string[]) {
+  return autoTranslateEntity({ table: "color", idField: "colorId", id, name, skipLocales }).catch(() => {});
 }
 
-export function autoTranslateComposition(id: string, name: string) {
-  autoTranslateEntity({ table: "composition", idField: "compositionId", id, name }).catch(() => {});
+export function autoTranslateComposition(id: string, name: string, skipLocales?: string[]) {
+  return autoTranslateEntity({ table: "composition", idField: "compositionId", id, name, skipLocales }).catch(() => {});
 }
 
-export function autoTranslateCategory(id: string, name: string) {
-  autoTranslateEntity({ table: "category", idField: "categoryId", id, name }).catch(() => {});
+export function autoTranslateCategory(id: string, name: string, skipLocales?: string[]) {
+  return autoTranslateEntity({ table: "category", idField: "categoryId", id, name, skipLocales }).catch(() => {});
 }
 
-export function autoTranslateSubCategory(id: string, name: string) {
-  autoTranslateEntity({ table: "subcategory", idField: "subCategoryId", id, name }).catch(() => {});
+export function autoTranslateSubCategory(id: string, name: string, skipLocales?: string[]) {
+  return autoTranslateEntity({ table: "subcategory", idField: "subCategoryId", id, name, skipLocales }).catch(() => {});
 }
 
-export function autoTranslateCollection(id: string, name: string) {
-  autoTranslateEntity({ table: "collection", idField: "collectionId", id, name }).catch(() => {});
+export function autoTranslateCollection(id: string, name: string, skipLocales?: string[]) {
+  return autoTranslateEntity({ table: "collection", idField: "collectionId", id, name, skipLocales }).catch(() => {});
 }
 
-export function autoTranslateManufacturingCountry(id: string, name: string) {
-  autoTranslateEntity({ table: "manufacturing-country", idField: "manufacturingCountryId", id, name }).catch(() => {});
+export function autoTranslateManufacturingCountry(id: string, name: string, skipLocales?: string[]) {
+  return autoTranslateEntity({ table: "manufacturing-country", idField: "manufacturingCountryId", id, name, skipLocales }).catch(() => {});
 }
 
-export function autoTranslateSeason(id: string, name: string) {
-  autoTranslateEntity({ table: "season", idField: "seasonId", id, name }).catch(() => {});
+export function autoTranslateSeason(id: string, name: string, skipLocales?: string[]) {
+  return autoTranslateEntity({ table: "season", idField: "seasonId", id, name, skipLocales }).catch(() => {});
 }
 
-export function autoTranslateTag(id: string, name: string) {
-  // Only translate if no translations exist yet (tags are upserted, may already have translations)
-  _autoTranslateTagIfNew(id, name).catch(() => {});
+export function autoTranslateTag(id: string, name: string, skipLocales?: string[]) {
+  return _autoTranslateTagIfNew(id, name, skipLocales).catch(() => {});
 }
 
-async function _autoTranslateTagIfNew(id: string, name: string) {
+async function _autoTranslateTagIfNew(id: string, name: string, skipLocales?: string[]) {
   const existing = await prisma.tagTranslation.count({ where: { tagId: id } });
   if (existing > 0) return;
-  await autoTranslateEntity({ table: "tag", idField: "tagId", id, name });
+  await autoTranslateEntity({ table: "tag", idField: "tagId", id, name, skipLocales });
 }
 
 /**

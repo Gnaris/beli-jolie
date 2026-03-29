@@ -203,8 +203,213 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
       });
     }
 
-    console.log(`[restock] ${alerts.length} alerte(s) envoyée(s) pour variant ${productColorId}`);
   } catch (err) {
     console.error("[restock] Erreur envoi alertes:", err);
+  }
+}
+
+// ─────────────────────────────────────────────
+// Notification client — changement de statut commande
+// ─────────────────────────────────────────────
+
+interface OrderStatusEmailData {
+  orderId: string;
+  newStatus: string;
+}
+
+const STATUS_CONFIG: Record<string, {
+  subject: (orderNumber: string, shopName: string) => string;
+  heading: string;
+  message: (orderNumber: string) => string;
+  color: string;
+  icon: string;
+}> = {
+  PROCESSING: {
+    subject: (num, shop) => `${shop} — Commande ${num} en cours de préparation`,
+    heading: "Votre commande est en cours de préparation",
+    message: (num) =>
+      `Bonne nouvelle ! Votre commande <strong>${num}</strong> est en cours de préparation par notre équipe. Nous vous tiendrons informé(e) dès son expédition.`,
+    color: "#2563EB",
+    icon: "📦",
+  },
+  SHIPPED: {
+    subject: (num, shop) => `${shop} — Commande ${num} expédiée`,
+    heading: "Votre commande a été expédiée",
+    message: (num) =>
+      `Votre commande <strong>${num}</strong> a été expédiée ! Elle est en route vers votre adresse de livraison.`,
+    color: "#7C3AED",
+    icon: "🚚",
+  },
+  DELIVERED: {
+    subject: (num, shop) => `${shop} — Commande ${num} livrée`,
+    heading: "Votre commande a été livrée",
+    message: (num) =>
+      `Votre commande <strong>${num}</strong> a été livrée avec succès. Nous espérons que vous en êtes satisfait(e).`,
+    color: "#16A34A",
+    icon: "✅",
+  },
+  CANCELLED: {
+    subject: (num, shop) => `${shop} — Commande ${num} annulée`,
+    heading: "Votre commande a été annulée",
+    message: (num) =>
+      `Votre commande <strong>${num}</strong> a été annulée. Si vous avez des questions, n'hésitez pas à nous contacter.`,
+    color: "#DC2626",
+    icon: "❌",
+  },
+};
+
+/**
+ * Send an email to the client when order status changes.
+ * Fire-and-forget — errors are logged but never propagated.
+ */
+export async function notifyOrderStatusChange(
+  data: OrderStatusEmailData
+): Promise<void> {
+  try {
+    const config = STATUS_CONFIG[data.newStatus];
+    if (!config) return; // PENDING = no email (handled at order creation)
+
+    const [shopName, companyInfo, gmailCfg] = await Promise.all([
+      getCachedShopName(),
+      getCachedCompanyInfo(),
+      getCachedGmailConfig(),
+    ]);
+
+    const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+    const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+    if (!GMAIL_USER || !GMAIL_PASSWORD) {
+      console.warn("[order-status-email] Configuration Gmail manquante — email ignoré.");
+      return;
+    }
+
+    // Fetch order with items
+    const order = await prisma.order.findUnique({
+      where: { id: data.orderId },
+      include: {
+        items: { orderBy: { createdAt: "asc" } },
+      },
+    });
+    if (!order) {
+      console.warn("[order-status-email] Commande introuvable:", data.orderId);
+      return;
+    }
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
+    });
+
+    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+    // Tracking info (for SHIPPED status)
+    const trackingHtml =
+      data.newStatus === "SHIPPED" && order.eeTrackingId
+        ? `<div style="background:#F0F4FF;border:1px solid #BFDBFE;border-radius:8px;padding:14px 18px;margin:16px 0;">
+            <strong style="color:#1E40AF;">Suivi de votre colis</strong><br/>
+            <span style="color:#1A1A1A;">Transporteur : ${order.carrierName}</span><br/>
+            <span style="color:#1A1A1A;">N° de suivi : <strong>${order.eeTrackingId}</strong></span>
+          </div>`
+        : "";
+
+    // Items summary table
+    const itemsHtml = order.items
+      .map(
+        (item) => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #E5E5E5;">
+          <strong>${item.productName}</strong><br/>
+          <small style="color:#6B6B6B;">Réf. ${item.productRef} · ${item.colorName}${item.saleType === "PACK" ? ` · Paquet ×${item.packQty}` : ""}</small>
+        </td>
+        <td style="padding:8px 12px;text-align:center;border-bottom:1px solid #E5E5E5;">${item.quantity}</td>
+        <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #E5E5E5;">${Number(item.lineTotal).toFixed(2)} €</td>
+      </tr>`
+      )
+      .join("");
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+        <!-- En-tête -->
+        <div style="background:${config.color};color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+          <div style="font-size:36px;margin-bottom:8px;">${config.icon}</div>
+          <h2 style="margin:0;font-size:20px;">${config.heading}</h2>
+          <p style="margin:8px 0 0;opacity:0.85;font-size:13px;">Commande N° ${order.orderNumber}</p>
+        </div>
+
+        <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+          <p style="font-size:15px;line-height:1.6;">
+            Bonjour${order.clientCompany ? ` <strong>${order.clientCompany}</strong>` : ""},
+          </p>
+          <p style="font-size:15px;line-height:1.6;">
+            ${config.message(order.orderNumber)}
+          </p>
+
+          ${trackingHtml}
+
+          <!-- Récapitulatif commande -->
+          <div style="margin-top:24px;">
+            <h3 style="font-size:14px;color:#6B6B6B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">
+              Récapitulatif de votre commande
+            </h3>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr style="background:#F7F7F8;">
+                  <th style="padding:8px 12px;text-align:left;">Produit</th>
+                  <th style="padding:8px 12px;text-align:center;">Qté</th>
+                  <th style="padding:8px 12px;text-align:right;">Total HT</th>
+                </tr>
+              </thead>
+              <tbody>${itemsHtml}</tbody>
+            </table>
+
+            <!-- Totaux -->
+            <table style="width:220px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
+              <tr>
+                <td style="padding:4px 0;color:#6B6B6B;">Sous-total HT</td>
+                <td style="padding:4px 0;text-align:right;">${Number(order.subtotalHT).toFixed(2)} €</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#6B6B6B;">TVA (${order.tvaRate === 0 ? "exonéré" : `${(order.tvaRate * 100).toFixed(0)}%`})</td>
+                <td style="padding:4px 0;text-align:right;">${Number(order.tvaAmount).toFixed(2)} €</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#6B6B6B;">Livraison</td>
+                <td style="padding:4px 0;text-align:right;">${Number(order.carrierPrice) === 0 ? "Gratuit" : `${Number(order.carrierPrice).toFixed(2)} €`}</td>
+              </tr>
+              <tr style="border-top:2px solid #1A1A1A;">
+                <td style="padding:8px 0;font-weight:bold;">Total TTC</td>
+                <td style="padding:8px 0;text-align:right;font-weight:bold;">${Number(order.totalTTC).toFixed(2)} €</td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- Lien espace client -->
+          <div style="text-align:center;margin-top:28px;">
+            <a href="${baseUrl}/commandes/${order.id}"
+               style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+              Voir ma commande →
+            </a>
+          </div>
+
+          ${companyInfo?.email ? `
+          <p style="margin-top:24px;font-size:13px;color:#6B6B6B;text-align:center;">
+            Une question ? Contactez-nous à <a href="mailto:${companyInfo.email}" style="color:${config.color};">${companyInfo.email}</a>
+          </p>` : ""}
+        </div>
+
+        <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+          ${shopName} — Cet email a été envoyé automatiquement suite à la mise à jour de votre commande.
+        </p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"${shopName}" <${GMAIL_USER}>`,
+      to: order.clientEmail,
+      subject: config.subject(order.orderNumber, shopName),
+      html,
+    });
+
+  } catch (err) {
+    console.error("[order-status-email] Erreur envoi email:", err);
   }
 }

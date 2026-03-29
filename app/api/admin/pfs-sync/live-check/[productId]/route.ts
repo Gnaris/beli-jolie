@@ -415,9 +415,6 @@ export async function GET(
     }
   }
 
-  // Debug: log final PFS image groups
-  console.log("[LIVE_CHECK] PFS image groups:", pfsImageGroups.map(g => `${g.colorName}(${g.colorId || "no-id"}) x${g.paths.length}`).join(", "));
-
   // Name & description from PFS (strip dimensions suffix added by reverse sync)
   const pfsName = refDetails?.product?.label?.fr ?? bjRef;
   const pfsDescription = stripDimensionsSuffix(refDetails?.product?.description?.fr ?? "");
@@ -452,10 +449,10 @@ export async function GET(
 
       // For PACK variants, DB stores total pack price (unitPrice × totalQty).
       // PFS uses per-unit price, so normalize BJ to per-unit for comparison.
-      let displayUnitPrice = pc.unitPrice;
+      let displayUnitPrice = Number(pc.unitPrice);
       if (pc.saleType === "PACK") {
         const totalQty = pc.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || pc.packQuantity || 1;
-        displayUnitPrice = Math.round((pc.unitPrice / totalQty) * 100) / 100;
+        displayUnitPrice = Math.round((displayUnitPrice / totalQty) * 100) / 100;
       }
 
       // For PACK with no main colorId, expose remaining packColorLine colors as subColors (display only)
@@ -490,7 +487,7 @@ export async function GET(
         sizeName: pc.variantSizes?.[0]?.size.name ?? null,
         isPrimary: pc.isPrimary,
         discountType: pc.discountType,
-        discountValue: pc.discountValue,
+        discountValue: pc.discountValue != null ? Number(pc.discountValue) : null,
         pfsColorRef: pc.pfsColorRef ?? null,
         pfsColorRefLabel: pc.pfsColorRef ? (pfsColorLabelMap.get(pc.pfsColorRef) ?? null) : null,
       };
@@ -648,7 +645,6 @@ export async function GET(
   }
 
   if (differences.length > 0) {
-    console.log(`[LIVE_CHECK] ${product.reference} — ${differences.length} diff(s):`, differences.map(d => d.field).join(", "));
   }
 
   return NextResponse.json({

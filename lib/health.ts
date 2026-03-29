@@ -123,7 +123,7 @@ export async function attemptAutoRecovery(): Promise<boolean> {
       });
       state.autoMaintenance = false;
       state.errors = [];
-      console.log("[health] AUTO-RECOVERY: DB is back online, maintenance disabled");
+      console.error("[health] AUTO-RECOVERY: DB is back online, maintenance disabled");
       return true;
     }
 

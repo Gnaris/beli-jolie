@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url = env("DATABASE_URL")
+  url      = env("DATABASE_URL")
 }
 
 // ─────────────────────────────────────────────
@@ -25,46 +25,46 @@ enum UserStatus {
 }
 
 enum ClientDiscountType {
-  PERCENT  // remise en %
-  AMOUNT   // remise en €
+  PERCENT // remise en %
+  AMOUNT // remise en €
 }
 
 model User {
-  id        String     @id @default(cuid())
-  email     String     @unique
-  password  String
-  firstName String
-  lastName  String
-  company   String
-  phone     String
-  siret     String     @unique
-  kbisPath  String?
-  documentPath String?          // Document libre envoyé lors de l'inscription
-  registrationMessage String?  // Message libre lors de l'inscription
-  address          String?    // Adresse de l'entreprise
-  vatNumber        String?    // Numéro TVA intracommunautaire (ex: FR12345678901)
-  stripeCustomerId String?    @unique // cus_xxx — requis pour le virement bancaire
-  role             Role       @default(CLIENT)
-  status           UserStatus @default(PENDING)
+  id                  String              @id @default(cuid())
+  email               String              @unique
+  password            String
+  firstName           String
+  lastName            String
+  company             String
+  phone               String
+  siret               String              @unique
+  kbisPath            String?
+  documentPath        String? // Document libre envoyé lors de l'inscription
+  registrationMessage String? // Message libre lors de l'inscription
+  address             String? // Adresse de l'entreprise
+  vatNumber           String? // Numéro TVA intracommunautaire (ex: FR12345678901)
+  stripeCustomerId    String?             @unique // cus_xxx — requis pour le virement bancaire
+  role                Role                @default(CLIENT)
+  status              UserStatus          @default(PENDING)
   // Remise commerciale permanente
-  discountType     ClientDiscountType?  // null = pas de remise
-  discountValue    Float?               // % ou montant €
-  freeShipping     Boolean              @default(false)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  discountType        ClientDiscountType? // null = pas de remise
+  discountValue       Decimal?            @db.Decimal(12, 2) // % ou montant €
+  freeShipping        Boolean             @default(false)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
-  cart          Cart?
-  addresses     ShippingAddress[]
-  orders        Order[]
-  favorites     Favorite[]
-  importDrafts  ImportDraft[]
-  importJobs    ImportJob[]
-  pfsSyncJobs   PfsSyncJob[]
+  cart           Cart?
+  addresses      ShippingAddress[]
+  orders         Order[]
+  favorites      Favorite[]
+  importDrafts   ImportDraft[]
+  importJobs     ImportJob[]
+  pfsSyncJobs    PfsSyncJob[]
   pfsPrepareJobs PfsPrepareJob[]
-  accessCodes   AccessCode[]
-  activity      UserActivity?
-  restockAlerts RestockAlert[]
-  sentEmails    SentEmail[]
+  accessCodes    AccessCode[]
+  activity       UserActivity?
+  restockAlerts  RestockAlert[]
+  sentEmails     SentEmail[]
 }
 
 // ─────────────────────────────────────────────
@@ -95,14 +95,14 @@ enum SaleType {
 
 enum DiscountType {
   PERCENT // Remise en %
-  AMOUNT  // Remise en €
+  AMOUNT // Remise en €
 }
 
 enum ProductStatus {
-  OFFLINE   // Hors ligne (brouillon)
-  ONLINE    // En ligne (visible sur le catalogue public)
-  ARCHIVED  // Archivé (invisible, conservé pour historique commandes)
-  SYNCING   // Synchronisation PFS en cours (invisible, passe ONLINE quand images prêtes)
+  OFFLINE // Hors ligne (brouillon)
+  ONLINE // En ligne (visible sur le catalogue public)
+  ARCHIVED // Archivé (invisible, conservé pour historique commandes)
+  SYNCING // Synchronisation PFS en cours (invisible, passe ONLINE quand images prêtes)
 }
 
 // Catégorie principale (ex: Colliers, Bracelets)
@@ -110,14 +110,14 @@ model Category {
   id            String                @id @default(cuid())
   name          String                @unique
   slug          String                @unique
-  pfsCategoryId String?               // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
-  pfsGender     String?               // Genre PFS : WOMAN | MAN | KID | SUPPLIES
-  pfsFamilyId   String?               // ID famille PFS (ex: "a035J00000185J7QAI")
-  subCategories  SubCategory[]
-  products       Product[]
-  translations   CategoryTranslation[]
-  sizes          SizeCategoryLink[]
-  createdAt      DateTime              @default(now())
+  pfsCategoryId String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
+  pfsGender     String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
+  pfsFamilyId   String? // ID famille PFS (ex: "a035J00000185J7QAI")
+  subCategories SubCategory[]
+  products      Product[]
+  translations  CategoryTranslation[]
+  sizes         SizeCategoryLink[]
+  createdAt     DateTime              @default(now())
 }
 
 model CategoryTranslation {
@@ -158,16 +158,16 @@ model SubCategoryTranslation {
 
 // Bibliothèque de couleurs réutilisables entre produits
 model Color {
-  id            String                  @id @default(cuid())
-  name          String                  @unique
-  hex           String?
-  patternImage  String?                 // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
-  pfsColorRef   String?                 // Référence couleur PFS (ex: "GOLDEN", "SILVER") — pour reverse sync
-  createdAt     DateTime                @default(now())
-  productColors ProductColor[]
-  colorImages   ProductColorImage[]
-  translations  ColorTranslation[]
-  subColorUsages ProductColorSubColor[] // Utilisations en tant que sous-couleur
+  id                  String                 @id @default(cuid())
+  name                String                 @unique
+  hex                 String?
+  patternImage        String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
+  pfsColorRef         String? // Référence couleur PFS (ex: "GOLDEN", "SILVER") — pour reverse sync
+  createdAt           DateTime               @default(now())
+  productColors       ProductColor[]
+  colorImages         ProductColorImage[]
+  translations        ColorTranslation[]
+  subColorUsages      ProductColorSubColor[] // Utilisations en tant que sous-couleur
   packColorLineColors PackColorLineColor[] // Utilisations dans les lignes de couleur des packs
 }
 
@@ -184,34 +184,34 @@ model ColorTranslation {
 
 // Pays de fabrication
 model ManufacturingCountry {
-  id               String                            @id @default(cuid())
-  name             String                            @unique
-  isoCode          String?                           @unique  // ISO code: "CN", "TR", "FR"
-  pfsCountryRef    String?                           @unique  // PFS country reference (ISO code)
-  createdAt        DateTime                          @default(now())
-  products         Product[]
-  translations     ManufacturingCountryTranslation[]
+  id            String                            @id @default(cuid())
+  name          String                            @unique
+  isoCode       String?                           @unique // ISO code: "CN", "TR", "FR"
+  pfsCountryRef String?                           @unique // PFS country reference (ISO code)
+  createdAt     DateTime                          @default(now())
+  products      Product[]
+  translations  ManufacturingCountryTranslation[]
 }
 
 model ManufacturingCountryTranslation {
-  id                      String               @id @default(cuid())
-  manufacturingCountryId  String
-  manufacturingCountry    ManufacturingCountry  @relation(fields: [manufacturingCountryId], references: [id], onDelete: Cascade)
-  locale                  String
-  name                    String
-  createdAt               DateTime             @default(now())
+  id                     String               @id @default(cuid())
+  manufacturingCountryId String
+  manufacturingCountry   ManufacturingCountry @relation(fields: [manufacturingCountryId], references: [id], onDelete: Cascade)
+  locale                 String
+  name                   String
+  createdAt              DateTime             @default(now())
 
   @@unique([manufacturingCountryId, locale])
 }
 
 // Saisons (ex: "Printemps/Été 2026", "Automne/Hiver 2025")
 model Season {
-  id               String              @id @default(cuid())
-  name             String              @unique
-  createdAt        DateTime            @default(now())
-  products         Product[]
-  translations     SeasonTranslation[]
-  pfsRefs          SeasonPfsRef[]
+  id           String              @id @default(cuid())
+  name         String              @unique
+  createdAt    DateTime            @default(now())
+  products     Product[]
+  translations SeasonTranslation[]
+  pfsRefs      SeasonPfsRef[]
 }
 
 // Correspondances PFS pour une saison (1 saison → N refs, chaque ref unique)
@@ -219,7 +219,7 @@ model SeasonPfsRef {
   id        String   @id @default(cuid())
   seasonId  String
   season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  pfsRef    String   @unique  // PFS collection reference: "PE2026", "AH2025" — unique across all seasons
+  pfsRef    String   @unique // PFS collection reference: "PE2026", "AH2025" — unique across all seasons
   createdAt DateTime @default(now())
 
   @@index([seasonId])
@@ -238,12 +238,12 @@ model SeasonTranslation {
 
 // Bibliothèque de compositions (matériaux)
 model Composition {
-  id               String                  @id @default(cuid())
-  name             String                  @unique
-  pfsCompositionRef String?                // Référence composition PFS (ex: "ACIERINOXYDABLE") — pour reverse sync
-  createdAt        DateTime                @default(now())
-  products         ProductComposition[]
-  translations     CompositionTranslation[]
+  id                String                   @id @default(cuid())
+  name              String                   @unique
+  pfsCompositionRef String? // Référence composition PFS (ex: "ACIERINOXYDABLE") — pour reverse sync
+  createdAt         DateTime                 @default(now())
+  products          ProductComposition[]
+  translations      CompositionTranslation[]
 }
 
 model CompositionTranslation {
@@ -262,7 +262,7 @@ model ProductComposition {
   id            String      @id @default(cuid())
   productId     String
   compositionId String
-  percentage    Float       // ex: 85.5 pour 85.5%
+  percentage    Float // ex: 85.5 pour 85.5%
   product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
   composition   Composition @relation(fields: [compositionId], references: [id])
 
@@ -300,33 +300,33 @@ model ProductTag {
 
 // Produit principal
 model Product {
-  id            String               @id @default(cuid())
-  reference     String               @unique
-  pfsProductId  String?              @unique // ID produit sur Paris Fashion Shop (ex: "pro_171bb9...")
-  pfsSyncStatus String?              // null=jamais sync, "synced"=OK, "pending"=en cours, "failed"=échec
-  pfsSyncError  String?              @db.Text // Dernier message d'erreur de sync PFS
-  pfsSyncedAt   DateTime?            // Dernière sync réussie vers PFS
-  name          String
-  description   String               @db.Text
-  categoryId    String
-  category      Category             @relation(fields: [categoryId], references: [id])
-  subCategories SubCategory[]        @relation("ProductSubCategories")
-  colors        ProductColor[]
-  colorImages   ProductColorImage[]
-  compositions  ProductComposition[]
-  collections   CollectionProduct[]
-  favorites     Favorite[]
-  tags          ProductTag[]
-  translations  ProductTranslation[]
-  catalogs      CatalogProduct[]
-  accessCodeViews AccessCodeView[]
-  restockAlerts   RestockAlert[]
-  isBestSeller  Boolean              @default(false)
-  status        ProductStatus        @default(OFFLINE)
-  isIncomplete  Boolean              @default(false) // Produit incomplet (manque prix, poids, images, etc.)
+  id                     String                @id @default(cuid())
+  reference              String                @unique
+  pfsProductId           String?               @unique // ID produit sur Paris Fashion Shop (ex: "pro_171bb9...")
+  pfsSyncStatus          String? // null=jamais sync, "synced"=OK, "pending"=en cours, "failed"=échec
+  pfsSyncError           String?               @db.Text // Dernier message d'erreur de sync PFS
+  pfsSyncedAt            DateTime? // Dernière sync réussie vers PFS
+  name                   String
+  description            String                @db.Text
+  categoryId             String
+  category               Category              @relation(fields: [categoryId], references: [id])
+  subCategories          SubCategory[]         @relation("ProductSubCategories")
+  colors                 ProductColor[]
+  colorImages            ProductColorImage[]
+  compositions           ProductComposition[]
+  collections            CollectionProduct[]
+  favorites              Favorite[]
+  tags                   ProductTag[]
+  translations           ProductTranslation[]
+  catalogs               CatalogProduct[]
+  accessCodeViews        AccessCodeView[]
+  restockAlerts          RestockAlert[]
+  isBestSeller           Boolean               @default(false)
+  status                 ProductStatus         @default(OFFLINE)
+  isIncomplete           Boolean               @default(false) // Produit incomplet (manque prix, poids, images, etc.)
   // Produits similaires (M2M self)
-  similarProducts ProductSimilar[]   @relation("PSim_A")
-  similarTo       ProductSimilar[]   @relation("PSim_B")
+  similarProducts        ProductSimilar[]      @relation("PSim_A")
+  similarTo              ProductSimilar[]      @relation("PSim_B")
   // Dimensions optionnelles (en mm)
   dimensionLength        Float?
   dimensionWidth         Float?
@@ -337,19 +337,19 @@ model Product {
   manufacturingCountry   ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
   seasonId               String?
   season                 Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
 
   // Performance indexes for 78k+ products
-  @@index([status, createdAt])          // catalog listing (default sort)
-  @@index([status, updatedAt])          // "new" filter sort
-  @@index([categoryId, status])         // category filter
-  @@index([isBestSeller, status])       // bestseller filter
-  @@index([status, name])               // search by name
-  @@index([createdAt])                  // general date sorting
-  @@index([reference])                  // exact reference search
-  @@index([manufacturingCountryId])      // country filter
-  @@index([seasonId])                    // season filter
+  @@index([status, createdAt]) // catalog listing (default sort)
+  @@index([status, updatedAt]) // "new" filter sort
+  @@index([categoryId, status]) // category filter
+  @@index([isBestSeller, status]) // bestseller filter
+  @@index([status, name]) // search by name
+  @@index([createdAt]) // general date sorting
+  @@index([reference]) // exact reference search
+  @@index([manufacturingCountryId]) // country filter
+  @@index([seasonId]) // season filter
 }
 
 // Traductions automatiques des produits
@@ -357,7 +357,7 @@ model ProductTranslation {
   id          String   @id @default(cuid())
   productId   String
   product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  locale      String   // "en" | "ar"
+  locale      String // "en" | "ar"
   name        String
   description String   @db.Text
   createdAt   DateTime @default(now())
@@ -365,7 +365,7 @@ model ProductTranslation {
 
   @@unique([productId, locale])
   @@index([productId])
-  @@index([locale])                     // admin warnings: count by locale
+  @@index([locale]) // admin warnings: count by locale
 }
 
 // Produits similaires (M2M self-relation)
@@ -381,10 +381,10 @@ model ProductSimilar {
 // Deferred similar product links — stores references that don't exist yet at import time.
 // Resolved automatically when matching products are created later.
 model PendingSimilar {
-  id             String  @id @default(cuid())
-  productRef     String  // reference of the source product (already exists)
-  similarRef     String  // reference of the target product (may not exist yet)
-  createdAt      DateTime @default(now())
+  id         String   @id @default(cuid())
+  productRef String // reference of the source product (already exists)
+  similarRef String // reference of the target product (may not exist yet)
+  createdAt  DateTime @default(now())
 
   @@unique([productRef, similarRef])
   @@index([similarRef])
@@ -394,33 +394,33 @@ model PendingSimilar {
 // UNIT: une composition de couleurs + tailles×qty + prix/poids/stock/remise
 // PACK: N lignes de couleurs + tailles×qty partagées + packQuantity + prix/poids/stock/remise
 model ProductColor {
-  id          String       @id @default(cuid())
-  productId   String
-  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  colorId     String?      // Couleur principale (UNIT only — null pour PACK)
-  color       Color?       @relation(fields: [colorId], references: [id])
-  unitPrice   Float        // Prix HT (par unité ou par paquet)
-  weight      Float        // Poids en kg
-  stock       Int          @default(0)
-  isPrimary   Boolean      @default(false)
-  saleType    SaleType     // UNIT ou PACK
-  packQuantity Int?        // Quantité par paquet (null si UNIT)
-  discountType  DiscountType? // Type de remise (null = pas de remise)
-  discountValue Float?        // Valeur de la remise
+  id                  String                 @id @default(cuid())
+  productId           String
+  product             Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorId             String? // Couleur principale (UNIT only — null pour PACK)
+  color               Color?                 @relation(fields: [colorId], references: [id])
+  unitPrice           Decimal                @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
+  weight              Float // Poids en kg
+  stock               Int                    @default(0)
+  isPrimary           Boolean                @default(false)
+  saleType            SaleType // UNIT ou PACK
+  packQuantity        Int? // Quantité par paquet (null si UNIT)
+  discountType        DiscountType? // Type de remise (null = pas de remise)
+  discountValue       Decimal?               @db.Decimal(12, 2) // Valeur de la remise
   // UNIT: composition de couleurs (colorId = 1ère couleur, subColors = couleurs suivantes)
-  subColors   ProductColorSubColor[]
+  subColors           ProductColorSubColor[]
   // Tailles avec quantités (partagées entre toutes les lignes couleur pour PACK)
-  variantSizes VariantSize[]
+  variantSizes        VariantSize[]
   // PACK: lignes de couleur (chaque ligne = une composition de couleurs)
-  packColorLines PackColorLine[]
-  images      ProductColorImage[]   // Images (UNIT seulement)
-  cartItems   CartItem[]
+  packColorLines      PackColorLine[]
+  images              ProductColorImage[] // Images (UNIT seulement)
+  cartItems           CartItem[]
   collectionOverrides CollectionProduct[]
-  restockAlerts RestockAlert[]
-  pfsColorRef   String?      // Override couleur PFS pour variantes multi-couleur
-  pfsVariantId  String?      // ID variant sur PFS — pour reverse sync
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  restockAlerts       RestockAlert[]
+  pfsColorRef         String? // Override couleur PFS pour variantes multi-couleur
+  pfsVariantId        String? // ID variant sur PFS — pour reverse sync
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
 
   @@index([productId, colorId])
   @@index([productId, isPrimary])
@@ -492,7 +492,7 @@ model VariantSize {
   sizeId         String
   size           Size         @relation(fields: [sizeId], references: [id])
   quantity       Int          @default(1) // nombre de pièces de cette taille
-  pricePerUnit   Float?       // prix par unité (PACK only) — null pour UNIT
+  pricePerUnit   Decimal?     @db.Decimal(12, 2) // prix par unité (PACK only) — null pour UNIT
 
   @@unique([productColorId, sizeId])
   @@index([productColorId])
@@ -504,10 +504,10 @@ model VariantSize {
 
 // Une ligne de couleur dans un PACK (ex: ligne 1 = "Doré, Rouge" / ligne 2 = "Doré, Noir")
 model PackColorLine {
-  id             String              @id @default(cuid())
+  id             String               @id @default(cuid())
   productColorId String
-  productColor   ProductColor        @relation(fields: [productColorId], references: [id], onDelete: Cascade)
-  position       Int                 @default(0) // Ordre d'affichage
+  productColor   ProductColor         @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  position       Int                  @default(0) // Ordre d'affichage
   colors         PackColorLineColor[]
 
   @@index([productColorId])
@@ -571,7 +571,7 @@ model CartItem {
 
   @@unique([cartId, variantId])
   @@index([cartId])
-  @@index([variantId])                  // variant price change impact queries
+  @@index([variantId]) // variant price change impact queries
 }
 
 // ─────────────────────────────────────────────
@@ -579,11 +579,11 @@ model CartItem {
 // ─────────────────────────────────────────────
 
 enum OrderStatus {
-  PENDING     // En attente de traitement
-  PROCESSING  // En préparation
-  SHIPPED     // Expédiée
-  DELIVERED   // Livrée
-  CANCELLED   // Annulée
+  PENDING // En attente de traitement
+  PROCESSING // En préparation
+  SHIPPED // Expédiée
+  DELIVERED // Livrée
+  CANCELLED // Annulée
 }
 
 // Commande validée par le client
@@ -616,71 +616,71 @@ model Order {
   // Transporteur
   carrierId    String
   carrierName  String
-  carrierPrice Float
+  carrierPrice Decimal @db.Decimal(12, 2)
 
   // Remise commerciale client (snapshot au moment de la commande)
   clientDiscountType  ClientDiscountType?
-  clientDiscountValue Float?
-  clientDiscountAmt   Float              @default(0)  // montant économisé en €
-  clientFreeShipping  Boolean            @default(false)
+  clientDiscountValue Decimal?            @db.Decimal(12, 2)
+  clientDiscountAmt   Decimal             @default(0) @db.Decimal(12, 2) // montant économisé en €
+  clientFreeShipping  Boolean             @default(false)
 
   // TVA
-  tvaRate    Float  // ex: 0.20
-  subtotalHT Float
-  tvaAmount  Float
-  totalTTC   Float
+  tvaRate    Float // ex: 0.20
+  subtotalHT Decimal @db.Decimal(12, 2)
+  tvaAmount  Decimal @db.Decimal(12, 2)
+  totalTTC   Decimal @db.Decimal(12, 2)
 
   // Stripe
-  stripePaymentIntentId String?  @unique // pi_xxx
-  paymentStatus         String   @default("pending") // pending | paid | failed
+  stripePaymentIntentId String? @unique // pi_xxx
+  paymentStatus         String  @default("pending") // pending | paid | failed
 
   // Easy-Express
-  eeTrackingId String?  // Numéro de suivi
-  eeLabelUrl   String?  // URL du bordereau PDF @db.Text
+  eeTrackingId String? // Numéro de suivi
+  eeLabelUrl   String? // URL du bordereau PDF @db.Text
 
   // Facture uploadée par l'admin
-  invoicePath String?  // Chemin relatif depuis /private/uploads/invoices/
+  invoicePath String? // Chemin relatif depuis /private/uploads/invoices/
 
   // CGV acceptance
-  cgvAcceptedAt DateTime?  // Timestamp when client accepted CGV before payment
+  cgvAcceptedAt DateTime? // Timestamp when client accepted CGV before payment
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([userId, createdAt])
-  @@index([userId, status])             // client order listing with status filter
-  @@index([paymentStatus])              // payment status queries
-  @@index([createdAt])                  // admin order listing
-  @@index([status, createdAt])          // admin filtered + paginated listing
+  @@index([userId, status]) // client order listing with status filter
+  @@index([paymentStatus]) // payment status queries
+  @@index([createdAt]) // admin order listing
+  @@index([status, createdAt]) // admin filtered + paginated listing
 }
 
 // Ligne de commande (snapshot produit au moment de la commande)
 model OrderItem {
-  id          String @id @default(cuid())
-  orderId     String
-  order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   productName String
   productRef  String
-  colorName   String   // Composition couleur (UNIT) ou vide (PACK — détails dans packDetails)
-  saleType    String   // "UNIT" | "PACK"
+  colorName   String // Composition couleur (UNIT) ou vide (PACK — détails dans packDetails)
+  saleType    String // "UNIT" | "PACK"
   packQty     Int?
-  size        String?  // Ancien champ — conservé pour compatibilité historique
-  sizesJson   String?  @db.Text // JSON: [{name, quantity}] — tailles avec quantités
-  packDetails String?  @db.Text // JSON: PACK color lines [{colors: [name], ...}]
-  imagePath   String?  // première image (relatif /public)
+  size        String? // Ancien champ — conservé pour compatibilité historique
+  sizesJson   String? @db.Text // JSON: [{name, quantity}] — tailles avec quantités
+  packDetails String? @db.Text // JSON: PACK color lines [{colors: [name], ...}]
+  imagePath   String? // première image (relatif /public)
 
-  unitPrice   Float   // prix unitaire calculé (remise incluse)
-  quantity    Int
-  lineTotal   Float
+  unitPrice Decimal @db.Decimal(12, 2) // prix unitaire calculé (remise incluse)
+  quantity  Int
+  lineTotal Decimal @db.Decimal(12, 2)
 
   variantSnapshot String? @db.Text // JSON: snapshot complet de la variante pour traçabilité légale
 
   createdAt DateTime @default(now())
 
   @@index([orderId])
-  @@index([productRef])                 // bestseller groupBy + reassort queries
+  @@index([productRef]) // bestseller groupBy + reassort queries
 }
 
 // ─────────────────────────────────────────────
@@ -691,7 +691,7 @@ model OrderItem {
 model Collection {
   id           String                  @id @default(cuid())
   name         String
-  image        String?                 // Chemin relatif depuis /public
+  image        String? // Chemin relatif depuis /public
   products     CollectionProduct[]
   translations CollectionTranslation[]
   createdAt    DateTime                @default(now())
@@ -716,7 +716,7 @@ model CollectionProduct {
   collection   Collection    @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   productId    String
   product      Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
-  colorId      String?       // Couleur à afficher dans cette collection (null = couleur primaire)
+  colorId      String? // Couleur à afficher dans cette collection (null = couleur primaire)
   productColor ProductColor? @relation(fields: [colorId], references: [id])
   position     Int           @default(0)
   createdAt    DateTime      @default(now())
@@ -727,22 +727,22 @@ model CollectionProduct {
 
 // Adresse de livraison (plusieurs par utilisateur)
 model ShippingAddress {
-  id         String   @id @default(cuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  label      String   // ex: "Boutique principale"
-  firstName  String
-  lastName   String
-  company    String?
-  address1   String
-  address2   String?
-  zipCode    String
-  city       String
-  country    String   @default("FR")
-  phone      String?
-  isDefault  Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String // ex: "Boutique principale"
+  firstName String
+  lastName  String
+  company   String?
+  address1  String
+  address2  String?
+  zipCode   String
+  city      String
+  country   String   @default("FR")
+  phone     String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ─────────────────────────────────────────────
@@ -750,16 +750,16 @@ model ShippingAddress {
 // ─────────────────────────────────────────────
 
 enum CatalogStatus {
-  DRAFT      // Brouillon (non accessible via lien)
-  PUBLISHED  // Publié (accessible via lien)
+  DRAFT // Brouillon (non accessible via lien)
+  PUBLISHED // Publié (accessible via lien)
 }
 
 model Catalog {
   id             String           @id @default(cuid())
   title          String
   token          String           @unique @default(cuid()) // token public pour le lien
-  primaryColor   String           @default("#1A1A1A")      // couleur principale du catalogue
-  coverImagePath String?                                   // photo de fond du header (remplace la couleur)
+  primaryColor   String           @default("#1A1A1A") // couleur principale du catalogue
+  coverImagePath String? // photo de fond du header (remplace la couleur)
   status         CatalogStatus    @default(DRAFT)
   products       CatalogProduct[]
   createdAt      DateTime         @default(now())
@@ -767,14 +767,14 @@ model Catalog {
 }
 
 model CatalogProduct {
-  id              String   @id @default(cuid())
-  catalogId       String
-  catalog         Catalog  @relation(fields: [catalogId], references: [id], onDelete: Cascade)
-  productId       String
-  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id                String   @id @default(cuid())
+  catalogId         String
+  catalog           Catalog  @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   position          Int      @default(0)
-  selectedColorId   String?  // Color.id sélectionné pour ce produit dans ce catalogue (null = couleur primaire par défaut)
-  selectedImagePath String?  // chemin image spécifique à afficher dans ce catalogue (null = première image de la couleur)
+  selectedColorId   String? // Color.id sélectionné pour ce produit dans ce catalogue (null = couleur primaire par défaut)
+  selectedImagePath String? // chemin image spécifique à afficher dans ce catalogue (null = première image de la couleur)
   createdAt         DateTime @default(now())
 
   @@unique([catalogId, productId])
@@ -785,11 +785,11 @@ model CatalogProduct {
 // ─────────────────────────────────────────────
 
 model AccessCode {
-  id            String           @id @default(cuid())
-  code          String           @unique      // ex: BELI-A3X7
-  note          String?          @db.Text     // Note admin (à qui, pourquoi, etc.)
-  expiresAt     DateTime                      // Expiration (1 semaine par défaut)
-  isActive      Boolean          @default(true)
+  id        String   @id @default(cuid())
+  code      String   @unique // ex: BELI-A3X7
+  note      String?  @db.Text // Note admin (à qui, pourquoi, etc.)
+  expiresAt DateTime // Expiration (1 semaine par défaut)
+  isActive  Boolean  @default(true)
 
   // Pré-remplissage inscription (optionnel, renseigné par l'admin)
   prefillFirstName String?
@@ -799,32 +799,32 @@ model AccessCode {
   prefillPhone     String?
 
   // Inscription via ce code
-  usedBy        String?                       // User.id du client inscrit
-  usedByName    String?                       // Nom complet du client inscrit
-  usedAt        DateTime?                     // Date d'inscription
-  user          User?            @relation(fields: [usedBy], references: [id], onDelete: SetNull)
+  usedBy     String? // User.id du client inscrit
+  usedByName String? // Nom complet du client inscrit
+  usedAt     DateTime? // Date d'inscription
+  user       User?     @relation(fields: [usedBy], references: [id], onDelete: SetNull)
 
   // Tracking navigation
-  firstAccessAt DateTime?                     // Première utilisation pour naviguer
-  lastAccessAt  DateTime?                     // Dernier accès
+  firstAccessAt DateTime? // Première utilisation pour naviguer
+  lastAccessAt  DateTime? // Dernier accès
   views         AccessCodeView[]
 
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([code])
   @@index([expiresAt])
 }
 
 model AccessCodeView {
-  id            String      @id @default(cuid())
-  accessCodeId  String
-  accessCode    AccessCode  @relation(fields: [accessCodeId], references: [id], onDelete: Cascade)
-  productId     String?
-  product       Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
-  productName   String?                      // Snapshot du nom produit
-  pageUrl       String                       // URL visitée
-  createdAt     DateTime    @default(now())
+  id           String     @id @default(cuid())
+  accessCodeId String
+  accessCode   AccessCode @relation(fields: [accessCodeId], references: [id], onDelete: Cascade)
+  productId    String?
+  product      Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName  String? // Snapshot du nom produit
+  pageUrl      String // URL visitée
+  createdAt    DateTime   @default(now())
 
   @@index([accessCodeId])
   @@index([productId])
@@ -879,8 +879,8 @@ model PasswordResetToken {
 
 model LoginAttempt {
   id        String   @id @default(cuid())
-  email     String                        // Email tenté
-  ip        String                        // Adresse IP
+  email     String // Email tenté
+  ip        String // Adresse IP
   success   Boolean  @default(false)
   createdAt DateTime @default(now())
 
@@ -890,13 +890,13 @@ model LoginAttempt {
 
 // Verrouillage progressif par email
 model AccountLockout {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  failureCount  Int      @default(0)       // Nombre total d'échecs consécutifs
-  lockoutLevel  Int      @default(0)       // Palier actuel (0=pas verrouillé, 1=1min, 2=5min, ...)
-  lockedUntil   DateTime?                  // Null = pas verrouillé
-  permanent     Boolean  @default(false)   // Blocage définitif
-  updatedAt     DateTime @updatedAt
+  id           String    @id @default(cuid())
+  email        String    @unique
+  failureCount Int       @default(0) // Nombre total d'échecs consécutifs
+  lockoutLevel Int       @default(0) // Palier actuel (0=pas verrouillé, 1=1min, 2=5min, ...)
+  lockedUntil  DateTime? // Null = pas verrouillé
+  permanent    Boolean   @default(false) // Blocage définitif
+  updatedAt    DateTime  @updatedAt
 
   @@index([email])
 }
@@ -936,30 +936,30 @@ enum ImportDraftStatus {
 
 enum ImportJobStatus {
   PENDING
-  UPLOADING    // Images: batches still being uploaded
+  UPLOADING // Images: batches still being uploaded
   PROCESSING
   COMPLETED
   FAILED
 }
 
 model ImportJob {
-  id              String          @id @default(cuid())
-  type            ImportDraftType
-  status          ImportJobStatus @default(PENDING)
-  filename        String?
-  totalItems      Int             @default(0)   // total rows or images to process
-  processedItems  Int             @default(0)   // processed so far
-  successItems    Int             @default(0)
-  errorItems      Int             @default(0)
-  filePath        String?                       // saved CSV/Excel path on server
-  tempDir         String?                       // temp dir for images
-  errorDraftId    String?                       // link to ImportDraft if errors
-  errorMessage    String?         @db.Text      // global error message if FAILED
-  resultDetails   Json?                         // detailed log of what was created/imported
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  adminId         String
-  admin           User            @relation(fields: [adminId], references: [id])
+  id             String          @id @default(cuid())
+  type           ImportDraftType
+  status         ImportJobStatus @default(PENDING)
+  filename       String?
+  totalItems     Int             @default(0) // total rows or images to process
+  processedItems Int             @default(0) // processed so far
+  successItems   Int             @default(0)
+  errorItems     Int             @default(0)
+  filePath       String? // saved CSV/Excel path on server
+  tempDir        String? // temp dir for images
+  errorDraftId   String? // link to ImportDraft if errors
+  errorMessage   String?         @db.Text // global error message if FAILED
+  resultDetails  Json? // detailed log of what was created/imported
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  adminId        String
+  admin          User            @relation(fields: [adminId], references: [id])
 
   @@index([adminId])
   @@index([status])
@@ -994,8 +994,8 @@ model ImportDraft {
   totalRows   Int               @default(0)
   successRows Int               @default(0)
   errorRows   Int               @default(0)
-  rows        Json              // Array of rows with errors + metadata
-  tempDir     String?           // For image drafts: temp directory path
+  rows        Json // Array of rows with errors + metadata
+  tempDir     String? // For image drafts: temp directory path
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   adminId     String
@@ -1011,10 +1011,10 @@ model ImportDraft {
 
 model TranslationQuota {
   id        String   @id @default(cuid())
-  provider  String   // "deepl" | "google"
-  monthYear String   // "2026-03" format
+  provider  String // "deepl" | "google"
+  monthYear String // "2026-03" format
   charsUsed Int      @default(0)
-  maxChars  Int      // 500000
+  maxChars  Int // 500000
   updatedAt DateTime @updatedAt
 
   @@unique([provider, monthYear])
@@ -1029,25 +1029,26 @@ enum PfsSyncStatus {
   RUNNING
   COMPLETED
   FAILED
+  STOPPED
 }
 
 model PfsSyncJob {
-  id              String        @id @default(cuid())
-  status          PfsSyncStatus @default(PENDING)
-  totalProducts   Int           @default(0)
-  processedProducts Int         @default(0)
-  createdProducts Int           @default(0)
-  updatedProducts Int           @default(0)
-  skippedProducts Int           @default(0)
-  errorProducts   Int           @default(0)
-  lastPage        Int           @default(0)   // for resume — last fully processed page
-  errorMessage    String?       @db.Text
-  errorDetails    Json?                       // per-product errors
-  logs            Json?                       // detailed sync logs for frontend display
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  adminId         String
-  admin           User          @relation(fields: [adminId], references: [id])
+  id                String        @id @default(cuid())
+  status            PfsSyncStatus @default(PENDING)
+  totalProducts     Int           @default(0)
+  processedProducts Int           @default(0)
+  createdProducts   Int           @default(0)
+  updatedProducts   Int           @default(0)
+  skippedProducts   Int           @default(0)
+  errorProducts     Int           @default(0)
+  lastPage          Int           @default(0) // for resume — last fully processed page
+  errorMessage      String?       @db.Text
+  errorDetails      Json? // per-product errors
+  logs              Json? // detailed sync logs for frontend display
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  adminId           String
+  admin             User          @relation(fields: [adminId], references: [id])
 
   @@index([status])
   @@index([createdAt])
@@ -1065,9 +1066,9 @@ model SentEmail {
   user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   subject     String
   htmlBody    String   @db.LongText
-  attachments Json?    // [{filename, path, size}]
+  attachments Json? // [{filename, path, size}]
   sentAt      DateTime @default(now())
-  adminId     String   // Admin who sent it
+  adminId     String // Admin who sent it
 
   @@index([userId])
   @@index([toEmail])
@@ -1080,67 +1081,67 @@ model SentEmail {
 // ─────────────────────────────────────────────
 
 enum PfsStagedStatus {
-  PREPARING   // Data/images en cours de téléchargement
-  READY       // Prêt pour review admin
-  APPROVED    // Approuvé — produit créé en DB
-  REJECTED    // Refusé — images supprimées
-  ERROR       // Erreur lors de la préparation
+  PREPARING // Data/images en cours de téléchargement
+  READY // Prêt pour review admin
+  APPROVED // Approuvé — produit créé en DB
+  REJECTED // Refusé — images supprimées
+  ERROR // Erreur lors de la préparation
 }
 
 model PfsPrepareJob {
-  id                String         @id @default(cuid())
-  status            PfsSyncStatus  @default(PENDING)
-  totalProducts     Int            @default(0)
-  processedProducts Int            @default(0)
-  readyProducts     Int            @default(0)
-  errorProducts     Int            @default(0)
-  approvedProducts  Int            @default(0)
-  rejectedProducts  Int            @default(0)
-  lastPage          Int            @default(0)
-  errorMessage      String?        @db.Text
+  id                String             @id @default(cuid())
+  status            PfsSyncStatus      @default(PENDING)
+  totalProducts     Int                @default(0)
+  processedProducts Int                @default(0)
+  readyProducts     Int                @default(0)
+  errorProducts     Int                @default(0)
+  approvedProducts  Int                @default(0)
+  rejectedProducts  Int                @default(0)
+  lastPage          Int                @default(0)
+  errorMessage      String?            @db.Text
   logs              Json?
   adminId           String
-  admin             User           @relation(fields: [adminId], references: [id])
+  admin             User               @relation(fields: [adminId], references: [id])
   stagedProducts    PfsStagedProduct[]
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@index([status])
   @@index([createdAt])
 }
 
 model PfsStagedProduct {
-  id             String           @id @default(cuid())
-  prepareJobId   String
-  prepareJob     PfsPrepareJob    @relation(fields: [prepareJobId], references: [id], onDelete: Cascade)
-  pfsProductId   String
-  reference      String           // Réf BJ (sans VS suffix)
-  pfsReference   String           // Réf PFS originale
-  status         PfsStagedStatus  @default(PREPARING)
-  name           String
-  description    String           @db.Text
-  categoryId        String
-  categoryName      String
-  subCategoryIds    Json?            // string[] — IDs des sous-catégories
-  subCategoryNames  Json?            // string[] — Noms des sous-catégories
-  isBestSeller   Boolean          @default(false)
-  variants       Json             // VariantData[]
-  compositions   Json             // { compositionId, name, percentage }[]
-  translations   Json             // { locale, name, description }[]
-  imagesByColor  Json             // { colorRef, colorName, colorId, paths[] }[]
-  tags           Json?            // string[] — tag names
+  id                       String          @id @default(cuid())
+  prepareJobId             String
+  prepareJob               PfsPrepareJob   @relation(fields: [prepareJobId], references: [id], onDelete: Cascade)
+  pfsProductId             String
+  reference                String // Réf BJ (sans VS suffix)
+  pfsReference             String // Réf PFS originale
+  status                   PfsStagedStatus @default(PREPARING)
+  name                     String
+  description              String          @db.Text
+  categoryId               String
+  categoryName             String
+  subCategoryIds           Json? // string[] — IDs des sous-catégories
+  subCategoryNames         Json? // string[] — Noms des sous-catégories
+  isBestSeller             Boolean         @default(false)
+  variants                 Json // VariantData[]
+  compositions             Json // { compositionId, name, percentage }[]
+  translations             Json // { locale, name, description }[]
+  imagesByColor            Json // { colorRef, colorName, colorId, paths[] }[]
+  tags                     Json? // string[] — tag names
   manufacturingCountryId   String?
   manufacturingCountryName String?
   seasonId                 String?
   seasonName               String?
-  pfsProductStatus  String?          // PFS status at import time (READY_FOR_SALE, DRAFT, etc.)
-  errorMessage      String?          @db.Text
-  existsInDb        Boolean          @default(false)
-  existingProductId String?
-  differences       Json?            // Array of { field, stagedValue, existingValue }
-  createdProductId  String?          // Filled when product is approved and created in DB
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  pfsProductStatus         String? // PFS status at import time (READY_FOR_SALE, DRAFT, etc.)
+  errorMessage             String?         @db.Text
+  existsInDb               Boolean         @default(false)
+  existingProductId        String?
+  differences              Json? // Array of { field, stagedValue, existingValue }
+  createdProductId         String? // Filled when product is approved and created in DB
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
 
   @@unique([pfsProductId, prepareJobId])
   @@index([prepareJobId, status])
@@ -1152,28 +1153,28 @@ model PfsStagedProduct {
 // ─────────────────────────────────────────────
 
 model CompanyInfo {
-  id            String   @id @default(cuid())
-  shopName      String?  // Nom commercial de la boutique (affiché partout sur le site)
-  name          String   // Raison sociale
-  legalForm     String?  // Forme juridique (SAS, SARL, EURL, etc.)
-  capital       String?  // Capital social
-  siret         String?
-  rcs           String?  // RCS (ex: Paris B 123 456 789)
-  tvaNumber     String?  // TVA intracommunautaire
-  address       String?
-  city          String?
-  postalCode    String?
-  country       String   @default("France")
-  phone         String?
-  email         String?
-  website       String?
-  director      String?  // Directeur de publication
-  hostName      String?  // Hébergeur
-  hostAddress   String?
-  hostPhone     String?
-  hostEmail     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String   @id @default(cuid())
+  shopName    String? // Nom commercial de la boutique (affiché partout sur le site)
+  name        String // Raison sociale
+  legalForm   String? // Forme juridique (SAS, SARL, EURL, etc.)
+  capital     String? // Capital social
+  siret       String?
+  rcs         String? // RCS (ex: Paris B 123 456 789)
+  tvaNumber   String? // TVA intracommunautaire
+  address     String?
+  city        String?
+  postalCode  String?
+  country     String   @default("France")
+  phone       String?
+  email       String?
+  website     String?
+  director    String? // Directeur de publication
+  hostName    String? // Hébergeur
+  hostAddress String?
+  hostPhone   String?
+  hostEmail   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // ─────────────────────────────────────────────
@@ -1189,14 +1190,14 @@ enum LegalDocumentType {
 }
 
 model LegalDocument {
-  id        String            @id @default(cuid())
-  type      LegalDocumentType @unique
+  id        String                 @id @default(cuid())
+  type      LegalDocumentType      @unique
   title     String
-  content   String            @db.LongText // HTML with {{variable}} placeholders
-  isActive  Boolean           @default(true)
+  content   String                 @db.LongText // HTML with {{variable}} placeholders
+  isActive  Boolean                @default(true)
   versions  LegalDocumentVersion[]
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
 }
 
 model LegalDocumentVersion {
@@ -1205,7 +1206,7 @@ model LegalDocumentVersion {
   document            LegalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
   content             String        @db.LongText
   companyInfoSnapshot String        @db.LongText // JSON snapshot of CompanyInfo at time of save
-  changeNote          String?       // e.g. "Modification manuelle" or "Mise à jour infos société"
+  changeNote          String? // e.g. "Modification manuelle" or "Mise à jour infos société"
   createdAt           DateTime      @default(now())
 
   @@index([documentId, createdAt])
@@ -1213,13 +1214,13 @@ model LegalDocumentVersion {
 
 // PFS name → BJ entity mapping (remembered across syncs)
 model PfsMapping {
-  id          String   @id @default(cuid())
-  type        String   // "category" | "color" | "composition"
-  pfsName     String   // original PFS name (normalized lowercase)
-  bjEntityId  String   // BJ entity id (Category.id, Color.id, Composition.id)
-  bjName      String   // BJ entity name (for display)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  type       String // "category" | "color" | "composition"
+  pfsName    String // original PFS name (normalized lowercase)
+  bjEntityId String // BJ entity id (Category.id, Color.id, Composition.id)
+  bjName     String // BJ entity name (for display)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([type, pfsName])
   @@index([type])

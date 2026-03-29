@@ -293,6 +293,22 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     }
   }
 
+  // Auto-downgrade to OFFLINE if any variant has no image
+  let effectiveStatus = input.status;
+  if (input.status === "ONLINE" && createdVariants.length > 0) {
+    const variantImageCounts = await prisma.productColorImage.groupBy({
+      by: ["productColorId"],
+      where: { productColorId: { in: createdVariants.map((v) => v.id) } },
+      _count: { id: true },
+    });
+    const variantIdsWithImages = new Set(variantImageCounts.map((v) => v.productColorId));
+    const allHaveImages = createdVariants.every((v) => variantIdsWithImages.has(v.id));
+    if (!allHaveImages) {
+      effectiveStatus = "OFFLINE";
+      await prisma.product.update({ where: { id: product.id }, data: { status: "OFFLINE" } });
+    }
+  }
+
   // Produits similaires — bidirectionnel (A→B et B→A)
   if (input.similarProductIds.length > 0) {
     await prisma.productSimilar.createMany({
@@ -329,7 +345,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   revalidateTag("products", "default");
   revalidateTag("tags", "default");
 
-  if (input.status === "ONLINE") {
+  if (effectiveStatus === "ONLINE") {
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
 
@@ -679,6 +695,20 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
   }
 
+  // Auto-downgrade to OFFLINE if any variant has no image
+  let effectiveStatus = input.status;
+  if (input.status === "ONLINE") {
+    const allVariants = await prisma.productColor.findMany({
+      where: { productId: id },
+      select: { id: true, _count: { select: { images: true } } },
+    });
+    const allHaveImages = allVariants.length > 0 && allVariants.every((v) => v._count.images > 0);
+    if (!allHaveImages) {
+      effectiveStatus = "OFFLINE";
+      await prisma.product.update({ where: { id }, data: { status: "OFFLINE" } });
+    }
+  }
+
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${id}/modifier`);
   revalidatePath(`/produits/${id}`);
@@ -687,13 +717,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
 
   // Emit real-time events
   if (oldProduct) {
-    if (oldProduct.status !== "ONLINE" && input.status === "ONLINE") {
+    if (oldProduct.status !== "ONLINE" && effectiveStatus === "ONLINE") {
       emitProductEvent({ type: "PRODUCT_ONLINE", productId: id });
-    } else if (oldProduct.status === "ONLINE" && input.status !== "ONLINE") {
+    } else if (oldProduct.status === "ONLINE" && effectiveStatus !== "ONLINE") {
       emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
     } else if (oldProduct.isBestSeller !== input.isBestSeller) {
       emitProductEvent({ type: "BESTSELLER_CHANGED", productId: id });
-    } else if (input.status === "ONLINE") {
+    } else if (effectiveStatus === "ONLINE") {
       emitProductEvent({ type: "PRODUCT_UPDATED", productId: id });
     }
   }
@@ -778,15 +808,25 @@ export async function bulkUpdateProductStatus(
     },
   });
 
-  // Check images exist
-  const imageCountMap = new Map<string, number>();
+  // Check images exist per variant (each color must have at least one image)
+  const variantsWithoutImages = new Map<string, string[]>();
   if (status === "ONLINE") {
-    const imageCounts = await prisma.productColorImage.groupBy({
-      by: ["productId"],
+    const allColors = await prisma.productColor.findMany({
       where: { productId: { in: productIds } },
-      _count: { id: true },
+      select: {
+        id: true,
+        productId: true,
+        color: { select: { name: true } },
+        _count: { select: { images: true } },
+      },
     });
-    for (const ic of imageCounts) imageCountMap.set(ic.productId, ic._count.id);
+    for (const c of allColors) {
+      if (c._count.images === 0) {
+        const existing = variantsWithoutImages.get(c.productId) ?? [];
+        existing.push(c.color?.name || "variante");
+        variantsWithoutImages.set(c.productId, existing);
+      }
+    }
   }
 
   const success: string[] = [];
@@ -798,7 +838,8 @@ export async function bulkUpdateProductStatus(
       if (product.isIncomplete) reasons.push("produit incomplet");
       if (product.colors.length === 0) reasons.push("aucune variante");
       if (product.colors.length > 0 && product.colors.every(c => c.stock === 0)) reasons.push("aucun stock");
-      if ((imageCountMap.get(product.id) ?? 0) === 0) reasons.push("aucune image");
+      const missingImgVariants = variantsWithoutImages.get(product.id);
+      if (missingImgVariants) reasons.push(`image manquante : ${missingImgVariants.join(", ")}`);
       if (!product.categoryId) reasons.push("pas de catégorie");
       if (reasons.length > 0) {
         errors.push({ id: product.id, reference: product.reference, reason: reasons.join(", ") });

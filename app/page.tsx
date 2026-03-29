@@ -61,14 +61,16 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
     const colorMap = new Map<string, { id: string; colorId: string; hex: string | null; name: string; unitPrice: number; discountedPrice: number; hasDiscount: boolean; isPrimary: boolean }>();
     for (const c of p.colors) {
       if (!c.colorId) continue;
-      const discounted = computeDiscountedPrice(c.unitPrice, c.discountType, c.discountValue);
-      const hasDsc = discounted < c.unitPrice;
+      const price = Number(c.unitPrice);
+      const dv = c.discountValue != null ? Number(c.discountValue) : null;
+      const discounted = computeDiscountedPrice(price, c.discountType, dv);
+      const hasDsc = discounted < price;
       if (!colorMap.has(c.colorId)) {
-        colorMap.set(c.colorId, { id: c.colorId, colorId: c.colorId, hex: c.color?.hex ?? null, name: c.color?.name ?? "", unitPrice: c.unitPrice, discountedPrice: discounted, hasDiscount: hasDsc, isPrimary: c.isPrimary });
+        colorMap.set(c.colorId, { id: c.colorId, colorId: c.colorId, hex: c.color?.hex ?? null, name: c.color?.name ?? "", unitPrice: price, discountedPrice: discounted, hasDiscount: hasDsc, isPrimary: c.isPrimary });
       } else {
         const entry = colorMap.get(c.colorId)!;
         if (discounted < entry.discountedPrice) {
-          entry.unitPrice = c.unitPrice;
+          entry.unitPrice = price;
           entry.discountedPrice = discounted;
           entry.hasDiscount = hasDsc;
         }
@@ -172,7 +174,7 @@ export default async function HomePage() {
     : null;
 
   // ── Fetch collections + counts ─────────────────────────────────────────────
-  const [collections, productCount, collectionCount] = await Promise.all([
+  const [collections, productCount, collectionCount, categoryCount] = await Promise.all([
     prisma.collection.findMany({
       orderBy: { createdAt: "desc" },
       take:    4,
@@ -180,6 +182,7 @@ export default async function HomePage() {
     }),
     prisma.product.count({ where: { status: "ONLINE" } }),
     prisma.collection.count(),
+    prisma.category.count(),
   ]);
 
   // ── Build carousel data from config ───────────────────────────────────────
@@ -212,7 +215,21 @@ export default async function HomePage() {
   }
 
   // Build final carousel list
-  type CarouselData = { id: string; title: string; products: CarouselProduct[]; isPromo: boolean };
+  type CarouselData = { id: string; title: string; products: CarouselProduct[]; isPromo: boolean; viewMoreHref: string };
+
+  function buildViewMoreHref(c: HomepageCarousel): string {
+    switch (c.type) {
+      case "new":         return "/produits?new=1";
+      case "bestseller":  return "/produits?bestseller=1";
+      case "promo":       return "/produits?promo=1";
+      case "category":    return c.categoryId ? `/produits?cat=${c.categoryId}` : "/produits";
+      case "subcategory": return c.subCategoryId ? `/produits?subcat=${c.subCategoryId}` : "/produits";
+      case "collection":  return c.collectionIds?.[0] ? `/collections/${c.collectionIds[0]}` : "/collections";
+      case "tag":         return c.tagId ? `/produits?tag=${c.tagId}` : "/produits";
+      default:            return "/produits";
+    }
+  }
+
   const carouselList: CarouselData[] = [];
   for (const { carousel, products } of carouselProducts) {
     if (products.length === 0) continue;
@@ -223,6 +240,7 @@ export default async function HomePage() {
       title: carousel.title,
       products: toCarousel(products, imageMap),
       isPromo: carousel.type === "promo",
+      viewMoreHref: buildViewMoreHref(carousel),
     });
   }
 
@@ -235,11 +253,11 @@ export default async function HomePage() {
           {/* 1. Hero banner */}
           <HeroBanner bannerImage={bannerImage} shopName={shopName} />
 
-          {/* 2. Marquee band */}
-          <MarqueeBand />
+          {/* 2. Marquee band (disabled) */}
+          {/* <MarqueeBand /> */}
 
           {/* 3. Stats strip */}
-          <StatsStrip productCount={productCount} collectionCount={collectionCount} />
+          <StatsStrip productCount={productCount} collectionCount={collectionCount} categoryCount={categoryCount} />
 
           {/* 4. Carousels — rendered in config order */}
           {carouselList.map((carousel, i) => (
@@ -250,7 +268,7 @@ export default async function HomePage() {
                 <ProductCarousel
                   title={carousel.title}
                   products={carousel.products}
-                  viewMoreHref="/produits"
+                  viewMoreHref={carousel.viewMoreHref}
                   viewMoreLabel={t("newProductsMore")}
                   clientDiscount={clientDiscount}
                   showPromoBadge={carousel.isPromo}

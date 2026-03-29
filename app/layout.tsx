@@ -6,6 +6,7 @@ import { RTL_LOCALES } from "@/i18n/request";
 import SessionProvider from "@/components/providers/SessionProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
+import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
 import AccessCodeTracker from "@/components/layout/AccessCodeTracker";
 import GuestBanner from "@/components/layout/GuestBanner";
 import HeartbeatTracker from "@/components/layout/HeartbeatTracker";
@@ -102,10 +103,12 @@ export default async function RootLayout({
           <SessionProvider>
             <ToastProvider>
               <ConfirmProvider>
-                <GuestBanner />
-                <AccessCodeTracker />
-                <HeartbeatTracker />
-                {children}
+                <LoadingOverlayProvider>
+                  <GuestBanner />
+                  <AccessCodeTracker />
+                  <HeartbeatTracker />
+                  {children}
+                </LoadingOverlayProvider>
               </ConfirmProvider>
             </ToastProvider>
           </SessionProvider>

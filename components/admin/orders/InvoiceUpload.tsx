@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   orderId: string;
@@ -14,6 +15,7 @@ export default function InvoiceUpload({ orderId, hasInvoice }: Props) {
   const [uploading, setUploading] = useTransition();
   const [deleting, setDeleting] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -26,31 +28,41 @@ export default function InvoiceUpload({ orderId, hasInvoice }: Props) {
     const formData = new FormData();
     formData.append("file", file);
 
+    showLoading();
     setUploading(async () => {
-      const res = await fetch(`/api/admin/commandes/${orderId}/invoice`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "Erreur lors de l'upload.");
-      } else {
-        router.refresh();
+      try {
+        const res = await fetch(`/api/admin/commandes/${orderId}/invoice`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? "Erreur lors de l'upload.");
+        } else {
+          router.refresh();
+        }
+        // Reset input so same file can be re-selected
+        if (inputRef.current) inputRef.current.value = "";
+      } finally {
+        hideLoading();
       }
-      // Reset input so same file can be re-selected
-      if (inputRef.current) inputRef.current.value = "";
     });
   }
 
   async function handleDelete() {
     setError(null);
+    showLoading();
     setDeleting(async () => {
-      const res = await fetch(`/api/admin/commandes/${orderId}/invoice`, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "Erreur lors de la suppression.");
-      } else {
-        router.refresh();
+      try {
+        const res = await fetch(`/api/admin/commandes/${orderId}/invoice`, { method: "DELETE" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? "Erreur lors de la suppression.");
+        } else {
+          router.refresh();
+        }
+      } finally {
+        hideLoading();
       }
     });
   }

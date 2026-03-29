@@ -97,7 +97,7 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: strin
       style={{ animation: exiting ? undefined : "toastSlideIn 0.35s cubic-bezier(0.16,1,0.3,1)" }}
     >
       <div
-        className="bg-bg-primary rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.12)] overflow-hidden"
+        className="bg-bg-primary rounded-2xl shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)] border border-white/60 overflow-hidden"
         style={{ borderLeft: `3px solid ${c.borderColor}` }}
       >
         <div className="flex items-start gap-3 px-4 py-3">

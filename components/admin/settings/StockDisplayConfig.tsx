@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { updateStockDisplayConfig } from "@/app/actions/admin/site-config";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   showOutOfStockVariants: boolean;
@@ -12,19 +13,25 @@ export default function StockDisplayConfig({ showOutOfStockVariants, showOutOfSt
   const [variants, setVariants] = useState(showOutOfStockVariants);
   const [products, setProducts] = useState(showOutOfStockProducts);
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const hasChanges = variants !== showOutOfStockVariants || products !== showOutOfStockProducts;
 
   function handleSave() {
     setMsg(null);
+    showLoading();
     startTransition(async () => {
-      const res = await updateStockDisplayConfig({
-        showOutOfStockVariants: variants,
-        showOutOfStockProducts: products,
-      });
-      setMsg(res.success ? { ok: true, text: "Enregistré" } : { ok: false, text: res.error ?? "Erreur" });
-      if (res.success) setTimeout(() => setMsg(null), 3000);
+      try {
+        const res = await updateStockDisplayConfig({
+          showOutOfStockVariants: variants,
+          showOutOfStockProducts: products,
+        });
+        setMsg(res.success ? { ok: true, text: "Enregistré" } : { ok: false, text: res.error ?? "Erreur" });
+        if (res.success) setTimeout(() => setMsg(null), 3000);
+      } finally {
+        hideLoading();
+      }
     });
   }
 

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 import { cancelOrder } from "@/app/actions/client/order";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   orderId: string;
@@ -12,11 +13,13 @@ interface Props {
 export default function CancelOrderButton({ orderId, orderNumber }: Props) {
   const t = useTranslations("cancelOrder");
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState("");
 
   function handleCancel() {
     setError("");
+    showLoading();
     startTransition(async () => {
       try {
         await cancelOrder(orderId);
@@ -24,6 +27,8 @@ export default function CancelOrderButton({ orderId, orderNumber }: Props) {
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : t("error"));
         setConfirm(false);
+      } finally {
+        hideLoading();
       }
     });
   }

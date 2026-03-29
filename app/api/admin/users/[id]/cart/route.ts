@@ -55,11 +55,11 @@ export async function GET(
     const image = v.product.colorImages.find((img) => img.colorId === v.color?.id);
 
     // Compute price
-    let unitPrice = v.unitPrice;
+    let unitPrice = Number(v.unitPrice);
     if (v.discountType === "PERCENT" && v.discountValue) {
-      unitPrice = unitPrice * (1 - v.discountValue / 100);
+      unitPrice = unitPrice * (1 - Number(v.discountValue) / 100);
     } else if (v.discountType === "AMOUNT" && v.discountValue) {
-      unitPrice = unitPrice - v.discountValue;
+      unitPrice = unitPrice - Number(v.discountValue);
     }
     const lineTotal =
       v.saleType === "PACK" && v.packQuantity
@@ -77,9 +77,9 @@ export async function GET(
       variant: {
         saleType: v.saleType,
         packQuantity: v.packQuantity,
-        unitPrice: v.unitPrice,
+        unitPrice: Number(v.unitPrice),
         discountType: v.discountType,
-        discountValue: v.discountValue,
+        discountValue: v.discountValue != null ? Number(v.discountValue) : null,
         stock: v.stock,
         sizes: v.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({ name: vs.size.name, quantity: vs.quantity })),
       },

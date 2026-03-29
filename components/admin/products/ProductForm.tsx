@@ -10,10 +10,10 @@ import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
 import CustomSelect from "@/components/ui/CustomSelect";
-import AiCostDialog from "./AiCostDialog";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Category {
   id: string;
@@ -296,6 +296,7 @@ export default function ProductForm({
   initialData,
 }: ProductFormProps) {
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   // ── Local lists — allow modal creation to append items ───────────────
   const [localCategories,   setLocalCategories]   = useState(categories);
@@ -517,16 +518,6 @@ export default function ProductForm({
 
   // ── Quick-create modal ───────────────────────────────────────────────
   const [modalType, setModalType] = useState<QuickCreateType | null>(null);
-
-  // ── AI generation ────────────────────────────────────────────────────
-  const [aiLoading,    setAiLoading]    = useState(false);
-  const [aiError,      setAiError]      = useState("");
-  const [aiCostDialog, setAiCostDialog] = useState<{
-    estimatedCostUsd: number;
-    productInfo: Record<string, unknown>;
-    imagePaths: string[];
-  } | null>(null);
-  const [aiSuccess, setAiSuccess] = useState("");
 
   // ── Translate all (name + description) ─────────────────────────────
   const [translateLoading, setTranslateLoading] = useState(false);
@@ -793,83 +784,6 @@ export default function ProductForm({
     }
   }
 
-  // ── AI generation ────────────────────────────────────────────────────
-  async function handleAiEstimate() {
-    setAiError("");
-    setAiSuccess("");
-    setAiLoading(true);
-    try {
-      const catName     = localCategories.find((c) => c.id === categoryId)?.name ?? "";
-      const subCatNames = subCategoryIds.flatMap((id) =>
-        localCategories.flatMap((cat) => cat.subCategories.filter((s) => s.id === id).map((s) => s.name))
-      );
-      const compData  = compositions.map((c) => ({
-        name:       localCompositions.find((lc) => lc.id === c.compositionId)?.name ?? "",
-        percentage: parseFloat(c.percentage) || 0,
-      })).filter((c) => c.name);
-      const colorData = [...new Map(variants.map((v) => [v.colorId, { name: v.colorName, hex: v.colorHex }])).values()];
-      const imagePaths = colorImages.flatMap((ci) => ci.uploadedPaths);
-
-      const productInfo = {
-        categoryName:     catName,
-        subCategoryNames: subCatNames,
-        tagNames,
-        compositions:     compData,
-        colors:           colorData,
-        dimensions: {
-          length:        dimLength        ? parseFloat(dimLength)        : null,
-          width:         dimWidth         ? parseFloat(dimWidth)         : null,
-          height:        dimHeight        ? parseFloat(dimHeight)        : null,
-          diameter:      dimDiameter      ? parseFloat(dimDiameter)      : null,
-          circumference: dimCircumference ? parseFloat(dimCircumference) : null,
-        },
-      };
-
-      const res  = await fetch("/api/admin/products/generate-ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estimateOnly: true, productInfo, imagePaths }),
-      });
-      const data = await res.json();
-      setAiCostDialog({ estimatedCostUsd: data.estimatedCostUsd, productInfo, imagePaths });
-    } catch (e) {
-      setAiError(e instanceof Error ? e.message : "Erreur lors de l'estimation.");
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
-  async function handleAiConfirm() {
-    if (!aiCostDialog) return;
-    const { productInfo, imagePaths } = aiCostDialog;
-    setAiCostDialog(null);
-    setAiLoading(true);
-    setAiError("");
-    try {
-      const res  = await fetch("/api/admin/products/generate-ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productInfo, imagePaths, locales: ["fr"] }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erreur IA");
-
-      const aiTranslations: Record<string, { name: string; description: string }> = data.translations;
-
-      if (aiTranslations.fr) {
-        setName(aiTranslations.fr.name);
-        setDescription(aiTranslations.fr.description);
-      }
-
-      const actualCost = data.actualCostUsd ?? data.estimatedCostUsd ?? 0;
-      setAiSuccess(`Généré avec succès ! Coût réel : $${actualCost.toFixed(4)}. Utilisez "Tout traduire" pour les autres langues.`);
-      setTimeout(() => setAiSuccess(""), 6000);
-    } catch (e) {
-      setAiError(e instanceof Error ? e.message : "Erreur lors de la génération IA.");
-    } finally {
-      setAiLoading(false);
-    }
-  }
 
   // ── Completeness check (all requirements for a "ready" product) ─────
   function getCompletenessErrors(): string[] {
@@ -886,8 +800,15 @@ export default function ProductForm({
     if (variants.length === 0) {
       errors.push("Au moins une variante de couleur est requise");
     } else {
-      const hasImage = colorImages.some((ci) => ci.uploadedPaths.length > 0);
-      if (!hasImage) errors.push("Au moins une variante doit avoir une image");
+      // Every variant must have at least one image
+      for (const v of variants) {
+        const gk = variantGroupKeyFromState(v);
+        const ci = colorImages.find((c) => c.groupKey === gk);
+        if (!ci || ci.uploadedPaths.length === 0) {
+          const label = v.colorName || "variante pack";
+          errors.push(`Variante "${label}" : aucune image`);
+        }
+      }
       // Variant-level completeness
       for (const v of variants) {
         const label = v.colorName || "variante pack";
@@ -1110,6 +1031,7 @@ export default function ProductForm({
         .map(([locale, t]) => ({ locale, name: t.name, description: t.description })),
     };
 
+    showLoading();
     startTransition(async () => {
       try {
         if (mode === "edit" && productId) {
@@ -1135,6 +1057,8 @@ export default function ProductForm({
         }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -1169,22 +1093,6 @@ export default function ProductForm({
                 </div>
                 <button
                   type="button"
-                  onClick={handleAiEstimate}
-                  disabled={aiLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-dark hover:bg-black text-text-inverse text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 font-body shrink-0"
-                >
-                  {aiLoading ? (
-                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                        d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
-                    </svg>
-                  )}
-                  Générer avec l&apos;IA
-                </button>
-                <button
-                  type="button"
                   onClick={handleTranslateAll}
                   disabled={translateLoading || (!name.trim() && !description.trim())}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-[#E5E5E5] text-text-primary border border-border text-xs font-medium rounded-lg transition-colors disabled:opacity-50 font-body shrink-0"
@@ -1201,17 +1109,6 @@ export default function ProductForm({
                 </button>
               </div>
 
-              {/* AI feedback */}
-              {aiError && (
-                <p className="text-xs text-[#DC2626] font-body bg-[#FEF2F2] px-3 py-2 rounded-lg">
-                  {aiError}
-                </p>
-              )}
-              {aiSuccess && (
-                <p className="text-xs text-[#15803D] font-body bg-[#F0FDF4] px-3 py-2 rounded-lg">
-                  {aiSuccess}
-                </p>
-              )}
               {translateError && (
                 <p className="text-xs text-[#DC2626] font-body bg-[#FEF2F2] px-3 py-2 rounded-lg">
                   {translateError}
@@ -1678,16 +1575,9 @@ export default function ProductForm({
         onClose={() => setModalType(null)}
         onCreated={handleModalCreated}
         categoryId={categoryId}
+        pfsEnabled={hasPfsConfig}
       />
 
-      {/* ── AI cost confirmation dialog ── */}
-      {aiCostDialog && (
-        <AiCostDialog
-          estimatedCostUsd={aiCostDialog.estimatedCostUsd}
-          onConfirm={handleAiConfirm}
-          onCancel={() => setAiCostDialog(null)}
-        />
-      )}
     </>
   );
 }

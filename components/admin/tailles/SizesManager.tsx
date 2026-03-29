@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createSize, updateSize, deleteSize, toggleSizePfsMapping } from "@/app/actions/admin/sizes";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { usePfsAttributes } from "@/components/admin/MarketplaceMappingSection";
 import PfsSizeMultiSelect from "@/components/pfs/PfsSizeMultiSelect";
 
@@ -33,6 +34,7 @@ export default function SizesManager({
   const [isPending, startTransition] = useTransition();
   const { confirm } = useConfirm();
   const toast = useToast();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   // Create form
   const [newName, setNewName] = useState("");
@@ -63,6 +65,7 @@ export default function SizesManager({
       return;
     }
     const selectedPfsRefs = [...newPfsSizeRefs];
+    showLoading();
     startTransition(async () => {
       try {
         const created = await createSize(newName, newCategoryIds);
@@ -76,6 +79,8 @@ export default function SizesManager({
         router.refresh();
       } catch (err: unknown) {
         toast.error((err as Error).message);
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -88,6 +93,7 @@ export default function SizesManager({
 
   function handleUpdate() {
     if (!editId || !editName.trim()) return;
+    showLoading();
     startTransition(async () => {
       try {
         await updateSize(editId, editName, editCategoryIds);
@@ -96,6 +102,8 @@ export default function SizesManager({
         router.refresh();
       } catch (err: unknown) {
         toast.error((err as Error).message);
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -108,6 +116,7 @@ export default function SizesManager({
       confirmLabel: "Supprimer",
     });
     if (!confirmed) return;
+    showLoading();
     startTransition(async () => {
       try {
         await deleteSize(size.id);
@@ -115,6 +124,8 @@ export default function SizesManager({
         router.refresh();
       } catch (err: unknown) {
         toast.error((err as Error).message);
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -167,13 +178,14 @@ export default function SizesManager({
           </div>
         )}
 
-        {/* PFS Size Mapping */}
+        {/* PFS Size Mapping — hidden when PFS is disabled */}
+        {!pfsData?.pfsDisabled && (
         <div className="border border-border rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 bg-bg-secondary border-b border-border flex items-center justify-between">
             <p className="text-xs font-semibold text-text-secondary font-body uppercase tracking-wider">
               Mapping Marketplaces
             </p>
-            <span className="text-[10px] text-[#EF4444] font-semibold font-body">Requis *</span>
+            <span className="text-[10px] text-text-muted font-semibold font-body">Optionnel</span>
           </div>
           <div className="p-4">
             <p className="text-xs font-medium text-text-primary font-body mb-2 flex items-center gap-1.5">
@@ -216,6 +228,7 @@ export default function SizesManager({
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* Sizes list */}

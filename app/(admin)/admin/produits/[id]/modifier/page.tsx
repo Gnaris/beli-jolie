@@ -5,7 +5,7 @@ import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
 import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
-import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes, getCachedHasPfsConfig } from "@/lib/cached-data";
+import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes, getCachedPfsEnabled } from "@/lib/cached-data";
 import PfsSyncButton from "@/components/pfs/PfsSyncButton";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
@@ -92,7 +92,7 @@ export default async function ModifierProduitPage({
     getCachedManufacturingCountries(),
     getCachedSeasons(),
     getCachedSizes(),
-    getCachedHasPfsConfig(),
+    getCachedPfsEnabled(),
   ]);
 
   if (!product) notFound();
@@ -124,7 +124,14 @@ export default async function ModifierProduitPage({
       quantity:     String(vs.quantity),
       pricePerUnit: vs.pricePerUnit != null ? String(vs.pricePerUnit) : undefined,
     })),
-    unitPrice:     String(pc.unitPrice),
+    unitPrice:     (() => {
+      // DB stores totalPackPrice for PACK (unitPrice × totalQty) — convert back to per-unit
+      if (pc.saleType === "PACK" && pc.variantSizes.length > 0) {
+        const totalQty = pc.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0);
+        if (totalQty > 0) return String(Math.round(Number(pc.unitPrice) / totalQty * 100) / 100);
+      }
+      return String(pc.unitPrice);
+    })(),
     weight:        String(pc.weight),
     stock:         String(pc.stock ?? 0),
     isPrimary:     pc.isPrimary,
@@ -135,13 +142,30 @@ export default async function ModifierProduitPage({
     pfsColorRef:   pc.pfsColorRef ?? "",
   }));
 
-  // Build group key for each ProductColor (colorId + ordered sub-color names — order matters)
-  // PACK variants use pack::<dbId> to match imageGroupKeyFromVariant()
-  function editGroupKey(pc: { id: string; colorId: string | null; saleType: string; subColors: { color: { name: string } }[] }): string {
-    if (pc.saleType === "PACK") return `pack::${pc.id}`;
+  // Build group key for each ProductColor — must match imageGroupKeyFromVariant() in ColorVariantManager
+  function editGroupKey(pc: {
+    id: string; colorId: string | null; saleType: string;
+    subColors: { colorId: string; color: { name: string } }[];
+    packColorLines: { colors: { colorId: string; color: { id: string } }[] }[];
+  }): string {
+    if (pc.saleType === "PACK") {
+      if (pc.packColorLines.length === 0) return `pack::${pc.id}`;
+      // Check if all lines have the same color composition (mirrors imageGroupKeyFromVariant logic)
+      const lineSignatures = pc.packColorLines.map(pcl =>
+        pcl.colors.map(c => c.colorId).join(",")
+      );
+      const allSame = lineSignatures.every(sig => sig === lineSignatures[0]);
+      if (allSame && pc.packColorLines[0].colors.length > 0) {
+        const colors = pc.packColorLines[0].colors;
+        if (colors.length === 1) return colors[0].colorId;
+        return `${colors[0].colorId}::${colors.slice(1).map(c => c.colorId).join(",")}`;
+      }
+      return `pack::${pc.id}`;
+    }
     if (!pc.colorId) return "";
     if (pc.subColors.length === 0) return pc.colorId;
-    return `${pc.colorId}::${pc.subColors.map(sc => sc.color.name).join(",")}`;
+    // Must use colorId (not name) to match variantGroupKeyFromState() in ColorVariantManager
+    return `${pc.colorId}::${pc.subColors.map(sc => sc.colorId).join(",")}`;
   }
 
   // Map ProductColor.id (dbId) → groupKey
@@ -213,21 +237,26 @@ export default async function ModifierProduitPage({
     const _seenColorIds = new Set<string>();
     const _seenSizeIds = new Set<string>();
     for (const variant of product.colors) {
-      if (variant.colorId && variant.color && !_seenColorIds.has(variant.colorId)) {
+      const hasOverride = !!variant.pfsColorRef;
+      if (!hasOverride && variant.colorId && variant.color && !_seenColorIds.has(variant.colorId)) {
         _seenColorIds.add(variant.colorId);
         if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" non mappée`);
       }
-      for (const sc of variant.subColors) {
-        if (!_seenColorIds.has(sc.colorId)) {
-          _seenColorIds.add(sc.colorId);
-          if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" non mappée`);
+      if (!hasOverride) {
+        for (const sc of variant.subColors) {
+          if (!_seenColorIds.has(sc.colorId)) {
+            _seenColorIds.add(sc.colorId);
+            if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" non mappée`);
+          }
         }
       }
-      for (const pcl of variant.packColorLines) {
-        for (const c of pcl.colors) {
-          if (!_seenColorIds.has(c.colorId)) {
-            _seenColorIds.add(c.colorId);
-            if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" non mappée`);
+      if (!hasOverride) {
+        for (const pcl of variant.packColorLines) {
+          for (const c of pcl.colors) {
+            if (!_seenColorIds.has(c.colorId)) {
+              _seenColorIds.add(c.colorId);
+              if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" non mappée`);
+            }
           }
         }
       }
@@ -323,7 +352,13 @@ export default async function ModifierProduitPage({
                 </svg>
                 Voir
               </Link>
-              <RefreshButton href={`/admin/produits/${product.id}/modifier`} />
+              <RefreshButton
+                href={`/admin/produits/${product.id}/modifier`}
+                productId={product.id}
+                productName={product.name}
+                productReference={product.reference}
+                hasPfsConfig={hasPfsConfig}
+              />
             </div>
           </div>
         </>

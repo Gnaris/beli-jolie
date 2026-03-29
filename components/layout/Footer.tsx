@@ -33,16 +33,16 @@ export default function Footer({ shopName }: FooterProps) {
   ];
 
   return (
-    <footer className="relative bg-gradient-to-b from-bg-dark to-bg-darker text-text-inverse">
+    <footer className="relative bg-gradient-to-b from-[#0F172A] to-[#070B14] text-white">
       <div className="container-site py-10 md:py-14">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
 
           {/* Column 1 - Brand */}
           <div className="sm:col-span-2 lg:col-span-1">
-            <Link href="/" className="font-heading text-xl font-semibold text-text-inverse">
+            <Link href="/" className="font-heading text-xl font-semibold text-white">
               {shopName}
             </Link>
-            <p className="mt-3 max-w-xs text-sm leading-relaxed text-text-secondary font-body">
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/60 font-body">
               {t("description")}
             </p>
           </div>
@@ -55,7 +55,7 @@ export default function Footer({ shopName }: FooterProps) {
             <ul className="space-y-2.5 text-sm">
               {catalogueItems.map((item) => (
                 <li key={item.label}>
-                  <Link href={item.href} className="inline-block text-text-secondary hover:text-accent hover:pl-1.5 transition-all duration-200 font-body">
+                  <Link href={item.href} className="inline-block text-white/50 hover:text-accent hover:pl-1.5 transition-all duration-200 font-body">
                     {item.label}
                   </Link>
                 </li>
@@ -71,7 +71,7 @@ export default function Footer({ shopName }: FooterProps) {
             <ul className="space-y-2.5 text-sm">
               {proItems.map((item) => (
                 <li key={item.href}>
-                  <Link href={item.href} className="inline-block text-text-secondary hover:text-accent hover:pl-1.5 transition-all duration-200 font-body">
+                  <Link href={item.href} className="inline-block text-white/50 hover:text-accent hover:pl-1.5 transition-all duration-200 font-body">
                     {item.label}
                   </Link>
                 </li>
@@ -87,7 +87,7 @@ export default function Footer({ shopName }: FooterProps) {
             <ul className="space-y-2.5 text-sm">
               {infoItems.map((item) => (
                 <li key={item.href}>
-                  <Link href={item.href} className="inline-block text-text-secondary hover:text-accent hover:pl-1.5 transition-all duration-200 font-body">
+                  <Link href={item.href} className="inline-block text-white/50 hover:text-accent hover:pl-1.5 transition-all duration-200 font-body">
                     {item.label}
                   </Link>
                 </li>
@@ -98,7 +98,7 @@ export default function Footer({ shopName }: FooterProps) {
       </div>
 
       <div className="border-t border-white/[0.06]">
-        <div className="container-site py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-text-secondary font-body">
+        <div className="container-site py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/40 font-body">
           <p>&copy; {currentYear} {shopName}. {t("rights")}</p>
           <p>{t("reserved")}</p>
         </div>

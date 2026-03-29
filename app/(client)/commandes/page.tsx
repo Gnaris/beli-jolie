@@ -160,7 +160,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
                       <p>
                         <span className="font-medium text-text-secondary">{t("shippingLabel")}</span>{" "}
                         {order.carrierName}
-                        {order.carrierPrice === 0 ? ` — ${t("free")}` : ` — ${order.carrierPrice.toFixed(2)} \u20AC`}
+                        {Number(order.carrierPrice) === 0 ? ` — ${t("free")}` : ` — ${Number(order.carrierPrice).toFixed(2)} \u20AC`}
                       </p>
                       <p>
                         <span className="font-medium text-text-secondary">{t("deliveryTo")}</span>{" "}
@@ -184,7 +184,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
                     <div className="text-right">
                       <p className="text-xs font-body text-text-muted">{t("totalTTC")}</p>
                       <p className="font-heading text-lg font-semibold text-text-primary">
-                        {order.totalTTC.toFixed(2)} {"\u20AC"}
+                        {Number(order.totalTTC).toFixed(2)} {"\u20AC"}
                       </p>
                       {order.tvaRate === 0 && (
                         <p className="text-[10px] font-body text-text-muted">{t("tvaExempt")}</p>

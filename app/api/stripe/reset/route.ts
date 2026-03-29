@@ -23,7 +23,7 @@ export async function POST() {
     try {
       const stripe = new Stripe(process.env.STRIPE_PLATFORM_SECRET_KEY!);
       await stripe.accounts.del(accountId);
-      console.log(`[Stripe Connect] Compte supprimé: ${accountId}`);
+
     } catch (err) {
       console.warn("[Stripe Connect] Erreur suppression (non-bloquante):", err);
     }
@@ -38,6 +38,8 @@ export async function POST() {
 
   invalidateStripeCache();
   revalidatePath("/admin/parametres");
+  revalidatePath("/panier");
+  revalidatePath("/panier/commande");
   revalidateTag("site-config", "default");
 
   return NextResponse.json({ success: true });

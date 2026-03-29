@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 import { updateProfile } from "@/app/actions/client/profile";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface AccountEditorProps {
   user: {
@@ -21,6 +22,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
   const t = useTranslations("account");
   const [editing, setEditing] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
@@ -37,6 +39,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
       return;
     }
     setError("");
+    showLoading();
     startTransition(async () => {
       try {
         await updateProfile({ firstName, lastName, company, phone, address, vatNumber });
@@ -45,6 +48,8 @@ export default function AccountEditor({ user }: AccountEditorProps) {
         setTimeout(() => setSuccess(false), 3000);
       } catch {
         setError(t("updateError"));
+      } finally {
+        hideLoading();
       }
     });
   }

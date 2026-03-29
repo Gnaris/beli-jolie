@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateOrderStatus } from "@/app/actions/admin/orders";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 const TRANSITIONS: Record<string, { next: string; label: string; variant: string }[]> = {
   PENDING:    [
@@ -29,6 +30,7 @@ export default function OrderStatusActions({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { confirm } = useConfirm();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   const actions = TRANSITIONS[currentStatus] ?? [];
   if (actions.length === 0) return null;
@@ -44,9 +46,14 @@ export default function OrderStatusActions({
       });
       if (!ok) return;
     }
+    showLoading();
     startTransition(async () => {
-      await updateOrderStatus(orderId, nextStatus);
-      router.refresh();
+      try {
+        await updateOrderStatus(orderId, nextStatus);
+        router.refresh();
+      } finally {
+        hideLoading();
+      }
     });
   }
 

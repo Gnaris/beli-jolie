@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateCatalogDisplayConfig } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
 import type {
   DisplaySection,
@@ -40,6 +41,7 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
   const [sections, setSections] = useState<DisplaySection[]>(initialSections);
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   function addSection(type: DisplaySectionType) {
@@ -89,12 +91,17 @@ export default function CatalogDisplayConfig({ initialMode, initialSections, cat
   }
 
   function handleSave() {
+    showLoading();
     startTransition(async () => {
-      const result = await updateCatalogDisplayConfig(mode, mode === "custom" ? sections : []);
-      if (result.success) {
-        toast.success("Configuration catalogue enregistrée");
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      try {
+        const result = await updateCatalogDisplayConfig(mode, mode === "custom" ? sections : []);
+        if (result.success) {
+          toast.success("Configuration catalogue enregistrée");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }

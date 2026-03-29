@@ -170,6 +170,22 @@ export const getCachedHasPfsConfig = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── PFS enabled? (credentials exist AND toggle ON) ────────────────────────
+export const getCachedPfsEnabled = unstable_cache(
+  async () => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["pfs_email", "pfs_enabled"] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map(r => [r.key, r.value]));
+    const hasEmail = map.has("pfs_email");
+    const enabled = map.get("pfs_enabled");
+    return hasEmail && enabled === "true";
+  },
+  ["pfs-enabled"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── PFS credentials (from SiteConfig) ──────────────────────────────────────
 export const getCachedPfsCredentials = unstable_cache(
   async () => {

@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
+import { getServerSession } from "next-auth";
 import { prisma } from "@/lib/prisma";
+import { authOptions } from "@/lib/auth";
 import { getCachedShopName } from "@/lib/cached-data";
+import CatalogProductCard from "@/components/catalogue/CatalogProductCard";
 import type { Metadata } from "next";
 
 interface Props {
@@ -27,10 +30,16 @@ export default async function PublicCatalogPage({ params }: Props) {
             include: {
               colorImages: { orderBy: { order: "asc" } },
               colors: {
-                where: { saleType: "UNIT" },
                 include: {
-                  color: { select: { id: true, name: true, hex: true } },
-                  subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true, hex: true } } } },
+                  color: { select: { id: true, name: true, hex: true, patternImage: true } },
+                  subColors: {
+                    orderBy: { position: "asc" },
+                    select: { color: { select: { name: true, hex: true, patternImage: true } } },
+                  },
+                  variantSizes: {
+                    orderBy: { size: { position: "asc" } },
+                    select: { size: { select: { name: true } }, quantity: true },
+                  },
                 },
               },
               category: true,
@@ -43,7 +52,12 @@ export default async function PublicCatalogPage({ params }: Props) {
 
   if (!catalog || catalog.status !== "PUBLISHED") notFound();
 
-  const shopName = await getCachedShopName();
+  const [shopName, session] = await Promise.all([
+    getCachedShopName(),
+    getServerSession(authOptions),
+  ]);
+
+  const isAuthenticated = !!session?.user;
   const primary = catalog.primaryColor;
 
   return (
@@ -58,7 +72,6 @@ export default async function PublicCatalogPage({ params }: Props) {
             : { backgroundColor: primary }
         }
       >
-        {/* Overlay sombre si photo de fond */}
         {catalog.coverImagePath && (
           <div className="absolute inset-0 bg-black/40" />
         )}
@@ -69,9 +82,22 @@ export default async function PublicCatalogPage({ params }: Props) {
           <h1 className="font-heading font-bold text-white text-2xl md:text-3xl tracking-tight">
             {catalog.title}
           </h1>
-          <p className="text-white/60 text-sm mt-2 font-body">
-            {catalog.products.length} produit{catalog.products.length !== 1 ? "s" : ""} sélectionné{catalog.products.length !== 1 ? "s" : ""}
-          </p>
+          <div className="flex items-center justify-center gap-3 mt-2">
+            <p className="text-white/60 text-sm font-body">
+              {catalog.products.length} produit{catalog.products.length !== 1 ? "s" : ""} sélectionné{catalog.products.length !== 1 ? "s" : ""}
+            </p>
+            {isAuthenticated && (
+              <a
+                href="/panier"
+                className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 hover:bg-white/30 text-white text-xs font-medium rounded-full transition-colors backdrop-blur-sm"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+                </svg>
+                Mon panier
+              </a>
+            )}
+          </div>
         </div>
       </header>
 
@@ -83,73 +109,17 @@ export default async function PublicCatalogPage({ params }: Props) {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {catalog.products.map(({ product, selectedColorId, selectedImagePath }) => {
-              // Variante couleur : selectedColorId en priorité, sinon la primaire
-              const variant = selectedColorId
-                ? product.colors.find((c) => c.color?.id === selectedColorId) ?? product.colors.find((c) => c.isPrimary) ?? product.colors[0]
-                : product.colors.find((c) => c.isPrimary) ?? product.colors[0];
-
-              const price = variant?.unitPrice;
-
-              // Image : 1. image spécifique choisie, 2. première image de la couleur, 3. première image du produit
-              const image =
-                selectedImagePath ??
-                (selectedColorId
-                  ? product.colorImages.find((img) => img.colorId === selectedColorId)?.path
-                  : null) ??
-                product.colorImages[0]?.path;
-
-              return (
-                <div
-                  key={product.id}
-                  className="bg-bg-primary rounded-2xl overflow-hidden shadow-[0_1px_6px_rgba(0,0,0,0.07)] hover:shadow-[0_4px_18px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-200"
-                >
-                  {/* Image */}
-                  <div className="relative aspect-[4/5] bg-bg-secondary overflow-hidden">
-                    {image ? (
-                      <img
-                        src={image}
-                        alt={product.name}
-                        className="w-full h-full object-contain p-2"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <svg className="w-10 h-10 text-[#D1D5DB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                            d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
-                        </svg>
-                      </div>
-                    )}
-                    {/* Bandeau couleur en bas */}
-                    <div
-                      className="absolute bottom-0 left-0 right-0 h-0.5"
-                      style={{ backgroundColor: primary }}
-                    />
-                  </div>
-
-                  {/* Infos */}
-                  <div className="p-4">
-                    <p className="text-[10px] text-text-muted uppercase tracking-wider font-body mb-1">
-                      {product.category.name}
-                    </p>
-                    <h2 className="font-heading font-semibold text-text-primary text-sm leading-snug line-clamp-2 mb-2">
-                      {product.name}
-                    </h2>
-                    <p className="text-xs text-text-muted font-body mb-3">
-                      Réf. {product.reference}
-                    </p>
-                    {price !== undefined && (
-                      <p
-                        className="font-heading font-bold text-base"
-                        style={{ color: primary }}
-                      >
-                        {price.toFixed(2)} €<span className="text-xs font-normal text-text-muted ml-1">HT / unité</span>
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {catalog.products.map(({ product, selectedColorId, selectedImagePath }) => (
+              <CatalogProductCard
+                key={product.id}
+                product={product}
+                selectedColorId={selectedColorId}
+                selectedImagePath={selectedImagePath}
+                primaryColor={primary}
+                isAuthenticated={isAuthenticated}
+                catalogToken={token}
+              />
+            ))}
           </div>
         )}
       </main>

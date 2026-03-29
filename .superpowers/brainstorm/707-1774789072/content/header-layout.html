@@ -1,0 +1,97 @@
+<h2>Structure du Header Public</h2>
+<p class="subtitle">Ton header actuel est une barre fixe classique. Voici 3 options claymorphism :</p>
+
+<div class="cards">
+
+  <!-- Option A - Floating bar -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:24px 16px; background: #EDF3F8; min-height:180px;">
+      <!-- Page bg -->
+      <div style="padding:12px;">
+        <!-- Floating navbar -->
+        <div style="background:rgba(255,255,255,0.85); backdrop-filter:blur(12px); border-radius:16px; padding:10px 20px; display:flex; align-items:center; justify-content:space-between; box-shadow: 6px 6px 16px rgba(26,86,219,0.08), -4px -4px 12px rgba(255,255,255,0.8); border:1px solid rgba(255,255,255,0.6); margin-bottom:16px;">
+          <div style="font-weight:700;font-size:14px;color:#1A56DB;">LOGO</div>
+          <div style="display:flex;gap:16px;align-items:center;">
+            <div style="height:6px;width:50px;border-radius:3px;background:#D1E0EF;"></div>
+            <div style="height:6px;width:50px;border-radius:3px;background:#D1E0EF;"></div>
+            <div style="height:6px;width:50px;border-radius:3px;background:#D1E0EF;"></div>
+            <div style="height:6px;width:50px;border-radius:3px;background:#1A56DB;"></div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <div style="width:28px;height:28px;border-radius:10px;background:#EDF3F8;box-shadow:inset 2px 2px 4px rgba(0,0,0,0.04), inset -1px -1px 3px rgba(255,255,255,0.8);"></div>
+            <div style="width:28px;height:28px;border-radius:10px;background:#EDF3F8;box-shadow:inset 2px 2px 4px rgba(0,0,0,0.04), inset -1px -1px 3px rgba(255,255,255,0.8);"></div>
+            <div style="width:28px;height:28px;border-radius:50%;background:#1A56DB;"></div>
+          </div>
+        </div>
+        <!-- Content placeholder -->
+        <div style="background:#FFFFFF;border-radius:16px;height:60px;box-shadow:4px 4px 12px rgba(26,86,219,0.06),-3px -3px 8px rgba(255,255,255,0.8);border:1px solid rgba(209,224,239,0.3);"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Barre flottante ⭐</h3>
+      <p>Header détaché du bord, effet glassmorphism + clay. Arrondi, flotte au-dessus du contenu avec blur. <strong>Très tendance, mon recommandé.</strong></p>
+    </div>
+  </div>
+
+  <!-- Option B - Full width with clay -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:0; background: #EDF3F8; min-height:180px; overflow:hidden;">
+      <!-- Full width header -->
+      <div style="background:#FFFFFF; padding:10px 24px; display:flex; align-items:center; justify-content:space-between; box-shadow: 0 4px 16px rgba(26,86,219,0.08); border-bottom:1px solid rgba(209,224,239,0.4);">
+        <div style="font-weight:700;font-size:14px;color:#1A56DB;">LOGO</div>
+        <div style="display:flex;gap:16px;align-items:center;">
+          <div style="height:6px;width:50px;border-radius:3px;background:#D1E0EF;"></div>
+          <div style="height:6px;width:50px;border-radius:3px;background:#D1E0EF;"></div>
+          <div style="height:6px;width:50px;border-radius:3px;background:#D1E0EF;"></div>
+          <div style="padding:4px 14px;border-radius:10px;background:#1A56DB;height:6px;width:50px;box-shadow:3px 3px 8px rgba(26,86,219,0.2),-2px -2px 5px rgba(255,255,255,0.4);"></div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <div style="width:28px;height:28px;border-radius:10px;background:#EDF3F8;box-shadow:inset 2px 2px 4px rgba(0,0,0,0.04), inset -1px -1px 3px rgba(255,255,255,0.8);"></div>
+          <div style="width:28px;height:28px;border-radius:10px;background:#EDF3F8;box-shadow:inset 2px 2px 4px rgba(0,0,0,0.04), inset -1px -1px 3px rgba(255,255,255,0.8);"></div>
+          <div style="width:28px;height:28px;border-radius:50%;background:#1A56DB;"></div>
+        </div>
+      </div>
+      <!-- Content -->
+      <div style="padding:16px 24px;">
+        <div style="background:#FFFFFF;border-radius:16px;height:70px;box-shadow:4px 4px 12px rgba(26,86,219,0.06),-3px -3px 8px rgba(255,255,255,0.8);border:1px solid rgba(209,224,239,0.3);"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Pleine largeur clay</h3>
+      <p>Header classique bord à bord, mais avec des éléments clay à l'intérieur (boutons, icônes en relief). <strong>Plus conventionnel, familier.</strong></p>
+    </div>
+  </div>
+
+  <!-- Option C - Split: logo bar + nav clay -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:0; background: #EDF3F8; min-height:180px; overflow:hidden;">
+      <!-- Top thin bar -->
+      <div style="background:#1A56DB; padding:6px 24px; display:flex; align-items:center; justify-content:space-between;">
+        <div style="font-weight:700;font-size:13px;color:white;">LOGO</div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <div style="height:5px;width:35px;border-radius:3px;background:rgba(255,255,255,0.4);"></div>
+          <div style="height:5px;width:35px;border-radius:3px;background:rgba(255,255,255,0.4);"></div>
+          <div style="width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.2);"></div>
+        </div>
+      </div>
+      <!-- Nav bar below -->
+      <div style="padding:8px 16px;">
+        <div style="background:rgba(255,255,255,0.9); border-radius:14px; padding:8px 18px; display:flex; align-items:center; justify-content:center; gap:20px; box-shadow: 6px 6px 14px rgba(26,86,219,0.08), -4px -4px 10px rgba(255,255,255,0.85); border:1px solid rgba(255,255,255,0.5);">
+          <div style="height:6px;width:55px;border-radius:3px;background:#1A56DB;"></div>
+          <div style="height:6px;width:55px;border-radius:3px;background:#D1E0EF;"></div>
+          <div style="height:6px;width:55px;border-radius:3px;background:#D1E0EF;"></div>
+          <div style="height:6px;width:55px;border-radius:3px;background:#D1E0EF;"></div>
+        </div>
+      </div>
+      <!-- Content -->
+      <div style="padding:8px 16px;">
+        <div style="background:#FFFFFF;border-radius:16px;height:56px;box-shadow:4px 4px 12px rgba(26,86,219,0.06),-3px -3px 8px rgba(255,255,255,0.8);border:1px solid rgba(209,224,239,0.3);"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Double bande</h3>
+      <p>Barre supérieure colorée (logo + actions) + barre de navigation flottante clay en dessous. <strong>Plus structuré, donne de l'importance à la nav.</strong></p>
+    </div>
+  </div>
+
+</div>

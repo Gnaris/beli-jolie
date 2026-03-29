@@ -9,6 +9,7 @@ import {
   getLegalDocumentVersions,
   rollbackLegalDocument,
 } from "@/app/actions/admin/legal-documents";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { LEGAL_VARIABLE_LIST } from "@/lib/legal-templates";
 import LegalRichTextEditor from "./LegalRichTextEditor";
 import type { LegalDocumentType } from "@prisma/client";
@@ -57,14 +58,20 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
   const [rollbackStrategy, setRollbackStrategy] = useState<"content_only" | "content_and_company" | "content_with_current_company">("content_with_current_company");
   const [showGuide, setShowGuide] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Initialize default documents
   const handleInitialize = () => {
+    showLoading();
     startTransition(async () => {
-      const result = await initializeLegalDocuments();
-      if (result.success && result.created > 0) {
-        window.location.reload();
+      try {
+        const result = await initializeLegalDocuments();
+        if (result.success && result.created > 0) {
+          window.location.reload();
+        }
+      } finally {
+        hideLoading();
       }
     });
   };
@@ -84,30 +91,40 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
   const handleSave = () => {
     if (!editingDoc) return;
     setMessage(null);
+    showLoading();
     startTransition(async () => {
-      const result = await saveLegalDocument(editingDoc.type, editContent);
-      if (result.success) {
-        setMessage({ type: "success", text: "Document enregistré avec succès." });
-        setDocs((prev) =>
-          prev.map((d) =>
-            d.id === editingDoc.id
-              ? { ...d, content: editContent, updatedAt: new Date().toISOString(), _count: { versions: d._count.versions + 1 } }
-              : d
-          )
-        );
-        setEditingDoc((prev) => prev ? { ...prev, content: editContent, updatedAt: new Date().toISOString(), _count: { versions: prev._count.versions + 1 } } : null);
-      } else {
-        setMessage({ type: "error", text: result.error || "Erreur lors de l'enregistrement." });
+      try {
+        const result = await saveLegalDocument(editingDoc.type, editContent);
+        if (result.success) {
+          setMessage({ type: "success", text: "Document enregistré avec succès." });
+          setDocs((prev) =>
+            prev.map((d) =>
+              d.id === editingDoc.id
+                ? { ...d, content: editContent, updatedAt: new Date().toISOString(), _count: { versions: d._count.versions + 1 } }
+                : d
+            )
+          );
+          setEditingDoc((prev) => prev ? { ...prev, content: editContent, updatedAt: new Date().toISOString(), _count: { versions: prev._count.versions + 1 } } : null);
+        } else {
+          setMessage({ type: "error", text: result.error || "Erreur lors de l'enregistrement." });
+        }
+      } finally {
+        hideLoading();
       }
     });
   };
 
   // Toggle active
   const handleToggle = (doc: DocumentData) => {
+    showLoading();
     startTransition(async () => {
-      const result = await toggleLegalDocument(doc.type, !doc.isActive);
-      if (result.success) {
-        setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, isActive: !d.isActive } : d)));
+      try {
+        const result = await toggleLegalDocument(doc.type, !doc.isActive);
+        if (result.success) {
+          setDocs((prev) => prev.map((d) => (d.id === doc.id ? { ...d, isActive: !d.isActive } : d)));
+        }
+      } finally {
+        hideLoading();
       }
     });
   };
@@ -136,16 +153,21 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
   // Rollback to version
   const handleRollback = () => {
     if (!selectedVersion) return;
+    showLoading();
     startTransition(async () => {
-      const result = await rollbackLegalDocument(selectedVersion.id, rollbackStrategy);
-      if (result.success) {
-        setMessage({ type: "success", text: "Version restaurée avec succès." });
-        setShowVersions(false);
-        setSelectedVersion(null);
-        setPreviewVersion(null);
-        window.location.reload();
-      } else {
-        setMessage({ type: "error", text: result.error || "Erreur lors de la restauration." });
+      try {
+        const result = await rollbackLegalDocument(selectedVersion.id, rollbackStrategy);
+        if (result.success) {
+          setMessage({ type: "success", text: "Version restaurée avec succès." });
+          setShowVersions(false);
+          setSelectedVersion(null);
+          setPreviewVersion(null);
+          window.location.reload();
+        } else {
+          setMessage({ type: "error", text: result.error || "Erreur lors de la restauration." });
+        }
+      } finally {
+        hideLoading();
       }
     });
   };

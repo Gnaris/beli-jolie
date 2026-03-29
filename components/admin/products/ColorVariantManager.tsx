@@ -546,12 +546,11 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
     setOpen(true);
   }, [selected, pfsColorRef]);
 
-  // Multi-color requires a PFS color mapping before confirming
+  // Multi-color without PFS mapping — warn but don't block
   const multiColorMissingPfs = draft.length > 1 && !draftPfsColorRef;
 
   const confirm = useCallback(() => {
-    if (draft.length > 1 && !draftPfsColorRef) return;
-    onChange(draft, draft.length > 1 ? draftPfsColorRef : undefined);
+    onChange(draft, draft.length > 1 ? draftPfsColorRef || undefined : undefined);
     if (draft.length > 1 && onPfsColorRefChange) {
       onPfsColorRefChange(draftPfsColorRef);
     }
@@ -977,8 +976,8 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
             {/* ── Footer ── */}
             <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
               {multiColorMissingPfs ? (
-                <span className="text-xs text-[#EF4444] bg-[#FEF2F2] border border-[#FECACA] px-3 py-1 rounded-lg font-body">
-                  Correspondance couleur PFS obligatoire pour une combinaison multi-couleurs
+                <span className="text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] px-3 py-1 rounded-lg font-body">
+                  Synchronisation PFS impossible sans correspondance couleur
                 </span>
               ) : matchingCombo ? (
                 <span className="text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] px-3 py-1 rounded-lg font-body">
@@ -997,7 +996,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                 </button>
                 <button type="button" onClick={confirm}
                   className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={draft.length === 0 || multiColorMissingPfs}
+                  disabled={draft.length === 0}
                 >
                   Valider
                 </button>
@@ -1343,8 +1342,8 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
                       onClick={() => { const v = findVariantByGroupKey(cimg.groupKey); if (v) onSetPrimary(v.tempId); }}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all font-body ${
                         isPrimary
-                          ? "border-[#1A1A1A] bg-bg-secondary shadow-sm"
-                          : "border-border hover:border-[#9CA3AF] bg-bg-primary"
+                          ? "border-bg-dark bg-bg-secondary shadow-sm"
+                          : "border-border hover:border-text-muted bg-bg-primary"
                       }`}
                     >
                       <ColorSwatch
@@ -1817,10 +1816,10 @@ function QuickAddModal({
     }
   }, [open]);
 
-  // Existing color combos for quick-select
+  // Existing color combos for quick-select (with pfsColorRef if already mapped)
   const existingCombos = useMemo(() => {
     const seen = new Set<string>();
-    const combos: { key: string; colors: { colorId: string; colorName: string; colorHex: string }[] }[] = [];
+    const combos: { key: string; colors: { colorId: string; colorName: string; colorHex: string }[]; pfsColorRef?: string }[] = [];
     for (const v of existingVariants) {
       if (!v.colorId) continue;
       const gk = variantGroupKeyFromState(v);
@@ -1832,6 +1831,7 @@ function QuickAddModal({
           { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
           ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
         ],
+        pfsColorRef: v.pfsColorRef || undefined,
       });
     }
     // Also add PACK color lines
@@ -1842,7 +1842,7 @@ function QuickAddModal({
       const gk = `pack::${line.colors.map((c) => c.colorId).sort().join("+")}`;
       if (seen.has(gk)) continue;
       seen.add(gk);
-      combos.push({ key: gk, colors: line.colors });
+      combos.push({ key: gk, colors: line.colors, pfsColorRef: v.pfsColorRef || undefined });
     }
     return combos;
   }, [existingVariants]);
@@ -1862,15 +1862,34 @@ function QuickAddModal({
   }
 
   function updateColorLine(lineId: string, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRef?: string) {
-    setColorLines((prev) => prev.map((l) => l.id === lineId ? { ...l, colors, pfsColorRef } : l));
+    // Auto-fill pfsColorRef from existing variant with same color combination
+    let resolvedRef = pfsColorRef;
+    if (resolvedRef === undefined && colors.length > 0) {
+      const sortedIds = colors.map((c) => c.colorId).sort().join("+");
+      for (const v of existingVariants) {
+        if (v.pfsColorRef) {
+          // Check UNIT multi-color match
+          if (v.colorId && v.subColors.length > 0) {
+            const vIds = [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+");
+            if (vIds === sortedIds) { resolvedRef = v.pfsColorRef; break; }
+          }
+          // Check PACK color line match
+          if (v.saleType === "PACK" && v.packColorLines[0]) {
+            const vIds = v.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
+            if (vIds === sortedIds) { resolvedRef = v.pfsColorRef; break; }
+          }
+        }
+      }
+    }
+    setColorLines((prev) => prev.map((l) => l.id === lineId ? { ...l, colors, pfsColorRef: resolvedRef } : l));
   }
 
   function addExistingCombo(combo: typeof existingCombos[0]) {
-    setColorLines((prev) => [...prev, { id: uid(), colors: combo.colors }]);
+    setColorLines((prev) => [...prev, { id: uid(), colors: combo.colors, pfsColorRef: combo.pfsColorRef }]);
   }
 
   function addAllExistingCombos() {
-    const newLines = existingCombos.map((c) => ({ id: uid(), colors: c.colors }));
+    const newLines = existingCombos.map((c) => ({ id: uid(), colors: c.colors, pfsColorRef: c.pfsColorRef }));
     setColorLines((prev) => [...prev, ...newLines]);
   }
 
@@ -2375,6 +2394,23 @@ export default function ColorVariantManager({
       return;
     }
     const [main, ...rest] = colors;
+    // Auto-resolve pfsColorRef from existing variant with same color combination
+    let resolvedRef = pfsColorRefOverride;
+    if (resolvedRef === undefined && colors.length > 1) {
+      const sortedIds = colors.map((c) => c.colorId).sort().join("+");
+      for (const ov of variants) {
+        if (!tempIds.has(ov.tempId) && ov.pfsColorRef) {
+          if (ov.colorId && ov.subColors.length > 0) {
+            const vIds = [ov.colorId, ...ov.subColors.map((sc) => sc.colorId)].sort().join("+");
+            if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
+          }
+          if (ov.saleType === "PACK" && ov.packColorLines[0]) {
+            const vIds = ov.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
+            if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
+          }
+        }
+      }
+    }
     onChange(variants.map((v) => {
       if (!tempIds.has(v.tempId)) return v;
       // Check if color combination actually changed — if so, clear pfsColorRef override
@@ -2385,8 +2421,8 @@ export default function ColorVariantManager({
         ...v,
         colorId: main.colorId, colorName: main.colorName, colorHex: main.colorHex,
         subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
-        // Use explicit override if provided, otherwise clear if combination changed
-        pfsColorRef: pfsColorRefOverride !== undefined ? pfsColorRefOverride : (combinationChanged ? "" : v.pfsColorRef),
+        // Use explicit override if provided, auto-resolved, otherwise clear if combination changed
+        pfsColorRef: resolvedRef !== undefined ? resolvedRef : (combinationChanged ? "" : v.pfsColorRef),
       };
     }));
   }
@@ -2400,8 +2436,24 @@ export default function ColorVariantManager({
       packColorLines: [{ ...line, colors }],
     };
     // Handle PFS color ref override for multi-color pack lines
-    if (pfsColorRefOverride !== undefined) {
-      patch.pfsColorRef = pfsColorRefOverride;
+    let resolvedRef = pfsColorRefOverride;
+    // Auto-resolve from existing variant with same color combination
+    if (resolvedRef === undefined && colors.length > 1) {
+      const sortedIds = colors.map((c) => c.colorId).sort().join("+");
+      for (const ov of variants) {
+        if (ov.tempId === variantTempId || !ov.pfsColorRef) continue;
+        if (ov.colorId && ov.subColors.length > 0) {
+          const vIds = [ov.colorId, ...ov.subColors.map((sc) => sc.colorId)].sort().join("+");
+          if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
+        }
+        if (ov.saleType === "PACK" && ov.packColorLines[0]) {
+          const vIds = ov.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
+          if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
+        }
+      }
+    }
+    if (resolvedRef !== undefined) {
+      patch.pfsColorRef = resolvedRef;
     }
     updateVariant(variantTempId, patch);
   }
@@ -2467,11 +2519,11 @@ export default function ColorVariantManager({
   function renderSizeSummary(v: VariantState) {
     if (v.sizeEntries.length === 0) return <span className="text-text-muted italic">—</span>;
     if (v.saleType === "UNIT") {
-      return <span>{v.sizeEntries[0]?.sizeName}</span>;
+      return <span className="text-text-primary font-medium">{v.sizeEntries[0]?.sizeName}</span>;
     }
     // PACK
     return (
-      <span className="truncate" title={v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}>
+      <span className="truncate text-text-primary font-medium" title={v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}>
         {v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}
       </span>
     );
@@ -2492,10 +2544,33 @@ export default function ColorVariantManager({
             <span className="text-emerald-600 font-semibold">{final.toFixed(2)}€</span>
           </>
         ) : (
-          <span className="font-semibold">{total.toFixed(2)}€</span>
+          <span className="font-semibold text-text-primary">{total.toFixed(2)}€</span>
         )}
       </div>
     );
+  }
+
+  // ── Render helper: used PFS color refs (for conflict display) ──────────
+  function getUsedPfsColorRefs(excludeTempId: string): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const ov of variants) {
+      if (ov.tempId === excludeTempId) continue;
+      // PACK variants with pfsColorRef override
+      if (ov.saleType === "PACK" && ov.pfsColorRef) {
+        const label = ov.packColorLines[0]?.colors.map((c) => c.colorName).join(" / ") || "Pack";
+        map.set(ov.pfsColorRef, label);
+        continue;
+      }
+      // UNIT variants
+      if (!ov.colorId) continue;
+      if (ov.subColors.length > 0 && ov.pfsColorRef) {
+        map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / "));
+      } else if (ov.subColors.length === 0) {
+        const colorOpt = availableColors.find((c) => c.id === ov.colorId);
+        if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
+      }
+    }
+    return map;
   }
 
   return (
@@ -2600,19 +2675,7 @@ export default function ColorVariantManager({
                       onPfsColorRefChange={async (ref) => {
                         if (v.dbId) { try { await updateProductColorPfsRef(v.dbId, ref || null); } catch (err) { console.error("[PFS] Failed to save pfsColorRef:", err); } }
                       }}
-                      usedPfsColorRefs={(() => {
-                        const map = new Map<string, string>();
-                        for (const ov of variants) {
-                          if (ov.tempId === v.tempId || !ov.colorId) continue;
-                          if (ov.subColors.length > 0 && ov.pfsColorRef) {
-                            map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / "));
-                          } else if (ov.subColors.length === 0) {
-                            const colorOpt = availableColors.find((c) => c.id === ov.colorId);
-                            if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
-                          }
-                        }
-                        return map;
-                      })()}
+                      usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                       onCreateColor={onQuickCreateColor}
                     />
                   ) : (
@@ -2625,19 +2688,7 @@ export default function ColorVariantManager({
                       onPfsColorRefChange={async (ref) => {
                         if (v.dbId) { try { await updateProductColorPfsRef(v.dbId, ref || null); } catch (err) { console.error("[PFS] Failed to save pfsColorRef:", err); } }
                       }}
-                      usedPfsColorRefs={(() => {
-                        const map = new Map<string, string>();
-                        for (const ov of variants) {
-                          if (ov.tempId === v.tempId || !ov.colorId) continue;
-                          if (ov.subColors.length > 0 && ov.pfsColorRef) {
-                            map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / "));
-                          } else if (ov.subColors.length === 0) {
-                            const colorOpt = availableColors.find((c) => c.id === ov.colorId);
-                            if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
-                          }
-                        }
-                        return map;
-                      })()}
+                      usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                       onCreateColor={onQuickCreateColor}
                     />
                   )}
@@ -2718,14 +2769,14 @@ export default function ColorVariantManager({
                         className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5"
                       />
                     </th>
-                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Type</th>
+                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[70px]">Type</th>
                     <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold min-w-[140px]">Couleur</th>
                     <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[90px]">Prix/unité</th>
                     <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold min-w-[120px]">Tailles</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[80px]">Total</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[70px]">Stock</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[80px]">Poids</th>
-                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[100px]">Remise</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[65px]">Total</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[90px]">Stock</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[95px]">Poids</th>
+                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[130px]">Remise</th>
                     <th className="w-10 px-2 py-2"></th>
                   </tr>
                   {/* Bulk edit row — inline in thead */}
@@ -2864,7 +2915,7 @@ export default function ColorVariantManager({
                               { value: "PACK", label: "Pack" },
                             ]}
                             size="sm"
-                            className="w-[75px]"
+                            className="w-[65px]"
                           />
                         </td>
 
@@ -2893,20 +2944,7 @@ export default function ColorVariantManager({
                                 }
                                 // React state is already updated via onChange -> handleMultiColorChange
                               }}
-                              usedPfsColorRefs={(() => {
-                                const map = new Map<string, string>();
-                                for (const ov of variants) {
-                                  if (ov.tempId === v.tempId || !ov.colorId) continue;
-                                  if (ov.subColors.length > 0 && ov.pfsColorRef) {
-                                    const label = [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ");
-                                    map.set(ov.pfsColorRef, label);
-                                  } else if (ov.subColors.length === 0) {
-                                    const colorOpt = availableColors.find((c) => c.id === ov.colorId);
-                                    if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
-                                  }
-                                }
-                                return map;
-                              })()}
+                              usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                               onCreateColor={onQuickCreateColor}
                             />
                           ) : (
@@ -2925,20 +2963,7 @@ export default function ColorVariantManager({
                                   }
                                 }
                               }}
-                              usedPfsColorRefs={(() => {
-                                const map = new Map<string, string>();
-                                for (const ov of variants) {
-                                  if (ov.tempId === v.tempId || !ov.colorId) continue;
-                                  if (ov.subColors.length > 0 && ov.pfsColorRef) {
-                                    const label = [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / ");
-                                    map.set(ov.pfsColorRef, label);
-                                  } else if (ov.subColors.length === 0) {
-                                    const colorOpt = availableColors.find((c) => c.id === ov.colorId);
-                                    if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
-                                  }
-                                }
-                                return map;
-                              })()}
+                              usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                               onCreateColor={onQuickCreateColor}
                             />
                           )}

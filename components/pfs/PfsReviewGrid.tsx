@@ -26,7 +26,7 @@ interface PfsReviewGridProps {
 
 interface JobData {
   id: string;
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
   totalProducts: number;
   processedProducts: number;
   readyProducts: number;
@@ -215,6 +215,30 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       })
       .catch(() => {});
   }, []);
+
+  // ── Stop job ──
+  const [stopping, setStopping] = useState(false);
+
+  const stopJob = async () => {
+    const ok = await confirm({
+      title: "Arrêter l'importation",
+      message: "Les produits déjà importés seront conservés. Voulez-vous arrêter l'importation en cours ?",
+      confirmLabel: "Arrêter",
+      cancelLabel: "Continuer",
+      variant: "danger",
+    });
+    if (!ok) return;
+
+    setStopping(true);
+    try {
+      await fetch(`/api/admin/pfs-sync/prepare?id=${jobId}`, { method: "DELETE" });
+      await fetchJob();
+    } catch {
+      // silent
+    } finally {
+      setStopping(false);
+    }
+  };
 
   // Poll job status while running (every 3s)
   useEffect(() => {
@@ -552,23 +576,42 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
                   )}
                   <h2 className="font-heading font-semibold text-text-primary text-sm sm:text-base">
                     {isJobRunning
-                      ? "Synchronisation en cours..."
+                      ? "Importation en cours..."
                       : job.status === "COMPLETED"
-                        ? "Synchronisation terminée"
-                        : "Synchronisation échouée"}
+                        ? "Importation terminée"
+                        : job.status === "STOPPED"
+                          ? "Importation arrêtée"
+                          : "Importation échouée"}
                   </h2>
                 </div>
-                <span
-                  className={`badge ${
-                    isJobRunning
-                      ? "badge-info"
-                      : job.status === "COMPLETED"
-                        ? "badge-success"
-                        : "badge-error"
-                  }`}
-                >
-                  {isJobRunning ? `${progress}%` : job.status === "COMPLETED" ? "Terminé" : "Échoué"}
-                </span>
+                <div className="flex items-center gap-2">
+                  {isJobRunning && (
+                    <button
+                      type="button"
+                      onClick={stopJob}
+                      disabled={stopping}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#EF4444] bg-[#EF4444]/10 hover:bg-[#EF4444]/20 border border-[#EF4444]/20 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                        <rect x="6" y="6" width="12" height="12" rx="1" />
+                      </svg>
+                      {stopping ? "Arrêt..." : "Stop"}
+                    </button>
+                  )}
+                  <span
+                    className={`badge ${
+                      isJobRunning
+                        ? "badge-info"
+                        : job.status === "COMPLETED"
+                          ? "badge-success"
+                          : job.status === "STOPPED"
+                            ? "badge-warning"
+                            : "badge-error"
+                    }`}
+                  >
+                    {isJobRunning ? `${progress}%` : job.status === "COMPLETED" ? "Terminé" : job.status === "STOPPED" ? "Arrêté" : "Échoué"}
+                  </span>
+                </div>
               </div>
 
               {/* Progress bar */}

@@ -63,6 +63,7 @@ interface PfsData {
   families: PfsFamily[];
   genders: PfsGender[];
   sizes: PfsSize[];
+  pfsDisabled?: boolean;
 }
 
 /* ─────────────────────────────────────────────
@@ -90,7 +91,12 @@ async function fetchPfsData(): Promise<PfsData> {
         throw new Error(detail);
       }
       const data: PfsData = await r.json();
-      pfsCache = data;
+      // Don't cache disabled response — allow refetch after toggle ON
+      if (data.pfsDisabled) {
+        pfsFetchPromise = null;
+      } else {
+        pfsCache = data;
+      }
       return data;
     } catch (err) {
       pfsFetchPromise = null; // allow retry on failure
@@ -216,6 +222,9 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
     );
   }
 
+  // PFS disabled via toggle → hide mapping entirely
+  if (pfsData?.pfsDisabled) return null;
+
   if (error || !pfsData) {
     return (
       <div className="border border-dashed border-border rounded-xl p-4 space-y-2">
@@ -245,7 +254,7 @@ export default function MarketplaceMappingSection(props: MarketplaceMappingSecti
         <p className="text-xs font-semibold text-text-secondary font-body uppercase tracking-wider">
           Correspondances Marketplaces
         </p>
-        <span className="text-[10px] text-[#EF4444] font-semibold font-body">Requis *</span>
+        <span className="text-[10px] text-text-muted font-semibold font-body">Optionnel</span>
       </div>
 
       <div className="p-4 space-y-3">

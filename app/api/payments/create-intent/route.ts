@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getStripeInstance, getConnectedAccountId } from "@/lib/stripe";
+import { getStripeInstance, getConnectedAccountId, getCommissionRate, isConnectEnabled } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { getCachedShopName } from "@/lib/cached-data";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const CreateIntentSchema = z.object({
   addressId: z.string().min(1),
@@ -18,13 +19,16 @@ const CreateIntentSchema = z.object({
 
 /**
  * POST /api/payments/create-intent
- * Crée un Stripe Payment Intent pour le montant TTC de la commande.
- * Tente carte + virement bancaire. Si le virement n'est pas dispo, fallback carte seule.
+ * Crée un Stripe Payment Intent pour le montant TTC de la commande (carte uniquement).
  *
  * Body: { addressId, carrierId, carrierName, carrierPrice, tvaRate }
- * Returns: { clientSecret, paymentIntentId, bankTransferAvailable }
+ * Returns: { clientSecret, paymentIntentId }
  */
 export async function POST(req: Request) {
+  // Rate limit : 5 req/min par IP (protection abus de paiement)
+  const rateLimited = checkRateLimit(req, "create-intent", 5, 60_000);
+  if (rateLimited) return rateLimited;
+
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
 
@@ -57,7 +61,7 @@ export async function POST(req: Request) {
     prisma.shippingAddress.findFirst({ where: { id: addressId, userId } }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { company: true, email: true, stripeCustomerId: true, discountType: true, discountValue: true, freeShipping: true },
+      select: { company: true, email: true, discountType: true, discountValue: true, freeShipping: true },
     }),
   ]);
 
@@ -73,10 +77,12 @@ export async function POST(req: Request) {
   type Variant = (typeof cartItems)[0]["variant"];
 
   function computeUnitPrice(v: Variant): number {
-    const base = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
+    const price = Number(v.unitPrice);
+    const base = v.saleType === "UNIT" ? price : price * (v.packQuantity ?? 1);
     if (!v.discountType || !v.discountValue) return base;
-    if (v.discountType === "PERCENT") return Math.max(0, base * (1 - v.discountValue / 100));
-    return Math.max(0, base - v.discountValue);
+    const discount = Number(v.discountValue);
+    if (v.discountType === "PERCENT") return Math.max(0, base * (1 - discount / 100));
+    return Math.max(0, base - discount);
   }
 
   const subtotalHT = cartItems.reduce(
@@ -87,9 +93,10 @@ export async function POST(req: Request) {
   // Remise commerciale client
   const clientDiscountAmt = (() => {
     if (!user?.discountType || !user.discountValue) return 0;
+    const dv = Number(user.discountValue);
     if (user.discountType === "PERCENT")
-      return Math.min(subtotalHT, subtotalHT * (user.discountValue / 100));
-    return Math.min(subtotalHT, user.discountValue);
+      return Math.min(subtotalHT, subtotalHT * (dv / 100));
+    return Math.min(subtotalHT, dv);
   })();
   const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
   const effectiveCarrierPrice = user?.freeShipping ? 0 : carrierPrice;
@@ -113,17 +120,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Stripe non configuré. Contactez l'administrateur." }, { status: 503 });
   }
 
-  // Stripe Connect : récupérer l'account ID (commission gérée côté dashboard Stripe)
+  // Stripe Connect : vérifier que le compte est relié
   const connectAccountId = await getConnectedAccountId();
+
+  // En mode plateforme, bloquer si le compte connecté n'est pas relié
+  if (isConnectEnabled() && !connectAccountId) {
+    return NextResponse.json({ error: "Paiement indisponible. Le compte Stripe n'est pas encore relié." }, { status: 503 });
+  }
+
   const connectOpts = connectAccountId ? { stripeAccount: connectAccountId } : undefined;
 
   // ─── Mode Connect : paiement direct sur le compte connecté ───────────────
   if (connectAccountId) {
     try {
+      // Calculer la commission plateforme
+      const commissionRate = await getCommissionRate();
+      const applicationFeeAmount = Math.round(amountCents * commissionRate);
+
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amountCents,
         currency: "eur",
-        automatic_payment_methods: { enabled: true },
+        payment_method_types: ["card"],
+        application_fee_amount: applicationFeeAmount > 0 ? applicationFeeAmount : undefined,
         metadata: {
           userId,
           addressId,
@@ -136,12 +154,9 @@ export async function POST(req: Request) {
         description: `Commande ${shopName} — ${user?.company ?? "Client"}`,
       }, connectOpts);
 
-      console.log("[create-intent] PI créé (Connect):", paymentIntent.id);
-
       return NextResponse.json({
         clientSecret: paymentIntent.client_secret,
         paymentIntentId: paymentIntent.id,
-        bankTransferAvailable: false,
       });
     } catch (err) {
       console.error("[create-intent] Erreur création PI (Connect):", err);
@@ -149,82 +164,13 @@ export async function POST(req: Request) {
     }
   }
 
-  // ─── Mode manuel : paiement direct avec clés du marchand ────────────────
+  // ─── Mode manuel : paiement direct avec clés du marchand (carte uniquement) ──
 
-  // Créer ou récupérer le Stripe Customer (requis pour le virement bancaire)
-  let stripeCustomerId = user?.stripeCustomerId;
-
-  if (!stripeCustomerId) {
-    try {
-      const customer = await stripe.customers.create({
-        email: user?.email ?? undefined,
-        name: user?.company ?? undefined,
-        metadata: { userId },
-      });
-      stripeCustomerId = customer.id;
-
-      await prisma.user.update({
-        where: { id: userId },
-        data: { stripeCustomerId: customer.id },
-      });
-    } catch (err) {
-      console.error("[create-intent] Erreur création Stripe Customer:", err);
-    }
-  }
-
-  // Tenter avec carte + virement bancaire
-  let bankTransferAvailable = false;
-
-  if (stripeCustomerId) {
-    try {
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: amountCents,
-        currency: "eur",
-        customer: stripeCustomerId,
-        payment_method_types: ["card", "customer_balance"],
-        payment_method_options: {
-          customer_balance: {
-            funding_type: "bank_transfer",
-            bank_transfer: {
-              type: "eu_bank_transfer",
-              eu_bank_transfer: {
-                country: "FR",
-              },
-            },
-          },
-        },
-        metadata: {
-          userId,
-          addressId,
-          carrierId,
-          carrierName,
-          carrierPrice: String(carrierPrice),
-          tvaRate: String(tvaRate),
-        },
-        receipt_email: user?.email ?? undefined,
-        description: `Commande ${shopName} — ${user?.company ?? "Client"}`,
-      });
-
-      console.log("[create-intent] PI créé avec carte + virement:", paymentIntent.id);
-      bankTransferAvailable = true;
-
-      return NextResponse.json({
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
-        bankTransferAvailable,
-      });
-    } catch (err) {
-      console.warn("[create-intent] customer_balance non dispo, fallback carte seule:", (err as Error).message);
-    }
-  }
-
-  // Fallback : carte seule
   try {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "eur",
-      customer: stripeCustomerId ?? undefined,
-      automatic_payment_methods: { enabled: true },
+      payment_method_types: ["card"],
       metadata: {
         userId,
         addressId,
@@ -237,12 +183,9 @@ export async function POST(req: Request) {
       description: `Commande ${shopName} — ${user?.company ?? "Client"}`,
     });
 
-    console.log("[create-intent] PI créé (carte seule, fallback):", paymentIntent.id);
-
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
-      bankTransferAvailable,
     });
   } catch (err) {
     console.error("[create-intent] Erreur création PI:", err);

@@ -370,7 +370,7 @@ function VariantCard({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
         <div>
           <span className="text-text-secondary">Prix unitaire</span>
-          <p className="font-medium text-text-primary tabular-nums">{variant.unitPrice.toFixed(2)}€</p>
+          <p className="font-medium text-text-primary tabular-nums">{Number(variant.unitPrice).toFixed(2)}€</p>
         </div>
         <div>
           <span className="text-text-secondary">Stock</span>

@@ -179,7 +179,7 @@ export async function applyPfsLiveSync(
         if (pfsVariant?.pfsVariantId) {
           try {
             await pfsDeleteVariant(pfsVariant.pfsVariantId);
-            console.log(`[PFS_LIVE_SYNC] Deleted PFS variant ${pfsVariant.pfsVariantId} (${pfsVariant.colorName})`);
+
             changesApplied++;
           } catch (err) {
             console.error(`[PFS_LIVE_SYNC] Failed to delete PFS variant ${pfsVariant.pfsVariantId}:`, err);

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateGmailConfig, validateGmailConfig } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   hasConfig: boolean;
@@ -18,41 +19,52 @@ export default function GmailConfig({ hasConfig }: Props) {
   const [isSaving, startSaving] = useTransition();
   const [isValidating, startValidating] = useTransition();
   const toast = useToast();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [editing, setEditing] = useState(!hasConfig);
 
   function handleValidate() {
     if (!gmailUser.trim() || !gmailPassword.trim()) return;
+    showLoading();
     startValidating(async () => {
-      setStatus("checking");
-      const result = await validateGmailConfig({
-        gmailUser: gmailUser.trim(),
-        gmailPassword: gmailPassword.trim(),
-      });
-      if (result.valid) {
-        setStatus("valid");
-        toast.success("Connexion réussie", "Les identifiants Gmail sont valides.");
-      } else {
-        setStatus("invalid");
-        toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
+      try {
+        setStatus("checking");
+        const result = await validateGmailConfig({
+          gmailUser: gmailUser.trim(),
+          gmailPassword: gmailPassword.trim(),
+        });
+        if (result.valid) {
+          setStatus("valid");
+          toast.success("Connexion réussie", "Les identifiants Gmail sont valides.");
+        } else {
+          setStatus("invalid");
+          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }
 
   function handleSave() {
+    showLoading();
     startSaving(async () => {
-      const result = await updateGmailConfig({
-        gmailUser: gmailUser.trim(),
-        gmailPassword: gmailPassword.trim(),
-        notifyEmail: notifyEmail.trim(),
-      });
-      if (result.success) {
-        toast.success("Enregistré", "Configuration Gmail sauvegardée.");
-        setEditing(false);
-        setGmailUser("");
-        setGmailPassword("");
-        setNotifyEmail("");
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      try {
+        const result = await updateGmailConfig({
+          gmailUser: gmailUser.trim(),
+          gmailPassword: gmailPassword.trim(),
+          notifyEmail: notifyEmail.trim(),
+        });
+        if (result.success) {
+          toast.success("Enregistré", "Configuration Gmail sauvegardée.");
+          setEditing(false);
+          setGmailUser("");
+          setGmailPassword("");
+          setNotifyEmail("");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }

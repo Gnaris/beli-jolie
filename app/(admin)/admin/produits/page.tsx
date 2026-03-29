@@ -5,8 +5,9 @@ import type { Metadata } from "next";
 import AdminProductsFilters from "@/components/admin/products/AdminProductsFilters";
 import AdminProductsTable from "@/components/admin/products/AdminProductsTable";
 import AdminPagination from "@/components/admin/products/AdminPagination";
-import ProductsPageTabs from "@/components/admin/products/ProductsPageTabs";
-import { getCachedAdminWarnings, getCachedHasPfsConfig } from "@/lib/cached-data";
+import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
+import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
+import { getCachedAdminWarnings, getCachedPfsEnabled } from "@/lib/cached-data";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -65,22 +66,20 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      {/* Tab bar */}
-      <div className="border-b border-border">
-        <Suspense>
-          <ProductsPageTabs activeTab={activeTab} warnings={tabWarnings} />
-        </Suspense>
-      </div>
-
-      {/* Tab content */}
-      {activeTab === "produits" && <ProduitsContent params={params} />}
-      {activeTab === "categories" && <CategoriesContent />}
-      {activeTab === "couleurs" && <CouleursContent />}
-      {activeTab === "compositions" && <CompositionsContent />}
-      {activeTab === "pays" && <PaysContent />}
-      {activeTab === "saisons" && <SaisonsContent />}
-      {activeTab === "tailles" && <TaillesContent />}
-      {activeTab === "mots-cles" && <MotsClesContent />}
+      <AdminProductsTabsWrapper
+        initialTab={activeTab}
+        warnings={tabWarnings}
+        tabs={[
+          { key: "produits",     content: <Suspense><ProduitsContent params={params} /></Suspense> },
+          { key: "categories",   content: <Suspense><CategoriesContent /></Suspense> },
+          { key: "couleurs",     content: <Suspense><CouleursContent /></Suspense> },
+          { key: "compositions", content: <Suspense><CompositionsContent /></Suspense> },
+          { key: "pays",         content: <Suspense><PaysContent /></Suspense> },
+          { key: "saisons",      content: <Suspense><SaisonsContent /></Suspense> },
+          { key: "tailles",      content: <Suspense><TaillesContent /></Suspense> },
+          { key: "mots-cles",    content: <Suspense><MotsClesContent /></Suspense> },
+        ]}
+      />
     </div>
   );
 }
@@ -180,7 +179,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     }),
     prisma.product.count({ where }),
     prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    getCachedHasPfsConfig(),
+    getCachedPfsEnabled(),
   ]);
 
   const productIds = products.map((p) => p.id);
@@ -212,7 +211,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     colors:          p.colors.map((c) => ({
       id:            c.id,
       colorId:       c.colorId ?? "",
-      unitPrice:     c.unitPrice,
+      unitPrice:     Number(c.unitPrice),
       weight:        c.weight,
       stock:         c.stock,
       isPrimary:     c.isPrimary,
@@ -220,7 +219,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       packQuantity:  c.packQuantity,
       variantSizes:  c.variantSizes,
       discountType:  c.discountType as "PERCENT" | "AMOUNT" | null,
-      discountValue: c.discountValue,
+      discountValue: c.discountValue != null ? Number(c.discountValue) : null,
       color:         c.color ?? { name: "—", hex: null, patternImage: null },
       subColors:     c.subColors,
     })),
@@ -230,7 +229,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   return (
     <>
       {/* En-tête */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="page-title">Produits</h1>
           <p className="page-subtitle font-body">
@@ -253,11 +252,24 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         </div>
       </div>
 
+      <div className="mt-6" />
+
       {/* Filtres */}
-      <div className="card px-4 py-3">
+      <div className="bg-bg-primary rounded-2xl px-6 py-5">
         <Suspense>
           <AdminProductsFilters totalCount={totalCount} categories={categories} />
         </Suspense>
+      </div>
+
+      {/* Tout traduire */}
+      <div className="py-3 flex items-center justify-end">
+        <ProductTranslateAllButton
+          products={serializedProducts.map((p) => ({
+            id: p.id,
+            name: p.name,
+            translationLocales: p.translations.map((t) => t.locale),
+          }))}
+        />
       </div>
 
       {/* Tableau */}

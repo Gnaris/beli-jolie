@@ -248,6 +248,22 @@ export async function updatePfsCredentials(config: {
   }
 }
 
+export async function togglePfsEnabled(enabled: boolean): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await prisma.siteConfig.upsert({
+      where: { key: "pfs_enabled" },
+      update: { value: enabled ? "true" : "false" },
+      create: { key: "pfs_enabled", value: enabled ? "true" : "false" },
+    });
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 export async function validatePfsCredentials(config: {
   email: string;
   password: string;

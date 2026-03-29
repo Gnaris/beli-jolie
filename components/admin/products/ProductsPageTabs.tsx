@@ -34,7 +34,11 @@ export default function ProductsPageTabs({ activeTab, warnings = {} }: Props) {
       });
     }
     const qs = params.toString();
-    router.push(`/admin/produits${qs ? `?${qs}` : ""}`, { scroll: false });
+    const url = `/admin/produits${qs ? `?${qs}` : ""}`;
+
+    // Shallow URL update — avoids server re-render since all tabs are already loaded
+    window.history.replaceState(null, "", url);
+    router.refresh();
   }, [router, searchParams]);
 
   return (

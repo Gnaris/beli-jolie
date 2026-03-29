@@ -49,11 +49,11 @@ export async function GET(
       shipCity:        order.shipCity,
       shipCountry:     order.shipCountry,
       carrierName:     order.carrierName,
-      carrierPrice:    order.carrierPrice,
+      carrierPrice:    Number(order.carrierPrice),
       tvaRate:         order.tvaRate,
-      subtotalHT:      order.subtotalHT,
-      tvaAmount:       order.tvaAmount,
-      totalTTC:        order.totalTTC,
+      subtotalHT:      Number(order.subtotalHT),
+      tvaAmount:       Number(order.tvaAmount),
+      totalTTC:        Number(order.totalTTC),
       items: order.items.map((item) => ({
         productName: item.productName,
         productRef:  item.productRef,
@@ -64,9 +64,9 @@ export async function GET(
         sizesJson:   item.sizesJson,
         packDetails: item.packDetails,
         imagePath:   item.imagePath,
-        unitPrice:   item.unitPrice,
+        unitPrice:   Number(item.unitPrice),
         quantity:    item.quantity,
-        lineTotal:   item.lineTotal,
+        lineTotal:   Number(item.lineTotal),
       })),
     });
 

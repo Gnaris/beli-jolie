@@ -5,16 +5,17 @@ import { useTranslations } from "next-intl";
 interface StatsStripProps {
   productCount: number;
   collectionCount: number;
+  categoryCount: number;
 }
 
-export default function StatsStrip({ productCount, collectionCount }: StatsStripProps) {
+export default function StatsStrip({ productCount, collectionCount, categoryCount }: StatsStripProps) {
   const t = useTranslations("home");
 
   const stats = [
     { value: `+${productCount}`, label: t("statsReferences") },
     { value: t("statsDeliveryValue"), label: t("statsDelivery") },
     { value: `${collectionCount}`, label: t("collections") },
-    { value: t("statsProValue"), label: t("statsPro") },
+    { value: `${categoryCount}`, label: t("statsCategories") },
   ];
 
   return (

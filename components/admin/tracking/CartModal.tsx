@@ -183,11 +183,11 @@ export default function CartModal({ userId, userName, onClose }: Props) {
                         <div className="text-right">
                           {hasDiscount && (
                             <span className="text-[10px] text-text-muted line-through mr-1.5">
-                              {(item.variant.unitPrice * item.quantity).toFixed(2)} €
+                              {(Number(item.variant.unitPrice) * item.quantity).toFixed(2)} €
                             </span>
                           )}
                           <span className="text-sm font-heading font-semibold text-text-primary">
-                            {item.lineTotal.toFixed(2)} €
+                            {Number(item.lineTotal).toFixed(2)} €
                           </span>
                         </div>
                       </div>

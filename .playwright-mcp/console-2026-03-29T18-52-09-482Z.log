@@ -1,0 +1,28 @@
+[  169005ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/admin/produits:0
+[  169766ms] [ERROR] %o
+
+%s Error: usePfsRefresh must be used within PfsRefreshProvider
+    at usePfsRefresh (http://localhost:3000/_next/static/chunks/_be4d4adf._.js:2265:21)
+    at PfsRefreshWidget (http://localhost:3000/_next/static/chunks/_be4d4adf._.js:2424:208)
+    at Object.react_stack_bottom_frame (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:14826:24)
+    at renderWithHooks (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:4651:24)
+    at updateFunctionComponent (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6112:21)
+    at beginWork (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6687:639)
+    at runWithFiberInDEV (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:965:74)
+    at performUnitOfWork (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9562:97)
+    at workLoopSync (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9456:40)
+    at renderRootSync (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9440:13)
+    at performWorkOnRoot (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9105:47)
+    at performWorkOnRootViaSchedulerTask (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:10230:9)
+    at MessagePort.performWorkUntilDeadline (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_a0e4c7b4._.js:2647:64) The above error occurred in the <PfsRefreshWidget> component. It was handled by the <ErrorBoundaryHandler> error boundary. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_client_17643121._.js:1342
+[  175428ms] [ERROR] ./app/(admin)/layout.tsx:194:1
+Parsing ecmascript source code failed
+  192 |     </DeeplConfigProvider>
+  193 |   );
+> 194 | }
+      | ^
+  195 |
+  196 | /* --- Admin navigation (grouped by section) --------------------------- */
+  197 | const ADMIN_NAV_SECTIONS: { title: string; items: { label: string; href: string; icon: React.ReactNode; soon?: boolean }[] }[] = [
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`? @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127

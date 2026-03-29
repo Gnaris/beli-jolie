@@ -6,6 +6,13 @@ import Link from "next/link";
 import CustomSelect from "@/components/ui/CustomSelect";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
+import {
+  createCategoryQuick,
+  createColorQuick,
+  createCompositionQuick,
+  createManufacturingCountryQuick,
+  createSeasonQuick,
+} from "@/app/actions/admin/quick-create";
 
 // ─────────────────────────────────────────────
 // Types
@@ -134,6 +141,7 @@ interface EditableCategory {
   pfsFamilyId: string;
   bjEntityId: string | null;
   usedBy: number;
+  pfsLabels: Record<string, string>;
 }
 
 interface EditableColor {
@@ -141,6 +149,8 @@ interface EditableColor {
   pfsReference: string;
   bjEntityId: string | null;
   usedBy: number;
+  hex: string | null;
+  pfsLabels: Record<string, string>;
 }
 
 interface EditableComposition {
@@ -148,18 +158,21 @@ interface EditableComposition {
   pfsReference: string;
   bjEntityId: string | null;
   usedBy: number;
+  pfsLabels: Record<string, string>;
 }
 
 interface EditableCountry {
   pfsName: string;
   pfsReference: string;
   bjEntityId: string | null;
+  pfsLabels: Record<string, string>;
 }
 
 interface EditableSeason {
   pfsName: string;
   pfsReference: string;
   bjEntityId: string | null;
+  pfsLabels: Record<string, string>;
 }
 
 type Step = "idle" | "analyzing" | "validation" | "creating" | "preparing";
@@ -204,6 +217,140 @@ export default function PfsSyncPageClient() {
   const imageLogsEndRef = useRef<HTMLDivElement>(null);
   const [analyzeLogs, setAnalyzeLogs] = useState<string[]>([]);
   const analyzeLogsEndRef = useRef<HTMLDivElement>(null);
+
+  // Batch create state
+  const [batchCreating, setBatchCreating] = useState<string | null>(null); // which type is creating
+
+  // ── Batch create helpers ──
+  async function handleBatchCreateCategories() {
+    const unresolved = editCategories.filter((c) => !c.bjEntityId);
+    if (unresolved.length === 0) return;
+    setBatchCreating("categories");
+    try {
+      for (let i = 0; i < unresolved.length; i++) {
+        const cat = unresolved[i];
+        const names: Record<string, string> = { fr: cat.pfsName, ...cat.pfsLabels };
+        try {
+          const result = await createCategoryQuick(names, cat.pfsCategoryId, cat.pfsGender, cat.pfsFamilyId);
+          setExistingEntities((prev) => ({
+            ...prev,
+            categories: [...prev.categories, { id: result.id, name: result.name }],
+          }));
+          setEditCategories((prev) =>
+            prev.map((c) => c.pfsCategoryId === cat.pfsCategoryId ? { ...c, bjEntityId: result.id } : c),
+          );
+        } catch {
+          // skip duplicates or errors, continue with the rest
+        }
+      }
+    } finally {
+      setBatchCreating(null);
+    }
+  }
+
+  async function handleBatchCreateColors() {
+    const unresolved = editColors.filter((c) => !c.bjEntityId);
+    if (unresolved.length === 0) return;
+    setBatchCreating("colors");
+    try {
+      for (let i = 0; i < unresolved.length; i++) {
+        const col = unresolved[i];
+        const names: Record<string, string> = { fr: col.pfsName, ...col.pfsLabels };
+        try {
+          const result = await createColorQuick(names, col.hex, null, col.pfsReference);
+          setExistingEntities((prev) => ({
+            ...prev,
+            colors: [...prev.colors, { id: result.id, name: result.name, hex: result.hex ?? null, patternImage: null }],
+          }));
+          setEditColors((prev) =>
+            prev.map((c) => c.pfsReference === col.pfsReference ? { ...c, bjEntityId: result.id } : c),
+          );
+        } catch {
+          // skip duplicates or errors
+        }
+      }
+    } finally {
+      setBatchCreating(null);
+    }
+  }
+
+  async function handleBatchCreateCompositions() {
+    const unresolved = editCompositions.filter((c) => !c.bjEntityId);
+    if (unresolved.length === 0) return;
+    setBatchCreating("compositions");
+    try {
+      for (let i = 0; i < unresolved.length; i++) {
+        const comp = unresolved[i];
+        const names: Record<string, string> = { fr: comp.pfsName, ...comp.pfsLabels };
+        try {
+          const result = await createCompositionQuick(names, comp.pfsReference);
+          setExistingEntities((prev) => ({
+            ...prev,
+            compositions: [...prev.compositions, { id: result.id, name: result.name }],
+          }));
+          setEditCompositions((prev) =>
+            prev.map((c) => c.pfsReference === comp.pfsReference ? { ...c, bjEntityId: result.id } : c),
+          );
+        } catch {
+          // skip duplicates or errors
+        }
+      }
+    } finally {
+      setBatchCreating(null);
+    }
+  }
+
+  async function handleBatchCreateCountries() {
+    const unresolved = editCountries.filter((c) => !c.bjEntityId);
+    if (unresolved.length === 0) return;
+    setBatchCreating("countries");
+    try {
+      for (let i = 0; i < unresolved.length; i++) {
+        const ctr = unresolved[i];
+        const names: Record<string, string> = { fr: ctr.pfsName, ...ctr.pfsLabels };
+        try {
+          const result = await createManufacturingCountryQuick(names, undefined, ctr.pfsReference);
+          setExistingEntities((prev) => ({
+            ...prev,
+            countries: [...prev.countries, { id: result.id, name: result.name, isoCode: null }],
+          }));
+          setEditCountries((prev) =>
+            prev.map((c) => c.pfsReference === ctr.pfsReference ? { ...c, bjEntityId: result.id } : c),
+          );
+        } catch {
+          // skip duplicates or errors
+        }
+      }
+    } finally {
+      setBatchCreating(null);
+    }
+  }
+
+  async function handleBatchCreateSeasons() {
+    const unresolved = editSeasons.filter((s) => !s.bjEntityId);
+    if (unresolved.length === 0) return;
+    setBatchCreating("seasons");
+    try {
+      for (let i = 0; i < unresolved.length; i++) {
+        const s = unresolved[i];
+        const names: Record<string, string> = { fr: s.pfsName, ...s.pfsLabels };
+        try {
+          const result = await createSeasonQuick(names, s.pfsReference);
+          setExistingEntities((prev) => ({
+            ...prev,
+            seasons: [...prev.seasons, { id: result.id, name: result.name }],
+          }));
+          setEditSeasons((prev) =>
+            prev.map((ss) => ss.pfsReference === s.pfsReference ? { ...ss, bjEntityId: result.id } : ss),
+          );
+        } catch {
+          // skip duplicates or errors
+        }
+      }
+    } finally {
+      setBatchCreating(null);
+    }
+  }
 
   // ── Fetch PFS + BJ product counts (no cache — fresh on every visit) ──
   useEffect(() => {
@@ -263,9 +410,9 @@ export default function PfsSyncPageClient() {
     }
   }, [analyzeLogs]);
 
-  // When job fails, reset to idle (redirect to resume happens immediately on job creation now)
+  // When job fails or is stopped, reset to idle
   useEffect(() => {
-    if (job?.status === "FAILED" && step === "preparing") {
+    if ((job?.status === "FAILED" || job?.status === "STOPPED") && step === "preparing") {
       setStep("idle");
     }
   }, [job?.status, step]);
@@ -357,6 +504,7 @@ export default function PfsSyncPageClient() {
           pfsFamilyId: c.pfsFamilyId || "",
           bjEntityId: null,
           usedBy: c.usedBy,
+          pfsLabels: c.pfsLabels || {},
         })),
       );
       setEditColors(
@@ -365,6 +513,8 @@ export default function PfsSyncPageClient() {
           pfsReference: c.pfsReference,
           bjEntityId: null,
           usedBy: c.usedBy,
+          hex: c.hex || null,
+          pfsLabels: c.pfsLabels || {},
         })),
       );
       setEditCompositions(
@@ -373,6 +523,7 @@ export default function PfsSyncPageClient() {
           pfsReference: c.pfsReference,
           bjEntityId: null,
           usedBy: c.usedBy,
+          pfsLabels: c.pfsLabels || {},
         })),
       );
       setEditCountries(
@@ -380,6 +531,7 @@ export default function PfsSyncPageClient() {
           pfsName: c.suggestedName || c.pfsReference,
           pfsReference: c.pfsReference,
           bjEntityId: null,
+          pfsLabels: c.pfsLabels || {},
         })),
       );
       setEditSeasons(
@@ -387,6 +539,7 @@ export default function PfsSyncPageClient() {
           pfsName: s.suggestedName || s.pfsReference,
           pfsReference: s.pfsReference,
           bjEntityId: null,
+          pfsLabels: s.pfsLabels || {},
         })),
       );
       setEditSizes(
@@ -816,7 +969,13 @@ export default function PfsSyncPageClient() {
           </div>
 
           {editCategories.length > 0 && (
-            <GridValidationSection title="Catégories non reconnues" count={editCategories.length}>
+            <GridValidationSection
+              title="Catégories non reconnues"
+              count={editCategories.length}
+              unresolvedCount={editCategories.filter((c) => !c.bjEntityId).length}
+              onBatchCreate={handleBatchCreateCategories}
+              batchCreating={batchCreating === "categories"}
+            >
               {editCategories.map((cat, idx) => (
                 <CompactEntityCard
                   key={`cat-${idx}`}
@@ -848,7 +1007,13 @@ export default function PfsSyncPageClient() {
           )}
 
           {editColors.length > 0 && (
-            <GridValidationSection title="Couleurs non reconnues" count={editColors.length}>
+            <GridValidationSection
+              title="Couleurs non reconnues"
+              count={editColors.length}
+              unresolvedCount={editColors.filter((c) => !c.bjEntityId).length}
+              onBatchCreate={handleBatchCreateColors}
+              batchCreating={batchCreating === "colors"}
+            >
               {editColors.map((col, idx) => (
                 <CompactColorCard
                   key={`col-${idx}`}
@@ -882,6 +1047,9 @@ export default function PfsSyncPageClient() {
             title="Compositions"
             count={editCompositions.length}
             allClearMessage="Toutes les compositions des produits analysés sont déjà présentes dans la base."
+            unresolvedCount={editCompositions.filter((c) => !c.bjEntityId).length}
+            onBatchCreate={handleBatchCreateCompositions}
+            batchCreating={batchCreating === "compositions"}
           >
             {editCompositions.map((comp, idx) => (
               <CompactEntityCard
@@ -914,6 +1082,9 @@ export default function PfsSyncPageClient() {
             title="Pays de fabrication"
             count={editCountries.length}
             allClearMessage="Tous les pays des produits analysés sont déjà présents dans la base."
+            unresolvedCount={editCountries.filter((c) => !c.bjEntityId).length}
+            onBatchCreate={handleBatchCreateCountries}
+            batchCreating={batchCreating === "countries"}
           >
             {editCountries.map((ctr, idx) => (
               <CompactEntityCard
@@ -945,6 +1116,9 @@ export default function PfsSyncPageClient() {
             title="Saisons / Collections"
             count={editSeasons.length}
             allClearMessage="Toutes les saisons des produits analysés sont déjà présentes dans la base."
+            unresolvedCount={editSeasons.filter((s) => !s.bjEntityId).length}
+            onBatchCreate={handleBatchCreateSeasons}
+            batchCreating={batchCreating === "seasons"}
           >
             {editSeasons.map((s, idx) => (
               <CompactEntityCard
@@ -1238,17 +1412,55 @@ function logColor(line: string): string {
 // Sub-components
 // ─────────────────────────────────────────────
 
-function GridValidationSection({ title, count, allClearMessage, children }: { title: string; count: number; allClearMessage?: string; children: React.ReactNode }) {
+function GridValidationSection({
+  title, count, allClearMessage, children,
+  unresolvedCount, onBatchCreate, batchCreating,
+}: {
+  title: string;
+  count: number;
+  allClearMessage?: string;
+  children: React.ReactNode;
+  unresolvedCount?: number;
+  onBatchCreate?: () => void;
+  batchCreating?: boolean;
+}) {
   return (
     <div className="card p-5 space-y-3">
-      <h3 className="font-heading font-semibold text-text-primary text-sm flex items-center gap-2">
-        {title}
-        {count > 0 ? (
-          <span className="text-xs font-normal text-text-secondary">({count})</span>
-        ) : (
-          <span className="badge badge-success text-[10px]">✓ OK</span>
+      <div className="flex items-center justify-between">
+        <h3 className="font-heading font-semibold text-text-primary text-sm flex items-center gap-2">
+          {title}
+          {count > 0 ? (
+            <span className="text-xs font-normal text-text-secondary">({count})</span>
+          ) : (
+            <span className="badge badge-success text-[10px]">✓ OK</span>
+          )}
+        </h3>
+        {onBatchCreate && unresolvedCount !== undefined && unresolvedCount > 0 && (
+          <button
+            type="button"
+            onClick={onBatchCreate}
+            disabled={batchCreating}
+            className="flex items-center gap-1.5 text-[11px] font-medium text-text-inverse bg-bg-dark hover:bg-black px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {batchCreating ? (
+              <>
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+                Création…
+              </>
+            ) : (
+              <>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Créer tout ({unresolvedCount})
+              </>
+            )}
+          </button>
         )}
-      </h3>
+      </div>
       {count === 0 ? (
         <p className="text-xs text-text-secondary">{allClearMessage ?? "Aucun élément manquant dans les produits analysés."}</p>
       ) : (
@@ -1374,7 +1586,7 @@ function CompactColorCard({
       <div className="flex items-start gap-1.5 min-w-0">
         <div
           className="w-4 h-4 rounded-full border border-border shrink-0 mt-0.5"
-          style={{ backgroundColor: "#9CA3AF" }}
+          style={{ backgroundColor: color.hex || "#9CA3AF" }}
         />
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold text-text-primary truncate leading-tight" title={color.pfsName}>{color.pfsName}</p>
@@ -1434,6 +1646,7 @@ function CompactColorCard({
         }}
         defaultName={color.pfsName}
         defaultPfsRef={color.pfsReference}
+        defaultHex={color.hex}
       />
     </div>
   );

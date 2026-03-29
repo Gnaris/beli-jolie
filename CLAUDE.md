@@ -22,7 +22,7 @@ B2B SaaS e-commerce platform — generic wholesale for any product type. Next.js
 | `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*`, `/favoris` | CLIENT (APPROVED) |
 | *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public / guest (`bj_access_code` cookie) |
 
-Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middleware also handles maintenance mode and admin preview (`bj_admin_preview=1` cookie).
+Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middleware also handles maintenance mode (60s module-level cache, fail-safe: assumes maintenance on fetch error) and admin preview (`bj_admin_preview=1` cookie).
 
 ### Key layers
 
@@ -33,7 +33,7 @@ Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middl
 
 ### Data flow
 
-Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib/cached-data.ts`. Invalidation: `revalidateTag(tag, "default")` (2 args obligatoires Next 16).
+Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib/cached-data.ts`. Invalidation: `revalidateTag(tag, "default")` (2 args obligatoires Next 16). Server actions return `{ success: boolean, error?: string }` consistently.
 
 ### Product model
 
@@ -49,7 +49,7 @@ NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. 
 
 ### i18n
 
-next-intl, cookie `bj_locale` (default `fr`), RTL for `ar`. Messages: `messages/[locale].json`. Auto-translations: DeepL Free (500K chars/month) + Claude AI (`lib/claude.ts`).
+next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (RTL). Messages: `messages/[locale].json`. Auto-translations: DeepL Free (500K chars/month) + Claude AI (`lib/claude.ts`).
 
 ### Styling
 
@@ -132,8 +132,14 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthro
 - **Lecture** : `decryptIfSensitive(key, value)` après lecture BDD. Compatible migration progressive (valeurs en clair retournées telles quelles)
 - **Migration** : `npx tsx scripts/encrypt-secrets.ts` — chiffre les valeurs existantes, idempotent
 
+### Custom Hooks (`hooks/`)
+- **`useProductStream()`** — SSE real-time product updates (5s reconnect)
+- **`useProductTranslation()`** — fetch translated product names
+- **`useBackdropClose()`** — close dropdowns on outside click
+
 ### Caching & Security
 - **`getCachedSiteConfig(key)`** : cache unique par key. Toujours `getCached*` + `revalidateTag(tag, "default")`
+- **Cache TTLs** : 5min (site-config, dashboard-stats, product-count), 10min (bestsellers), 60min (categories, colors, tags, collections, sizes, countries, seasons)
 - **Security** : `lib/security.ts` obligatoire dans auth. Lockout progressif jamais bypasse. 3h cooldown inscription
 - **Server actions** : `requireAdmin()` / `requireAuth()` obligatoire
 

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { updateClientDiscount } from "@/app/actions/admin/updateClientDiscount";
 import type { ClientDiscountType } from "@prisma/client";
 import { useToast } from "@/components/ui/Toast";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   userId: string;
@@ -23,22 +24,28 @@ export default function ClientDiscountForm({
   const [discountValue, setDiscountValue] = useState<string>(initialDiscountValue?.toString() ?? "");
   const [freeShipping, setFreeShipping]   = useState(initialFreeShipping);
   const toast = useToast();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
     const parsedValue = discountValue ? parseFloat(discountValue) : null;
 
+    showLoading();
     startTransition(async () => {
-      const res = await updateClientDiscount(userId, {
-        discountType:  discountType || null,
-        discountValue: parsedValue,
-        freeShipping,
-      });
-      if (res.success) {
-        toast.success("Remise enregistrée", "La remise a été mise à jour avec succès.");
-      } else {
-        toast.error("Erreur", res.error);
+      try {
+        const res = await updateClientDiscount(userId, {
+          discountType:  discountType || null,
+          discountValue: parsedValue,
+          freeShipping,
+        });
+        if (res.success) {
+          toast.success("Remise enregistrée", "La remise a été mise à jour avec succès.");
+        } else {
+          toast.error("Erreur", res.error);
+        }
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -48,16 +55,21 @@ export default function ClientDiscountForm({
     setDiscountValue("");
     setFreeShipping(false);
 
+    showLoading();
     startTransition(async () => {
-      const res = await updateClientDiscount(userId, {
-        discountType:  null,
-        discountValue: null,
-        freeShipping:  false,
-      });
-      if (res.success) {
-        toast.success("Remise supprimée", "La remise client a été retirée.");
-      } else {
-        toast.error("Erreur", res.error);
+      try {
+        const res = await updateClientDiscount(userId, {
+          discountType:  null,
+          discountValue: null,
+          freeShipping:  false,
+        });
+        if (res.success) {
+          toast.success("Remise supprimée", "La remise client a été retirée.");
+        } else {
+          toast.error("Erreur", res.error);
+        }
+      } finally {
+        hideLoading();
       }
     });
   }

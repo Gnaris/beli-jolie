@@ -65,12 +65,12 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
       {/* Split layout: left brand panel (desktop) + right form */}
       <main className="relative flex-1 flex">
         {/* Left brand panel — desktop only, fixed height = viewport */}
-        <div className="hidden lg:flex lg:w-[45%] xl:w-[40%] bg-bg-dark relative overflow-hidden flex-col justify-between p-10 xl:p-14 sticky top-0 h-screen">
+        <div className="hidden lg:flex lg:w-[45%] xl:w-[40%] bg-[#0F172A] relative overflow-hidden flex-col justify-between p-10 xl:p-14 sticky top-0 h-screen">
           {/* Background decorative elements */}
-          <div className="absolute inset-0 opacity-[0.03]">
-            <div className="absolute top-20 left-10 w-72 h-72 border border-white rounded-full" />
-            <div className="absolute bottom-32 right-8 w-48 h-48 border border-white rotate-45" />
-            <div className="absolute top-1/2 left-1/3 w-32 h-32 border border-white rounded-full" />
+          <div className="absolute inset-0 opacity-[0.06]">
+            <div className="absolute top-20 left-10 w-72 h-72 border border-[#3F83F8] rounded-full" />
+            <div className="absolute bottom-32 right-8 w-48 h-48 border border-[#3F83F8] rotate-45" />
+            <div className="absolute top-1/2 left-1/3 w-32 h-32 border border-[#3F83F8] rounded-full" />
           </div>
 
           <div className="relative z-10">
@@ -108,7 +108,7 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
         </div>
 
         {/* Right form panel — scrollable */}
-        <div className="flex-1 relative flex items-center justify-center px-6 py-12 overflow-y-auto">
+        <div className="flex-1 relative flex items-center justify-center px-6 py-12 overflow-y-auto bg-bg-secondary">
           <FloatingGems />
           <div className="relative z-10 w-full flex items-center justify-center">
             {children}

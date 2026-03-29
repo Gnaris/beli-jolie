@@ -274,9 +274,10 @@ export default async function ClientDetailPage({
               const v = item.variant;
               const img = cartImageMap.get(`${v.productId}::${v.colorId}`);
               const isPack = v.saleType === "PACK";
+              const price = Number(v.unitPrice);
               const linePrice = isPack
-                ? v.unitPrice * (v.packQuantity ?? 1) * item.quantity
-                : v.unitPrice * item.quantity;
+                ? price * (v.packQuantity ?? 1) * item.quantity
+                : price * item.quantity;
 
               return (
                 <div key={item.id} className="flex items-center gap-4 px-5 py-3 border-b border-border-light last:border-b-0">
@@ -323,7 +324,7 @@ export default async function ClientDetailPage({
                       {linePrice.toFixed(2)} &euro;
                     </p>
                     <p className="text-xs text-text-muted font-body">
-                      Qte : {item.quantity} &times; {v.unitPrice.toFixed(2)} &euro;
+                      Qte : {item.quantity} &times; {Number(v.unitPrice).toFixed(2)} &euro;
                     </p>
                   </div>
                 </div>
@@ -338,10 +339,11 @@ export default async function ClientDetailPage({
               <span className="text-base font-bold text-text-primary font-heading">
                 {cart.items.reduce((sum, item) => {
                   const v = item.variant;
+                  const p = Number(v.unitPrice);
                   const isPk = v.saleType === "PACK";
                   return sum + (isPk
-                    ? v.unitPrice * (v.packQuantity ?? 1) * item.quantity
-                    : v.unitPrice * item.quantity);
+                    ? p * (v.packQuantity ?? 1) * item.quantity
+                    : p * item.quantity);
                 }, 0).toFixed(2)} &euro;
               </span>
             </div>
@@ -438,12 +440,12 @@ export default async function ClientDetailPage({
             <div className="flex items-center gap-2 shrink-0">
               {user.discountType === "PERCENT" && user.discountValue && (
                 <span className="badge badge-info font-body">
-                  -{user.discountValue}%
+                  -{Number(user.discountValue)}%
                 </span>
               )}
               {user.discountType === "AMOUNT" && user.discountValue && (
                 <span className="badge badge-info font-body">
-                  -{user.discountValue.toFixed(2)} €
+                  -{Number(user.discountValue).toFixed(2)} €
                 </span>
               )}
               {user.freeShipping && (
@@ -457,7 +459,7 @@ export default async function ClientDetailPage({
         <ClientDiscountForm
           userId={user.id}
           initialDiscountType={user.discountType ?? null}
-          initialDiscountValue={user.discountValue ?? null}
+          initialDiscountValue={user.discountValue != null ? Number(user.discountValue) : null}
           initialFreeShipping={user.freeShipping}
         />
       </div>

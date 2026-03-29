@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -7,6 +6,7 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import FloatingShapes from "@/components/ui/FloatingShapes";
 import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
+import CategoriesAccordion from "@/components/produits/CategoriesAccordion";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -29,6 +29,16 @@ export default async function CategoriesPage() {
       _count:        { select: { products: true } },
     },
   });
+
+  const serialized = categories.map((cat) => ({
+    id: cat.id,
+    name: cat.name,
+    productCount: cat._count.products,
+    subCategories: cat.subCategories.map((sub) => ({
+      id: sub.id,
+      name: sub.name,
+    })),
+  }));
 
   return (
     <div className="min-h-screen relative">
@@ -56,54 +66,7 @@ export default async function CategoriesPage() {
               {t("empty")}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {categories.map((cat) => (
-                <div
-                  key={cat.id}
-                  className="card overflow-hidden transition-all duration-300 hover:shadow-[0_8px_20px_rgba(0,0,0,0.1)] hover:border-accent/30"
-                >
-                  {/* Category header */}
-                  <Link
-                    href={`/produits?cat=${cat.id}`}
-                    className="flex items-center justify-between px-5 py-4 hover:bg-bg-secondary transition-colors group"
-                  >
-                    <div>
-                      <h2 className="font-heading font-semibold text-base text-text-primary group-hover:text-accent transition-colors">
-                        {cat.name}
-                      </h2>
-                      <p className="text-xs text-text-muted font-body mt-0.5">
-                        {cat._count.products <= 1
-                          ? t("products", { count: cat._count.products })
-                          : t("products_plural", { count: cat._count.products })}
-                      </p>
-                    </div>
-                    <svg
-                      className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors shrink-0"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                  </Link>
-
-                  {/* Sub-categories */}
-                  {cat.subCategories.length > 0 && (
-                    <div className="border-t border-border px-5 py-3 flex flex-wrap gap-2">
-                      {cat.subCategories.map((sub) => (
-                        <Link
-                          key={sub.id}
-                          href={`/produits?cat=${cat.id}&subcat=${sub.id}`}
-                          className="inline-flex items-center text-xs text-text-secondary bg-gradient-to-r from-bg-tertiary to-bg-secondary border border-border hover:bg-accent hover:text-text-inverse hover:border-accent px-3 py-1.5 rounded-full transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm font-body"
-                        >
-                          {sub.name}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            <CategoriesAccordion categories={serialized} />
           )}
         </main>
 

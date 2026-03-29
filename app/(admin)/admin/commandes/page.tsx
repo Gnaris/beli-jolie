@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import ExportOrdersButton from "@/components/admin/orders/ExportOrdersButton";
 
 export const metadata: Metadata = { title: "Commandes — Admin" };
 
@@ -82,6 +83,7 @@ export default async function AdminCommandesPage({
             {total} commande{total !== 1 ? "s" : ""}
           </p>
         </div>
+        <ExportOrdersButton status={status} q={q} />
       </div>
 
       {/* Filtres rapides statuts */}
@@ -161,7 +163,7 @@ export default async function AdminCommandesPage({
 
                 {/* Montant */}
                 <p className="text-sm font-heading font-semibold text-text-primary">
-                  {order.totalTTC.toFixed(2)} €
+                  {Number(order.totalTTC).toFixed(2)} €
                 </p>
 
                 {/* Statut */}

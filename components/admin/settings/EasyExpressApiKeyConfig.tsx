@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateEasyExpressApiKey, validateEasyExpressApiKey } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   hasKey: boolean;
@@ -16,37 +17,48 @@ export default function EasyExpressApiKeyConfig({ hasKey }: Props) {
   const [isSaving, startSaving] = useTransition();
   const [isValidating, startValidating] = useTransition();
   const toast = useToast();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [editing, setEditing] = useState(!hasKey);
   const [guideOpen, setGuideOpen] = useState(false);
 
   function handleValidate() {
     if (!apiKey.trim()) return;
+    showLoading();
     startValidating(async () => {
-      setKeyStatus("checking");
-      const result = await validateEasyExpressApiKey(apiKey.trim());
-      if (result.valid) {
-        setKeyStatus("valid");
-        toast.success("Clé valide", "La clé API Easy-Express est fonctionnelle.");
-      } else {
-        setKeyStatus("invalid");
-        toast.error("Clé invalide", result.error ?? "La clé API Easy-Express n'est pas reconnue.");
+      try {
+        setKeyStatus("checking");
+        const result = await validateEasyExpressApiKey(apiKey.trim());
+        if (result.valid) {
+          setKeyStatus("valid");
+          toast.success("Clé valide", "La clé API Easy-Express est fonctionnelle.");
+        } else {
+          setKeyStatus("invalid");
+          toast.error("Clé invalide", result.error ?? "La clé API Easy-Express n'est pas reconnue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }
 
   function handleSave() {
+    showLoading();
     startSaving(async () => {
-      const result = await updateEasyExpressApiKey(apiKey.trim());
-      if (result.success) {
-        toast.success("Enregistré", apiKey.trim() ? "Clé API sauvegardée." : "Clé API supprimée.");
-        if (apiKey.trim()) {
-          setEditing(false);
-          setApiKey("");
+      try {
+        const result = await updateEasyExpressApiKey(apiKey.trim());
+        if (result.success) {
+          toast.success("Enregistré", apiKey.trim() ? "Clé API sauvegardée." : "Clé API supprimée.");
+          if (apiKey.trim()) {
+            setEditing(false);
+            setApiKey("");
+          } else {
+            setKeyStatus("none");
+          }
         } else {
-          setKeyStatus("none");
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
         }
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      } finally {
+        hideLoading();
       }
     });
   }

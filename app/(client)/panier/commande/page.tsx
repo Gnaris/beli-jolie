@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCart, getShippingAddresses } from "@/app/actions/client/cart";
 import CheckoutClient from "@/components/panier/CheckoutClient";
+import { isConnectEnabled, getConnectedAccountId } from "@/lib/stripe";
 
 export const metadata: Metadata = {
   title: "Passer la commande",
@@ -39,18 +40,26 @@ export default async function CommandePage() {
 
   if (!cart || cart.items.length === 0) redirect("/panier");
 
+  // Bloquer le checkout si Stripe n'est pas relié
+  if (isConnectEnabled()) {
+    const connectedId = await getConnectedAccountId();
+    if (!connectedId) redirect("/panier");
+  }
+
   // Vérification minimum commande (couche serveur — ne peut pas être contournée)
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
   if (minOrderHT > 0) {
     let subtotalHT = 0;
     for (const item of cart.items) {
       const v = item.variant;
-      const base = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
+      const up = Number(v.unitPrice);
+      const base = v.saleType === "UNIT" ? up : up * (v.packQuantity ?? 1);
       let price = base;
       if (v.discountType && v.discountValue) {
+        const dv = Number(v.discountValue);
         price = v.discountType === "PERCENT"
-          ? Math.max(0, base * (1 - v.discountValue / 100))
-          : Math.max(0, base - v.discountValue);
+          ? Math.max(0, base * (1 - dv / 100))
+          : Math.max(0, base - dv);
       }
       subtotalHT += price * item.quantity;
     }
@@ -64,7 +73,7 @@ export default async function CommandePage() {
       user={user!}
       clientDiscount={{
         discountType:  user!.discountType ?? null,
-        discountValue: user!.discountValue ?? null,
+        discountValue: user!.discountValue != null ? Number(user!.discountValue) : null,
         freeShipping:  user!.freeShipping,
       }}
     />

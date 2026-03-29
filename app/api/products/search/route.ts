@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     reference: p.reference,
     category: p.category.name,
     image: firstImageMap.get(p.id) ?? null,
-    price: p.colors[0]?.unitPrice ?? null,
+    price: p.colors[0] ? Number(p.colors[0].unitPrice) : null,
   }));
 
   return NextResponse.json({ results });

@@ -4,6 +4,7 @@ import { useState, useTransition, useCallback, useRef, useEffect } from "react";
 import Image from "next/image";
 import { updateHomepageCarouselsConfig, searchProductsForCarousel, getProductsByIds, type CarouselProductInfo } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
 import type {
   HomepageCarousel,
@@ -216,6 +217,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
   const [carousels, setCarousels] = useState<HomepageCarousel[]>(initialCarousels);
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [addCarouselOpen, setAddCarouselOpen] = useState(false);
 
   function addCarousel(type: CarouselType) {
@@ -281,12 +283,17 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
   }
 
   function handleSave() {
+    showLoading();
     startTransition(async () => {
-      const result = await updateHomepageCarouselsConfig(carousels);
-      if (result.success) {
-        toast.success("Carrousels enregistrés");
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      try {
+        const result = await updateHomepageCarouselsConfig(carousels);
+        if (result.success) {
+          toast.success("Carrousels enregistrés");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }

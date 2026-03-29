@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { setMaintenanceMode } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   currentValue: boolean;
@@ -15,6 +16,7 @@ export default function MaintenanceModeToggle({ currentValue, isAuto = false }: 
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
   const { confirm } = useConfirm();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   async function handleToggle() {
     const newValue = !enabled;
@@ -28,18 +30,23 @@ export default function MaintenanceModeToggle({ currentValue, isAuto = false }: 
     });
     if (!ok) return;
 
+    showLoading();
     startTransition(async () => {
-      const result = await setMaintenanceMode(newValue);
-      if (result.success) {
-        setEnabled(newValue);
-        toast.success(
-          newValue ? "Maintenance activée" : "Site en ligne",
-          newValue
-            ? "Les clients ne peuvent plus accéder au site."
-            : "Le site est de nouveau accessible aux clients.",
-        );
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      try {
+        const result = await setMaintenanceMode(newValue);
+        if (result.success) {
+          setEnabled(newValue);
+          toast.success(
+            newValue ? "Maintenance activée" : "Site en ligne",
+            newValue
+              ? "Les clients ne peuvent plus accéder au site."
+              : "Le site est de nouveau accessible aux clients.",
+          );
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }

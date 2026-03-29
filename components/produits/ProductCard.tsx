@@ -56,10 +56,11 @@ interface ProductCardProps {
 }
 
 function computeVariantPrice(v: VariantData): number {
-  const base = v.unitPrice;
+  const base = Number(v.unitPrice);
   if (!v.discountType || !v.discountValue) return base;
-  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - v.discountValue / 100));
-  return Math.max(0, base - v.discountValue);
+  const dv = Number(v.discountValue);
+  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - dv / 100));
+  return Math.max(0, base - dv);
 }
 
 function applyClientDiscount(price: number, discount: ClientDiscountInfo | null | undefined): number {
@@ -212,10 +213,10 @@ export default function ProductCard({
   const badgeCount = (allOutOfStock ? 1 : 0) + (isBestSeller ? 1 : 0) + (isNew ? 1 : 0) + (anyVariantHasDiscount ? 1 : 0);
 
   return (
-    <article className="group card card-hover overflow-hidden flex flex-col animate-zoom-fade">
+    <article className="group card card-hover overflow-hidden flex flex-col animate-zoom-fade p-2.5">
       {/* Image */}
       <Link href={`/produits/${id}`} className="block">
-        <div className="bg-bg-tertiary relative overflow-hidden aspect-square">
+        <div className="bg-bg-secondary relative overflow-hidden aspect-square rounded-[14px] shadow-[inset_3px_3px_8px_rgba(0,0,0,0.06),inset_-2px_-2px_6px_rgba(255,255,255,0.8)]">
           {image ? (
             <Image
               src={image}
@@ -277,7 +278,7 @@ export default function ProductCard({
       </Link>
 
       {/* Infos + Add to cart */}
-      <div className="p-4 flex flex-col gap-3 flex-1">
+      <div className="px-1.5 pt-3 pb-1.5 flex flex-col gap-3 flex-1">
         {/* Color picker + nom */}
         <div className="space-y-2">
           {colors.length > 0 && (
@@ -363,7 +364,7 @@ export default function ProductCard({
                 -{clientDiscount.discountValue}%
               </span>
             )}
-            <span className={`font-heading font-semibold text-lg ${showStrikethrough ? "text-error" : "text-text-primary"}`}>
+            <span className={`font-heading font-semibold text-lg ${showStrikethrough ? "text-error" : "text-bg-dark"}`}>
               {displayedFinalPrice.toFixed(2)} &euro;
             </span>
             <span className="text-xs text-text-muted font-body">{t("htUnit")}</span>

@@ -164,15 +164,15 @@ export default async function FavorisPage({ searchParams }: PageProps) {
           groupKey: gk, colorId: v.colorId, name: v.color?.name ?? "", hex: v.color?.hex ?? null, patternImage: (v.color as any)?.patternImage ?? null,
           subColors: subs.length > 0 ? subs : undefined,
           firstImage: favImageMap.get(p.id)?.get(v.id) ?? null,
-          unitPrice: v.unitPrice, isPrimary: v.isPrimary, totalStock: 0, variants: [],
+          unitPrice: Number(v.unitPrice), isPrimary: v.isPrimary, totalStock: 0, variants: [],
         });
       }
       const cd = colorMap.get(gk)!;
       if (!cd.firstImage) cd.firstImage = favImageMap.get(p.id)?.get(v.id) ?? null;
-      cd.unitPrice = Math.min(cd.unitPrice, v.unitPrice);
+      cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
       cd.totalStock += v.stock ?? 0;
       if (v.isPrimary) cd.isPrimary = true;
-      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: ((v as any).variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: v.unitPrice, stock: v.stock ?? 0 });
+      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: ((v as any).variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
     }
     return { ...fav, product: { ...p, colors: [...colorMap.values()] } };
   });

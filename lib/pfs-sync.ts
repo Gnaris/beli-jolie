@@ -975,19 +975,18 @@ async function syncSingleProduct(
           }
         }
         const sizeNames = [...sizeQtyMap.keys()];
-        // Distribute pack price equally across all items
+        // price_sale.unit.value is per-piece price; DB stores total pack price
         const totalItems = [...sizeQtyMap.values()].reduce((a, b) => a + b, 0);
-        const pricePerItem = totalItems > 0 ? bjPrice / totalItems : 0;
         const sizeEntries = sizeNames.map((name) => ({
           name,
           qty: sizeQtyMap.get(name) || 1,
-          pricePerUnit: Math.round(pricePerItem * 100) / 100,
+          pricePerUnit: Math.round(bjPrice * 100) / 100,
         }));
 
         variants.push({
           colorId,
           colorRef: pack.color.reference,
-          unitPrice: bjPrice,
+          unitPrice: totalItems > 0 ? bjPrice * totalItems : bjPrice,
           weight,
           stock: v.is_active ? v.stock_qty : 0,
           saleType: "PACK",

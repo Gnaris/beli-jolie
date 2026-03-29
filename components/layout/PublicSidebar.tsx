@@ -227,16 +227,14 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     <>
       {/* ===== TOP NAVBAR - fixed ===== */}
       <header
-        className={`fixed top-0 left-0 right-0 z-50 bg-bg-primary transition-shadow duration-200 ${
-          scrolled ? "shadow-[0_1px_0_var(--color-border),0_4px_16px_rgba(0,0,0,0.04)]" : "border-b border-border"
-        }`}
+        className="fixed top-3 left-4 right-4 z-50 bg-white/85 backdrop-blur-xl rounded-2xl border border-white/60 shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)] transition-all duration-200"
       >
         <div className="container-site h-16 flex items-center gap-6">
 
           {/* Mobile hamburger — LEFT on mobile */}
           <button
             onClick={() => setMobileOpen(true)}
-            className="lg:hidden flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
+            className="lg:hidden flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary bg-bg-secondary shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-1px_-1px_3px_rgba(255,255,255,0.8)] hover:shadow-[inset_3px_3px_6px_rgba(0,0,0,0.07),inset_-2px_-2px_4px_rgba(255,255,255,0.7)] rounded-[10px] transition-colors"
             aria-label="Menu"
           >
             <IconMenu />
@@ -296,7 +294,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                   aria-expanded={showResults}
                   aria-autocomplete="list"
                   role="combobox"
-                  className="w-full bg-bg-secondary border border-border-light rounded-lg pl-9 pr-4 py-2 text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-text-primary transition-colors"
+                  className="w-full bg-bg-secondary border-none rounded-xl shadow-[inset_3px_3px_8px_rgba(0,0,0,0.06),inset_-2px_-2px_6px_rgba(255,255,255,0.8)] focus:ring-2 focus:ring-accent/30 pl-9 pr-4 py-2 text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none transition-colors"
                 />
                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -311,7 +309,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
 
             {/* Search results dropdown */}
             {showResults && (
-              <div role="listbox" aria-label={t("searchResults")} className="absolute top-full left-0 right-0 mt-2 bg-bg-primary border border-border rounded-xl shadow-[0_10px_32px_rgba(0,0,0,0.15)] overflow-hidden z-50 max-h-96 overflow-y-auto animate-fadeIn">
+              <div role="listbox" aria-label={t("searchResults")} className="absolute top-full left-0 right-0 mt-2 bg-bg-primary/95 backdrop-blur-lg border border-white/60 rounded-2xl shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)] overflow-hidden z-50 max-h-96 overflow-y-auto animate-fadeIn">
                 {searchResults.length === 0 ? (
                   <div className="px-4 py-6 text-center">
                     <p className="text-sm text-text-muted font-body">
@@ -381,7 +379,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
             {showClientUI && (
               <Link
                 href="/panier"
-                className="relative flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
+                className="relative flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary bg-bg-secondary shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-1px_-1px_3px_rgba(255,255,255,0.8)] hover:shadow-[inset_3px_3px_6px_rgba(0,0,0,0.07),inset_-2px_-2px_4px_rgba(255,255,255,0.7)] rounded-[10px] transition-colors"
                 aria-label={t("cart")}
               >
                 <IconCart />
@@ -409,7 +407,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                     try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
                     signOut({ callbackUrl: "/" });
                   }}
-                  className="flex items-center justify-center w-9 h-9 text-text-muted hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors"
+                  className="flex items-center justify-center w-9 h-9 text-text-muted hover:text-text-primary bg-bg-secondary shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-1px_-1px_3px_rgba(255,255,255,0.8)] hover:shadow-[inset_3px_3px_6px_rgba(0,0,0,0.07),inset_-2px_-2px_4px_rgba(255,255,255,0.7)] rounded-[10px] transition-colors"
                   aria-label={t("logout")}
                 >
                   <IconLogout />
@@ -432,10 +430,10 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
       {mobileOpen && (
         <>
           <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 lg:hidden animate-fadeIn"
+            className="fixed inset-0 bg-black/30 backdrop-blur-md z-50 lg:hidden animate-fadeIn"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 w-[calc(100%-3rem)] max-w-72 bg-bg-primary z-50 lg:hidden flex flex-col shadow-2xl">
+          <div className="fixed inset-y-0 left-0 w-[calc(100%-3rem)] max-w-72 bg-bg-primary/95 backdrop-blur-xl z-50 lg:hidden flex flex-col rounded-r-2xl shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)]">
 
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
@@ -554,7 +552,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
 
       {/* ── Bandeau mode aperçu admin ── */}
       {session?.user?.role === "ADMIN" && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-bg-dark text-text-inverse px-4 py-3 flex items-center justify-between gap-4 shadow-[0_-2px_12px_rgba(0,0,0,0.3)]">
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0F172A] text-white px-4 py-3 flex items-center justify-between gap-4 shadow-[0_-2px_12px_rgba(0,0,0,0.3)]">
           <div className="flex items-center gap-2 text-sm font-body">
             <svg className="w-4 h-4 text-warning shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />

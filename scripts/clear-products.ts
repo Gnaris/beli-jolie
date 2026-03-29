@@ -9,6 +9,8 @@
  */
 
 import { PrismaClient } from "@prisma/client";
+import { rm, readdir } from "fs/promises";
+import path from "path";
 
 const prisma = new PrismaClient();
 
@@ -127,6 +129,36 @@ async function main() {
 
   const sizes = await prisma.size.deleteMany();
   console.log(`  Size                : ${sizes.count}`);
+
+  // 6. Supprimer les fichiers images
+  console.log("\n🗂️  Suppression des fichiers images...");
+
+  const rootDir = path.resolve(__dirname, "..");
+  const imageDirs = [
+    path.join(rootDir, "public/uploads/products"),
+    path.join(rootDir, "public/uploads/colors"),
+  ];
+
+  for (const dir of imageDirs) {
+    try {
+      const entries = await readdir(dir);
+      let count = 0;
+      for (const entry of entries) {
+        // Préserver les sous-dossiers vides (staging, etc.) mais supprimer les fichiers
+        const fullPath = path.join(dir, entry);
+        try {
+          await rm(fullPath, { recursive: true });
+          count++;
+        } catch {
+          // Ignorer les erreurs individuelles
+        }
+      }
+      const relDir = path.relative(rootDir, dir);
+      console.log(`  ${relDir}: ${count} élément(s) supprimé(s)`);
+    } catch {
+      // Le dossier n'existe pas, ignorer
+    }
+  }
 
   console.log("\n✅ Tout a été supprimé.");
 

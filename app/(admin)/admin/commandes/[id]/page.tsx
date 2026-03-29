@@ -37,7 +37,7 @@ export default async function AdminCommandeDetailPage({
 
   const st = STATUS_CFG[order.status] ?? STATUS_CFG.PENDING;
 
-  const fmt = (n: number) => n.toFixed(2).replace(".", ",") + " €";
+  const fmt = (n: number | { toNumber?: () => number }) => Number(n).toFixed(2).replace(".", ",") + " €";
 
   return (
     <div className="space-y-6">
@@ -231,7 +231,7 @@ export default async function AdminCommandeDetailPage({
               <div className="flex justify-between text-text-secondary">
                 <span>Livraison</span>
                 <span className="font-medium text-text-primary">
-                  {order.carrierPrice === 0 ? "Gratuit" : fmt(order.carrierPrice)}
+                  {Number(order.carrierPrice) === 0 ? "Gratuit" : fmt(order.carrierPrice)}
                 </span>
               </div>
               <div className="border-t border-border pt-3 flex justify-between items-center">

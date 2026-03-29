@@ -84,16 +84,16 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
           groupKey: gk, colorId: v.colorId, name: v.color?.name, hex: v.color?.hex, patternImage: v.color?.patternImage,
           subColors: subs.length > 0 ? subs : undefined,
           firstImage: imageMap.get(p.id)?.get(v.id) ?? null,
-          unitPrice: v.unitPrice, isPrimary: v.isPrimary, totalStock: 0, variants: [],
+          unitPrice: Number(v.unitPrice), isPrimary: v.isPrimary, totalStock: 0, variants: [],
         });
       }
       const cd = colorMap.get(gk)!;
       // If this variant has an image and the group doesn't yet, use it
       if (!cd.firstImage) cd.firstImage = imageMap.get(p.id)?.get(v.id) ?? null;
-      cd.unitPrice = Math.min(cd.unitPrice, v.unitPrice);
+      cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
       cd.totalStock += v.stock ?? 0;
       if (v.isPrimary) cd.isPrimary = true;
-      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: v.unitPrice, stock: v.stock ?? 0, discountType: v.discountType ?? null, discountValue: v.discountValue ?? null });
+      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0, discountType: v.discountType ?? null, discountValue: v.discountValue != null ? Number(v.discountValue) : null });
     }
     return { ...p, colors: [...colorMap.values()] };
   });

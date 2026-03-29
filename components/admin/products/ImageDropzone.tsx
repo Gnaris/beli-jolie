@@ -119,12 +119,12 @@ export default function ImageDropzone({
           return (
             <div
               key={pos}
-              className={`relative aspect-square border-2 rounded-lg overflow-hidden transition-all ${
+              className={`group relative aspect-square border-2 rounded-lg overflow-visible transition-all ${
                 isDragOver
-                  ? "border-[#1A1A1A] bg-bg-secondary scale-[1.02]"
+                  ? "border-bg-dark bg-bg-secondary scale-[1.02]"
                   : img
                     ? "border-border bg-bg-primary"
-                    : "border-dashed border-[#D1D5DB] bg-[#FAFAFA] hover:border-[#9CA3AF] hover:bg-bg-secondary"
+                    : "border-dashed border-border-light bg-bg-secondary hover:border-text-muted hover:bg-bg-tertiary"
               } ${isDraggedFrom ? "opacity-30 scale-95" : ""} ${
                 isUploading ? "opacity-60 pointer-events-none" : ""
               }`}
@@ -143,7 +143,7 @@ export default function ImageDropzone({
                 </div>
               ) : img ? (
                 /* Filled slot */
-                <div className="group w-full h-full cursor-grab active:cursor-grabbing"
+                <div className="w-full h-full cursor-grab active:cursor-grabbing overflow-hidden rounded-lg"
                   draggable
                   onDragStart={(e) => handleImgDragStart(e, pos)}
                   onDragEnd={handleImgDragEnd}
@@ -156,15 +156,6 @@ export default function ImageDropzone({
                     onClick={() => setZoomedSrc(img.src)}
                     className="w-full h-full object-cover cursor-zoom-in"
                   />
-                  {/* Remove button */}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onRemoveAtPosition(pos); }}
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-30"
-                    aria-label="Supprimer l'image"
-                  >
-                    ×
-                  </button>
                   {/* Drag handle */}
                   <span className="absolute top-0.5 left-0.5 opacity-0 group-hover:opacity-70 transition-opacity z-30">
                     <svg className="w-3 h-3 text-white drop-shadow" fill="currentColor" viewBox="0 0 24 24">
@@ -172,7 +163,7 @@ export default function ImageDropzone({
                     </svg>
                   </span>
                   {/* Position badge */}
-                  <span className="absolute bottom-0 left-0 bg-bg-dark/60 text-text-inverse text-[9px] px-1.5 py-0.5 select-none font-body">
+                  <span className="absolute bottom-0 left-0 bg-bg-dark/60 text-text-inverse text-[9px] px-1.5 py-0.5 select-none font-body rounded-br-lg">
                     {pos + 1}
                   </span>
                 </div>
@@ -193,13 +184,24 @@ export default function ImageDropzone({
                     onChange={(e) => { handleFileChange(pos, e.target.files); e.target.value = ""; }}
                     id={`image-slot-${colorIndex}-${pos}`}
                   />
-                  <span className="text-lg font-bold text-[#D1D5DB] font-heading leading-none">
+                  <span className="text-lg font-bold text-text-muted/50 font-heading leading-none">
                     {pos + 1}
                   </span>
-                  <svg className="w-4 h-4 text-[#D1D5DB] mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-text-muted/50 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
                 </div>
+              )}
+              {/* Remove button — outside overflow-hidden wrapper so it's not clipped */}
+              {img && !isUploading && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onRemoveAtPosition(pos); }}
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-30"
+                  aria-label="Supprimer l'image"
+                >
+                  ×
+                </button>
               )}
             </div>
           );
@@ -227,7 +229,7 @@ export default function ImageDropzone({
           <button
             type="button"
             onClick={() => setZoomedSrc(null)}
-            className="absolute top-4 right-4 w-9 h-9 bg-bg-primary/10 hover:bg-bg-primary/20 text-text-inverse rounded-full flex items-center justify-center transition-colors text-xl"
+            className="absolute top-4 right-4 w-9 h-9 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-colors text-xl z-50"
           >
             ×
           </button>

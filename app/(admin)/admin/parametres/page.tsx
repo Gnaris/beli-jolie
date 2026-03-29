@@ -319,14 +319,17 @@ async function LivraisonTab() {
    TAB : Marketplaces — PFS
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MarketplacesTab() {
-  const pfsConfig = await prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } });
+  const [pfsConfig, pfsEnabledRow] = await Promise.all([
+    prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
+    prisma.siteConfig.findUnique({ where: { key: "pfs_enabled" }, select: { value: true } }),
+  ]);
 
   return (
     <div className="max-w-xl">
       <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Marketplaces</h3>
         <p className="text-sm text-text-secondary font-body mb-4">Identifiants de connexion aux plateformes B2B.</p>
-        <MarketplaceConfig hasPfsConfig={!!pfsConfig} />
+        <MarketplaceConfig hasPfsConfig={!!pfsConfig} pfsEnabled={pfsEnabledRow?.value === "true"} />
       </div>
     </div>
   );

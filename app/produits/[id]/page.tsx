@@ -137,7 +137,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
           select: { discountType: true, discountValue: true },
         }).then((u) =>
           u?.discountType && u.discountValue
-            ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: u.discountValue }
+            ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: Number(u.discountValue) }
             : null
         )
       : Promise.resolve(null),
@@ -192,14 +192,14 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       reference:        p.reference,
       primaryImage:     img?.path ?? null,
       primaryColorName: pc?.color?.name ?? null,
-      minPrice:         pc?.unitPrice ?? 0,
+      minPrice:         pc ? Number(pc.unitPrice) : 0,
     };
   }
 
   // JSON-LD structured data for SEO
   const primaryColor = filteredColors.find((c) => c.isPrimary) ?? filteredColors[0];
   const minPrice = filteredColors.length > 0
-    ? Math.min(...filteredColors.map((c) => c.unitPrice))
+    ? Math.min(...filteredColors.map((c) => Number(c.unitPrice)))
     : 0;
   const firstImg = colorImages[0]?.path;
   const productJsonLd = {
@@ -270,13 +270,13 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                 subColors:     pc.subColors.length > 0
                   ? pc.subColors.map((sc) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage }))
                   : undefined,
-                unitPrice:     pc.unitPrice,
+                unitPrice:     Number(pc.unitPrice),
                 weight:        pc.weight,
                 stock:         pc.stock,
                 isPrimary:     pc.isPrimary,
                 saleType:      pc.saleType,
                 packQuantity:  pc.packQuantity,
-                sizes:         (pc.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity, pricePerUnit: vs.pricePerUnit ?? undefined })),
+                sizes:         (pc.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity, pricePerUnit: vs.pricePerUnit != null ? Number(vs.pricePerUnit) : undefined })),
                 packColorLines: (pc.packColorLines ?? []).map((line: any) => ({
                   colors: line.colors.map((lc: any) => ({
                     name: lc.color.name,
@@ -285,7 +285,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                   })),
                 })),
                 discountType:  pc.discountType,
-                discountValue: pc.discountValue,
+                discountValue: pc.discountValue != null ? Number(pc.discountValue) : null,
               }))}
               colorImages={colorImagesForDetail}
               compositions={product.compositions.map((c) => ({

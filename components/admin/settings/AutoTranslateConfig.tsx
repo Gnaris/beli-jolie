@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateAutoTranslate } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   enabled: boolean;
@@ -12,22 +13,28 @@ export default function AutoTranslateConfig({ enabled: initialEnabled }: Props) 
   const [enabled, setEnabled] = useState(initialEnabled);
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   function handleToggle() {
     const newValue = !enabled;
     setEnabled(newValue);
+    showLoading();
     startTransition(async () => {
-      const result = await updateAutoTranslate(newValue);
-      if (result.success) {
-        toast.success(
-          newValue ? "Activé" : "Désactivé",
-          newValue
-            ? "Les traductions seront générées automatiquement."
-            : "Les traductions automatiques sont désactivées."
-        );
-      } else {
-        setEnabled(!newValue); // revert
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      try {
+        const result = await updateAutoTranslate(newValue);
+        if (result.success) {
+          toast.success(
+            newValue ? "Activé" : "Désactivé",
+            newValue
+              ? "Les traductions seront générées automatiquement."
+              : "Les traductions automatiques sont désactivées."
+          );
+        } else {
+          setEnabled(!newValue); // revert
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }

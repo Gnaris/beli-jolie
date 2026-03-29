@@ -2,16 +2,23 @@
 
 import { useState, useTransition } from "react";
 import { deleteUser } from "@/app/actions/admin/deleteUser";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 export default function DeleteUserButton({ userId, userName }: { userId: string; userName: string }) {
   const [showModal, setShowModal] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   function handleDelete() {
     if (confirmText !== "Supprimer") return;
+    showLoading();
     startTransition(async () => {
-      await deleteUser(userId);
+      try {
+        await deleteUser(userId);
+      } finally {
+        hideLoading();
+      }
     });
   }
 

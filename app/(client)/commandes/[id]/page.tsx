@@ -8,7 +8,6 @@ import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 import SuccessToast from "@/components/client/SuccessToast";
-import BankTransferDetails from "@/components/client/BankTransferDetails";
 import { STATUS_CONFIG, getTrackingUrl } from "@/app/(client)/commandes/page";
 import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
@@ -26,10 +25,10 @@ export default async function CommandeDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ awaiting_transfer?: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const { id } = await params;
-  const { awaiting_transfer } = await searchParams;
+  void searchParams;
   const session = await getServerSession(authOptions);
   if (!session) redirect("/connexion?callbackUrl=/commandes");
 
@@ -86,28 +85,6 @@ export default async function CommandeDetailPage({
           )}
         </div>
       </div>
-
-      {/* Bandeau virement en attente + coordonnees bancaires */}
-      {(awaiting_transfer === "1" || order.paymentStatus === "awaiting_transfer") && (
-        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-5">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-full bg-[#FEF3C7] flex items-center justify-center shrink-0">
-              <svg className="w-5 h-5 text-[#D97706]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="flex-1">
-              <h3 className="font-heading text-sm font-semibold text-[#92400E]">
-                {t("bankTransferPending")}
-              </h3>
-              <p className="text-xs font-body text-[#92400E] mt-1">
-                {t("bankTransferPendingDesc")}
-              </p>
-              <BankTransferDetails orderId={order.id} />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* -- Suivi -- */}
       {!isCancelled && (
@@ -258,7 +235,7 @@ export default async function CommandeDetailPage({
               <div className="text-right shrink-0">
                 <p className="text-xs text-text-muted font-body">x{item.quantity}</p>
                 <p className="font-body font-semibold text-sm text-text-primary mt-0.5">
-                  {item.lineTotal.toFixed(2)} {"\u20AC"}
+                  {Number(item.lineTotal).toFixed(2)} {"\u20AC"}
                 </p>
               </div>
             </div>
@@ -269,15 +246,15 @@ export default async function CommandeDetailPage({
         <div className="px-5 py-4 bg-bg-secondary border-t border-border space-y-1.5">
           <div className="flex justify-between text-sm font-body text-text-secondary">
             <span>{t("subtotalHT")}</span>
-            <span>{order.subtotalHT.toFixed(2)} {"\u20AC"}</span>
+            <span>{Number(order.subtotalHT).toFixed(2)} {"\u20AC"}</span>
           </div>
           <div className="flex justify-between text-sm font-body text-text-secondary">
             <span>{t("shippingCost")} ({order.carrierName})</span>
-            <span>{order.carrierPrice === 0 ? t("free") : `${order.carrierPrice.toFixed(2)} \u20AC`}</span>
+            <span>{Number(order.carrierPrice) === 0 ? t("free") : `${Number(order.carrierPrice).toFixed(2)} \u20AC`}</span>
           </div>
           <div className="flex justify-between text-sm font-body text-text-secondary">
             <span>{t("tva")} ({(order.tvaRate * 100).toFixed(0)} %)</span>
-            <span>{order.tvaAmount.toFixed(2)} {"\u20AC"}</span>
+            <span>{Number(order.tvaAmount).toFixed(2)} {"\u20AC"}</span>
           </div>
           {order.tvaRate === 0 && (
             <p className="text-[10px] text-text-muted font-body">
@@ -286,7 +263,7 @@ export default async function CommandeDetailPage({
           )}
           <div className="flex justify-between font-heading font-semibold text-base text-text-primary pt-2 border-t border-border">
             <span>{t("totalTTC")}</span>
-            <span>{order.totalTTC.toFixed(2)} {"\u20AC"}</span>
+            <span>{Number(order.totalTTC).toFixed(2)} {"\u20AC"}</span>
           </div>
         </div>
       </div>

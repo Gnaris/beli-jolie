@@ -1,0 +1,137 @@
+<h2>Style des Cartes Produit</h2>
+<p class="subtitle">Le composant le plus vu de ton site — comment présenter les produits ?</p>
+
+<div class="cards">
+
+  <!-- Option A - Soft elevated -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:24px; background: #EDF3F8;">
+      <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap;">
+        <!-- Card 1 -->
+        <div style="width:160px; background:#FFFFFF; border-radius:20px; overflow:hidden; box-shadow: 8px 8px 20px rgba(26,86,219,0.1), -6px -6px 16px rgba(255,255,255,0.85); border:1px solid rgba(255,255,255,0.6);">
+          <div style="height:140px; background:linear-gradient(135deg, #DCEAF7 0%, #EDF3F8 100%); display:flex; align-items:center; justify-content:center;">
+            <div style="width:70px;height:80px;border-radius:12px;background:rgba(26,86,219,0.1);box-shadow:inset 2px 2px 4px rgba(0,0,0,0.03);"></div>
+          </div>
+          <div style="padding:12px;">
+            <div style="height:8px;width:80%;border-radius:4px;background:#1A2A40;margin-bottom:6px;"></div>
+            <div style="height:6px;width:60%;border-radius:3px;background:#D1E0EF;margin-bottom:10px;"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="font-size:13px;font-weight:700;color:#1A56DB;">24,90€</div>
+              <div style="display:flex;gap:3px;">
+                <div style="width:14px;height:14px;border-radius:50%;background:#1A56DB;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+                <div style="width:14px;height:14px;border-radius:50%;background:#EF4444;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+                <div style="width:14px;height:14px;border-radius:50%;background:#1A1A1A;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Card 2 -->
+        <div style="width:160px; background:#FFFFFF; border-radius:20px; overflow:hidden; box-shadow: 8px 8px 20px rgba(26,86,219,0.1), -6px -6px 16px rgba(255,255,255,0.85); border:1px solid rgba(255,255,255,0.6);">
+          <div style="height:140px; background:linear-gradient(135deg, #DCEAF7 0%, #EDF3F8 100%); display:flex; align-items:center; justify-content:center; position:relative;">
+            <div style="width:70px;height:80px;border-radius:12px;background:rgba(26,86,219,0.1);box-shadow:inset 2px 2px 4px rgba(0,0,0,0.03);"></div>
+            <div style="position:absolute;top:8px;left:8px;padding:3px 10px;border-radius:8px;background:#1A56DB;color:white;font-size:9px;font-weight:600;box-shadow:3px 3px 6px rgba(26,86,219,0.2);">NEW</div>
+          </div>
+          <div style="padding:12px;">
+            <div style="height:8px;width:75%;border-radius:4px;background:#1A2A40;margin-bottom:6px;"></div>
+            <div style="height:6px;width:55%;border-radius:3px;background:#D1E0EF;margin-bottom:10px;"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="font-size:13px;font-weight:700;color:#1A56DB;">18,50€</div>
+              <div style="display:flex;gap:3px;">
+                <div style="width:14px;height:14px;border-radius:50%;background:#22C55E;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+                <div style="width:14px;height:14px;border-radius:50%;background:#F59E0B;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Elevated Doux ⭐</h3>
+      <p>Carte complètement arrondie, image avec fond dégradé doux, info compacte en bas. Hover = légère élévation. <strong>Clean et efficace.</strong></p>
+    </div>
+  </div>
+
+  <!-- Option B - Clay inset image -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:24px; background: #EDF3F8;">
+      <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap;">
+        <!-- Card 1 -->
+        <div style="width:160px; background:#FFFFFF; border-radius:20px; padding:10px; box-shadow: 8px 8px 20px rgba(26,86,219,0.1), -6px -6px 16px rgba(255,255,255,0.85); border:1px solid rgba(255,255,255,0.6);">
+          <div style="height:130px; background:#EDF3F8; border-radius:14px; display:flex; align-items:center; justify-content:center; box-shadow:inset 3px 3px 8px rgba(0,0,0,0.06), inset -2px -2px 6px rgba(255,255,255,0.8); margin-bottom:10px;">
+            <div style="width:65px;height:75px;border-radius:10px;background:rgba(26,86,219,0.08);"></div>
+          </div>
+          <div style="padding:0 4px 4px;">
+            <div style="height:8px;width:80%;border-radius:4px;background:#1A2A40;margin-bottom:6px;"></div>
+            <div style="height:6px;width:60%;border-radius:3px;background:#D1E0EF;margin-bottom:10px;"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="font-size:13px;font-weight:700;color:#1A56DB;">24,90€</div>
+              <div style="display:flex;gap:3px;">
+                <div style="width:14px;height:14px;border-radius:50%;background:#1A56DB;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+                <div style="width:14px;height:14px;border-radius:50%;background:#EF4444;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+                <div style="width:14px;height:14px;border-radius:50%;background:#1A1A1A;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Card 2 -->
+        <div style="width:160px; background:#FFFFFF; border-radius:20px; padding:10px; box-shadow: 8px 8px 20px rgba(26,86,219,0.1), -6px -6px 16px rgba(255,255,255,0.85); border:1px solid rgba(255,255,255,0.6);">
+          <div style="height:130px; background:#EDF3F8; border-radius:14px; display:flex; align-items:center; justify-content:center; box-shadow:inset 3px 3px 8px rgba(0,0,0,0.06), inset -2px -2px 6px rgba(255,255,255,0.8); margin-bottom:10px; position:relative;">
+            <div style="width:65px;height:75px;border-radius:10px;background:rgba(26,86,219,0.08);"></div>
+            <div style="position:absolute;top:8px;left:8px;padding:3px 10px;border-radius:8px;background:#1A56DB;color:white;font-size:9px;font-weight:600;box-shadow:3px 3px 6px rgba(26,86,219,0.2);">NEW</div>
+          </div>
+          <div style="padding:0 4px 4px;">
+            <div style="height:8px;width:75%;border-radius:4px;background:#1A2A40;margin-bottom:6px;"></div>
+            <div style="height:6px;width:55%;border-radius:3px;background:#D1E0EF;margin-bottom:10px;"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="font-size:13px;font-weight:700;color:#1A56DB;">18,50€</div>
+              <div style="display:flex;gap:3px;">
+                <div style="width:14px;height:14px;border-radius:50%;background:#22C55E;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+                <div style="width:14px;height:14px;border-radius:50%;background:#F59E0B;box-shadow:2px 2px 4px rgba(0,0,0,0.08);"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Image Inset Clay</h3>
+      <p>Carte avec padding intérieur, l'image est dans un "creux" clay (inner shadow). Effet de profondeur très claymorphism. <strong>Plus marqué visuellement.</strong></p>
+    </div>
+  </div>
+
+  <!-- Option C - Minimal float -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:24px; background: #EDF3F8;">
+      <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap;">
+        <!-- Card 1 -->
+        <div style="width:160px;">
+          <div style="height:160px; background:#FFFFFF; border-radius:20px; display:flex; align-items:center; justify-content:center; box-shadow: 8px 8px 20px rgba(26,86,219,0.1), -6px -6px 16px rgba(255,255,255,0.85); border:1px solid rgba(255,255,255,0.6); margin-bottom:10px;">
+            <div style="width:70px;height:80px;border-radius:12px;background:rgba(26,86,219,0.06);"></div>
+          </div>
+          <div style="padding:0 4px;">
+            <div style="height:8px;width:80%;border-radius:4px;background:#1A2A40;margin-bottom:5px;"></div>
+            <div style="height:6px;width:55%;border-radius:3px;background:#D1E0EF;margin-bottom:5px;"></div>
+            <div style="font-size:13px;font-weight:700;color:#1A56DB;">24,90€</div>
+          </div>
+        </div>
+        <!-- Card 2 -->
+        <div style="width:160px;">
+          <div style="height:160px; background:#FFFFFF; border-radius:20px; display:flex; align-items:center; justify-content:center; box-shadow: 8px 8px 20px rgba(26,86,219,0.1), -6px -6px 16px rgba(255,255,255,0.85); border:1px solid rgba(255,255,255,0.6); margin-bottom:10px; position:relative;">
+            <div style="width:70px;height:80px;border-radius:12px;background:rgba(26,86,219,0.06);"></div>
+            <div style="position:absolute;top:8px;left:8px;padding:3px 10px;border-radius:8px;background:#1A56DB;color:white;font-size:9px;font-weight:600;box-shadow:3px 3px 6px rgba(26,86,219,0.2);">NEW</div>
+          </div>
+          <div style="padding:0 4px;">
+            <div style="height:8px;width:75%;border-radius:4px;background:#1A2A40;margin-bottom:5px;"></div>
+            <div style="height:6px;width:50%;border-radius:3px;background:#D1E0EF;margin-bottom:5px;"></div>
+            <div style="font-size:13px;font-weight:700;color:#1A56DB;">18,50€</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Minimal Flottant</h3>
+      <p>Image seule dans un bloc clay flottant, texte en dehors de la carte. Style galerie épurée. <strong>Très aéré, met le produit en avant.</strong></p>
+    </div>
+  </div>
+
+</div>

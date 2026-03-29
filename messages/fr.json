@@ -119,6 +119,7 @@
     "statsDeliveryValue": "J+1",
     "statsPro": "Professionnel",
     "statsProValue": "B2B",
+    "statsCategories": "Catégories",
     "cardExclusive": "Catalogue exclusif",
     "cardPremium": "Qualité premium",
     "cardNecklaces": "Catégorie 1",
@@ -162,7 +163,12 @@
     "subtitle": "Explorez nos {count} catégories de produits.",
     "empty": "Aucune catégorie disponible pour l'instant.",
     "products": "{count} produit",
-    "products_plural": "{count} produits"
+    "products_plural": "{count} produits",
+    "categoryName": "Catégorie",
+    "subCategoriesCount": "Sous-catégories",
+    "productsLabel": "Produits",
+    "viewProducts": "Voir les produits",
+    "allProducts": "Tous les produits"
   },
   "collectionDetail": {
     "breadcrumb": "Collections",

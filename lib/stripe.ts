@@ -113,6 +113,20 @@ export async function getStripePublishableKey(): Promise<string | null> {
 }
 
 /**
+ * Récupère le taux de commission plateforme depuis les metadata du compte connecté.
+ * Retourne le taux en décimal (ex: 0.0025 pour 0.25%). Défaut: 0.25%.
+ */
+export async function getCommissionRate(): Promise<number> {
+  const accountId = await getConnectedAccountId();
+  if (!accountId) return 0;
+
+  const stripe = await getStripeInstance();
+  const account = await stripe.accounts.retrieve(accountId);
+  const rate = parseFloat(account.metadata?.commission_rate || "0.25");
+  return rate / 100;
+}
+
+/**
  * Invalide le cache en mémoire (après mise à jour des clés).
  */
 export function invalidateStripeCache() {

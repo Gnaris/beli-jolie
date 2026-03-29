@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { addToCart } from "@/app/actions/client/cart";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 
 interface SubColorInfo {
@@ -96,10 +97,11 @@ interface ProductDetailProps {
 
 function computePrice(v: VariantData): number {
   // unitPrice is always the total price (for both UNIT and PACK)
-  const total = v.unitPrice;
+  const total = Number(v.unitPrice);
   if (!v.discountType || !v.discountValue) return total;
-  if (v.discountType === "PERCENT") return Math.max(0, total * (1 - v.discountValue / 100));
-  return Math.max(0, total - v.discountValue);
+  const dv = Number(v.discountValue);
+  if (v.discountType === "PERCENT") return Math.max(0, total * (1 - dv / 100));
+  return Math.max(0, total - dv);
 }
 
 function RelatedCard({ product }: { product: RelatedProduct }) {
@@ -155,6 +157,7 @@ export default function ProductDetail({
   const t = useTranslations("product");
   const { tp, tc } = useProductTranslation();
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   // Unique color groups derived from UNIT variants only (PACK have no single color to display)
   const uniqueColors = [...new Map(
@@ -227,7 +230,7 @@ export default function ProductDetail({
   const displayedColorName = getFullColorName(hoveredGroupKey ?? selectedGroupKey);
 
   const minPrice = variants.length > 0 ? Math.min(...variants.map(v => computePrice(v))) : 0;
-  const minBasePrice = variants.length > 0 ? Math.min(...variants.map(v => v.unitPrice)) : 0;
+  const minBasePrice = variants.length > 0 ? Math.min(...variants.map(v => Number(v.unitPrice))) : 0;
   const hasAnyProductDiscount = minPrice < minBasePrice;
   const minPriceAfterClient = applyClientDiscount(minPrice, clientDiscount);
   const hasClientDiscount = !!clientDiscount && minPriceAfterClient < minPrice;
@@ -246,6 +249,7 @@ export default function ProductDetail({
   }
 
   function handleAddToCart(variantId: string, qty: number) {
+    showLoading();
     startTransition(async () => {
       try {
         await addToCart(variantId, qty);
@@ -254,6 +258,8 @@ export default function ProductDetail({
         setTimeout(() => setAddedOptId(null), 2000);
       } catch {
         router.push("/connexion");
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -331,7 +337,7 @@ export default function ProductDetail({
         {/* -- Images -------------------------------------------------- */}
         <div className="space-y-4 animate-zoom-fade">
           <div
-            className="aspect-square bg-bg-tertiary overflow-hidden relative cursor-zoom-in rounded-xl"
+            className="aspect-square bg-bg-secondary overflow-hidden relative cursor-zoom-in rounded-2xl shadow-[inset_3px_3px_8px_rgba(0,0,0,0.06),inset_-2px_-2px_6px_rgba(255,255,255,0.8)]"
             onClick={() => displayedImage && setZoomedSrc(displayedImage)}
           >
             {displayedImage ? (
@@ -376,7 +382,7 @@ export default function ProductDetail({
                     onMouseEnter={() => setHoveredImageIdx(i)}
                     onMouseLeave={() => setHoveredImageIdx(null)}
                     onClick={() => handleImageClick(i)}
-                    className={`w-[4.5rem] h-[4.5rem] object-contain rounded-lg cursor-pointer transition-all duration-200 border-2 ${
+                    className={`w-[4.5rem] h-[4.5rem] object-contain rounded-xl cursor-pointer transition-all duration-200 border-2 shadow-[inset_2px_2px_4px_rgba(0,0,0,0.04),inset_-1px_-1px_3px_rgba(255,255,255,0.8)] ${
                       activeImageIdx === i
                         ? "border-text-primary shadow-sm scale-105"
                         : "border-border hover:border-border-dark hover:scale-105"
@@ -444,7 +450,7 @@ export default function ProductDetail({
               <p className="text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">
                 {t("color")} — <span className="font-normal text-text-primary">{tp(displayedColorName)}</span>
               </p>
-              <div className="flex gap-2.5 sm:gap-2.5 flex-wrap">
+              <div className="flex gap-4 sm:gap-3 flex-wrap">
                 {uniqueColors.map((c) => (
                   <button
                     key={c.groupKey}
@@ -453,9 +459,9 @@ export default function ProductDetail({
                     onMouseEnter={() => setHoveredGroupKey(c.groupKey)}
                     onMouseLeave={() => setHoveredGroupKey(null)}
                     onClick={() => handleColorClick(c.groupKey)}
-                    className={`relative rounded-full transition-all duration-300 swatch-pulse flex items-center justify-center w-[36px] h-[36px] sm:w-[28px] sm:h-[28px] ${
+                    className={`relative rounded-full transition-all duration-300 swatch-pulse flex items-center justify-center w-[36px] h-[36px] sm:w-[28px] sm:h-[28px] shadow-[2px_2px_6px_rgba(26,86,219,0.08),-1px_-1px_4px_rgba(255,255,255,0.8)] ${
                       selectedGroupKey === c.groupKey
-                        ? "ring-2 ring-text-primary ring-offset-2 scale-110 shadow-md"
+                        ? "ring-2 ring-accent ring-offset-2 scale-110 shadow-md"
                         : "ring-1 ring-border hover:ring-border-dark hover:scale-110"
                     }`}
                   >
@@ -468,7 +474,7 @@ export default function ProductDetail({
                       border={false}
                     />
                     {selectedGroupKey === c.groupKey && (
-                      <span className="absolute inset-[-4px] rounded-full border-2 border-text-primary/30 animate-pulse-ring pointer-events-none" />
+                      <span className="absolute inset-[-4px] rounded-full border-2 border-accent/30 animate-pulse-ring pointer-events-none" />
                     )}
                   </button>
                 ))}
@@ -559,7 +565,7 @@ export default function ProductDetail({
                 </h3>
                 {selectedUnitVariants.map((v) => {
                   const price        = computePrice(v);
-                  const basePrice    = v.unitPrice;
+                  const basePrice    = Number(v.unitPrice);
                   const hasDiscount  = price < basePrice;
                   const clientPrice  = applyClientDiscount(price, clientDiscount);
                   const hasClientDsc = !!clientDiscount && clientPrice < price;
@@ -637,7 +643,7 @@ export default function ProductDetail({
                 </h3>
                 {selectedPackVariants.map((v) => {
                   const price        = computePrice(v);
-                  const basePrice    = v.unitPrice;
+                  const basePrice    = Number(v.unitPrice);
                   const hasDiscount  = price < basePrice;
                   const clientPrice  = applyClientDiscount(price, clientDiscount);
                   const hasClientDsc = !!clientDiscount && clientPrice < price;
@@ -676,7 +682,7 @@ export default function ProductDetail({
                                 <p key={s.name} className="text-xs text-text-muted font-body">
                                   {s.name} × {s.quantity}
                                   {s.pricePerUnit != null && (
-                                    <span className="text-text-secondary ml-1">— {s.pricePerUnit.toFixed(2)} €/u</span>
+                                    <span className="text-text-secondary ml-1">— {Number(s.pricePerUnit).toFixed(2)} €/u</span>
                                   )}
                                 </p>
                               ))}

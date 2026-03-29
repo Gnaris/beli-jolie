@@ -7,6 +7,7 @@ import { registerSchema } from "@/lib/validations/auth";
 import { notifyNewClientRegistration } from "@/lib/notifications";
 import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
 import { cookies } from "next/headers";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * POST /api/auth/register
@@ -22,6 +23,10 @@ import { cookies } from "next/headers";
  * 5. Création de l'utilisateur en base (statut PENDING)
  */
 export async function POST(request: NextRequest) {
+  // Rate limit : 3 req/min par IP (complément au cooldown 3h anti-spam)
+  const rateLimited = checkRateLimit(request, "auth-register", 3, 60_000);
+  if (rateLimited) return rateLimited;
+
   try {
     const formData = await request.formData();
 

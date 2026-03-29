@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * POST /api/access-code/validate
@@ -9,6 +10,10 @@ import { prisma } from "@/lib/prisma";
  * Si invalide/expiré/utilisé : retourne erreur
  */
 export async function POST(request: NextRequest) {
+  // Rate limit : 10 req/min par IP (protection brute force)
+  const rateLimited = checkRateLimit(request, "access-code-validate", 10, 60_000);
+  if (rateLimited) return rateLimited;
+
   try {
     const { code } = (await request.json()) as { code?: string };
 

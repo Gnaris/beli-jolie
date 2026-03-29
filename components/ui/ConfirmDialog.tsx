@@ -108,14 +108,14 @@ function ConfirmModal({
       role="dialog"
       aria-modal="true"
       className={`fixed inset-0 z-[10000] flex items-center justify-center p-4 transition-all duration-200 ${
-        closing ? "bg-black/0" : "bg-black/40"
+        closing ? "bg-black/0" : "bg-black/30 backdrop-blur-md"
       }`}
       style={{ animation: closing ? undefined : "confirmFadeIn 0.2s ease-out" }}
     >
       <div
         aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
-        className={`bg-bg-primary rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] w-full max-w-md overflow-hidden transition-all duration-200 ${
+        className={`bg-bg-primary rounded-3xl shadow-[10px_10px_30px_rgba(26,86,219,0.12),-8px_-8px_24px_rgba(255,255,255,0.85)] border border-white/60 w-full max-w-md overflow-hidden transition-all duration-200 ${
           closing ? "opacity-0 scale-95 translate-y-2" : "opacity-100 scale-100 translate-y-0"
         }`}
         style={{ animation: closing ? undefined : "confirmSlideUp 0.25s cubic-bezier(0.16,1,0.3,1)" }}

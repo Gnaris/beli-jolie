@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateDeeplApiKey, validateDeeplApiKey } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   hasKey: boolean;
@@ -16,36 +17,47 @@ export default function DeeplApiKeyConfig({ hasKey }: Props) {
   const [isSaving, startSaving] = useTransition();
   const [isValidating, startValidating] = useTransition();
   const toast = useToast();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [editing, setEditing] = useState(!hasKey);
 
   function handleValidate() {
     if (!apiKey.trim()) return;
+    showLoading();
     startValidating(async () => {
-      setKeyStatus("checking");
-      const result = await validateDeeplApiKey(apiKey.trim());
-      if (result.valid) {
-        setKeyStatus("valid");
-        toast.success("Clé valide", "La connexion avec DeepL fonctionne.");
-      } else {
-        setKeyStatus("invalid");
-        toast.error("Clé invalide", result.error ?? "La clé API DeepL n'est pas reconnue.");
+      try {
+        setKeyStatus("checking");
+        const result = await validateDeeplApiKey(apiKey.trim());
+        if (result.valid) {
+          setKeyStatus("valid");
+          toast.success("Clé valide", "La connexion avec DeepL fonctionne.");
+        } else {
+          setKeyStatus("invalid");
+          toast.error("Clé invalide", result.error ?? "La clé API DeepL n'est pas reconnue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }
 
   function handleSave() {
+    showLoading();
     startSaving(async () => {
-      const result = await updateDeeplApiKey(apiKey.trim());
-      if (result.success) {
-        toast.success("Enregistré", apiKey.trim() ? "Clé API sauvegardée." : "Clé API supprimée.");
-        if (apiKey.trim()) {
-          setEditing(false);
-          setApiKey("");
+      try {
+        const result = await updateDeeplApiKey(apiKey.trim());
+        if (result.success) {
+          toast.success("Enregistré", apiKey.trim() ? "Clé API sauvegardée." : "Clé API supprimée.");
+          if (apiKey.trim()) {
+            setEditing(false);
+            setApiKey("");
+          } else {
+            setKeyStatus("none");
+          }
         } else {
-          setKeyStatus("none");
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
         }
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      } finally {
+        hideLoading();
       }
     });
   }

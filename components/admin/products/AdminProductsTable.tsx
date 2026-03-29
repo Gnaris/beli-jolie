@@ -11,6 +11,8 @@ import {
 } from "@/app/actions/admin/products";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { usePfsRefresh } from "@/components/admin/pfs/PfsRefreshContext";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -171,20 +173,25 @@ function VariantRow({
           )}
         </td>
         <td className="px-3 py-2.5 text-xs font-body font-semibold text-text-primary">
-          {variant.unitPrice.toFixed(2)} €
+          {Number(variant.unitPrice).toFixed(2)} €
         </td>
         <td className="px-3 py-2.5 text-xs font-body">
-          <span className="inline-flex items-center gap-1"
-            style={{
-              color: variant.stock === 0 ? '#EF4444' : variant.stock <= 5 ? '#F59E0B' : '#1A1A1A',
-              fontWeight: variant.stock <= 5 ? 600 : 400,
-            }}
-          >
-            {variant.stock === 0 && (
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#EF4444', display: 'inline-block' }} className="animate-pulse" />
-            )}
-            {variant.stock}
-          </span>
+          {variant.stock === 0 ? (
+            <span className="inline-flex items-center gap-1.5 text-[#DC2626] font-bold">
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#DC2626', display: 'inline-block' }} className="animate-pulse" />
+              {variant.stock}
+            </span>
+          ) : variant.stock <= 5 ? (
+            <span className="inline-flex items-center gap-1.5 text-[#D97706] font-semibold">
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#D97706', display: 'inline-block' }} />
+              {variant.stock}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-[#16A34A] font-medium">
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16A34A', display: 'inline-block' }} />
+              {variant.stock}
+            </span>
+          )}
         </td>
         <td className="px-3 py-2.5 text-xs font-body text-text-secondary">
           {variant.weight} kg
@@ -322,7 +329,7 @@ function VariantRow({
       </tr>
       {error && (
         <tr className="bg-[#FEF2F2]">
-          <td colSpan={8} className="px-5 py-2 text-xs font-body text-error">
+          <td colSpan={9} className="px-5 py-2 text-xs font-body text-error">
             <div className="flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
@@ -361,6 +368,8 @@ function ProductRow({
 }) {
   const [refreshing, startRefresh] = useTransition();
   const { confirm } = useConfirm();
+  const pfsRefresh = usePfsRefresh();
+  const pfsRefreshing = pfsRefresh?.isRefreshing(product.id) ?? false;
 
   // Group UNIT variants by colorId + ordered sub-colors (PACK variants excluded — no single color)
   const uniqueColors = [...new Map(product.colors
@@ -590,10 +599,13 @@ function ProductRow({
             <button
               type="button"
               onClick={async () => {
+                const msg = hasPfsConfig
+                  ? "Le produit sera remis en \"Nouveauté\" avec la date du jour.\nSur PFS, le produit sera recréé comme nouveau."
+                  : "Le produit sera remis en \"Nouveauté\" avec la date du jour.";
                 const ok = await confirm({
                   type: "warning",
                   title: "Rafraîchir ce produit ?",
-                  message: "Le produit sera remis en \"Nouveauté\" avec la date du jour.",
+                  message: msg,
                   confirmLabel: "Rafraîchir",
                 });
                 if (!ok) return;
@@ -604,13 +616,17 @@ function ProductRow({
                     // silently ignore
                   }
                 });
+                // Also enqueue PFS refresh if PFS is configured
+                if (hasPfsConfig && pfsRefresh) {
+                  pfsRefresh.enqueue(product.id, product.name, product.reference);
+                }
               }}
-              disabled={refreshing}
-              className={`p-2.5 text-text-muted hover:text-text-primary transition-colors ${refreshing ? "opacity-50 cursor-wait" : ""}`}
+              disabled={refreshing || pfsRefreshing}
+              className={`p-2.5 text-text-muted hover:text-text-primary transition-colors ${refreshing || pfsRefreshing ? "opacity-50 cursor-wait" : ""}`}
               title="Rafraîchir (remettre en Nouveauté)"
               aria-label="Rafraîchir le produit"
             >
-              <svg className={`w-4.5 h-4.5 ${refreshing ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-4.5 h-4.5 ${refreshing || pfsRefreshing ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
               </svg>
             </button>
@@ -631,7 +647,7 @@ function ProductRow({
       {/* ── Tiroir variantes ── */}
       {expanded && (
         <tr>
-          <td colSpan={8} className="p-0">
+          <td colSpan={9} className="p-0">
             <div className="drawer-variant-container" style={{ position: 'relative' }}>
               {/* En-tête du tiroir */}
               <div
@@ -1131,7 +1147,7 @@ function TableWithTopScroll({
   }, []);
 
   return (
-    <div className="card overflow-hidden">
+    <div className="bg-bg-primary border-y border-border overflow-hidden">
       {/* Top scrollbar */}
       <div ref={topScrollRef} className="overflow-x-auto" style={{ height: 12 }}>
         <div ref={topInnerRef} style={{ height: 1 }} />
@@ -1189,8 +1205,11 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRefresh, setConfirmRefresh] = useState(false);
+  const pfsRefresh = usePfsRefresh();
 
   const allPageIds = products.map((p) => p.id);
   const allSelected = allPageIds.length > 0 && allPageIds.every((id) => selectedIds.has(id));
@@ -1252,6 +1271,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
   const handleBulkStatus = useCallback(async (status: "ONLINE" | "OFFLINE" | "ARCHIVED") => {
     const ids = [...selectedIds];
     setBulkMessage(null);
+    showLoading();
     startTransition(async () => {
       try {
         const result = await bulkUpdateProductStatus(ids, status);
@@ -1271,13 +1291,16 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
         setSelectedIds(new Set());
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
+      } finally {
+        hideLoading();
       }
     });
-  }, [selectedIds, startTransition]);
+  }, [selectedIds, startTransition, showLoading, hideLoading]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
     setBulkMessage(null);
+    showLoading();
     startTransition(async () => {
       try {
         const result = await bulkDeleteProducts(ids);
@@ -1298,9 +1321,28 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
         setConfirmDelete(false);
+      } finally {
+        hideLoading();
       }
     });
-  }, [selectedIds, startTransition]);
+  }, [selectedIds, startTransition, showLoading, hideLoading]);
+
+  const handleBulkPfsRefresh = useCallback(() => {
+    if (!pfsRefresh) return;
+    const items = products
+      .filter((p) => selectedIds.has(p.id))
+      .map((p) => ({ productId: p.id, productName: p.name, reference: p.reference }));
+    // Also refresh createdAt locally
+    startTransition(async () => {
+      for (const p of items) {
+        try { await refreshProduct(p.productId); } catch { /* continue */ }
+      }
+    });
+    pfsRefresh.enqueueBulk(items);
+    setSelectedIds(new Set());
+    setConfirmRefresh(false);
+    setBulkMessage({ type: "success", text: `${items.length} produit${items.length > 1 ? "s" : ""} en cours de rafraîchissement PFS` });
+  }, [selectedIds, products, pfsRefresh, startTransition]);
 
   // ─── Bulk variant actions ──
   const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {
@@ -1309,6 +1351,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
 
     const hasIncrement = Object.values(data).some((v) => v && typeof v === "object" && "increment" in (v as Record<string, unknown>));
 
+    showLoading();
     startTransition(async () => {
       try {
         if (hasIncrement) {
@@ -1341,9 +1384,11 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
         setSelectedVariantIds(new Set());
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
+      } finally {
+        hideLoading();
       }
     });
-  }, [selectedVariantIds, products, startTransition]);
+  }, [selectedVariantIds, products, startTransition, showLoading, hideLoading]);
 
   if (products.length === 0) {
     return (
@@ -1402,6 +1447,43 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
             </svg>
             Archiver
           </button>
+          {hasPfsConfig && (
+            <>
+              <div className="h-4 w-px bg-bg-primary/20" />
+              {!confirmRefresh ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmRefresh(true)}
+                  disabled={isPending}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/80 text-white text-xs font-medium rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors font-body"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+                  </svg>
+                  Rafraîchir PFS
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-blue-300 font-body">Rafraîchir {selectedIds.size} produit{selectedIds.size > 1 ? "s" : ""} sur PFS ?</span>
+                  <button
+                    type="button"
+                    onClick={handleBulkPfsRefresh}
+                    disabled={isPending}
+                    className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-body"
+                  >
+                    Confirmer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRefresh(false)}
+                    className="px-3 py-1.5 bg-bg-primary/10 text-text-inverse text-xs rounded-lg hover:bg-bg-primary/20 transition-colors font-body"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              )}
+            </>
+          )}
           <div className="h-4 w-px bg-bg-primary/20" />
           {!confirmDelete ? (
             <button
@@ -1437,7 +1519,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
           )}
           <button
             type="button"
-            onClick={() => { setSelectedIds(new Set()); setConfirmDelete(false); }}
+            onClick={() => { setSelectedIds(new Set()); setConfirmDelete(false); setConfirmRefresh(false); }}
             className="ml-auto text-xs text-text-inverse/50 hover:text-text-inverse transition-colors font-body"
           >
             Désélectionner

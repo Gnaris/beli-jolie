@@ -342,13 +342,12 @@ async function prepareSingleProduct(
           }
         }
         const sizeNames = [...sizeQtyMap.keys()];
-        // Distribute pack price equally across all items
+        // price_sale.unit.value is per-piece price; DB stores total pack price
         const totalItems = [...sizeQtyMap.values()].reduce((a, b) => a + b, 0);
-        const pricePerItem = totalItems > 0 ? bjPrice / totalItems : 0;
         const sizeEntries = sizeNames.map((name) => ({
           name,
           qty: sizeQtyMap.get(name) || 1,
-          pricePerUnit: Math.round(pricePerItem * 100) / 100,
+          pricePerUnit: Math.round(bjPrice * 100) / 100,
         }));
 
         variants.push({
@@ -356,7 +355,7 @@ async function prepareSingleProduct(
           colorRef: firstPack.color.reference,
           colorName: firstPack.color.labels?.fr || firstPack.color.reference,
           packColorLines,
-          unitPrice: bjPrice,
+          unitPrice: totalItems > 0 ? bjPrice * totalItems : bjPrice,
           weight,
           stock: v.is_active ? v.stock_qty : 0,
           saleType: "PACK",
@@ -584,6 +583,15 @@ export async function runPfsPrepare(
     tryDrainImagePool();
   }
 
+  // Check if job was stopped by admin
+  const checkStopped = async (): Promise<boolean> => {
+    const current = await prisma.pfsPrepareJob.findUnique({
+      where: { id: jobId },
+      select: { status: true },
+    });
+    return current?.status === "STOPPED";
+  };
+
   try {
     addProductLog("🚀 Démarrage de la préparation PFS...");
     addImageLog("🖼 File d'attente images prête (max " + IMAGE_CONCURRENCY + " en parallèle)");
@@ -606,6 +614,12 @@ export async function runPfsPrepare(
 
     while (page <= lastPage) {
       if (maxProducts > 0 && processed >= maxProducts) break;
+
+      // Check if admin stopped the job
+      if (await checkStopped()) {
+        addProductLog("⏹ Arrêt demandé par l'administrateur");
+        break;
+      }
 
       // Fetch pages in parallel
       const batchEndPage = Math.min(page + PAGE_CONCURRENCY - 1, lastPage);
@@ -734,18 +748,30 @@ export async function runPfsPrepare(
       await new Promise((r) => setTimeout(r, 200));
     }
 
-    // Wait for remaining image tasks
-    addProductLog(`🏁 Produits terminés — ${processed} traités (✅${ready} ❌${errored})`);
-    const remaining = activeImageTasks + pendingImageTasks.length;
-    if (remaining > 0) {
-      addImageLog(`⏳ ${remaining} image(s) restante(s)...`);
+    // Check if stopped
+    const wasStopped = await checkStopped();
+
+    // Wait for remaining image tasks (or drain them if stopped)
+    if (wasStopped) {
+      addProductLog(`⏹ Arrêt — ${processed} traités (✅${ready} ❌${errored})`);
+      // Clear pending image tasks
+      pendingImageTasks.length = 0;
+      addImageLog(`⏹ File d'attente images vidée (arrêt demandé)`);
+    } else {
+      addProductLog(`🏁 Produits terminés — ${processed} traités (✅${ready} ❌${errored})`);
+      const remaining = activeImageTasks + pendingImageTasks.length;
+      if (remaining > 0) {
+        addImageLog(`⏳ ${remaining} image(s) restante(s)...`);
+      }
     }
 
     imagePoolDrained = true;
     tryDrainImagePool();
     await imagePoolDone;
 
-    addImageLog(`🏁 Images terminées — ${completedImageTasks} OK${failedImageTasks > 0 ? `, ${failedImageTasks} échouées` : ""}`);
+    if (!wasStopped) {
+      addImageLog(`🏁 Images terminées — ${completedImageTasks} OK${failedImageTasks > 0 ? `, ${failedImageTasks} échouées` : ""}`);
+    }
     await closePlaywright();
 
     // Count actual ready products from DB
@@ -753,12 +779,16 @@ export async function runPfsPrepare(
       where: { prepareJobId: jobId, status: "READY" },
     });
 
-    addProductLog(`🏁 Préparation terminée — ${finalReady} produits prêts pour validation`);
+    if (wasStopped) {
+      addProductLog(`⏹ Importation arrêtée — ${finalReady} produits prêts pour validation`);
+    } else {
+      addProductLog(`🏁 Préparation terminée — ${finalReady} produits prêts pour validation`);
+    }
 
     await prisma.pfsPrepareJob.update({
       where: { id: jobId },
       data: {
-        status: "COMPLETED",
+        status: wasStopped ? "STOPPED" : "COMPLETED",
         processedProducts: processed,
         readyProducts: finalReady,
         errorProducts: errored,
@@ -804,10 +834,6 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
 
   // Determine BJ status based on PFS product status
   const bjStatus = staged.pfsProductStatus === "READY_FOR_SALE" ? "ONLINE" : "OFFLINE";
-
-  console.log(`[APPROVE] stagedId=${stagedId} pfsStatus=${staged.pfsProductStatus} → bjStatus=${bjStatus}`);
-  console.log(`[APPROVE] variants count=${variants.length}:`, variants.map(v => `${v.colorName}(${v.colorId}/${v.colorRef}/${v.saleType})`));
-  console.log(`[APPROVE] imageGroups count=${imageGroups.length}:`, imageGroups.map(g => `${g.colorName}(${g.colorId}/${g.colorRef})`));
 
   // Verify category still exists (it may have been deleted between prepare and approve)
   const categoryExists = await prisma.category.findUnique({
@@ -964,9 +990,6 @@ async function createProductChildren(
   tagNames: string[] = [],
 ): Promise<void> {
   // Create variants sequentially (need IDs for images)
-  console.log("[CREATE_CHILDREN] variants:", variants.length, "imageGroups:", imageGroups.length);
-  console.log("[CREATE_CHILDREN] variant details:", variants.map(v => `${v.colorName}(${v.colorId}/${v.colorRef}/${v.saleType})`));
-  console.log("[CREATE_CHILDREN] imageGroup details:", imageGroups.map(g => `${g.colorName}(${g.colorId}/${g.colorRef}) paths=${g.paths.length}`));
   // Verify all color IDs exist before creating (FK constraint protection)
   const uniqueColorIds = [...new Set(variants.map((v) => v.colorId))];
   const existingColors = await prisma.color.findMany({
@@ -997,8 +1020,6 @@ async function createProductChildren(
       select: { id: true, colorId: true },
     });
     createdVariants.push({ ...created, colorRef: v.colorRef });
-    console.log(`[CREATE_CHILDREN] Created variant id=${created.id} colorId=${created.colorId} colorRef=${v.colorRef}`);
-
     // Create PackColorLine records for PACK variants
     if (v.saleType === "PACK" && v.packColorLines && v.packColorLines.length > 0) {
       for (let lineIdx = 0; lineIdx < v.packColorLines.length; lineIdx++) {
@@ -1019,7 +1040,6 @@ async function createProductChildren(
           });
         }
       }
-      console.log(`[CREATE_CHILDREN] Created ${v.packColorLines.length} PackColorLines for variant ${created.id}`);
     }
 
     // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
@@ -1065,7 +1085,7 @@ async function createProductChildren(
       ?? createdVariants.find((v) => v.colorRef.toLowerCase() === group.colorRef.toLowerCase())
       ?? createdVariants.find((v) => v.colorId === group.colorRef);
     if (!matchingVariant) {
-      console.log(`[CREATE_CHILDREN] WARNING: No matching variant for image group colorRef=${group.colorRef} colorId=${group.colorId}. Available: ${createdVariants.map(v => `${v.colorRef}(${v.colorId})`).join(", ")}`);
+      console.warn(`[CREATE_CHILDREN] No matching variant for image group colorRef=${group.colorRef} colorId=${group.colorId}. Available: ${createdVariants.map(v => `${v.colorRef}(${v.colorId})`).join(", ")}`);
       continue;
     }
 

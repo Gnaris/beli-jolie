@@ -104,7 +104,7 @@ export async function GET(
         hex: sc.color.hex,
         patternImage: sc.color.patternImage,
       })),
-      unitPrice: pc.unitPrice,
+      unitPrice: Number(pc.unitPrice),
       weight: pc.weight,
       stock: pc.stock,
       saleType: pc.saleType,
@@ -112,7 +112,7 @@ export async function GET(
       sizeName: pc.variantSizes?.[0]?.size.name ?? null,
       isPrimary: pc.isPrimary,
       discountType: pc.discountType,
-      discountValue: pc.discountValue,
+      discountValue: pc.discountValue != null ? Number(pc.discountValue) : null,
     })),
     imagesByColor: (() => {
       // Group images by color (using colorId + sub-colors as key)

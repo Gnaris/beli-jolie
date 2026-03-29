@@ -5,9 +5,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
-import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { Elements, PaymentElement, useStripe, useElements, CardNumberElement, CardExpiryElement, CardCvcElement } from "@stripe/react-stripe-js";
 import { saveShippingAddress, deleteShippingAddress } from "@/app/actions/client/cart";
 import { placeOrder } from "@/app/actions/client/order";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
 
 // ─────────────────────────────────────────────
@@ -156,10 +157,12 @@ function getTvaLabel(rate: number, address: Address | null, vatNumber: string | 
 // ─────────────────────────────────────────────
 
 function computeUnitPrice(v: VariantData): number {
-  const base = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
+  const price = Number(v.unitPrice);
+  const base = v.saleType === "UNIT" ? price : price * (v.packQuantity ?? 1);
   if (!v.discountType || !v.discountValue) return base;
-  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - v.discountValue / 100));
-  return Math.max(0, base - v.discountValue);
+  const discount = Number(v.discountValue);
+  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - discount / 100));
+  return Math.max(0, base - discount);
 }
 
 // ─────────────────────────────────────────────
@@ -332,21 +335,39 @@ function CarrierCard({
 // Formulaire paiement Stripe
 // ─────────────────────────────────────────────
 
+const cardElementStyle = {
+  style: {
+    base: {
+      fontSize: "15px",
+      fontFamily: "var(--font-roboto), system-ui, sans-serif",
+      color: "#1A1A1A",
+      "::placeholder": { color: "#A3A3A3" },
+      fontSmoothing: "antialiased",
+    },
+    invalid: {
+      color: "#DC2626",
+      iconColor: "#DC2626",
+    },
+  },
+};
+
 function StripePaymentForm({
   onSuccess,
-  onProcessing,
   onError,
   disabled,
 }: {
   onSuccess: (paymentIntentId: string) => void;
-  onProcessing: (paymentIntentId: string) => void;
   onError: (msg: string) => void;
   disabled: boolean;
 }) {
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState({ number: false, expiry: false, cvc: false });
+  const [focused, setFocused] = useState<string | null>(null);
+  const [cardBrand, setCardBrand] = useState<string>("unknown");
+
+  const allReady = ready.number && ready.expiry && ready.cvc;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -360,12 +381,6 @@ function StripePaymentForm({
       redirect: "if_required",
     });
 
-    console.log("[Stripe] confirmPayment result:", JSON.stringify({
-      error: result.error?.message,
-      status: result.paymentIntent?.status,
-      id: result.paymentIntent?.id,
-    }));
-
     const { error, paymentIntent } = result;
 
     if (error) {
@@ -373,28 +388,133 @@ function StripePaymentForm({
       setProcessing(false);
     } else if (paymentIntent && paymentIntent.status === "succeeded") {
       onSuccess(paymentIntent.id);
-    } else if (paymentIntent && (paymentIntent.status === "processing" || paymentIntent.status === "requires_action")) {
-      // Virement bancaire : "requires_action" = coordonnées bancaires affichées
-      // ou "processing" = virement en cours de traitement
-      onProcessing(paymentIntent.id);
     } else {
       onError("Le paiement n'a pas abouti. Veuillez réessayer.");
       setProcessing(false);
     }
   }
 
+  const brandIcons: Record<string, React.ReactNode> = {
+    visa: (
+      <svg className="w-9 h-6" viewBox="0 0 48 32" fill="none">
+        <rect width="48" height="32" rx="4" fill="#1A1F71" />
+        <path d="M19.5 21H17L18.75 11H21.25L19.5 21ZM15.5 11L13.1 18.1L12.8 16.6L12.8 16.6L11.9 12C11.9 12 11.8 11 10.5 11H6.1L6 11.2C6 11.2 7.5 11.5 9.2 12.5L11.4 21H14L18 11H15.5ZM38 21H40.5L38.3 11H36.3C35.2 11 34.9 11.8 34.9 11.8L31 21H33.5L34 19.5H37.1L37.4 21H38ZM34.8 17.5L36.2 13.5L37 17.5H34.8ZM30.5 13.5L30.8 11.8C30.8 11.8 29.5 11.3 28.1 11.3C26.6 11.3 23 12 23 15C23 17.8 27 17.8 27 19.3C27 20.8 23.5 20.5 22.2 19.5L21.9 21.3C21.9 21.3 23.2 21.9 25 21.9C26.8 21.9 30.4 21 30.4 18.2C30.4 15.3 26.4 15 26.4 13.8C26.4 12.6 29.2 12.8 30.5 13.5Z" fill="white" />
+      </svg>
+    ),
+    mastercard: (
+      <svg className="w-9 h-6" viewBox="0 0 48 32" fill="none">
+        <rect width="48" height="32" rx="4" fill="#252525" />
+        <circle cx="19" cy="16" r="8" fill="#EB001B" />
+        <circle cx="29" cy="16" r="8" fill="#F79E1B" />
+        <path d="M24 9.8A8 8 0 0 1 27 16a8 8 0 0 1-3 6.2A8 8 0 0 1 21 16a8 8 0 0 1 3-6.2Z" fill="#FF5F00" />
+      </svg>
+    ),
+    amex: (
+      <svg className="w-9 h-6" viewBox="0 0 48 32" fill="none">
+        <rect width="48" height="32" rx="4" fill="#006FCF" />
+        <text x="24" y="19" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold" fontFamily="sans-serif">AMEX</text>
+      </svg>
+    ),
+    unknown: (
+      <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+      </svg>
+    ),
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement
-        onReady={() => setReady(true)}
-        options={{
-          layout: "tabs",
-        }}
-      />
+      {/* Card visual */}
+      <div className="relative bg-gradient-to-br from-[#1A1A1A] via-[#2D2D2D] to-[#1A1A1A] rounded-2xl p-5 pb-4 text-white shadow-lg overflow-hidden">
+        {/* Subtle pattern */}
+        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)", backgroundSize: "24px 24px" }} />
+
+        <div className="relative space-y-4">
+          {/* Header with brand */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+              </svg>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-body">Paiement sécurisé</span>
+            </div>
+            <div className="transition-all duration-300">
+              {brandIcons[cardBrand] || brandIcons.unknown}
+            </div>
+          </div>
+
+          {/* Card number */}
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.15em] text-white/40 font-body mb-1.5 block">
+              Numéro de carte
+            </label>
+            <div className={`bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-3 border transition-all duration-200 ${focused === "number" ? "border-white/40 bg-white/15" : "border-white/10"}`}>
+              <CardNumberElement
+                options={{
+                  ...cardElementStyle,
+                  style: {
+                    base: { ...cardElementStyle.style.base, color: "#FFFFFF", "::placeholder": { color: "rgba(255,255,255,0.35)" } },
+                    invalid: { color: "#FCA5A5", iconColor: "#FCA5A5" },
+                  },
+                  showIcon: false,
+                }}
+                onReady={() => setReady((r) => ({ ...r, number: true }))}
+                onFocus={() => setFocused("number")}
+                onBlur={() => setFocused(null)}
+                onChange={(e) => setCardBrand(e.brand ?? "unknown")}
+              />
+            </div>
+          </div>
+
+          {/* Expiry + CVC row */}
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-[10px] uppercase tracking-[0.15em] text-white/40 font-body mb-1.5 block">
+                Expiration
+              </label>
+              <div className={`bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-3 border transition-all duration-200 ${focused === "expiry" ? "border-white/40 bg-white/15" : "border-white/10"}`}>
+                <CardExpiryElement
+                  options={{
+                    ...cardElementStyle,
+                    style: {
+                      base: { ...cardElementStyle.style.base, color: "#FFFFFF", "::placeholder": { color: "rgba(255,255,255,0.35)" } },
+                      invalid: { color: "#FCA5A5" },
+                    },
+                  }}
+                  onReady={() => setReady((r) => ({ ...r, expiry: true }))}
+                  onFocus={() => setFocused("expiry")}
+                  onBlur={() => setFocused(null)}
+                />
+              </div>
+            </div>
+            <div className="w-28">
+              <label className="text-[10px] uppercase tracking-[0.15em] text-white/40 font-body mb-1.5 block">
+                CVC
+              </label>
+              <div className={`bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-3 border transition-all duration-200 ${focused === "cvc" ? "border-white/40 bg-white/15" : "border-white/10"}`}>
+                <CardCvcElement
+                  options={{
+                    ...cardElementStyle,
+                    style: {
+                      base: { ...cardElementStyle.style.base, color: "#FFFFFF", "::placeholder": { color: "rgba(255,255,255,0.35)" } },
+                      invalid: { color: "#FCA5A5" },
+                    },
+                  }}
+                  onReady={() => setReady((r) => ({ ...r, cvc: true }))}
+                  onFocus={() => setFocused("cvc")}
+                  onBlur={() => setFocused(null)}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Submit button */}
       <button
         type="submit"
-        disabled={!stripe || !elements || processing || !ready || disabled}
-        className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200"
+        disabled={!stripe || !elements || processing || !allReady || disabled}
+        className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200 h-12 text-sm"
       >
         {processing ? (
           <>
@@ -408,7 +528,7 @@ function StripePaymentForm({
           <>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+                d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
             </svg>
             Confirmer et payer
           </>
@@ -435,6 +555,7 @@ export default function CheckoutClient({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [orderError, setOrderError] = useState("");
 
   // Stripe
@@ -553,50 +674,65 @@ export default function CheckoutClient({
 
   // Sauvegarder une nouvelle adresse
   function handleSaveAddress(data: typeof EMPTY_ADDR & { isDefault: boolean }) {
+    showLoading();
     startTransition(async () => {
-      const saved = await saveShippingAddress({ ...data, label: `${data.city} — ${data.address1}`.slice(0, 50) });
-      setAddresses((prev) => {
-        const updated = data.isDefault
-          ? prev.map((a) => ({ ...a, isDefault: false }))
-          : prev;
-        return [...updated, saved as Address];
-      });
-      setSelectedAddrId((saved as Address).id);
-      setShowAddressForm(false);
+      try {
+        const saved = await saveShippingAddress({ ...data, label: `${data.city} — ${data.address1}`.slice(0, 50) });
+        setAddresses((prev) => {
+          const updated = data.isDefault
+            ? prev.map((a) => ({ ...a, isDefault: false }))
+            : prev;
+          return [...updated, saved as Address];
+        });
+        setSelectedAddrId((saved as Address).id);
+        setShowAddressForm(false);
+      } finally {
+        hideLoading();
+      }
     });
   }
 
   function handleSameAsBilling(checked: boolean) {
     setSameAsBilling(checked);
     if (checked && billingInfo.address1 && billingInfo.zipCode && billingInfo.city) {
+      showLoading();
       startTransition(async () => {
-        const saved = await saveShippingAddress({
-          label: `Facturation — ${billingInfo.city}`,
-          firstName: billingInfo.firstName,
-          lastName:  billingInfo.lastName,
-          company:   billingInfo.company,
-          address1:  billingInfo.address1,
-          address2:  billingInfo.address2,
-          zipCode:   billingInfo.zipCode,
-          city:      billingInfo.city,
-          country:   billingInfo.country,
-          phone:     billingInfo.phone,
-          isDefault: false,
-        });
-        setAddresses((prev) => [...prev, saved as Address]);
-        setSelectedAddrId((saved as Address).id);
-        setShowAddressForm(false);
+        try {
+          const saved = await saveShippingAddress({
+            label: `Facturation — ${billingInfo.city}`,
+            firstName: billingInfo.firstName,
+            lastName:  billingInfo.lastName,
+            company:   billingInfo.company,
+            address1:  billingInfo.address1,
+            address2:  billingInfo.address2,
+            zipCode:   billingInfo.zipCode,
+            city:      billingInfo.city,
+            country:   billingInfo.country,
+            phone:     billingInfo.phone,
+            isDefault: false,
+          });
+          setAddresses((prev) => [...prev, saved as Address]);
+          setSelectedAddrId((saved as Address).id);
+          setShowAddressForm(false);
+        } finally {
+          hideLoading();
+        }
       });
     }
   }
 
   function handleDeleteAddress(addrId: string) {
+    showLoading();
     startTransition(async () => {
-      await deleteShippingAddress(addrId);
-      setAddresses((prev) => prev.filter((a) => a.id !== addrId));
-      if (selectedAddrId === addrId) {
-        setSelectedAddrId(null);
-        setCarriers([]);
+      try {
+        await deleteShippingAddress(addrId);
+        setAddresses((prev) => prev.filter((a) => a.id !== addrId));
+        if (selectedAddrId === addrId) {
+          setSelectedAddrId(null);
+          setCarriers([]);
+        }
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -653,28 +789,7 @@ export default function CheckoutClient({
   // Après paiement Stripe réussi (carte) → créer la commande et rediriger
   function handlePaymentSuccess(piId: string) {
     setOrderError("");
-    startTransition(async () => {
-      const result = await placeOrder({
-        addressId:             selectedAddr!.id,
-        carrierId:             selectedCarrier!.id,
-        transactionId,
-        carrierName:           selectedCarrier!.name,
-        carrierPrice:          effectiveCarrierPrice,
-        tvaRate,
-        stripePaymentIntentId: piId,
-        cgvAcceptedAt:         new Date().toISOString(),
-      });
-      if (result.success) {
-        router.push(`/commandes/${result.orderId}?success=1`);
-      } else {
-        setOrderError(result.error);
-      }
-    });
-  }
-
-  // Virement bancaire initié (processing) → créer la commande en attente de virement
-  function handlePaymentProcessing(piId: string) {
-    setOrderError("");
+    showLoading();
     startTransition(async () => {
       try {
         const result = await placeOrder({
@@ -688,15 +803,12 @@ export default function CheckoutClient({
           cgvAcceptedAt:         new Date().toISOString(),
         });
         if (result.success) {
-          // Rediriger immédiatement vers la page commande avec un paramètre
-          // pour éviter que le revalidatePath ne nous redirige vers /panier
-          router.push(`/commandes/${result.orderId}?awaiting_transfer=1`);
+          router.push(`/commandes/${result.orderId}?success=1`);
         } else {
           setOrderError(result.error);
         }
-      } catch (err) {
-        console.error("[Checkout] placeOrder exception:", err);
-        setOrderError("Erreur inattendue lors de la création de la commande.");
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -1044,7 +1156,6 @@ export default function CheckoutClient({
             stripeLoading={stripeLoading}
             handleInitiatePayment={handleInitiatePayment}
             handlePaymentSuccess={handlePaymentSuccess}
-            handlePaymentProcessing={handlePaymentProcessing}
             setStripeError={setStripeError}
             isPending={isPending}
           />
@@ -1063,7 +1174,7 @@ function SummaryPanel({
   subtotalAfterDiscount, tvaRate, tvaLabel, tvaAmount, selectedAddr, deliveryMode,
   selectedCarrier, canProceed, totalTTC, orderError, stripeError, cgvAccepted,
   setCgvAccepted, clientSecret, stripeLoading, handleInitiatePayment,
-  handlePaymentSuccess, handlePaymentProcessing, setStripeError, isPending,
+  handlePaymentSuccess, setStripeError, isPending,
 }: {
   cart: CartData;
   computeUnitPrice: (v: VariantData) => number;
@@ -1087,7 +1198,6 @@ function SummaryPanel({
   stripeLoading: boolean;
   handleInitiatePayment: () => void;
   handlePaymentSuccess: (piId: string) => void;
-  handlePaymentProcessing: (piId: string) => void;
   setStripeError: (v: string) => void;
   isPending: boolean;
 }) {
@@ -1297,7 +1407,6 @@ function SummaryPanel({
                   >
                     <StripePaymentForm
                       onSuccess={handlePaymentSuccess}
-                      onProcessing={handlePaymentProcessing}
                       onError={setStripeError}
                       disabled={isPending}
                     />
@@ -1315,15 +1424,6 @@ function SummaryPanel({
                 </div>
               )}
 
-              <div className="flex items-center justify-center gap-1.5 pt-1">
-                <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                    d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                </svg>
-                <p className="text-xs text-text-muted font-body">
-                  Paiement sécurisé par Stripe
-                </p>
-              </div>
             </div>
           </div>
         </div>

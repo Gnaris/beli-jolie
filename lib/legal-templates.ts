@@ -149,7 +149,7 @@ export const DEFAULT_TEMPLATES = {
 <p>La validation d'une commande implique l'acceptation intégrale des présentes CGV. Un montant minimum de commande peut être requis. La commande est confirmée par un email récapitulatif envoyé à l'Acheteur.</p>
 
 <h2>Article 6 — Paiement</h2>
-<p>Le paiement s'effectue en ligne par carte bancaire ou par virement bancaire via la plateforme sécurisée Stripe. Le paiement est exigible à la commande.</p>
+<p>Le paiement s'effectue en ligne par carte bancaire via la plateforme sécurisée Stripe. Le paiement est exigible à la commande.</p>
 
 <h2>Article 7 — Livraison</h2>
 <p>Les délais de livraison sont donnés à titre indicatif. Les frais de port sont calculés en fonction du poids total et de la destination. Le transfert de risques s'opère au moment de la remise du colis au transporteur.</p>

@@ -75,6 +75,52 @@ export async function POST(req: NextRequest) {
 }
 
 // ─────────────────────────────────────────────
+// DELETE — Stop a running prepare job
+// ─────────────────────────────────────────────
+
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  }
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "ID requis" }, { status: 400 });
+    }
+
+    const job = await prisma.pfsPrepareJob.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+
+    if (!job) {
+      return NextResponse.json({ error: "Job non trouvé" }, { status: 404 });
+    }
+
+    if (job.status !== "RUNNING" && job.status !== "PENDING") {
+      return NextResponse.json({ error: "Le job n'est pas en cours" }, { status: 400 });
+    }
+
+    // Set status to STOPPED — the running process will detect this and stop gracefully
+    await prisma.pfsPrepareJob.update({
+      where: { id },
+      data: { status: "STOPPED" },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("[PFS Prepare] Error stopping job:", error);
+    return NextResponse.json(
+      { error: "Erreur lors de l'arrêt du job" },
+      { status: 500 },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
 // GET — Get latest prepare job or specific one
 // ─────────────────────────────────────────────
 

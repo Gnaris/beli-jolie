@@ -132,7 +132,7 @@ export default async function DashboardPage() {
 
   /* -- Stats -- */
   const totalOrders = orders.length;
-  const totalSpent = orders.reduce((s, o) => s + o.totalTTC, 0);
+  const totalSpent = orders.reduce((s, o) => s + Number(o.totalTTC), 0);
   const totalItemsOrdered = orders.reduce(
     (s, o) => s + o.items.reduce((ss, i) => ss + i.quantity, 0),
     0
@@ -399,7 +399,7 @@ export default async function DashboardPage() {
                       </div>
                       <div className="text-right">
                         <p className="font-heading text-sm font-semibold text-text-primary">
-                          {order.totalTTC.toFixed(2)} {"\u20AC"}
+                          {Number(order.totalTTC).toFixed(2)} {"\u20AC"}
                         </p>
                       </div>
                     </div>
@@ -462,7 +462,7 @@ export default async function DashboardPage() {
                       </p>
                       {primaryColor && (
                         <p className="text-xs font-body text-text-secondary mt-0.5">
-                          {primaryColor.unitPrice.toFixed(2)} {"\u20AC"}
+                          {Number(primaryColor.unitPrice).toFixed(2)} {"\u20AC"}
                         </p>
                       )}
                     </Link>

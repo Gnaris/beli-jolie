@@ -4,14 +4,16 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encryptIfSensitive } from "@/lib/encryption";
 import { invalidateStripeCache, isConnectEnabled, getConnectedAccountId } from "@/lib/stripe";
+import { revalidatePath, revalidateTag } from "next/cache";
 import Stripe from "stripe";
 
 /**
  * GET /api/stripe/connect
- * Crée un compte connecté Express + génère un lien d'onboarding Stripe.
- * Si un compte existe déjà mais n'est pas finalisé, régénère le lien.
+ * Crée ou relie un compte connecté Express + génère un lien d'onboarding Stripe.
+ * ?account_id=acct_xxx → relier un compte existant depuis la plateforme.
+ * Sans param → crée un nouveau compte ou reprend un existant.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
@@ -30,10 +32,24 @@ export async function GET() {
   }
 
   const stripe = new Stripe(process.env.STRIPE_PLATFORM_SECRET_KEY!);
+  const url = new URL(req.url);
+  const linkAccountId = url.searchParams.get("account_id");
 
   try {
-    // Vérifier si un compte connecté existe déjà (actif ou backup après déconnexion)
     let accountId = await getConnectedAccountId();
+
+    // Si un account_id est passé en param → relier ce compte existant
+    if (linkAccountId && linkAccountId.startsWith("acct_")) {
+      // Vérifier que le compte existe sur la plateforme
+      const account = await stripe.accounts.retrieve(linkAccountId);
+      if (!account) {
+        return NextResponse.redirect(
+          `${baseUrl}/admin/parametres?tab=paiement&connect_error=${encodeURIComponent("Compte Stripe introuvable.")}`
+        );
+      }
+      accountId = linkAccountId;
+
+    }
 
     if (!accountId) {
       // Vérifier s'il y a un compte précédemment déconnecté (backup)
@@ -43,7 +59,7 @@ export async function GET() {
       if (backupRow?.value) {
         const { decryptIfSensitive } = await import("@/lib/encryption");
         accountId = decryptIfSensitive("stripe_connect_account_id", backupRow.value);
-        console.log(`[Stripe Connect] Réutilisation du compte existant: ${accountId}`);
+
       }
     }
 
@@ -66,7 +82,7 @@ export async function GET() {
       });
 
       invalidateStripeCache();
-      console.log(`[Stripe Connect] Compte Express créé: ${accountId}`);
+
     }
 
     // S'assurer que l'account_id est stocké en BDD (cas reconnexion depuis backup)
@@ -83,7 +99,10 @@ export async function GET() {
     const account = await stripe.accounts.retrieve(accountId);
     if (account.details_submitted) {
       // Déjà finalisé — rediriger directement
-      console.log(`[Stripe Connect] Compte déjà finalisé: ${accountId}`);
+
+      revalidatePath("/panier");
+      revalidatePath("/panier/commande");
+      revalidateTag("site-config", "default");
       return NextResponse.redirect(
         `${baseUrl}/admin/parametres?tab=paiement&connected=true`
       );

@@ -308,8 +308,6 @@ export async function pfsUploadImage(
   formData.append("slot", String(slot));
   formData.append("color", colorRef);
 
-  console.log(`[PFS API] POST /catalog/products/${pfsProductId}/image — slot:${slot} color:${colorRef} file:${filename} size:${(imageBuffer.length / 1024).toFixed(0)}Ko`);
-
   // Don't set Content-Type — let fetch set multipart boundary
   const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/products/${pfsProductId}/image`, {
     method: "POST",
@@ -324,8 +322,6 @@ export async function pfsUploadImage(
   const text = await res.text();
   let data: unknown;
   try { data = JSON.parse(text); } catch { data = text; }
-
-  console.log(`[PFS API] POST image response (${res.status}): ${JSON.stringify(data).slice(0, 300)}`);
 
   if (!res.ok) {
     throw new Error(`PFS upload image failed (${res.status}): ${JSON.stringify(data).slice(0, 300)}`);
@@ -347,8 +343,6 @@ export async function pfsDeleteImage(
   if (colorRef === "DEFAULT") return; // PFS manages DEFAULT automatically
 
   const body = { color: colorRef, slot };
-  console.log(`[PFS API] DELETE /catalog/products/${pfsProductId}/image — body:`, JSON.stringify(body));
-
   const headers = await getPfsHeaders();
   const res = await fetchWithRetry(`${PFS_BASE_URL}/catalog/products/${pfsProductId}/image`, {
     method: "DELETE",
@@ -357,8 +351,6 @@ export async function pfsDeleteImage(
   });
 
   const text = await res.text();
-  console.log(`[PFS API] DELETE image response (${res.status}): ${text.slice(0, 300)}`);
-
   if (!res.ok) {
     throw new Error(`PFS delete image failed (${res.status}): ${text.slice(0, 300)}`);
   }

@@ -1,3 +1,4 @@
+import React from "react";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
@@ -12,7 +13,9 @@ import AdminClientModeButton from "@/components/admin/AdminClientModeButton";
 import LiveCountBadge from "@/components/admin/LiveCountBadge";
 import AdminEmailWrapper from "@/components/admin/email/AdminEmailWrapper";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
-import { getCachedSiteConfig } from "@/lib/cached-data";
+import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
+import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
+import { getCachedSiteConfig, getCachedPfsEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -46,6 +49,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   const deeplConfig = await getCachedSiteConfig("deepl_api_key");
   const deeplEnabled = !!deeplConfig?.value;
+  const autoTranslateConfig = await getCachedSiteConfig("auto_translate_enabled");
+  const autoTranslateEnabled = deeplEnabled && autoTranslateConfig?.value === "true";
+
+  const pfsEnabled = await getCachedPfsEnabled();
 
   const totalAttributeWarnings = untranslatedCount + unusedColorsCount + unusedCompositionsCount + unusedTagsCount + untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
@@ -53,8 +60,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     "/admin/produits": totalAttributeWarnings > 0 ? { count: totalAttributeWarnings, tooltip: `${totalAttributeWarnings} élément${totalAttributeWarnings > 1 ? "s" : ""} nécessitant attention` } : undefined,
   };
 
+  const PfsWrapper = pfsEnabled ? PfsRefreshProvider : React.Fragment;
+
   return (
-    <DeeplConfigProvider enabled={deeplEnabled}>
+    <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
+    <PfsWrapper>
     <AdminEmailWrapper>
     <div id="admin-theme-wrapper" suppressHydrationWarning className={`min-h-screen bg-bg-secondary flex${isDarkMode ? " admin-dark" : ""}`}>
 
@@ -75,7 +85,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <nav className="flex-1 px-3 py-4 overflow-y-auto" aria-label="Navigation admin">
           {ADMIN_NAV_SECTIONS.map((section, sectionIdx) => (
             <div key={section.title}>
-              <p className={`text-[10px] uppercase tracking-widest text-[#999] font-medium px-4 mb-2 ${sectionIdx === 0 ? "mt-1" : "mt-6"}`}>
+              <p className={`text-[10px] uppercase tracking-widest text-text-muted font-medium px-4 mb-2 ${sectionIdx === 0 ? "mt-1" : "mt-6"}`}>
                 {section.title}
               </p>
               <div className="space-y-0.5">
@@ -99,7 +109,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                     <Link
                       key={item.href}
                       href={item.href}
-                      className="flex items-center gap-3 px-3 py-2.5 text-sm font-body text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors group"
+                      className="flex items-center gap-3 px-3 py-2.5 text-sm font-body text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded-[10px] transition-all group"
                     >
                       <span className="text-text-muted group-hover:text-text-secondary transition-colors" aria-hidden="true">
                         {item.icon}
@@ -177,8 +187,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </main>
       </div>
 
+      {pfsEnabled && <PfsRefreshWidget />}
     </div>
     </AdminEmailWrapper>
+    </PfsWrapper>
     </DeeplConfigProvider>
   );
 }

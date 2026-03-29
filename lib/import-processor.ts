@@ -493,7 +493,6 @@ export async function processProductImport(jobId: string): Promise<void> {
         // Prefer sub-category from the same category, fallback to any match by name
         const subCatIds: string[] = [];
         let subCatError = false;
-        console.log(`[import] Ref=${ref} subCategories="${firstRow.subCategories}" (dbSubCategories count=${dbSubCategories.length})`);
         if (firstRow.subCategories) {
           for (const scName of firstRow.subCategories.split(",").map((s) => s.trim()).filter(Boolean)) {
             const scLower = scName.toLowerCase();
@@ -502,11 +501,8 @@ export async function processProductImport(jobId: string): Promise<void> {
               (s) => s.name.toLowerCase() === scLower && (categoryId ? s.categoryId === categoryId : true)
             ) ?? dbSubCategories.find((s) => s.name.toLowerCase() === scLower);
             if (sc) {
-              console.log(`[import] ✓ SubCat "${scName}" → id=${sc.id}`);
               subCatIds.push(sc.id);
             } else {
-              console.log(`[import] ✗ SubCat "${scName}" NOT FOUND. DB names: ${dbSubCategories.map((s) => s.name).join(", ")}`);
-
               for (const row of colorRows) {
                 if (!errorRows.some((e) => e._rowIndex === row._rowIndex)) {
                   errorRows.push({ ...row, errors: [`Sous-catégorie "${scName}" introuvable.`] });
@@ -558,7 +554,6 @@ export async function processProductImport(jobId: string): Promise<void> {
         }
 
         try {
-          console.log(`[import] Creating product ${ref}: subCatIds=[${subCatIds.join(",")}], compPairs=${compPairs.length}, tagIds=${tagIds.length}`);
           const product = await prisma.product.create({
             data: {
               reference: ref,
@@ -746,7 +741,6 @@ export async function processProductImport(jobId: string): Promise<void> {
       },
     });
 
-    console.log(`[import-processor] Product job ${jobId} completed: ${successCount} success, ${errorRows.length} errors`);
   } catch (err) {
     console.error(`[import-processor] Product job ${jobId} failed:`, err);
     await prisma.importJob.update({
@@ -1165,7 +1159,6 @@ export async function processImageImport(jobId: string): Promise<void> {
       },
     });
 
-    console.log(`[import-processor] Image job ${jobId} completed: ${successCount} success, ${errorRows.length} errors`);
   } catch (err) {
     console.error(`[import-processor] Image job ${jobId} failed:`, err);
     await prisma.importJob.update({

@@ -19,7 +19,7 @@ export async function GET() {
   return NextResponse.json({
     discount: {
       discountType: user.discountType,
-      discountValue: user.discountValue,
+      discountValue: Number(user.discountValue),
       freeShipping: user.freeShipping,
     },
   });

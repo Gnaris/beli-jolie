@@ -21,8 +21,6 @@ export async function POST() {
     return NextResponse.json({ error: "Aucun compte Connect connecté." }, { status: 400 });
   }
 
-  console.log(`[Stripe Connect] Déconnexion du compte: ${accountId}`);
-
   // Sauvegarder l'account_id pour reconnexion future, puis supprimer l'actif
   const currentRow = await prisma.siteConfig.findUnique({
     where: { key: "stripe_connect_account_id" },
@@ -45,6 +43,8 @@ export async function POST() {
 
   invalidateStripeCache();
   revalidatePath("/admin/parametres");
+  revalidatePath("/panier");
+  revalidatePath("/panier/commande");
   revalidateTag("site-config", "default");
 
   return NextResponse.json({ success: true });

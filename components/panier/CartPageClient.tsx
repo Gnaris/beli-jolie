@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 import { removeFromCart, updateCartItem, clearCart } from "@/app/actions/client/cart";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 // ─────────────────────────────────────────────
 // Types (miroir du retour de getCart())
@@ -50,6 +51,7 @@ interface CartData {
 interface Props {
   cart: CartData | null;
   minOrderHT: number;
+  stripeReady?: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -57,10 +59,12 @@ interface Props {
 // ─────────────────────────────────────────────
 
 function computeUnitPrice(v: VariantData): number {
-  const base = v.saleType === "UNIT" ? v.unitPrice : v.unitPrice * (v.packQuantity ?? 1);
+  const price = Number(v.unitPrice);
+  const base = v.saleType === "UNIT" ? price : price * (v.packQuantity ?? 1);
   if (!v.discountType || !v.discountValue) return base;
-  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - v.discountValue / 100));
-  return Math.max(0, base - v.discountValue);
+  const discount = Number(v.discountValue);
+  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - discount / 100));
+  return Math.max(0, base - discount);
 }
 
 // ─────────────────────────────────────────────
@@ -91,7 +95,7 @@ function CartRow({
     <div className="flex gap-3 sm:gap-4 py-5 border-b border-border last:border-0">
       {/* Image */}
       <Link href={`/produits/${product.id}`} className="shrink-0">
-        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-bg-tertiary border border-border">
+        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-bg-secondary shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-1px_-1px_4px_rgba(255,255,255,0.8)]">
           {image ? (
             <Image src={image} alt={tp(product.name)} width={80} height={80} sizes="80px" className="w-full h-full object-cover" />
           ) : (
@@ -187,20 +191,26 @@ function CartRow({
 // Page principale
 // ─────────────────────────────────────────────
 
-export default function CartPageClient({ cart, minOrderHT }: Props) {
+export default function CartPageClient({ cart, minOrderHT, stripeReady = true }: Props) {
   const t       = useTranslations("cart");
   const { tc: translateCat } = useProductTranslation();
   const router  = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [showClearModal, setShowClearModal] = useState(false);
   const [showMinError, setShowMinError] = useState(false);
   const backdropClearModal = useBackdropClose(() => setShowClearModal(false));
 
   function handleClearCart() {
+    showLoading();
     startTransition(async () => {
-      await clearCart();
-      setShowClearModal(false);
-      router.refresh();
+      try {
+        await clearCart();
+        setShowClearModal(false);
+        router.refresh();
+      } finally {
+        hideLoading();
+      }
     });
   }
 
@@ -222,9 +232,14 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
   }, 0);
 
   function handleRemove(cartItemId: string) {
+    showLoading();
     startTransition(async () => {
-      await removeFromCart(cartItemId);
-      router.refresh();
+      try {
+        await removeFromCart(cartItemId);
+        router.refresh();
+      } finally {
+        hideLoading();
+      }
     });
   }
 
@@ -233,9 +248,14 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
       handleRemove(cartItemId);
       return;
     }
+    showLoading();
     startTransition(async () => {
-      await updateCartItem(cartItemId, qty);
-      router.refresh();
+      try {
+        await updateCartItem(cartItemId, qty);
+        router.refresh();
+      } finally {
+        hideLoading();
+      }
     });
   }
 
@@ -345,7 +365,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
         {/* ── Liste articles ─────────────────────── */}
         <div className="lg:col-span-2 space-y-6">
           {Object.entries(grouped).map(([category, items]) => (
-            <div key={category} className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-card">
+            <div key={category} className="bg-bg-primary border border-white/60 rounded-[20px] overflow-hidden shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)]">
               {/* En-tête catégorie */}
               <div className="px-5 py-3 border-b border-border bg-bg-tertiary">
                 <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
@@ -431,8 +451,18 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
               </div>
             )}
 
+            {!stripeReady && (
+              <div className="flex items-start gap-2 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl px-3 py-2.5 text-xs font-body text-[#92400E]">
+                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                <span>Le paiement en ligne n&apos;est pas encore disponible. Veuillez contacter le commerçant.</span>
+              </div>
+            )}
+
             <button
               type="button"
+              disabled={!stripeReady}
               onClick={() => {
                 if (minOrderHT > 0 && subtotal < minOrderHT) {
                   setShowMinError(true);
@@ -441,7 +471,7 @@ export default function CartPageClient({ cart, minOrderHT }: Props) {
                 setShowMinError(false);
                 router.push("/panier/commande");
               }}
-              className="btn-primary w-full justify-center hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200"
+              className="btn-primary w-full justify-center hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
             >
               Passer la commande
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

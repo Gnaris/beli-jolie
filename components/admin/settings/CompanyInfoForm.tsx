@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { updateCompanyInfo, type CompanyInfoData } from "@/app/actions/admin/company-info";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface CompanyInfoFormProps {
   initialData: CompanyInfoData | null;
@@ -52,17 +53,23 @@ export default function CompanyInfoForm({ initialData }: CompanyInfoFormProps) {
     hostEmail: initialData?.hostEmail || "",
   });
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
+    showLoading();
     startTransition(async () => {
-      const result = await updateCompanyInfo(form);
-      if (result.success) {
-        setMessage({ type: "success", text: "Informations société mises à jour. Les documents légaux ont été mis à jour." });
-      } else {
-        setMessage({ type: "error", text: result.error || "Erreur" });
+      try {
+        const result = await updateCompanyInfo(form);
+        if (result.success) {
+          setMessage({ type: "success", text: "Informations société mises à jour. Les documents légaux ont été mis à jour." });
+        } else {
+          setMessage({ type: "error", text: result.error || "Erreur" });
+        }
+      } finally {
+        hideLoading();
       }
     });
   };

@@ -41,9 +41,10 @@ import path from "path";
  * PFS expects the per-unit price, so we divide back by total quantity for PACKs.
  */
 function getPfsUnitPrice(variant: FullProduct["colors"][number]): number {
-  if (variant.saleType !== "PACK") return variant.unitPrice;
+  const price = Number(variant.unitPrice);
+  if (variant.saleType !== "PACK") return price;
   const totalQty = variant.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || variant.packQuantity || 1;
-  return Math.round((variant.unitPrice / totalQty) * 100) / 100;
+  return Math.round((price / totalQty) * 100) / 100;
 }
 
 // Default values for PFS product creation
@@ -113,7 +114,6 @@ export async function syncProductToPfs(productId: string): Promise<void> {
         where: { id: productId },
         data: { pfsProductId, pfsSyncStatus: "synced", pfsSyncError: null, pfsSyncedAt: new Date() },
       });
-      console.log(`[PFS Reverse Sync] ✅ Product ${product.reference} CREATED on PFS (${pfsProductId})`);
       return;
     }
 
@@ -166,7 +166,6 @@ export async function syncProductToPfs(productId: string): Promise<void> {
       },
     });
 
-    console.log(`[PFS Reverse Sync] ✅ Product ${product.reference} synced (${apiCalls} API call${apiCalls !== 1 ? "s" : ""})`);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error(`[PFS Reverse Sync] ❌ Product ${productId} failed:`, errorMsg);
@@ -436,7 +435,6 @@ async function diffAndUpdateMetadata(
   const compositionsChanged = bjComps !== pfsComps;
 
   if (!nameChanged && !descChanged && !categoryChanged && !countryChanged && !seasonChanged && !compositionsChanged) {
-    console.log(`[PFS Reverse Sync] Metadata unchanged — skipping`);
     return 0;
   }
 
@@ -448,8 +446,6 @@ async function diffAndUpdateMetadata(
     seasonChanged && "season",
     compositionsChanged && "compositions",
   ].filter(Boolean);
-  console.log(`[PFS Reverse Sync] Metadata changed: ${changedFields.join(", ")}`);
-
   // Name or description changed → need translation
   let apiCalls = 0;
   const updates: PfsProductUpdateData = {};
@@ -624,7 +620,6 @@ async function syncVariants(
   const pfsVariantsToDelete = pfsVariants.filter((v) => !pfsIdsInBj.has(v.id));
 
   if (colorChangedVariants.size > 0) {
-    console.log(`[PFS Reverse Sync] ${colorChangedVariants.size} variant(s) with color/size change — will delete + recreate`);
   }
 
   // Delete removed variants from PFS
@@ -659,7 +654,6 @@ async function syncVariants(
         const existingPfsId = pfsVariantBySkuKey.get(skuKey);
 
         if (existingPfsId) {
-          console.log(`[PFS Reverse Sync] Re-linking existing PFS variant ${existingPfsId} for ${skuKey}`);
           await prisma.productColor.update({ where: { id: variant.id }, data: { pfsVariantId: existingPfsId } });
           relinked.push(existingPfsId);
           // Will be updated in the diff-based update below (added to bjVariantsWithPfsId equivalent)
@@ -740,7 +734,6 @@ async function syncVariants(
         const packSkuKey = `PACK::${packColorKey}_${packSizeKey}`;
         const existingPackPfsId = pfsVariantBySkuKey.get(packSkuKey);
         if (existingPackPfsId) {
-          console.log(`[PFS Reverse Sync] Re-linking existing PFS PACK variant ${existingPackPfsId} for ${packSkuKey}`);
           await prisma.productColor.update({ where: { id: variant.id }, data: { pfsVariantId: existingPackPfsId } });
           relinked.push(existingPackPfsId);
           try {
@@ -790,7 +783,6 @@ async function syncVariants(
             console.warn(`[PFS Reverse Sync] PFS returned no ID for variant ${batchItems[i].variant.id}`);
           }
         }
-        console.log(`[PFS Reverse Sync] Batch created ${variantIds.filter(Boolean).length}/${batchItems.length} variant(s) in 1 call`);
       } catch (err) {
         console.warn(`[PFS Reverse Sync] Batch create failed, falling back to individual creates:`, err);
         // Fallback: create one by one
@@ -825,7 +817,7 @@ async function syncVariants(
       const bjWeight = v.weight;
       const bjActive = bjStock > 0;
       const bjDiscType = v.discountType ?? null;
-      const bjDiscValue = v.discountValue ?? null;
+      const bjDiscValue = v.discountValue != null ? Number(v.discountValue) : null;
 
       // Compare with PFS current values
       if (pfsV) {
@@ -870,12 +862,10 @@ async function syncVariants(
       try {
         await pfsPatchVariants(updates);
         apiCalls++;
-        console.log(`[PFS Reverse Sync] Patched ${updates.length}/${bjVariantsWithPfsId.length} changed variant(s)`);
       } catch (err) {
         console.warn("[PFS Reverse Sync] Failed to patch variants:", err);
       }
     } else {
-      console.log(`[PFS Reverse Sync] All ${bjVariantsWithPfsId.length} existing variant(s) unchanged — skipping patch`);
     }
   }
 
@@ -892,7 +882,6 @@ async function syncImages(
   product: FullProduct,
   pfsRefData: PfsCheckReferenceResponse | null,
 ): Promise<number> {
-  const log = (msg: string) => console.log(`[PFS Images] ${msg}`);
   let apiCalls = 0;
 
   // Get existing PFS images
@@ -916,7 +905,7 @@ async function syncImages(
         }
       }
     } catch {
-      log("⚠ Cannot fetch PFS images state");
+      console.warn("[PFS Images] Cannot fetch PFS images state");
     }
   }
 
@@ -943,7 +932,11 @@ async function syncImages(
       if (!bjImagesByColor.has(colorRef)) {
         bjImagesByColor.set(colorRef, []);
       }
-      bjImagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
+      const existing = bjImagesByColor.get(colorRef)!;
+      // Deduplicate: skip if this image path is already collected for this colorRef
+      if (!existing.some(e => e.path === img.path)) {
+        existing.push({ path: img.path, order: img.order });
+      }
     }
   }
 
@@ -983,11 +976,8 @@ async function syncImages(
   }
 
   if (uploadTasks.length === 0 && deleteTasks.length === 0) {
-    log("Images unchanged — skipping");
     return apiCalls;
   }
-
-  log(`${uploadTasks.length} upload(s), ${deleteTasks.length} delete(s) needed`);
 
   // Execute deletes sequentially, highest slot first (PFS shifts slots on delete)
   deleteTasks.sort((a, b) => b.slot - a.slot);
@@ -998,7 +988,7 @@ async function syncImages(
       const delay = 1000 + Math.floor(Math.random() * 2000);
       await new Promise(r => setTimeout(r, delay));
     } catch (err) {
-      log(`❌ DELETE ${task.colorRef} slot ${task.slot} failed: ${err instanceof Error ? err.message : err}`);
+      console.warn(`[PFS Images] DELETE ${task.colorRef} slot ${task.slot} failed: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -1016,12 +1006,11 @@ async function syncImages(
     for (const r of results) {
       apiCalls++;
       if (r.status === "rejected") {
-        log(`❌ Upload failed: ${r.reason instanceof Error ? r.reason.message : r.reason}`);
+        console.warn(`[PFS Images] Upload failed: ${r.reason instanceof Error ? r.reason.message : r.reason}`);
       }
     }
   }
 
-  log(`Sync images done (${apiCalls} API calls)`);
   return apiCalls;
 }
 
@@ -1074,7 +1063,6 @@ async function syncStatus(
   // Compare with current PFS status
   const currentPfsStatus = pfsRefData?.product?.status;
   if (currentPfsStatus && currentPfsStatus === pfsStatus) {
-    console.log(`[PFS Reverse Sync] Status unchanged (${pfsStatus}) — skipping`);
     return false;
   }
 

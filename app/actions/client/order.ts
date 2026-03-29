@@ -156,29 +156,25 @@ export async function placeOrder(
     console.error("[placeOrder] Erreur retrieve PI:", err);
     return { success: false, error: "Payment Intent introuvable." };
   }
-  console.log(`[placeOrder] PI status: ${paymentIntent.status}, PI id: ${paymentIntent.id}`);
-  // "succeeded" = carte confirmée
-  // "processing" = virement en cours de traitement
-  // "requires_action" = virement bancaire — coordonnées affichées, en attente du virement
-  const validStatuses = ["succeeded", "processing", "requires_action"];
-  if (!validStatuses.includes(paymentIntent.status)) {
+  // Carte uniquement — le paiement doit être confirmé
+  if (paymentIntent.status !== "succeeded") {
     console.error(`[placeOrder] Statut refusé: ${paymentIntent.status}`);
     return { success: false, error: `Le paiement n'a pas été confirmé (statut: ${paymentIntent.status}). Veuillez réessayer.` };
   }
-
-  const isAwaitingTransfer = paymentIntent.status === "processing" || paymentIntent.status === "requires_action";
 
   const cartItems = cart.items;
 
   // ── 2. Calculs ─────────────────────────────────────────────────────────
 
   function computeUnitPrice(variant: (typeof cartItems)[0]["variant"]): number {
+    const price = Number(variant.unitPrice);
     const base = variant.saleType === "UNIT"
-      ? variant.unitPrice
-      : variant.unitPrice * (variant.packQuantity ?? 1);
+      ? price
+      : price * (variant.packQuantity ?? 1);
     if (!variant.discountType || !variant.discountValue) return base;
-    if (variant.discountType === "PERCENT") return Math.max(0, base * (1 - variant.discountValue / 100));
-    return Math.max(0, base - variant.discountValue);
+    const discount = Number(variant.discountValue);
+    if (variant.discountType === "PERCENT") return Math.max(0, base * (1 - discount / 100));
+    return Math.max(0, base - discount);
   }
 
   const subtotalHT = cart.items.reduce(
@@ -187,7 +183,7 @@ export async function placeOrder(
 
   // Remise commerciale client
   const clientDiscountType  = user.discountType  ?? null;
-  const clientDiscountValue = user.discountValue ?? null;
+  const clientDiscountValue = user.discountValue != null ? Number(user.discountValue) : null;
   const clientFreeShipping  = user.freeShipping;
 
   const clientDiscountAmt = (() => {
@@ -237,9 +233,9 @@ export async function placeOrder(
       saleType: item.variant.saleType,
       packQuantity: item.variant.packQuantity,
       weight: item.variant.weight,
-      unitPriceOriginal: item.variant.unitPrice,
+      unitPriceOriginal: Number(item.variant.unitPrice),
       discountType: item.variant.discountType ?? null,
-      discountValue: item.variant.discountValue ?? null,
+      discountValue: item.variant.discountValue != null ? Number(item.variant.discountValue) : null,
       sizes: item.variant.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({
         name: vs.size.name,
         quantity: vs.quantity,
@@ -283,7 +279,7 @@ export async function placeOrder(
       status:       "PENDING",
       // Stripe
       stripePaymentIntentId: input.stripePaymentIntentId,
-      paymentStatus:         isAwaitingTransfer ? "awaiting_transfer" : "paid",
+      paymentStatus:         "paid",
       // Livraison
       shipLabel:    address.label,
       shipFirstName: address.firstName,
@@ -337,101 +333,98 @@ export async function placeOrder(
     },
   });
 
-  // ── 4-6. Easy-Express + PDF + Email — uniquement si paiement carte (pas virement en attente)
-  // Pour les virements, le webhook Stripe s'en chargera quand le virement sera confirmé.
+  // ── 4-6. Easy-Express + PDF + Email ────────────────────────────────────
 
-  if (!isAwaitingTransfer) {
-    let labelBuffer: Buffer | null = null;
+  let labelBuffer: Buffer | null = null;
 
-    // Ne pas appeler Easy-Express si on est sur un carrier fallback ou retrait en boutique
-    const isFallbackCarrier = input.carrierId.startsWith("fallback_") || input.carrierId === "pickup_store";
+  // Ne pas appeler Easy-Express si on est sur un carrier fallback ou retrait en boutique
+  const isFallbackCarrier = input.carrierId.startsWith("fallback_") || input.carrierId === "pickup_store";
 
-    const eeResult = isFallbackCarrier
-      ? { success: false as const, error: "Carrier fallback — pas d'expédition Easy-Express." }
-      : await createEasyExpressShipment({
-          transactionId: input.transactionId,
-          carrierId:     input.carrierId,
-          orderNumber,
-          weightKg:      totalWeightKg,
-          toFirstName:   address.firstName,
-          toLastName:    address.lastName,
-          toCompany:     address.company ?? null,
-          toEmail:       user.email,
-          toAddress1:    address.address1,
-          toAddress2:    address.address2 ?? null,
-          toZipCode:     address.zipCode,
-          toCity:        address.city,
-          toCountry:     address.country,
-          toPhone:       address.phone ?? null,
-        });
-
-    if (eeResult.success) {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          eeTrackingId: eeResult.trackingId,
-          eeLabelUrl:   eeResult.labelUrl,
-        },
-      });
-
-      if (eeResult.labelUrl) {
-        labelBuffer = await fetchEasyExpressLabel(eeResult.labelUrl);
-      }
-    } else {
-      console.warn("[placeOrder] Easy-Express:", eeResult.error);
-    }
-
-    // ── PDF ─────────────────────────────────────
-    let pdfBuffer: Buffer | null = null;
-    try {
-      pdfBuffer = await generateOrderPDF({
+  const eeResult = isFallbackCarrier
+    ? { success: false as const, error: "Carrier fallback — pas d'expédition Easy-Express." }
+    : await createEasyExpressShipment({
+        transactionId: input.transactionId,
+        carrierId:     input.carrierId,
         orderNumber,
-        createdAt:       order.createdAt,
-        clientCompany:   user.company,
-        clientFirstName: user.firstName,
-        clientLastName:  user.lastName,
-        clientEmail:     user.email,
-        clientPhone:     user.phone,
-        clientSiret:     user.siret,
-        clientVatNumber: user.vatNumber ?? null,
-        shipLabel:       address.label,
-        shipFirstName:   address.firstName,
-        shipLastName:    address.lastName,
-        shipCompany:     address.company ?? null,
-        shipAddress1:    address.address1,
-        shipAddress2:    address.address2 ?? null,
-        shipZipCode:     address.zipCode,
-        shipCity:        address.city,
-        shipCountry:     address.country,
-        carrierName:     input.carrierName,
-        carrierPrice:    input.carrierPrice,
-        tvaRate:         input.tvaRate,
-        subtotalHT,
-        tvaAmount,
-        totalTTC,
-        items:           orderItems,
+        weightKg:      totalWeightKg,
+        toFirstName:   address.firstName,
+        toLastName:    address.lastName,
+        toCompany:     address.company ?? null,
+        toEmail:       user.email,
+        toAddress1:    address.address1,
+        toAddress2:    address.address2 ?? null,
+        toZipCode:     address.zipCode,
+        toCity:        address.city,
+        toCountry:     address.country,
+        toPhone:       address.phone ?? null,
       });
-    } catch (err) {
-      console.error("[placeOrder] PDF error:", err);
-    }
 
-    // ── Email admin ─────────────────────────────
-    notifyNewOrder({
+  if (eeResult.success) {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        eeTrackingId: eeResult.trackingId,
+        eeLabelUrl:   eeResult.labelUrl,
+      },
+    });
+
+    if (eeResult.labelUrl) {
+      labelBuffer = await fetchEasyExpressLabel(eeResult.labelUrl);
+    }
+  } else {
+    console.warn("[placeOrder] Easy-Express:", eeResult.error);
+  }
+
+  // ── PDF ─────────────────────────────────────
+  let pdfBuffer: Buffer | null = null;
+  try {
+    pdfBuffer = await generateOrderPDF({
       orderNumber,
-      orderId:    order.id,
-      user:       { ...user, firstName: user.firstName, lastName: user.lastName },
-      address,
-      carrierName: input.carrierName,
-      carrierPrice: input.carrierPrice,
-      items:        orderItems,
+      createdAt:       order.createdAt,
+      clientCompany:   user.company,
+      clientFirstName: user.firstName,
+      clientLastName:  user.lastName,
+      clientEmail:     user.email,
+      clientPhone:     user.phone,
+      clientSiret:     user.siret,
+      clientVatNumber: user.vatNumber ?? null,
+      shipLabel:       address.label,
+      shipFirstName:   address.firstName,
+      shipLastName:    address.lastName,
+      shipCompany:     address.company ?? null,
+      shipAddress1:    address.address1,
+      shipAddress2:    address.address2 ?? null,
+      shipZipCode:     address.zipCode,
+      shipCity:        address.city,
+      shipCountry:     address.country,
+      carrierName:     input.carrierName,
+      carrierPrice:    input.carrierPrice,
+      tvaRate:         input.tvaRate,
       subtotalHT,
-      tvaRate:      input.tvaRate,
       tvaAmount,
       totalTTC,
-      pdfBuffer:    pdfBuffer ?? undefined,
-      labelBuffer:  labelBuffer ?? undefined,
-    }).catch((err) => console.error("[placeOrder] Email error:", err));
+      items:           orderItems,
+    });
+  } catch (err) {
+    console.error("[placeOrder] PDF error:", err);
   }
+
+  // ── Email admin ─────────────────────────────
+  notifyNewOrder({
+    orderNumber,
+    orderId:    order.id,
+    user:       { ...user, firstName: user.firstName, lastName: user.lastName },
+    address,
+    carrierName: input.carrierName,
+    carrierPrice: input.carrierPrice,
+    items:        orderItems,
+    subtotalHT,
+    tvaRate:      input.tvaRate,
+    tvaAmount,
+    totalTTC,
+    pdfBuffer:    pdfBuffer ?? undefined,
+    labelBuffer:  labelBuffer ?? undefined,
+  }).catch((err) => console.error("[placeOrder] Email error:", err));
 
   // ── 7. Vider le panier ────────────────────────────────────────────────────
 

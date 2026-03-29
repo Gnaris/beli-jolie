@@ -8,6 +8,7 @@ import {
   removeProductFromCatalog,
   updateCatalogProductDisplay,
 } from "@/app/actions/admin/catalogs";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 // ─── Types bruts Prisma (tels que retournés par la page) ──────────────────────
 
@@ -102,6 +103,7 @@ function deduplicateColors(raw: RawColorVariant[], images: RawImage[]): UniqueCo
 export default function CatalogEditor({ catalog }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   // ── État local ──────────────────────────────────────────────────────────────
@@ -167,61 +169,86 @@ export default function CatalogEditor({ catalog }: Props) {
 
   // ─── Sauvegarder les réglages ──────────────────────────────────────────────
   const handleSave = () => {
+    showLoading();
     startTransition(async () => {
-      await updateCatalog(catalog.id, {
-        title,
-        primaryColor: color,
-        coverImagePath: coverTab === "photo" ? coverImagePath : null,
-        status,
-      });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      try {
+        await updateCatalog(catalog.id, {
+          title,
+          primaryColor: color,
+          coverImagePath: coverTab === "photo" ? coverImagePath : null,
+          status,
+        });
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      } finally {
+        hideLoading();
+      }
     });
   };
 
   // ─── Ajouter un produit ───────────────────────────────────────────────────
   const handleAdd = (product: ProductSnap) => {
+    showLoading();
     startTransition(async () => {
-      await addProductToCatalog(catalog.id, product.id);
-      setSelectedProducts((prev) => [
-        ...prev,
-        { productId: product.id, position: prev.length, selectedColorId: null, selectedImagePath: null, product },
-      ]);
+      try {
+        await addProductToCatalog(catalog.id, product.id);
+        setSelectedProducts((prev) => [
+          ...prev,
+          { productId: product.id, position: prev.length, selectedColorId: null, selectedImagePath: null, product },
+        ]);
+      } finally {
+        hideLoading();
+      }
     });
   };
 
   // ─── Retirer un produit ───────────────────────────────────────────────────
   const handleRemove = (productId: string) => {
+    showLoading();
     startTransition(async () => {
-      await removeProductFromCatalog(catalog.id, productId);
-      setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
+      try {
+        await removeProductFromCatalog(catalog.id, productId);
+        setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
+      } finally {
+        hideLoading();
+      }
     });
   };
 
   // ─── Changer la couleur d'un produit (reset image) ────────────────────────
   const handleColorChange = (productId: string, colorId: string | null) => {
+    showLoading();
     startTransition(async () => {
-      // Changer la couleur réinitialise l'image sélectionnée
-      await updateCatalogProductDisplay(catalog.id, productId, colorId, null);
-      setSelectedProducts((prev) =>
-        prev.map((p) =>
-          p.productId === productId
-            ? { ...p, selectedColorId: colorId, selectedImagePath: null }
-            : p
-        )
-      );
+      try {
+        // Changer la couleur réinitialise l'image sélectionnée
+        await updateCatalogProductDisplay(catalog.id, productId, colorId, null);
+        setSelectedProducts((prev) =>
+          prev.map((p) =>
+            p.productId === productId
+              ? { ...p, selectedColorId: colorId, selectedImagePath: null }
+              : p
+          )
+        );
+      } finally {
+        hideLoading();
+      }
     });
   };
 
   // ─── Changer l'image spécifique d'un produit ──────────────────────────────
   const handleImageChange = (productId: string, imagePath: string | null, currentColorId: string | null) => {
+    showLoading();
     startTransition(async () => {
-      await updateCatalogProductDisplay(catalog.id, productId, currentColorId, imagePath);
-      setSelectedProducts((prev) =>
-        prev.map((p) =>
-          p.productId === productId ? { ...p, selectedImagePath: imagePath } : p
-        )
-      );
+      try {
+        await updateCatalogProductDisplay(catalog.id, productId, currentColorId, imagePath);
+        setSelectedProducts((prev) =>
+          prev.map((p) =>
+            p.productId === productId ? { ...p, selectedImagePath: imagePath } : p
+          )
+        );
+      } finally {
+        hideLoading();
+      }
     });
   };
 
@@ -538,7 +565,7 @@ export default function CatalogEditor({ catalog }: Props) {
                         </p>
                         <p className="text-xs text-text-muted font-body">
                           Réf. {row.product.reference}
-                          {activeColor ? ` · ${activeColor.unitPrice.toFixed(2)} €` : ""}
+                          {activeColor ? ` · ${Number(activeColor.unitPrice).toFixed(2)} €` : ""}
                           {activeColor && (
                             <span className="ml-1 font-medium text-[#6B7280]">— {activeColor.name}</span>
                           )}
@@ -714,7 +741,7 @@ export default function CatalogEditor({ catalog }: Props) {
                       </p>
                       <p className="text-xs text-text-muted font-body">
                         Réf. {product.reference}
-                        {defaultVariant ? ` · ${defaultVariant.unitPrice.toFixed(2)} €` : ""}
+                        {defaultVariant ? ` · ${Number(defaultVariant.unitPrice).toFixed(2)} €` : ""}
                         {uniqueColors.length > 1 && (
                           <span className="ml-1 text-text-muted">· {uniqueColors.length} couleurs</span>
                         )}

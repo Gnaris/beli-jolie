@@ -202,7 +202,9 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
                         </td>
                         {/* Nom */}
                         <td className="px-4 py-3">
-                          <span className="font-medium text-text-primary">{cat.name}</span>
+                          <span className="text-sm font-medium text-text-primary">
+                            {cat.name}
+                          </span>
                         </td>
                         {/* Sous-cat count */}
                         <td className="px-4 py-3 text-center">
@@ -320,7 +322,9 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
                                       {cat.subCategories.map((sub) => (
                                         <tr key={sub.id} className="hover:bg-bg-secondary/50 transition-colors">
                                           <td className="px-4 py-2.5">
-                                            <span className="text-text-primary">{sub.name}</span>
+                                            <span className="text-sm text-text-primary">
+                                              {sub.name}
+                                            </span>
                                           </td>
                                           <td className="px-4 py-2.5 text-center w-20">
                                             {Object.keys(sub.translations).length === 0 ? (

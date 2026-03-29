@@ -4,6 +4,7 @@ import { useState, useTransition, useEffect } from "react";
 import { updateStripeConfig, validateStripeSecretKey, deleteStripeConfig } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   hasKeys: boolean;
@@ -15,9 +16,12 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
   // ─── Connect state ───────────────────────────────────────────────────────
   const [isDisconnecting, startDisconnecting] = useTransition();
   const [isResetting, startResetting] = useTransition();
+  const [isLinking, startLinking] = useTransition();
   const [connectStatus, setConnectStatus] = useState<"connected" | "none">(
     hasConnect ? "connected" : "none"
   );
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [linkAccountId, setLinkAccountId] = useState("");
 
   // ─── Manual state ────────────────────────────────────────────────────────
   const [secretKey, setSecretKey] = useState("");
@@ -34,6 +38,7 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
 
   const toast = useToast();
   const { confirm } = useConfirm();
+  const { showLoading, hideLoading } = useLoadingOverlay();
 
   // Détecter les query params de retour OAuth
   useEffect(() => {
@@ -71,6 +76,7 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
     });
     if (!ok) return;
 
+    showLoading();
     startDisconnecting(async () => {
       try {
         const res = await fetch("/api/stripe/disconnect", { method: "POST" });
@@ -83,6 +89,8 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
         }
       } catch {
         toast.error("Erreur", "Impossible de déconnecter.");
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -96,6 +104,7 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
     });
     if (!ok) return;
 
+    showLoading();
     startResetting(async () => {
       try {
         const res = await fetch("/api/stripe/reset", { method: "POST" });
@@ -108,6 +117,8 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
         }
       } catch {
         toast.error("Erreur", "Impossible de supprimer le compte.");
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -116,36 +127,46 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
 
   function handleValidate() {
     if (!secretKey.trim()) return;
+    showLoading();
     startValidating(async () => {
-      setKeyStatus("checking");
-      const result = await validateStripeSecretKey(secretKey.trim());
-      if (result.valid) {
-        setKeyStatus("valid");
-        toast.success("Clé valide", "La connexion avec Stripe fonctionne.");
-      } else {
-        setKeyStatus("invalid");
-        toast.error("Clé invalide", result.error ?? "Impossible de se connecter à Stripe.");
+      try {
+        setKeyStatus("checking");
+        const result = await validateStripeSecretKey(secretKey.trim());
+        if (result.valid) {
+          setKeyStatus("valid");
+          toast.success("Clé valide", "La connexion avec Stripe fonctionne.");
+        } else {
+          setKeyStatus("invalid");
+          toast.error("Clé invalide", result.error ?? "Impossible de se connecter à Stripe.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }
 
   function handleSave() {
     if (!secretKey.trim() || !publishableKey.trim()) return;
+    showLoading();
     startSaving(async () => {
-      const result = await updateStripeConfig({
-        secretKey: secretKey.trim(),
-        publishableKey: publishableKey.trim(),
-        webhookSecret: webhookSecret.trim(),
-      });
-      if (result.success) {
-        toast.success("Enregistré", "Configuration Stripe sauvegardée.");
-        setEditing(false);
-        setSecretKey("");
-        setPublishableKey("");
-        setWebhookSecret("");
-        setKeyStatus("valid");
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      try {
+        const result = await updateStripeConfig({
+          secretKey: secretKey.trim(),
+          publishableKey: publishableKey.trim(),
+          webhookSecret: webhookSecret.trim(),
+        });
+        if (result.success) {
+          toast.success("Enregistré", "Configuration Stripe sauvegardée.");
+          setEditing(false);
+          setSecretKey("");
+          setPublishableKey("");
+          setWebhookSecret("");
+          setKeyStatus("valid");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -158,19 +179,35 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
       type: "danger",
     });
     if (!ok) return;
+    showLoading();
     startDeleting(async () => {
-      const result = await deleteStripeConfig();
-      if (result.success) {
-        toast.success("Supprimé", "Configuration Stripe supprimée.");
-        setKeyStatus("none");
-        setEditing(true);
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      try {
+        const result = await deleteStripeConfig();
+        if (result.success) {
+          toast.success("Supprimé", "Configuration Stripe supprimée.");
+          setKeyStatus("none");
+          setEditing(true);
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }
 
-  const isPending = isSaving || isValidating || isDeleting || isDisconnecting || isResetting;
+  function handleLinkExisting() {
+    const id = linkAccountId.trim();
+    if (!id.startsWith("acct_")) {
+      toast.error("ID invalide", "L'identifiant doit commencer par acct_");
+      return;
+    }
+    startLinking(() => {
+      window.location.href = `/api/stripe/connect?account_id=${encodeURIComponent(id)}`;
+    });
+  }
+
+  const isPending = isSaving || isValidating || isDeleting || isDisconnecting || isResetting || isLinking;
   const canSave = keyStatus === "valid" && secretKey.trim() && publishableKey.trim();
   const isConfigured = connectStatus === "connected" || (hasKeys && keyStatus === "valid");
 
@@ -236,17 +273,62 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
               </div>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={handleConnect}
-              disabled={isPending}
-              className="h-10 px-5 rounded-lg bg-[#635BFF] text-white text-sm font-body font-medium hover:bg-[#5851EA] transition-colors disabled:opacity-50 flex items-center gap-2"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-              </svg>
-              Connecter mon compte Stripe
-            </button>
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={handleConnect}
+                disabled={isPending}
+                className="h-10 px-5 rounded-lg bg-[#635BFF] text-white text-sm font-body font-medium hover:bg-[#5851EA] transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                </svg>
+                Créer un nouveau compte Stripe
+              </button>
+
+              <div className="relative flex items-center gap-3">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs text-text-secondary font-body">ou</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowLinkForm((v) => !v)}
+                disabled={isPending}
+                className="h-9 px-4 rounded-lg border border-border text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.04a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.25 8.81" />
+                </svg>
+                Relier un compte existant
+              </button>
+
+              {showLinkForm && (
+                <div className="space-y-2 bg-bg-secondary/50 rounded-lg p-3">
+                  <label className="text-xs font-body text-text-secondary">
+                    ID du compte connecté (visible dans le dashboard Stripe)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={linkAccountId}
+                      onChange={(e) => setLinkAccountId(e.target.value)}
+                      placeholder="acct_xxxxxxxxxx"
+                      className="flex-1 h-9 px-3 rounded-lg border border-border bg-bg-primary text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 focus:border-[#635BFF]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleLinkExisting}
+                      disabled={isPending || !linkAccountId.trim()}
+                      className="h-9 px-4 rounded-lg bg-[#635BFF] text-white text-sm font-body font-medium hover:bg-[#5851EA] transition-colors disabled:opacity-50"
+                    >
+                      {isLinking ? "Connexion..." : "Relier"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -374,7 +456,7 @@ export default function StripeConfig({ hasKeys, hasConnect, connectEnabled }: Pr
                       autoComplete="off"
                     />
                     <p className="text-xs text-text-secondary font-body">
-                      Nécessaire pour les virements bancaires. Endpoint webhook : <code className="bg-bg-secondary px-1 py-0.5 rounded text-[11px]">/api/payments/webhook</code>
+                      Endpoint webhook : <code className="bg-bg-secondary px-1 py-0.5 rounded text-[11px]">/api/payments/webhook</code>
                     </p>
                   </div>
 
