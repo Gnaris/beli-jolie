@@ -21,16 +21,17 @@ import {
   pfsCreateProduct,
   pfsUpdateProduct,
   pfsCreateVariants,
+  pfsPatchVariants,
   pfsUploadImage,
   pfsUpdateStatus,
   pfsTranslate,
   type PfsProductCreateData,
   type PfsVariantCreateData,
+  type PfsVariantUpdateData,
 } from "@/lib/pfs-api-write";
 import { randomUUID } from "crypto";
 import sharp from "sharp";
-import { readFile } from "fs/promises";
-import path from "path";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // Types
@@ -70,8 +71,9 @@ function generateDeleteRef(): string {
 // ─────────────────────────────────────────────
 
 async function convertToJpeg(imagePath: string): Promise<Buffer> {
-  const fsPath = path.join(process.cwd(), "public", imagePath);
-  const buffer = await readFile(fsPath);
+  // imagePath is like "/uploads/products/abc.webp" — download from R2
+  const { downloadFromR2, r2KeyFromDbPath } = await import("@/lib/r2");
+  const buffer = await downloadFromR2(r2KeyFromDbPath(imagePath));
   return sharp(buffer).jpeg({ quality: 100, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer();
 }
 
@@ -267,7 +269,7 @@ export async function pfsRefreshProduct(
 
     // ── Step 1: Generate unique TEMP reference ──
     const tempRef = generateTempRef();
-    console.log(`[PFS Refresh] Using temp reference: ${tempRef}`);
+    logger.info(`[PFS Refresh] Using temp reference: ${tempRef}`);
 
     // ── Step 2: Create new product on PFS with TEMP reference ──
     report(`Création produit PFS (${tempRef})...`);
@@ -300,7 +302,7 @@ export async function pfsRefreshProduct(
 
     const result = await pfsCreateProduct(createData);
     newPfsProductId = result.pfsProductId;
-    console.log(`[PFS Refresh] Created new product: ${newPfsProductId}`);
+    logger.info(`[PFS Refresh] Created new product: ${newPfsProductId}`);
 
     // If multiple compositions, update with array format
     if (product.compositions.length > 1) {
@@ -381,23 +383,56 @@ export async function pfsRefreshProduct(
       }
     }
 
+    let createdVariantIds: string[] = [];
+    let allVariantsOutOfStock = false;
+
     if (variantCreateData.length > 0) {
       try {
         const { variantIds } = await pfsCreateVariants(
           newPfsProductId,
           variantCreateData.map((v) => v.pfsData),
         );
-        console.log(`[PFS Refresh] Created ${variantIds.length} variants`);
+        createdVariantIds = variantIds;
+        logger.info(`[PFS Refresh] Created ${variantIds.length} variants`);
       } catch (err) {
         // Fallback: create one by one
-        console.warn("[PFS Refresh] Batch create failed, trying individually:", err);
+        logger.warn("[PFS Refresh] Batch create failed, trying individually", { error: err instanceof Error ? err.message : String(err) });
         for (const item of variantCreateData) {
           try {
-            await pfsCreateVariants(newPfsProductId, [item.pfsData]);
+            const { variantIds } = await pfsCreateVariants(newPfsProductId, [item.pfsData]);
+            createdVariantIds.push(...variantIds);
           } catch (err2) {
-            console.warn(`[PFS Refresh] Failed to create variant:`, err2);
+            logger.warn("[PFS Refresh] Failed to create variant", { error: err2 instanceof Error ? err2.message : String(err2) });
           }
         }
+      }
+
+      // ── Step 3b: Fix stock 0 variants (PFS forces stock 300 on creation) ──
+      // PFS automatically sets stock to 300 when creating a variant with stock 0,
+      // so we need to patch those variants afterward to set them back to 0 and deactivate them.
+      if (createdVariantIds.length === variantCreateData.length) {
+        const zeroStockPatches: PfsVariantUpdateData[] = [];
+        for (let i = 0; i < variantCreateData.length; i++) {
+          if (variantCreateData[i].pfsData.stock_qty === 0) {
+            zeroStockPatches.push({
+              variant_id: createdVariantIds[i],
+              stock_qty: 0,
+              is_active: false,
+            });
+          }
+        }
+
+        if (zeroStockPatches.length > 0) {
+          try {
+            await pfsPatchVariants(zeroStockPatches);
+            logger.info(`[PFS Refresh] Patched ${zeroStockPatches.length} variants back to stock 0 (deactivated)`);
+          } catch (err) {
+            logger.warn("[PFS Refresh] Failed to patch zero-stock variants", { error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+
+        // If ALL variants are out of stock, archive on PFS and set offline locally
+        allVariantsOutOfStock = zeroStockPatches.length === variantCreateData.length;
       }
     }
 
@@ -445,12 +480,12 @@ export async function pfsRefreshProduct(
           uploadedImages++;
           report(`Upload des images... (${uploadedImages}/${totalImages})`);
           if (r.status === "rejected") {
-            console.warn(`[PFS Refresh] Image upload failed: ${r.reason}`);
+            logger.warn(`[PFS Refresh] Image upload failed`, { error: String(r.reason) });
           }
         }
       }
     }
-    console.log(`[PFS Refresh] Uploaded ${uploadedImages}/${totalImages} images`);
+    logger.info(`[PFS Refresh] Uploaded ${uploadedImages}/${totalImages} images`);
 
     // Set default_color on new product
     const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
@@ -459,7 +494,7 @@ export async function pfsRefreshProduct(
       try {
         await pfsUpdateProduct(newPfsProductId, { default_color: primaryColorRef });
       } catch (err) {
-        console.warn("[PFS Refresh] Failed to set default_color:", err);
+        logger.warn("[PFS Refresh] Failed to set default_color", { error: err instanceof Error ? err.message : String(err) });
       }
     }
 
@@ -468,7 +503,7 @@ export async function pfsRefreshProduct(
 
     // 5a. Generate unique DELETE reference for old product
     const deleteRef = generateDeleteRef();
-    console.log(`[PFS Refresh] Renaming old product to: ${deleteRef}`);
+    logger.info(`[PFS Refresh] Renaming old product to: ${deleteRef}`);
 
     // 5b. Rename old product reference → DELETEXX
     await pfsUpdateProduct(oldPfsProductId, { reference_code: deleteRef });
@@ -476,15 +511,21 @@ export async function pfsRefreshProduct(
 
     // 5c. Delete (soft) old product on PFS
     await pfsUpdateStatus([{ id: oldPfsProductId, status: "DELETED" }]);
-    console.log(`[PFS Refresh] Old product ${oldPfsProductId} renamed to ${deleteRef} and DELETED`);
+    logger.info(`[PFS Refresh] Old product ${oldPfsProductId} renamed to ${deleteRef} and DELETED`);
 
     // 5d. Rename new product reference → real reference
     await pfsUpdateProduct(newPfsProductId, { reference_code: product.reference });
-    console.log(`[PFS Refresh] New product renamed to: ${product.reference}`);
+    logger.info(`[PFS Refresh] New product renamed to: ${product.reference}`);
 
-    // 5e. Set new product to READY_FOR_SALE
-    report("Mise en ligne...");
-    await pfsUpdateStatus([{ id: newPfsProductId, status: "READY_FOR_SALE" }]);
+    // 5e. Set new product status based on stock
+    if (allVariantsOutOfStock) {
+      report("Archivage (toutes les variantes en rupture)...");
+      await pfsUpdateStatus([{ id: newPfsProductId, status: "ARCHIVED" }]);
+      logger.info(`[PFS Refresh] All variants out of stock — product archived on PFS`);
+    } else {
+      report("Mise en ligne...");
+      await pfsUpdateStatus([{ id: newPfsProductId, status: "READY_FOR_SALE" }]);
+    }
 
     // ── Step 6: Update local DB ──
     report("Mise à jour base de données...");
@@ -496,10 +537,15 @@ export async function pfsRefreshProduct(
         pfsSyncStatus: "synced",
         pfsSyncError: null,
         pfsSyncedAt: new Date(),
+        ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
       },
     });
 
-    console.log(`[PFS Refresh] Successfully refreshed product ${product.reference}`);
+    if (allVariantsOutOfStock) {
+      logger.info(`[PFS Refresh] All variants out of stock — product set OFFLINE locally`);
+    }
+
+    logger.info(`[PFS Refresh] Successfully refreshed product ${product.reference}`);
     progress.status = "success";
     progress.step = "Terminé";
     onProgress?.(progress);
@@ -507,7 +553,7 @@ export async function pfsRefreshProduct(
     return { success: true, newPfsProductId };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[PFS Refresh] Error refreshing ${product.reference}:`, errorMsg);
+    logger.error(`[PFS Refresh] Error refreshing ${product.reference}`, { error: errorMsg });
 
     // Cleanup: restore old product and discard new one
     // 1. Restore old product's original reference and status
@@ -515,9 +561,9 @@ export async function pfsRefreshProduct(
       try {
         await pfsUpdateProduct(oldPfsProductId, { reference_code: product.reference });
         await pfsUpdateStatus([{ id: oldPfsProductId, status: "READY_FOR_SALE" }]);
-        console.log(`[PFS Refresh] Cleanup: restored old product ${oldPfsProductId} to reference ${product.reference}`);
+        logger.info(`[PFS Refresh] Cleanup: restored old product ${oldPfsProductId} to reference ${product.reference}`);
       } catch (restoreErr) {
-        console.error("[PFS Refresh] Failed to restore old product:", restoreErr);
+        logger.error("[PFS Refresh] Failed to restore old product", { error: restoreErr instanceof Error ? restoreErr.message : String(restoreErr) });
       }
     }
 
@@ -527,9 +573,9 @@ export async function pfsRefreshProduct(
         const cleanupRef = generateDeleteRef();
         await pfsUpdateProduct(newPfsProductId, { reference_code: cleanupRef });
         await pfsUpdateStatus([{ id: newPfsProductId, status: "DELETED" }]);
-        console.log(`[PFS Refresh] Cleanup: renamed failed new product to ${cleanupRef}`);
+        logger.info(`[PFS Refresh] Cleanup: renamed failed new product to ${cleanupRef}`);
       } catch (cleanupErr) {
-        console.error("[PFS Refresh] Cleanup failed:", cleanupErr);
+        logger.error("[PFS Refresh] Cleanup failed", { error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) });
       }
     }
 

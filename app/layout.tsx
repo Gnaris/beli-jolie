@@ -1,3 +1,4 @@
+import "@/lib/env";
 import type { Metadata } from "next";
 import { Poppins, Roboto } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";

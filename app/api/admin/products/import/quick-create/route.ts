@@ -17,6 +17,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidateTag } from "next/cache";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
   } catch (err) {
-    console.error("[import/quick-create]", err);
+    logger.error("[import/quick-create]", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur." }, { status: 500 });
   }
 }

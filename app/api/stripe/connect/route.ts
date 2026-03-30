@@ -6,6 +6,7 @@ import { encryptIfSensitive } from "@/lib/encryption";
 import { invalidateStripeCache, isConnectEnabled, getConnectedAccountId } from "@/lib/stripe";
 import { revalidatePath, revalidateTag } from "next/cache";
 import Stripe from "stripe";
+import { logger } from "@/lib/logger";
 
 /**
  * GET /api/stripe/connect
@@ -118,7 +119,7 @@ export async function GET(req: Request) {
 
     return NextResponse.redirect(accountLink.url);
   } catch (err) {
-    console.error("[Stripe Connect] Erreur:", err);
+    logger.error("[Stripe Connect] Erreur", { error: err instanceof Error ? err.message : String(err) });
     const message = err instanceof Error ? err.message : "Erreur inattendue.";
     return NextResponse.redirect(
       `${baseUrl}/admin/parametres?tab=paiement&connect_error=${encodeURIComponent(message)}`

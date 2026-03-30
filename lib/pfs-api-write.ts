@@ -11,6 +11,7 @@
  */
 
 import { getPfsHeaders, PFS_BASE_URL, invalidatePfsToken } from "@/lib/pfs-auth";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // Types
@@ -112,7 +113,7 @@ async function fetchWithRetry(
 
       if (res.status === 429 || res.status >= 500) {
         lastError = new Error(`PFS API ${res.status}: ${method} ${shortUrl} — ${errBody.slice(0, 200)}`);
-        console.warn(`[PFS] ${lastError.message} — retry ${attempt + 1}/${maxRetries}`);
+        logger.warn("[PFS] HTTP error, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries });
         const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
         await new Promise((r) => setTimeout(r, delay));
         continue;
@@ -122,7 +123,7 @@ async function fetchWithRetry(
       return res;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      console.warn(`[PFS] ${lastError.message} — retry ${attempt + 1}/${maxRetries}`);
+      logger.warn("[PFS] Request failed, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries });
       if (attempt < maxRetries) {
         const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
         await new Promise((r) => setTimeout(r, delay));
@@ -251,7 +252,7 @@ export async function pfsCreateVariants(
       ?.filter((v) => v.errors)
       .map((v) => Object.entries(v.errors!).map(([k, msgs]) => `${k}: ${msgs.join(", ")}`).join("; "))
       .join(" | ");
-    console.warn(`[PFS] Create variants returned ${resp.resume.errors} error(s): ${errorDetails || JSON.stringify(data).slice(0, 300)}`);
+    logger.warn("[PFS] Create variants returned errors", { errorCount: resp.resume.errors, details: errorDetails || JSON.stringify(data).slice(0, 300) });
   }
 
   const ids = (resp.data?.map((v) => v.id).filter((id): id is string => !!id)) ?? [];
@@ -536,7 +537,7 @@ export async function pfsTranslate(
   });
 
   if (status !== 200) {
-    console.warn(`[PFS] Translation API returned ${status}:`, data);
+    logger.warn("[PFS] Translation API error", { status, response: data });
     // Fallback: return FR only
     return {
       productName: { fr: productName },

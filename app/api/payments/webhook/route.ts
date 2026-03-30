@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStripeInstance, getStripeWebhookSecret, getConnectedAccountId } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 import type Stripe from "stripe";
 
 /**
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
     const webhookSecret = await getStripeWebhookSecret();
     event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
   } catch (err) {
-    console.error("[Stripe Webhook] Signature invalide:", err);
+    logger.error("[Stripe Webhook] Signature invalide", { detail: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Signature invalide." }, { status: 400 });
   }
 
@@ -31,6 +32,26 @@ export async function POST(req: Request) {
   if (connectAccountId && event.account) {
     // Event from connected account
   }
+
+  // --- Deduplication: skip already-processed events ---
+  const existingEvent = await prisma.stripeWebhookEvent.findUnique({
+    where: { eventId: event.id },
+  });
+  if (existingEvent) {
+    return NextResponse.json({ received: true, duplicate: true });
+  }
+
+  // Record the event before processing
+  await prisma.stripeWebhookEvent.create({
+    data: {
+      eventId: event.id,
+      type: event.type,
+    },
+  });
+  // TODO(2026-03): Set up a cron job (or Next.js API route triggered by external scheduler)
+  // to periodically delete StripeWebhookEvent records older than 30 days.
+  // Without cleanup, this table grows unboundedly (~1 row per webhook event).
+  // SQL: DELETE FROM StripeWebhookEvent WHERE createdAt < NOW() - INTERVAL 30 DAY
 
   switch (event.type) {
     case "payment_intent.succeeded": {
@@ -50,7 +71,7 @@ export async function POST(req: Request) {
         where: { stripePaymentIntentId: pi.id },
         data: { paymentStatus: "failed" },
       });
-      console.warn(`[Stripe Webhook] Paiement échoué: ${pi.id}`);
+      logger.warn("[Stripe Webhook] Paiement échoué", { paymentIntentId: pi.id });
       break;
     }
 

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { notifyOrderStatusChange } from "@/lib/notifications";
+import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -24,7 +25,7 @@ export async function updateOrderStatus(orderId: string, status: string) {
 
   // Fire-and-forget: notify client by email (never blocks status update)
   notifyOrderStatusChange({ orderId, newStatus: status }).catch((err) =>
-    console.error("[updateOrderStatus] Email notification error:", err)
+    logger.error("[updateOrderStatus] Email notification error", { error: err instanceof Error ? err.message : String(err) })
   );
 
   revalidatePath(`/admin/commandes/${orderId}`);

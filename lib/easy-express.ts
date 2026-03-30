@@ -12,7 +12,9 @@
  */
 
 import { getCachedCompanyInfo, getCachedEasyExpressApiKey } from "@/lib/cached-data";
+import { logger } from "@/lib/logger";
 
+// TODO(2026-03): Consider moving to env var EASY_EXPRESS_BASE_URL for multi-environment support
 const BASE_URL = "https://easy-express.fr";
 
 /** Convertit un nom de pays ("France") ou code ISO en code 2 lettres pour Easy-Express */
@@ -137,7 +139,7 @@ export async function fetchEasyExpressRates(
 
     return { success: true, transactionId, carriers };
   } catch (err) {
-    console.error("[easy-express/rates] Exception:", err);
+    logger.error("[easy-express/rates] Exception", { error: err });
     return { success: false, error: "Impossible de contacter Easy-Express." };
   }
 }
@@ -265,7 +267,7 @@ export async function createEasyExpressShipment(
 
     return { success: true, trackingId, labelUrl };
   } catch (err) {
-    console.error("[easy-express/checkout] Exception:", err);
+    logger.error("[easy-express/checkout] Exception", { error: err });
     return { success: false, error: "Impossible de contacter Easy-Express." };
   }
 }

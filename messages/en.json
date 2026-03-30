@@ -237,6 +237,8 @@
     "discount": "Discount",
     "composition": "Composition",
     "similar": "Similar Products",
+    "bundleContains": "This product contains these items",
+    "bundleFoundIn": "This product is also found in",
     "description": "Description",
     "loginToAdd": "Sign in to add to cart",
     "perUnit": "/ unit",

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reportCriticalError } from "@/lib/health";
 import { rateLimit } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 
 /**
  * Internal endpoint called by error boundaries to report critical errors.
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     const source = typeof body?.source === "string" ? body.source : "unknown";
     const message = typeof body?.message === "string" ? body.message : "";
 
-    console.error(`[report-error] Error from ${source}: ${message}`);
+    logger.error(`[report-error] Error from ${source}: ${message}`);
 
     const triggered = reportCriticalError(source);
 

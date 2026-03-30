@@ -128,7 +128,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         select: { discountType: true, discountValue: true },
       }).then((u) =>
         u?.discountType && u.discountValue
-          ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: u.discountValue }
+          ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: Number(u.discountValue) }
           : null
       )
     : null;

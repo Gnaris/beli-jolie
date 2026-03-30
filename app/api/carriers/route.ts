@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { fetchEasyExpressRates } from "@/lib/easy-express";
 import { getCachedEasyExpressApiKey } from "@/lib/cached-data";
 import { z } from "zod";
+import { logger } from "@/lib/logger";
 
 const carriersSchema = z.object({
   zipCode: z.string().min(1),
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
   });
 
   if (!result.success) {
-    console.error("[carriers] Easy-Express error:", result.error);
+    logger.error("[carriers] Easy-Express error", { error: result.error });
     return NextResponse.json({
       transactionId: "",
       carriers: getFallbackCarriers(country, weightKg),
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
 
   // Si l'API retourne une liste vide → fallback
   if (result.carriers.length === 0) {
-    console.warn("[carriers] Easy-Express: aucun transporteur retourné, fallback.");
+    logger.warn("[carriers] Easy-Express: aucun transporteur retourné, fallback");
     return NextResponse.json({
       transactionId: result.transactionId,
       carriers: getFallbackCarriers(country, weightKg),

@@ -20,6 +20,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 import {
   pfsListProducts,
   pfsCheckReference,
@@ -827,6 +828,7 @@ async function syncSingleProduct(
   variantDetails: PfsVariantDetail[],
   refDetails: PfsCheckReferenceResponse | null,
   addLog: (msg: string) => void,
+  addImageLog?: (msg: string) => void,
 ): Promise<SyncResult> {
   const pfsRef = pfsProduct.reference.trim().toUpperCase();
   // Strip VS suffix for the real BJ reference
@@ -1102,7 +1104,7 @@ async function syncSingleProduct(
           return [`${stem}${ext}`, `${stem}_md${ext}`, `${stem}_thumb${ext}`];
         });
         await deleteMultipleFromR2(r2Keys).catch((err) =>
-          console.warn(`[PFS_SYNC] Failed to delete old R2 images for ${bjRef}:`, err),
+          logger.warn(`[PFS_SYNC] Failed to delete old R2 images for ${bjRef}`, { error: err }),
         );
       }
 
@@ -1185,7 +1187,7 @@ async function syncSingleProduct(
       addLog(`  ✅ ${bjRef} mis à jour (${variants.length} var) — images en arrière-plan`);
 
       // Return image task to be run in background
-      const imgTask = () => syncProductImages(productId, bjRef, imageSource, createdVariants, addLog);
+      const imgTask = () => syncProductImages(productId, bjRef, imageSource, createdVariants, addLog, addImageLog);
       return { action: "updated", reference: bjRef, productId, imageTask: imgTask, bjStatus };
     } else {
       // ── CREATE new product ──
@@ -1294,7 +1296,7 @@ async function syncSingleProduct(
       addLog(`  ✅ ${bjRef} créé (${variants.length} var) — images en arrière-plan`);
 
       // Return image task to be run in background
-      const imgTask = () => syncProductImages(product.id, bjRef, imageSource, createdVariants, addLog);
+      const imgTask = () => syncProductImages(product.id, bjRef, imageSource, createdVariants, addLog, addImageLog);
       return { action: "created", reference: bjRef, productId: product.id, imageTask: imgTask, bjStatus };
     }
   } catch (err) {
@@ -1314,7 +1316,9 @@ async function syncProductImages(
   imageSource: { primary: Record<string, string | string[]>; fallback: Record<string, string | string[]> | null },
   createdVariants: { id: string; colorId: string | null; colorRef: string }[],
   addLog: (msg: string) => void,
+  addImageLog?: (msg: string) => void,
 ): Promise<void> {
+  const imgLog = addImageLog || addLog;
   const primaryImages = extractColorImages(imageSource.primary);
   const fallbackImages = imageSource.fallback ? extractColorImages(imageSource.fallback) : null;
 
@@ -1328,11 +1332,11 @@ async function syncProductImages(
     // Also prepare fallback URLs for this color (if available)
     const fallbackUrls = fallbackImages?.get(colorRef)?.slice(0, 5) || null;
 
-    addLog(`  🖼️ Téléchargement ${limitedUrls.length} image(s) pour ${colorRef}...`);
+    imgLog(`  🖼️ ${bjRef} — téléchargement ${limitedUrls.length} image(s), couleur : ${colorRef}`);
     const paths = await downloadAndProcessImages(limitedUrls, bjRef, colorRef, fallbackUrls);
 
     if (paths.length === 0) {
-      addLog(`  ⚠️ Aucune image récupérée pour ${colorRef}`);
+      imgLog(`  ⚠️ ${bjRef} — aucune image récupérée pour couleur : ${colorRef}`);
       continue;
     }
 
@@ -1347,7 +1351,7 @@ async function syncProductImages(
     }));
 
     await prisma.productColorImage.createMany({ data: imageData });
-    addLog(`  ✓ ${paths.length}/${limitedUrls.length} image(s) sauvegardées pour ${colorRef}`);
+    imgLog(`  ✅ ${bjRef} — ${paths.length}/${limitedUrls.length} image(s) sauvegardées, couleur : ${colorRef}`);
   }
 }
 
@@ -1453,11 +1457,12 @@ export async function fetchProductDetails(
 async function processBatch(
   products: PfsProduct[],
   addLog: (msg: string) => void,
+  addImageLog?: (msg: string) => void,
 ): Promise<SyncResult[]> {
   const results = await Promise.allSettled(
     products.map(async (pfsProduct) => {
       const { variantDetails, refDetails } = await fetchProductDetails(pfsProduct);
-      return syncSingleProduct(pfsProduct, variantDetails, refDetails, addLog);
+      return syncSingleProduct(pfsProduct, variantDetails, refDetails, addLog, addImageLog);
     }),
   );
 
@@ -1656,7 +1661,7 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
         const totalBatches = Math.ceil(allPageProducts.length / PARALLEL_CONCURRENCY);
         addProductLog(`── Batch ${batchNum}/${totalBatches} (${batch.length} produits en parallèle) ──`);
 
-        const results = await processBatch(batch, addLog);
+        const results = await processBatch(batch, addLog, addImageLog);
 
         for (const result of results) {
           processed++;

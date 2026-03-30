@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { processProductImage } from "@/lib/image-processor";
+import { logger } from "@/lib/logger";
 
 /**
  * POST /api/admin/collections/images
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ path: result.dbPath }, { status: 201 });
   } catch (err) {
-    console.error("[collections/images] Processing error:", err);
+    logger.error("[collections/images] Processing error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur de traitement de l'image." }, { status: 500 });
   }
 }

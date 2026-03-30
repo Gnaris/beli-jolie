@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // Annuler une commande (CLIENT — statut PENDING uniquement)
@@ -153,12 +154,12 @@ export async function placeOrder(
     const connectOpts = connectAccountId ? { stripeAccount: connectAccountId } : undefined;
     paymentIntent = await stripe.paymentIntents.retrieve(input.stripePaymentIntentId, connectOpts);
   } catch (err) {
-    console.error("[placeOrder] Erreur retrieve PI:", err);
+    logger.error("[placeOrder] Erreur retrieve PI", { error: err instanceof Error ? err.message : String(err) });
     return { success: false, error: "Payment Intent introuvable." };
   }
   // Carte uniquement — le paiement doit être confirmé
   if (paymentIntent.status !== "succeeded") {
-    console.error(`[placeOrder] Statut refusé: ${paymentIntent.status}`);
+    logger.error(`[placeOrder] Statut refusé: ${paymentIntent.status}`);
     return { success: false, error: `Le paiement n'a pas été confirmé (statut: ${paymentIntent.status}). Veuillez réessayer.` };
   }
 
@@ -372,7 +373,7 @@ export async function placeOrder(
       labelBuffer = await fetchEasyExpressLabel(eeResult.labelUrl);
     }
   } else {
-    console.warn("[placeOrder] Easy-Express:", eeResult.error);
+    logger.warn("[placeOrder] Easy-Express", { error: eeResult.error });
   }
 
   // ── PDF ─────────────────────────────────────
@@ -406,7 +407,7 @@ export async function placeOrder(
       items:           orderItems,
     });
   } catch (err) {
-    console.error("[placeOrder] PDF error:", err);
+    logger.error("[placeOrder] PDF error", { error: err instanceof Error ? err.message : String(err) });
   }
 
   // ── Email admin ─────────────────────────────
@@ -424,7 +425,7 @@ export async function placeOrder(
     totalTTC,
     pdfBuffer:    pdfBuffer ?? undefined,
     labelBuffer:  labelBuffer ?? undefined,
-  }).catch((err) => console.error("[placeOrder] Email error:", err));
+  }).catch((err) => logger.error("[placeOrder] Email error", { error: err instanceof Error ? err.message : String(err) }));
 
   // ── 7. Vider le panier ────────────────────────────────────────────────────
 
@@ -464,13 +465,13 @@ async function notifyNewOrder(data: NotifyOrderData): Promise<void> {
   const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
   const { NEXTAUTH_URL } = process.env;
   if (!GMAIL_USER || !GMAIL_PASSWORD) {
-    console.warn("[notifyNewOrder] Configuration Gmail manquante.");
+    logger.warn("[notifyNewOrder] Configuration Gmail manquante");
     return;
   }
 
   const NOTIFY_EMAIL = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
   if (!NOTIFY_EMAIL) {
-    console.warn("[notifyNewOrder] Aucun email destinataire configuré.");
+    logger.warn("[notifyNewOrder] Aucun email destinataire configuré");
     return;
   }
 

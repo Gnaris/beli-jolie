@@ -237,6 +237,8 @@
     "discount": "خصم",
     "composition": "التركيب",
     "similar": "منتجات مشابهة",
+    "bundleContains": "يحتوي هذا المنتج على هذه العناصر",
+    "bundleFoundIn": "يوجد هذا المنتج أيضاً في",
     "description": "الوصف",
     "loginToAdd": "سجل دخولك للإضافة إلى السلة",
     "perUnit": "/ وحدة",

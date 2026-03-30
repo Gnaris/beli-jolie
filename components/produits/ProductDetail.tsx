@@ -91,6 +91,8 @@ interface ProductDetailProps {
   compositions: CompositionData[];
   dimensions: DimensionsData;
   similarProducts: RelatedProduct[];
+  bundleChildren: RelatedProduct[];
+  bundleParents: RelatedProduct[];
   clientDiscount?: ClientDiscountInfo | null;
   isAuthenticated?: boolean;
 }
@@ -151,7 +153,7 @@ function applyClientDiscount(price: number, discount: ClientDiscountInfo | null 
 
 export default function ProductDetail({
   productId, name, reference, description, category, subCategories, tags, variants,
-  colorImages, compositions, dimensions, similarProducts, clientDiscount, isAuthenticated,
+  colorImages, compositions, dimensions, similarProducts, bundleChildren, bundleParents, clientDiscount, isAuthenticated,
 }: ProductDetailProps) {
   const router = useRouter();
   const t = useTranslations("product");
@@ -726,6 +728,38 @@ export default function ProductDetail({
             )}
 
 
+          </div>
+        </section>
+      )}
+
+      {/* -- Contenu de l'ensemble (bundle children) -------------------- */}
+      {bundleChildren.length > 0 && (
+        <section className="mt-16 border-t border-border pt-12">
+          <h2 className="font-heading text-xl font-semibold text-text-primary mb-6 section-title">
+            {t("bundleContains")}
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {bundleChildren.map((p, i) => (
+              <div key={p.id} className="animate-zoom-fade" style={{ animationDelay: `${i * 0.08}s` }}>
+                <RelatedCard product={p} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* -- Fait partie de (bundle parents) ----------------------------- */}
+      {bundleParents.length > 0 && (
+        <section className="mt-16 border-t border-border pt-12">
+          <h2 className="font-heading text-xl font-semibold text-text-primary mb-6 section-title">
+            {t("bundleFoundIn")}
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {bundleParents.map((p, i) => (
+              <div key={p.id} className="animate-zoom-fade" style={{ animationDelay: `${i * 0.08}s` }}>
+                <RelatedCard product={p} />
+              </div>
+            ))}
           </div>
         </section>
       )}

@@ -8,6 +8,7 @@ import {
   type PfsVariantDetail,
   type PfsCheckReferenceResponse,
 } from "@/lib/pfs-api";
+import { logger } from "@/lib/logger";
 import {
   stripVersionSuffix,
   parsePfsCategoryRef,
@@ -197,7 +198,7 @@ export async function GET(
       ) ?? "";
     } catch (err) {
       // Still show the category name in comparison even if creation failed
-      console.error("[LIVE_CHECK] Category lookup failed:", err);
+      logger.error("[LIVE_CHECK] Category lookup failed", { error: err instanceof Error ? err.message : String(err) });
       pfsCategoryId = "";
     }
   }

@@ -11,7 +11,7 @@ async function main() {
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
   const bucket = process.env.R2_BUCKET_NAME;
-  const publicUrl = process.env.R2_PUBLIC_URL;
+  const publicUrl = process.env.NEXT_PUBLIC_R2_URL;
 
   if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
     console.error("Missing R2 env vars. Check .env");

@@ -19,6 +19,7 @@ import {
 } from "@/lib/pfs-api";
 import { normalizeColorName } from "@/lib/import-processor";
 import { stripVersionSuffix, PAGE_CONCURRENCY } from "@/lib/pfs-sync";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // Types
@@ -284,15 +285,15 @@ export async function runPfsAnalyze(
       if (firstResponse.meta?.last_page) lastPage = firstResponse.meta.last_page;
 
       if (firstResponse.data?.length > 0) {
-        let firstPageProducts = firstResponse.data;
-        if (maxProducts > 0) firstPageProducts = firstPageProducts.slice(0, maxProducts);
+        const firstPageProducts = firstResponse.data;
 
-        // Filter out existing products
+        // Filter out existing products first, then limit
         const filtered = await filterNewProducts(firstPageProducts);
         totalScanned += firstPageProducts.length;
         totalExistingSkipped += firstPageProducts.length - filtered.length;
 
-        for (const product of filtered) processProduct(product);
+        const toProcess = maxProducts > 0 ? filtered.slice(0, maxProducts) : filtered;
+        for (const product of toProcess) processProduct(product);
       }
 
       addLog(
@@ -313,9 +314,10 @@ export async function runPfsAnalyze(
       return;
     }
 
-    // Remaining pages
+    // Remaining pages — keep scanning until we find enough NEW products
     while (page <= lastPage) {
-      if (maxProducts > 0 && totalScanned >= maxProducts) break;
+      // Stop when we have enough new products (not scanned, but actual new)
+      if (maxProducts > 0 && totalNewProducts >= maxProducts) break;
 
       if (await checkStopped()) {
         addLog("⏹ Arrêt demandé par l'administrateur");
@@ -343,19 +345,21 @@ export async function runPfsAnalyze(
         if (!response.data?.length) continue;
 
         batchEmpty = false;
-        let pageProducts = response.data;
-        if (maxProducts > 0) {
-          const remaining = maxProducts - totalScanned;
-          if (remaining <= 0) break;
-          pageProducts = pageProducts.slice(0, remaining);
-        }
+        const pageProducts = response.data;
 
-        // Filter out existing products
+        // Filter out existing products first, then limit to what we still need
         const filtered = await filterNewProducts(pageProducts);
         totalScanned += pageProducts.length;
         totalExistingSkipped += pageProducts.length - filtered.length;
 
-        for (const product of filtered) processProduct(product);
+        let toProcess = filtered;
+        if (maxProducts > 0) {
+          const remaining = maxProducts - totalNewProducts;
+          if (remaining <= 0) break;
+          toProcess = filtered.slice(0, remaining);
+        }
+
+        for (const product of toProcess) processProduct(product);
       }
 
       await updateJob({ totalProducts: totalNewProducts });
@@ -379,6 +383,29 @@ export async function runPfsAnalyze(
     addLog(
       `Phase 1 terminée — ${totalScanned} produits scannés, ${totalNewProducts} nouveaux, ${totalExistingSkipped} déjà existants`,
     );
+
+    // ── If no new products found, complete early ──
+    if (totalNewProducts === 0) {
+      addLog("🏁 Aucun nouveau produit à importer — tous les produits PFS sont déjà dans la boutique.");
+      await prisma.pfsPrepareJob.update({
+        where: { id: jobId },
+        data: {
+          status: "COMPLETED",
+          totalProducts: 0,
+          analyzeResult: {
+            totalScanned,
+            totalNewProducts: 0,
+            totalExistingSkipped,
+            missingEntities: { categories: [], colors: [], compositions: [], countries: [], seasons: [], sizes: [] },
+            existingMappings: pfsMappings.length,
+            existingEntities: {},
+            limit: maxProducts > 0 ? maxProducts : undefined,
+          },
+          logs: { analyzeLogs },
+        },
+      });
+      return;
+    }
 
     // ── 3. Phase 2 — checkReference for compositions/countries/seasons ──
     addLog(
@@ -539,7 +566,7 @@ export async function runPfsAnalyze(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erreur interne lors de l'analyse";
-    console.error("[PFS Analyze] Fatal error:", err);
+    logger.error("[PFS Analyze] Fatal error", { error: err instanceof Error ? err.message : String(err) });
     try {
       await prisma.pfsPrepareJob.update({
         where: { id: jobId },

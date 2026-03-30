@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
 import { uploadToR2 } from "@/lib/r2";
+import { logger } from "@/lib/logger";
 
 /**
  * POST /api/admin/banner/image
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ path: dbPath });
   } catch (err) {
-    console.error("[banner/image] Processing error:", err);
+    logger.error("[banner/image] Processing error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur de traitement de l'image." }, { status: 500 });
   }
 }

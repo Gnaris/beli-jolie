@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Image from "next/image";
 import {
   addProductToCollection,
   removeProductFromCollection,
@@ -203,7 +204,7 @@ export default function CollectionProductManager({
                     >
                       <div className="w-9 h-9 rounded bg-bg-tertiary shrink-0 overflow-hidden">
                         {img && (
-                          <img src={img} alt={p.name} className="w-full h-full object-cover" />
+                          <Image src={img} alt={p.name} className="w-full h-full object-cover" width={36} height={36} unoptimized />
                         )}
                       </div>
                       <div className="min-w-0">
@@ -265,7 +266,7 @@ export default function CollectionProductManager({
                   {/* Image */}
                   <div className="w-12 h-12 rounded bg-bg-tertiary shrink-0 overflow-hidden">
                     {displayImage ? (
-                      <img src={displayImage} alt={item.product.name} className="w-full h-full object-cover" />
+                      <Image src={displayImage} alt={item.product.name} className="w-full h-full object-cover" width={48} height={48} unoptimized />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">

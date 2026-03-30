@@ -7,6 +7,7 @@ import path from "path";
 import { existsSync } from "fs";
 import { processProductImage } from "@/lib/image-processor";
 import { normalizeColorName } from "@/lib/import-processor";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // Types
@@ -305,7 +306,7 @@ export async function POST(req: NextRequest) {
       draftId,
     });
   } catch (err) {
-    console.error("[import/images]", err);
+    logger.error("[import/images]", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur serveur." }, { status: 500 });
   }
 }

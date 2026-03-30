@@ -12,6 +12,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 import {
   pfsCreateProduct,
   pfsUpdateProduct,
@@ -77,7 +78,7 @@ function getEffectiveColorRef(variant: FullProduct["colors"][number]): string | 
 export function triggerPfsSync(productId: string): void {
   // Fire and forget — don't await
   syncProductToPfs(productId).catch((err) => {
-    console.error(`[PFS Reverse Sync] Fatal error for ${productId}:`, err);
+    logger.error(`[PFS Reverse Sync] Fatal error for ${productId}`, { error: err instanceof Error ? err.message : String(err) });
   });
 }
 
@@ -142,7 +143,7 @@ export async function syncProductToPfs(productId: string): Promise<void> {
         await pfsUpdateProduct(pfsProductId, { default_color: primaryColorRef });
         apiCalls++;
       } catch (err) {
-        console.warn(`[PFS Reverse Sync] Failed to set default_color:`, err);
+        logger.warn("[PFS Reverse Sync] Failed to set default_color", { error: err instanceof Error ? err.message : String(err) });
       }
     }
 
@@ -167,7 +168,7 @@ export async function syncProductToPfs(productId: string): Promise<void> {
 
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[PFS Reverse Sync] ❌ Product ${productId} failed:`, errorMsg);
+    logger.error(`[PFS Reverse Sync] Product ${productId} failed`, { error: errorMsg });
 
     await prisma.product.update({
       where: { id: productId },
@@ -628,7 +629,7 @@ async function syncVariants(
         if (id === v.id) pfsVariantBySkuKey.delete(key);
       }
     } catch (err) {
-      console.warn(`[PFS Reverse Sync] Failed to delete variant ${v.id}:`, err);
+      logger.warn(`[PFS Reverse Sync] Failed to delete variant ${v.id}`, { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -642,7 +643,7 @@ async function syncVariants(
       if (variant.saleType === "UNIT") {
         const colorRef = getEffectiveColorRef(variant);
         if (!colorRef) {
-          console.warn(`[PFS Reverse Sync] Skipping UNIT variant ${variant.id}: color "${variant.color?.name}" has no pfsColorRef`);
+          logger.warn(`[PFS Reverse Sync] Skipping UNIT variant ${variant.id}: color "${variant.color?.name}" has no pfsColorRef`);
           continue;
         }
 
@@ -664,7 +665,7 @@ async function syncVariants(
             }]);
             apiCalls++;
           } catch (err) {
-            console.warn(`[PFS Reverse Sync] Failed to patch re-linked variant ${existingPfsId}:`, err);
+            logger.warn(`[PFS Reverse Sync] Failed to patch re-linked variant ${existingPfsId}`, { error: err instanceof Error ? err.message : String(err) });
           }
           continue;
         }
@@ -707,7 +708,7 @@ async function syncVariants(
         }
 
         if (packColors.length === 0) {
-          console.warn(`[PFS Reverse Sync] Skipping PACK variant ${variant.id}: no colors with pfsColorRef`);
+          logger.warn(`[PFS Reverse Sync] Skipping PACK variant ${variant.id}: no colors with pfsColorRef`);
           continue;
         }
 
@@ -743,7 +744,7 @@ async function syncVariants(
             }]);
             apiCalls++;
           } catch (err) {
-            console.warn(`[PFS Reverse Sync] Failed to patch re-linked PACK variant ${existingPackPfsId}:`, err);
+            logger.warn(`[PFS Reverse Sync] Failed to patch re-linked PACK variant ${existingPackPfsId}`, { error: err instanceof Error ? err.message : String(err) });
           }
           continue;
         }
@@ -777,11 +778,11 @@ async function syncVariants(
               data: { pfsVariantId: variantIds[i] },
             });
           } else {
-            console.warn(`[PFS Reverse Sync] PFS returned no ID for variant ${batchItems[i].variant.id}`);
+            logger.warn(`[PFS Reverse Sync] PFS returned no ID for variant ${batchItems[i].variant.id}`);
           }
         }
       } catch (err) {
-        console.warn(`[PFS Reverse Sync] Batch create failed, falling back to individual creates:`, err);
+        logger.warn("[PFS Reverse Sync] Batch create failed, falling back to individual creates", { error: err instanceof Error ? err.message : String(err) });
         // Fallback: create one by one
         for (const item of batchItems) {
           try {
@@ -794,7 +795,7 @@ async function syncVariants(
               });
             }
           } catch (err2) {
-            console.warn(`[PFS Reverse Sync] Failed to create variant ${item.variant.id}:`, err2);
+            logger.warn(`[PFS Reverse Sync] Failed to create variant ${item.variant.id}`, { error: err2 instanceof Error ? err2.message : String(err2) });
           }
         }
       }
@@ -860,7 +861,7 @@ async function syncVariants(
         await pfsPatchVariants(updates);
         apiCalls++;
       } catch (err) {
-        console.warn("[PFS Reverse Sync] Failed to patch variants:", err);
+        logger.warn("[PFS Reverse Sync] Failed to patch variants", { error: err instanceof Error ? err.message : String(err) });
       }
     } else {
     }
@@ -902,7 +903,7 @@ async function syncImages(
         }
       }
     } catch {
-      console.warn("[PFS Images] Cannot fetch PFS images state");
+      logger.warn("[PFS Images] Cannot fetch PFS images state");
     }
   }
 
@@ -985,7 +986,7 @@ async function syncImages(
       const delay = 1000 + Math.floor(Math.random() * 2000);
       await new Promise(r => setTimeout(r, delay));
     } catch (err) {
-      console.warn(`[PFS Images] DELETE ${task.colorRef} slot ${task.slot} failed: ${err instanceof Error ? err.message : err}`);
+      logger.warn(`[PFS Images] DELETE ${task.colorRef} slot ${task.slot} failed`, { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -1003,7 +1004,7 @@ async function syncImages(
     for (const r of results) {
       apiCalls++;
       if (r.status === "rejected") {
-        console.warn(`[PFS Images] Upload failed: ${r.reason instanceof Error ? r.reason.message : r.reason}`);
+        logger.warn("[PFS Images] Upload failed", { error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
       }
     }
   }

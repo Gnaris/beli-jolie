@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   updateCatalog,
   addProductToCatalog,
@@ -420,7 +421,7 @@ export default function CatalogEditor({ catalog }: Props) {
               </p>
               {coverImagePath ? (
                 <div className="relative rounded-xl overflow-hidden border border-border">
-                  <img src={coverImagePath} alt="Photo de fond" className="w-full h-28 object-cover" />
+                  <Image src={coverImagePath} alt="Photo de fond" className="w-full h-28 object-cover" width={400} height={112} unoptimized />
                   <button
                     type="button"
                     onClick={() => setCoverImagePath(null)}
@@ -547,7 +548,7 @@ export default function CatalogEditor({ catalog }: Props) {
                       {/* Miniature */}
                       <div className="w-14 h-14 rounded-lg bg-bg-secondary overflow-hidden shrink-0">
                         {displayImage ? (
-                          <img src={displayImage} alt={row.product.name} className="w-full h-full object-cover" />
+                          <Image src={displayImage} alt={row.product.name} className="w-full h-full object-cover" width={56} height={56} unoptimized />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
                             <svg className="w-5 h-5 text-[#C4C4C4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -662,10 +663,13 @@ export default function CatalogEditor({ catalog }: Props) {
                                     : "border-border hover:border-[#9CA3AF]"
                                 }`}
                               >
-                                <img
+                                <Image
                                   src={img.path}
                                   alt={`Image ${idx + 1}`}
                                   className="w-full h-full object-cover"
+                                  width={48}
+                                  height={48}
+                                  unoptimized
                                 />
                               </button>
                             );
@@ -725,7 +729,7 @@ export default function CatalogEditor({ catalog }: Props) {
                   >
                     <div className="w-12 h-12 rounded-lg bg-bg-secondary overflow-hidden shrink-0">
                       {image ? (
-                        <img src={image} alt={product.name} className="w-full h-full object-cover" />
+                        <Image src={image} alt={product.name} className="w-full h-full object-cover" width={48} height={48} unoptimized />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
                           <svg className="w-5 h-5 text-[#C4C4C4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">

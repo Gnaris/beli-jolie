@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import nodemailer from "nodemailer";
 import { getCachedShopName, getCachedCompanyInfo, getCachedGmailConfig } from "@/lib/cached-data";
+import { logger } from "@/lib/logger";
 
 /**
  * POST /api/auth/unlock-request
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[POST /api/auth/unlock-request]", error);
+    logger.error("[POST /api/auth/unlock-request]", { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

@@ -6,6 +6,7 @@ import { encryptIfSensitive } from "@/lib/encryption";
 import { invalidateStripeCache, isConnectEnabled } from "@/lib/stripe";
 import { revalidatePath, revalidateTag } from "next/cache";
 import Stripe from "stripe";
+import { logger } from "@/lib/logger";
 
 /**
  * GET /api/stripe/callback
@@ -62,7 +63,7 @@ export async function GET(req: Request) {
       `${baseUrl}/admin/parametres?tab=paiement&connected=true`
     );
   } catch (err) {
-    console.error("[Stripe Connect] Callback error:", err);
+    logger.error("[Stripe Connect] Callback error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.redirect(
       `${baseUrl}/admin/parametres?tab=paiement&connect_error=${encodeURIComponent("Erreur inattendue. Réessayez.")}`
     );

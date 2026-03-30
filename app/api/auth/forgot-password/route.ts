@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createPasswordResetToken, sendPasswordResetEmail } from "@/lib/password-reset";
 import { rateLimit } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ success: true });
   } catch (e) {
-    console.error("[forgot-password]", e);
+    logger.error("[forgot-password] Server error", { detail: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

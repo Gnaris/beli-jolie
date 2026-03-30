@@ -96,6 +96,18 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
   });
 }
 
+/** Convert Prisma Decimal fields to plain numbers so the data matches PrismaProduct */
+function serializeProducts(products: Array<Record<string, unknown>>): PrismaProduct[] {
+  return products.map((p: any) => ({
+    ...p,
+    colors: p.colors.map((c: any) => ({
+      ...c,
+      unitPrice: Number(c.unitPrice),
+      discountValue: c.discountValue != null ? Number(c.discountValue) : null,
+    })),
+  }));
+}
+
 const COLOR_INCLUDE = {
   colors: {
     select: {
@@ -135,7 +147,8 @@ async function fetchReassortProducts(userId: string, quantity: number) {
     select: PRODUCT_SELECT,
   });
   const map = new Map(products.map((p) => [p.reference, p]));
-  return refs.map((r) => map.get(r)).filter(Boolean) as PrismaProduct[];
+  const ordered = refs.map((r) => map.get(r)).filter(Boolean);
+  return serializeProducts(ordered as Array<Record<string, unknown>>);
 }
 
 // ─────────────────────────────────────────────
@@ -168,7 +181,7 @@ export default async function HomePage() {
         select: { discountType: true, discountValue: true },
       }).then((u) =>
         u?.discountType && u.discountValue
-          ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: u.discountValue }
+          ? { discountType: u.discountType as "PERCENT" | "AMOUNT", discountValue: Number(u.discountValue) }
           : null
       )
     : null;
@@ -198,7 +211,7 @@ export default async function HomePage() {
         return { carousel, products };
       }
       const products = await fetchCarouselProducts(carousel, bestsellerRefs);
-      return { carousel, products: products as PrismaProduct[] };
+      return { carousel, products: serializeProducts(products as Array<Record<string, unknown>>) };
     })
   );
 
@@ -244,8 +257,25 @@ export default async function HomePage() {
     });
   }
 
+  // JSON-LD structured data for SEO
+  const siteUrl = process.env.NEXTAUTH_URL || "";
+  const organizationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: shopName,
+    url: siteUrl,
+  };
+  const webSiteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: shopName,
+    url: siteUrl,
+  };
+
   return (
     <div className="min-h-screen bg-bg-secondary relative">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(webSiteJsonLd) }} />
       <FloatingShapes />
       <PublicSidebar shopName={shopName} />
 

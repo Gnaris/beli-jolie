@@ -243,6 +243,8 @@
     "discount": "Remise",
     "composition": "Composition",
     "similar": "Produits similaires",
+    "bundleContains": "Ce produit contient ces modèles",
+    "bundleFoundIn": "Ce produit se trouve aussi dans",
     "description": "Description",
     "loginToAdd": "Connectez-vous pour ajouter au panier",
     "perUnit": "/ unité",

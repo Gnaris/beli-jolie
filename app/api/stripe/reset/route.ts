@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { invalidateStripeCache, getConnectedAccountId, isConnectEnabled } from "@/lib/stripe";
 import { revalidatePath, revalidateTag } from "next/cache";
 import Stripe from "stripe";
+import { logger } from "@/lib/logger";
 
 /**
  * POST /api/stripe/reset
@@ -25,7 +26,7 @@ export async function POST() {
       await stripe.accounts.del(accountId);
 
     } catch (err) {
-      console.warn("[Stripe Connect] Erreur suppression (non-bloquante):", err);
+      logger.warn("[Stripe Connect] Erreur suppression (non-bloquante)", { error: err instanceof Error ? err.message : String(err) });
     }
   }
 

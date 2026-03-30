@@ -6,7 +6,7 @@
  *
  * Env vars required:
  *   R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT,
- *   R2_BUCKET_NAME, R2_PUBLIC_URL (or NEXT_PUBLIC_R2_URL)
+ *   R2_BUCKET_NAME, NEXT_PUBLIC_R2_URL
  */
 
 import {

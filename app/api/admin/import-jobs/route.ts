@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import { processProductImport } from "@/lib/import-processor";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // POST — Create a new import job (products)
@@ -77,12 +78,12 @@ export async function POST(req: NextRequest) {
 
     // Fire-and-forget: start background processing
     processProductImport(job.id).catch((err) => {
-      console.error("[import-jobs] Background processing error:", err);
+      logger.error("[import-jobs] Background processing error", { error: err instanceof Error ? err.message : String(err) });
     });
 
     return NextResponse.json({ jobId: job.id });
   } catch (err) {
-    console.error("[import-jobs] POST error:", err);
+    logger.error("[import-jobs] POST error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }
@@ -115,7 +116,7 @@ export async function GET() {
 
     return NextResponse.json({ jobs });
   } catch (err) {
-    console.error("[import-jobs] GET error:", err);
+    logger.error("[import-jobs] GET error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

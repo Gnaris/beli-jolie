@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
+import { PfsSyncStatus, ImportJobStatus } from "@prisma/client";
 import { runPfsAnalyze } from "@/lib/pfs-analyze";
 
 // ─────────────────────────────────────────────
@@ -26,13 +28,26 @@ export async function POST(req: NextRequest) {
 
     // Check if a job is already running or analyzing
     const active = await prisma.pfsPrepareJob.findFirst({
-      where: { status: { in: ["RUNNING", "ANALYZING"] } },
+      where: { status: { in: [PfsSyncStatus.RUNNING, PfsSyncStatus.ANALYZING] } },
       select: { id: true },
     });
 
     if (active) {
       return NextResponse.json(
-        { error: "Une importation est déjà en cours.", jobId: active.id },
+        { error: "Une importation PFS est déjà en cours.", jobId: active.id },
+        { status: 409 },
+      );
+    }
+
+    // Check if a CSV/image import is already running
+    const activeImportJob = await prisma.importJob.findFirst({
+      where: { status: { in: [ImportJobStatus.PENDING, ImportJobStatus.PROCESSING, ImportJobStatus.UPLOADING] } },
+      select: { id: true },
+    });
+
+    if (activeImportJob) {
+      return NextResponse.json(
+        { error: "Une importation de produits est déjà en cours. Veuillez attendre sa fin." },
         { status: 409 },
       );
     }
@@ -40,22 +55,23 @@ export async function POST(req: NextRequest) {
     // Create the job in ANALYZING state
     const job = await prisma.pfsPrepareJob.create({
       data: {
-        status: "ANALYZING",
+        status: PfsSyncStatus.ANALYZING,
         adminId: session.user.id,
       },
     });
 
     // Fire-and-forget analyze (will transition to RUNNING or NEEDS_VALIDATION)
-    runPfsAnalyze(job.id, { limit }).catch(console.error);
+    runPfsAnalyze(job.id, { limit }).catch((err) => logger.error("[PFS Import] Analyze failed", { error: err }));
 
     return NextResponse.json({
       jobId: job.id,
       limit,
     });
   } catch (error) {
-    console.error("[PFS Import] Error starting import job:", error);
+    logger.error("[PFS Import] Error starting import job", { error });
+    const message = error instanceof Error ? error.message : "Erreur lors du lancement de l'importation";
     return NextResponse.json(
-      { error: "Erreur lors du lancement de l'importation" },
+      { error: message },
       { status: 500 },
     );
   }
@@ -87,19 +103,19 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Job non trouvé" }, { status: 404 });
     }
 
-    if (job.status !== "RUNNING" && job.status !== "PENDING" && job.status !== "ANALYZING") {
+    if (job.status !== PfsSyncStatus.RUNNING && job.status !== PfsSyncStatus.PENDING && job.status !== PfsSyncStatus.ANALYZING) {
       return NextResponse.json({ error: "Le job n'est pas en cours" }, { status: 400 });
     }
 
     // Set status to STOPPED — the running process will detect this and stop gracefully
     await prisma.pfsPrepareJob.update({
       where: { id },
-      data: { status: "STOPPED" },
+      data: { status: PfsSyncStatus.STOPPED },
     });
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[PFS Prepare] Error stopping job:", error);
+    logger.error("[PFS Prepare] Error stopping job", { error });
     return NextResponse.json(
       { error: "Erreur lors de l'arrêt du job" },
       { status: 500 },
@@ -133,13 +149,20 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // Also check for active ImportJob (CSV/image imports)
+    const activeImportJob = await prisma.importJob.findFirst({
+      where: { status: { in: [ImportJobStatus.PENDING, ImportJobStatus.PROCESSING, ImportJobStatus.UPLOADING] } },
+      select: { id: true, status: true, type: true, totalItems: true, processedItems: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+
     if (!job) {
-      return NextResponse.json({ job: null });
+      return NextResponse.json({ job: null, activeImportJob: activeImportJob || null });
     }
 
-    return NextResponse.json({ job });
+    return NextResponse.json({ job, activeImportJob: activeImportJob || null });
   } catch (error) {
-    console.error("[PFS Prepare] Error fetching prepare job:", error);
+    logger.error("[PFS Prepare] Error fetching prepare job", { error });
     return NextResponse.json(
       { error: "Erreur lors de la récupération du job" },
       { status: 500 },

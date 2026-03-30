@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAutoMaintenanceActive, attemptAutoRecovery, reportSuccess, reportCriticalError } from "@/lib/health";
+import { logger } from "@/lib/logger";
 
 /**
  * Lightweight endpoint used by middleware to check maintenance mode.
@@ -42,7 +43,7 @@ export async function GET() {
     // DB is unreachable — report critical error & enter maintenance
     reportCriticalError("site-status");
 
-    console.error("[site-status] DB unreachable:", err instanceof Error ? err.message : err);
+    logger.error("[site-status] DB unreachable", { error: err instanceof Error ? err.message : String(err) });
 
     return NextResponse.json(
       { maintenance: true, auto: true },

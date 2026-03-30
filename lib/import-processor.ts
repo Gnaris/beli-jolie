@@ -11,6 +11,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 import * as XLSX from "xlsx";
 import { readFile, readdir, mkdir } from "fs/promises";
 import { processProductImage } from "@/lib/image-processor";
@@ -742,7 +743,7 @@ export async function processProductImport(jobId: string): Promise<void> {
     });
 
   } catch (err) {
-    console.error(`[import-processor] Product job ${jobId} failed:`, err);
+    logger.error(`[import-processor] Product job ${jobId} failed`, { error: err instanceof Error ? err.message : String(err) });
     await prisma.importJob.update({
       where: { id: jobId },
       data: {
@@ -1160,7 +1161,7 @@ export async function processImageImport(jobId: string): Promise<void> {
     });
 
   } catch (err) {
-    console.error(`[import-processor] Image job ${jobId} failed:`, err);
+    logger.error(`[import-processor] Image job ${jobId} failed`, { error: err instanceof Error ? err.message : String(err) });
     await prisma.importJob.update({
       where: { id: jobId },
       data: {

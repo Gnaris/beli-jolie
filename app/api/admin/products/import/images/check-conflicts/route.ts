@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeColorName } from "@/lib/import-processor";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // POST — Check for position conflicts before image import
@@ -113,7 +114,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ conflicts });
   } catch (err) {
-    console.error("[check-conflicts]", err);
+    logger.error("[check-conflicts]", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Erreur serveur." },
       { status: 500 }

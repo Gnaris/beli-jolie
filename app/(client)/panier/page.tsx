@@ -51,5 +51,20 @@ export default async function PanierPage() {
     stripeReady = !!connectedId;
   }
 
-  return <CartPageClient cart={cart} minOrderHT={minOrderHT} stripeReady={stripeReady} />;
+  // Sérialiser les Decimal Prisma en number pour le client component
+  const serializedCart = cart ? {
+    id: cart.id,
+    items: cart.items.map((item) => ({
+      ...item,
+      variant: {
+        ...item.variant,
+        unitPrice: Number(item.variant.unitPrice),
+        weight: Number(item.variant.weight),
+        discountValue: item.variant.discountValue != null ? Number(item.variant.discountValue) : null,
+        stock: Number(item.variant.stock ?? 0),
+      },
+    })),
+  } : null;
+
+  return <CartPageClient cart={serializedCart as Parameters<typeof CartPageClient>[0]["cart"]} minOrderHT={minOrderHT} stripeReady={stripeReady} />;
 }

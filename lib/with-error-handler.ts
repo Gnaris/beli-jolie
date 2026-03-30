@@ -1,6 +1,7 @@
 "use server";
 
 import { reportCriticalError, reportSuccess } from "@/lib/health";
+import { logger } from "@/lib/logger";
 
 /**
  * Wraps a server action to automatically report critical errors
@@ -30,7 +31,7 @@ export async function withErrorHandler<T extends { success: boolean; error?: str
       reportCriticalError(actionName);
     }
 
-    console.error(`[${actionName}] ${isCritical ? "CRITICAL" : "Error"}: ${message}`);
+    logger.error(`[${actionName}] ${isCritical ? "CRITICAL" : "Error"}: ${message}`);
 
     return { success: false, error: message } as T;
   }

@@ -8,6 +8,7 @@ import { processProductImage, getImagePaths } from "@/lib/image-processor";
 import { downloadImage } from "@/lib/pfs-sync";
 import { deleteFromR2, r2KeyFromDbPath } from "@/lib/r2";
 import { z } from "zod";
+import { logger } from "@/lib/logger";
 
 const modificationsSchema = z.object({
   replacements: z.array(z.object({
@@ -99,11 +100,11 @@ export async function applyImageModifications(
       try {
         const url = new URL(r.pfsImagePath);
         if (!ALLOWED_DOMAINS.includes(url.hostname)) {
-          console.warn(`[applyImageModifications] Blocked download from unauthorized domain: ${url.hostname}`);
+          logger.warn(`[applyImageModifications] Blocked download from unauthorized domain: ${url.hostname}`);
           continue;
         }
       } catch {
-        console.warn(`[applyImageModifications] Invalid URL: ${r.pfsImagePath}`);
+        logger.warn(`[applyImageModifications] Invalid URL: ${r.pfsImagePath}`);
         continue;
       }
 
@@ -112,7 +113,7 @@ export async function applyImageModifications(
         where: { productId, colorId: r.colorId },
       });
       if (!variant) {
-        console.warn(`[applyImageModifications] No variant found for colorId=${r.colorId} on product=${productId}`);
+        logger.warn(`[applyImageModifications] No variant found for colorId=${r.colorId} on product=${productId}`);
         continue;
       }
 
@@ -122,7 +123,7 @@ export async function applyImageModifications(
           where: { id: r.replacedImageId },
         });
         if (!targetImg || targetImg.productId !== productId) {
-          console.warn(`[applyImageModifications] IDOR blocked: image ${r.replacedImageId} does not belong to product ${productId}`);
+          logger.warn(`[applyImageModifications] IDOR blocked: image ${r.replacedImageId} does not belong to product ${productId}`);
           continue;
         }
       }
@@ -181,7 +182,7 @@ export async function applyImageModifications(
 
     return { success: true, applied };
   } catch (err) {
-    console.error("[applyImageModifications] Error:", err);
+    logger.error("[applyImageModifications] Error", { error: err instanceof Error ? err.message : String(err) });
     return {
       success: false,
       applied,

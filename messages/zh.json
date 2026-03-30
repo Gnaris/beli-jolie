@@ -237,6 +237,8 @@
     "discount": "折扣",
     "composition": "材质",
     "similar": "相似产品",
+    "bundleContains": "此产品包含以下款式",
+    "bundleFoundIn": "此产品还包含在",
     "description": "描述",
     "loginToAdd": "登录后加入购物车",
     "perUnit": "/ 件",

@@ -66,9 +66,23 @@ export default async function CommandePage() {
     if (subtotalHT < minOrderHT) redirect("/panier");
   }
 
+  // Sérialiser les Decimal Prisma en number pour le client component
+  const serializedCart = {
+    id: cart.id,
+    items: cart.items.map((item) => ({
+      ...item,
+      variant: {
+        ...item.variant,
+        unitPrice: Number(item.variant.unitPrice),
+        weight: Number(item.variant.weight),
+        discountValue: item.variant.discountValue != null ? Number(item.variant.discountValue) : null,
+      },
+    })),
+  };
+
   return (
     <CheckoutClient
-      cart={cart as Parameters<typeof CheckoutClient>[0]["cart"]}
+      cart={serializedCart as Parameters<typeof CheckoutClient>[0]["cart"]}
       addresses={addresses}
       user={user!}
       clientDiscount={{

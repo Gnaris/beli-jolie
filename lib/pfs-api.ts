@@ -10,6 +10,7 @@
  */
 
 import { getPfsHeaders, invalidatePfsToken, PFS_BASE_URL } from "@/lib/pfs-auth";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // Types — PFS API responses
@@ -183,7 +184,7 @@ async function fetchWithRetry(
       // Rate limited or server error — retry with backoff
       if (res.status === 429 || res.status >= 500) {
         const delay = Math.min(2000 * Math.pow(2, attempt), 60000);
-        console.warn(`[PFS] HTTP ${res.status} — retry ${attempt + 1}/${maxRetries} in ${delay}ms`);
+        logger.warn("[PFS] HTTP error, retrying", { status: res.status, attempt: attempt + 1, maxRetries, delayMs: delay });
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
@@ -195,7 +196,7 @@ async function fetchWithRetry(
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxRetries) {
         const delay = Math.min(2000 * Math.pow(2, attempt), 60000);
-        console.warn(`[PFS] ${lastError.message} — retry ${attempt + 1}/${maxRetries} in ${delay}ms`);
+        logger.warn("[PFS] Request failed, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries, delayMs: delay });
         await new Promise((r) => setTimeout(r, delay));
       }
     }

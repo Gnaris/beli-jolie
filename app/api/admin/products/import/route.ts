@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import * as XLSX from "xlsx";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // Types
@@ -405,7 +406,7 @@ export async function POST(req: NextRequest) {
       draftId,
     });
   } catch (err) {
-    console.error("[import/products]", err);
+    logger.error("[import/products]", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur serveur." }, { status: 500 });
   }
 }

@@ -8,6 +8,7 @@ import { notifyNewClientRegistration } from "@/lib/notifications";
 import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
 import { cookies } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 
 /**
  * POST /api/auth/register
@@ -289,7 +290,7 @@ export async function POST(request: NextRequest) {
       documentPath:        newUser.documentPath ?? undefined,
       registrationMessage: newUser.registrationMessage ?? undefined,
     }).catch((err) =>
-      console.error("[POST /api/auth/register] Notification échouée :", err)
+      logger.error("[POST /api/auth/register] Notification échouée", { error: err instanceof Error ? err.message : String(err) })
     );
 
     const message = autoApproved
@@ -305,7 +306,7 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error("[POST /api/auth/register]", error);
+    logger.error("[POST /api/auth/register]", { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { error: "Une erreur serveur est survenue. Veuillez réessayer." },
       { status: 500 }

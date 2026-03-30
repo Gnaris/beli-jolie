@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
 import { downloadFromR2, uploadToR2, r2KeyFromDbPath } from "@/lib/r2";
 import { getImagePaths } from "@/lib/image-utils";
+import { logger } from "@/lib/logger";
 
 /**
  * POST /api/admin/products/images/rotate
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
     const cacheBuster = Date.now();
     return NextResponse.json({ success: true, cacheBuster }, { status: 200 });
   } catch (err) {
-    console.error("[products/images/rotate] Error:", err);
+    logger.error("[products/images/rotate] Error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur lors de la rotation." }, { status: 500 });
   }
 }

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeColorName } from "@/lib/import-processor";
 import * as XLSX from "xlsx";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // Types
@@ -374,7 +375,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err) {
-    console.error("[import/preview]", err);
+    logger.error("[import/preview]", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur." }, { status: 500 });
   }
 }

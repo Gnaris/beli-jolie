@@ -31,6 +31,11 @@ Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middl
 - **Lib** (`lib/`) — business logic: `pfs-*.ts` (PFS sync ecosystem), `stripe.ts`, `easy-express.ts`, `cached-data.ts`, `security.ts`, `image-processor.ts`, `r2.ts` (Cloudflare R2 storage).
 - **Components** — `components/admin/` (backoffice), `components/client/` (espace-pro), `components/pfs/` (PFS mapping UI), `components/ui/` (shared primitives), `components/home/` (landing page).
 
+### Observability
+
+- **`lib/logger.ts`** — structured logger (JSON in prod, readable in dev). Use `logger.info/warn/error()` instead of `console.*`
+- **`lib/env.ts`** — Zod validation of env vars at startup. Imported in root layout. Add new required vars there
+
 ### Data flow
 
 Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib/cached-data.ts`. Invalidation: `revalidateTag(tag, "default")` (2 args obligatoires Next 16). Server actions return `{ success: boolean, error?: string }` consistently.
@@ -59,6 +64,8 @@ next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (R
 
 `ProductStatus` (OFFLINE|ONLINE|ARCHIVED|SYNCING), `SaleType` (UNIT|PACK), `OrderStatus` (PENDING|PROCESSING|SHIPPED|DELIVERED|CANCELLED), `UserRole` (ADMIN|CLIENT), `UserStatus` (PENDING|APPROVED|REJECTED), `PfsSyncStatus`, `ImportDraftStatus`, `ImportJobStatus`. Full definitions in `prisma/schema.prisma`.
 
+`StripeWebhookEvent` model exists for webhook deduplication (idempotency check before processing).
+
 ---
 
 ## Regles de travail
@@ -79,7 +86,7 @@ npm run clear:products
 
 ## Variables d'environnement
 
-**Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ANTHROPIC_API_KEY`, `ENCRYPTION_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL`, `NEXT_PUBLIC_R2_URL`
+**Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ANTHROPIC_API_KEY`, `ENCRYPTION_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`, `NEXT_PUBLIC_R2_URL`
 
 **Configurables via paramètres admin** (env var = fallback, admin UI prend priorité) : `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NOTIFY_EMAIL`, `EASY_EXPRESS_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `DEEPL_API_KEY`, `PFS_EMAIL`, `PFS_PASSWORD`
 
@@ -109,6 +116,7 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthro
 - **Admin dark mode** : prefer `bg-bg-primary`, `text-text-primary`, `border-border`. Hardcoded colors (`bg-white`, `text-[#1A1A1A]`, `border-[#E5E5E5]`, etc.) are auto-overridden via `.admin-dark` CSS rules in `globals.css`. For Recharts/inline styles, use CSS variables (`var(--color-bg-primary)`, `var(--color-text-primary)`, etc.)
 - **Admin forms** : blocs `bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]`
 - **Mobile-first** : touch targets min 44px, `prefers-reduced-motion` respecte
+- **Error boundaries** : exist per segment (`(admin)`, `(client)`, `(auth)`) in addition to root `error.tsx`
 
 ### Product & Variant Data
 - **`ProductStatus`** : OFFLINE | ONLINE | ARCHIVED | SYNCING — ne jamais supprimer un ARCHIVED
@@ -127,6 +135,9 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthro
 - **DB paths** : le format reste `/uploads/products/abc.webp` en BDD. `getImageSrc()` préfixe automatiquement avec `NEXT_PUBLIC_R2_URL`
 - **Helpers R2** : `uploadToR2()`, `downloadFromR2()`, `deleteFromR2()`, `moveInR2()`, `listR2Keys()` — tous dans `lib/r2.ts`
 - **PFS image sync** : `DELETE /catalog/products/{id}/image` avec body `{ color, slot }`. Upload = POST multipart (JPEG uniquement, pas WebP). Logs détaillés via `[PFS Images]` prefix
+
+### SEO
+- **Schema.org JSON-LD** on product pages (`Product` schema) and homepage (`Organization` + `WebSite` schema)
 
 ### Encryption (secrets en BDD)
 - **`lib/encryption.ts`** : AES-256-GCM. Clé maître = `ENCRYPTION_KEY` (env var, base64 32 bytes)
@@ -150,3 +161,7 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthro
 - **SSE temps réel** : `lib/product-events.ts` via `globalThis` singleton (pas module-level). Hook client: `useProductStream()`
 - **Easy-Express** : prix en centimes (÷100), poids min 1kg, +5€ marge, transactionId expire vite
 - **PFS live image sync** : `applyLiveImageChanges()` dans `app/actions/admin/pfs-live-sync.ts`. Logs `[IMG_SYNC]` et `[DnD]` cote client
+
+### Logging
+- **Never use `console.log/warn/error`** in server-side code — use `import { logger } from "@/lib/logger"` instead
+- Logger outputs JSON in production (for log aggregators), human-readable format in development

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 const PAGE_SIZE = 20;
 
@@ -89,7 +90,7 @@ export async function GET(req: NextRequest) {
       totalPages,
     });
   } catch (err) {
-    console.error("[import-jobs/history] GET error:", err);
+    logger.error("[import-jobs/history] GET error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

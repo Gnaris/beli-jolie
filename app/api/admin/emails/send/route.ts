@@ -7,6 +7,7 @@ import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
 import { getCachedShopName, getCachedGmailConfig } from "@/lib/cached-data";
+import { logger } from "@/lib/logger";
 
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10 MB per file
 const MAX_TOTAL_SIZE = 25 * 1024 * 1024; // 25 MB total
@@ -155,7 +156,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error("[email/send] Erreur:", err);
+    logger.error("[email/send] Erreur", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json(
       { error: "Erreur lors de l'envoi de l'email" },
       { status: 500 }

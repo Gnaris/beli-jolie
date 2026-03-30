@@ -6,6 +6,11 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const nextConfig: NextConfig = {
   serverExternalPackages: ["pdfkit", "sharp", "exceljs"],
 
+  // Expose R2_PUBLIC_URL to client components as NEXT_PUBLIC_R2_URL
+  env: {
+    NEXT_PUBLIC_R2_URL: process.env.R2_PUBLIC_URL || process.env.NEXT_PUBLIC_R2_URL || "",
+  },
+
   // ─── Image optimization (78k products = lots of images) ───
   images: {
     minimumCacheTTL: 2592000, // 30 days — product images are hashed/unique
@@ -40,9 +45,9 @@ const nextConfig: NextConfig = {
   async headers() {
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
+      "script-src 'self' 'unsafe-inline' https://js.stripe.com",
       "style-src 'self' 'unsafe-inline'",
-      `img-src 'self' data: blob: https://*.stripe.com ${process.env.NEXT_PUBLIC_R2_URL || ""}`,
+      `img-src 'self' data: blob: https://*.stripe.com ${process.env.R2_PUBLIC_URL || process.env.NEXT_PUBLIC_R2_URL || ""}`,
       "font-src 'self'",
       "connect-src 'self' https://api.stripe.com https://api-free.deepl.com https://api.deepl.com",
       "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",

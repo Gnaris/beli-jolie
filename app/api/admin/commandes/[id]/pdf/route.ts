@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateOrderPDF } from "@/lib/pdf-order";
+import { logger } from "@/lib/logger";
 
 /**
  * GET /api/admin/commandes/[id]/pdf
@@ -78,7 +79,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("[pdf] Erreur génération PDF:", err);
+    logger.error("[pdf] Erreur génération PDF", { error: err instanceof Error ? err.message : String(err) });
     return new NextResponse("Erreur génération PDF", { status: 500 });
   }
 }

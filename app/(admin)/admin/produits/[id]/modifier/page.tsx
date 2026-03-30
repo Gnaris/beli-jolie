@@ -67,8 +67,37 @@ export default async function ModifierProduitPage({
                 reference: true,
                 category: { select: { name: true } },
                 colors: {
-                  orderBy: { isPrimary: "desc" },
-                  take: 1,
+                  select: { unitPrice: true },
+                },
+              },
+            },
+          },
+        },
+        bundleChildren: {
+          include: {
+            child: {
+              select: {
+                id: true,
+                name: true,
+                reference: true,
+                category: { select: { name: true } },
+                colors: {
+                  select: { unitPrice: true },
+                },
+              },
+            },
+          },
+        },
+        bundleParents: {
+          include: {
+            parent: {
+              select: {
+                id: true,
+                name: true,
+                reference: true,
+                category: { select: { name: true } },
+                colors: {
+                  select: { unitPrice: true },
                 },
               },
             },
@@ -96,6 +125,23 @@ export default async function ModifierProduitPage({
   ]);
 
   if (!product) notFound();
+
+  // Fetch first image for all related products (similar, bundle children, bundle parents)
+  const relatedIds = [
+    ...product.similarProducts.map((sp) => sp.similar.id),
+    ...product.bundleChildren.map((b) => b.child.id),
+    ...product.bundleParents.map((b) => b.parent.id),
+  ];
+  const relatedFirstImages = relatedIds.length > 0
+    ? await prisma.productColorImage.findMany({
+        where: { productId: { in: relatedIds } },
+        orderBy: { order: "asc" },
+      })
+    : [];
+  const relatedImageMap = new Map<string, string>();
+  for (const img of relatedFirstImages) {
+    if (!relatedImageMap.has(img.productId)) relatedImageMap.set(img.productId, img.path);
+  }
 
   // Map ProductColor rows → flat VariantState[]
   const initialVariants: VariantState[] = product.colors.map((pc) => ({
@@ -393,7 +439,25 @@ export default async function ModifierProduitPage({
             name: sp.similar.name,
             reference: sp.similar.reference,
             category: sp.similar.category.name,
-            image: null,
+            image: relatedImageMap.get(sp.similar.id) ?? null,
+            maxPrice: sp.similar.colors.length > 0 ? Math.max(...sp.similar.colors.map((c) => Number(c.unitPrice))) : 0,
+          })),
+          bundleChildIds: product.bundleChildren.map((b) => b.child.id),
+          bundleChildren: product.bundleChildren.map((b) => ({
+            id: b.child.id,
+            name: b.child.name,
+            reference: b.child.reference,
+            category: b.child.category.name,
+            image: relatedImageMap.get(b.child.id) ?? null,
+            maxPrice: b.child.colors.length > 0 ? Math.max(...b.child.colors.map((c) => Number(c.unitPrice))) : 0,
+          })),
+          bundleParents: product.bundleParents.map((b) => ({
+            id: b.parent.id,
+            name: b.parent.name,
+            reference: b.parent.reference,
+            category: b.parent.category.name,
+            image: relatedImageMap.get(b.parent.id) ?? null,
+            maxPrice: b.parent.colors.length > 0 ? Math.max(...b.parent.colors.map((c) => Number(c.unitPrice))) : 0,
           })),
           tagNames:          product.tags.map((t) => t.tag.name),
           isBestSeller:      product.isBestSeller,

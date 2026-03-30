@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidateTag } from "next/cache";
+import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
 // POST — Create missing entities from PFS analyze
@@ -198,7 +199,7 @@ export async function POST(req: NextRequest) {
 
         // ── CREATE MODE: create new BJ entity ──
         if (!cat.name) {
-          console.error(`[PFS] Category missing name and bjEntityId: ${cat.pfsName}`);
+          logger.error(`[PFS] Category missing name and bjEntityId: ${cat.pfsName}`);
           continue;
         }
         const entity = await prisma.$transaction(async (tx) => {
@@ -261,7 +262,7 @@ export async function POST(req: NextRequest) {
             });
             mappingsCount++;
           } else {
-            console.error(`[PFS] Failed to create category "${cat.name}":`, err);
+            logger.error(`[PFS] Failed to create category "${cat.name}"`, { error: err instanceof Error ? err.message : String(err) });
           }
         }
       }
@@ -293,7 +294,7 @@ export async function POST(req: NextRequest) {
 
         // ── CREATE MODE ──
         if (!col.name) {
-          console.error(`[PFS] Color missing name and bjEntityId: ${col.pfsName}`);
+          logger.error(`[PFS] Color missing name and bjEntityId: ${col.pfsName}`);
           continue;
         }
         const entity = await prisma.$transaction(async (tx) => {
@@ -344,7 +345,7 @@ export async function POST(req: NextRequest) {
             });
             mappingsCount++;
           } else {
-            console.error(`[PFS] Failed to create color "${col.name}":`, err);
+            logger.error(`[PFS] Failed to create color "${col.name}"`, { error: err instanceof Error ? err.message : String(err) });
           }
         }
       }
@@ -376,7 +377,7 @@ export async function POST(req: NextRequest) {
 
         // ── CREATE MODE ──
         if (!comp.name) {
-          console.error(`[PFS] Composition missing name and bjEntityId: ${comp.pfsName}`);
+          logger.error(`[PFS] Composition missing name and bjEntityId: ${comp.pfsName}`);
           continue;
         }
         const entity = await prisma.$transaction(async (tx) => {
@@ -422,7 +423,7 @@ export async function POST(req: NextRequest) {
             });
             mappingsCount++;
           } else {
-            console.error(`[PFS] Failed to create composition "${comp.name}":`, err);
+            logger.error(`[PFS] Failed to create composition "${comp.name}"`, { error: err instanceof Error ? err.message : String(err) });
           }
         }
       }
@@ -454,7 +455,7 @@ export async function POST(req: NextRequest) {
 
         // ── CREATE MODE ──
         if (!country.name) {
-          console.error(`[PFS] Country missing name and bjEntityId: ${country.pfsName}`);
+          logger.error(`[PFS] Country missing name and bjEntityId: ${country.pfsName}`);
           continue;
         }
         const entity = await prisma.$transaction(async (tx) => {
@@ -500,7 +501,7 @@ export async function POST(req: NextRequest) {
             });
             mappingsCount++;
           } else {
-            console.error(`[PFS] Failed to create country "${country.name}":`, err);
+            logger.error(`[PFS] Failed to create country "${country.name}"`, { error: err instanceof Error ? err.message : String(err) });
           }
         }
       }
@@ -533,7 +534,7 @@ export async function POST(req: NextRequest) {
 
         // ── CREATE MODE ──
         if (!season.name) {
-          console.error(`[PFS] Season missing name and bjEntityId: ${season.pfsName}`);
+          logger.error(`[PFS] Season missing name and bjEntityId: ${season.pfsName}`);
           continue;
         }
         const entity = await prisma.$transaction(async (tx) => {
@@ -584,7 +585,7 @@ export async function POST(req: NextRequest) {
             });
             mappingsCount++;
           } else {
-            console.error(`[PFS] Failed to create season "${season.name}":`, err);
+            logger.error(`[PFS] Failed to create season "${season.name}"`, { error: err instanceof Error ? err.message : String(err) });
           }
         }
       }
@@ -628,7 +629,7 @@ export async function POST(req: NextRequest) {
           }
         }
       } catch (err) {
-        console.error(`[PFS] Failed to create size "${sz.name}":`, err);
+        logger.error(`[PFS] Failed to create size "${sz.name}"`, { error: err instanceof Error ? err.message : String(err) });
       }
     }
 
@@ -652,7 +653,7 @@ export async function POST(req: NextRequest) {
       mappings: mappingsCount,
     });
   } catch (err) {
-    console.error("[PFS] create-entities error:", err);
+    logger.error("[PFS] create-entities error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json(
       { error: "Erreur lors de la création des entités" },
       { status: 500 },

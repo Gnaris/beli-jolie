@@ -8,6 +8,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 import { revalidatePath, revalidateTag } from "next/cache";
 import {
   pfsListProducts,
@@ -634,7 +635,7 @@ export async function runPfsPrepare(
     let processed = job.processedProducts;
 
     while (page <= lastPage) {
-      if (maxProducts > 0 && processed >= maxProducts) break;
+      if (maxProducts > 0 && ready >= maxProducts) break;
 
       // Check if admin stopped the job
       if (await checkStopped()) {
@@ -667,10 +668,13 @@ export async function runPfsPrepare(
         if (response.meta?.last_page) lastPage = response.meta.last_page;
 
         if (page === startPage && i === 0 && response.state?.active) {
-          const total = maxProducts > 0
-            ? Math.min(response.state.active, maxProducts)
-            : response.state.active;
-          addProductLog(`📊 Total produits actifs PFS: ${response.state.active}${maxProducts > 0 ? ` (limité à ${maxProducts})` : ""}`);
+          // Use totalNewProducts from analyze phase if available, otherwise fall back to PFS count
+          const analyzeResult = (job as Record<string, unknown>).analyzeResult as { totalNewProducts?: number } | null;
+          const newFromAnalyze = analyzeResult?.totalNewProducts;
+          const total = newFromAnalyze != null
+            ? (maxProducts > 0 ? Math.min(newFromAnalyze, maxProducts) : newFromAnalyze)
+            : (maxProducts > 0 ? Math.min(response.state.active, maxProducts) : response.state.active);
+          addProductLog(`📊 Total produits actifs PFS: ${response.state.active}, nouveaux à importer: ~${newFromAnalyze ?? "?"}${maxProducts > 0 ? ` (limité à ${maxProducts})` : ""}`);
           await prisma.pfsPrepareJob.update({
             where: { id: jobId },
             data: { totalProducts: total, logs: buildLogsPayload() },
@@ -703,9 +707,38 @@ export async function runPfsPrepare(
         }
       }
 
-      // Apply limit
+      // ── Filter out products that already exist in DB or are already staged ──
+      {
+        const refs = allPageProducts.map((p) => stripVersionSuffix(p.reference.trim().toUpperCase()));
+        const [existingProducts, existingStaged] = await Promise.all([
+          prisma.product.findMany({
+            where: { reference: { in: refs } },
+            select: { reference: true },
+          }),
+          prisma.pfsStagedProduct.findMany({
+            where: { prepareJobId: jobId, reference: { in: refs } },
+            select: { reference: true },
+          }),
+        ]);
+        const existingRefSet = new Set([
+          ...existingProducts.map((p) => p.reference),
+          ...existingStaged.map((p) => p.reference),
+        ]);
+        const beforeFilter = allPageProducts.length;
+        allPageProducts = allPageProducts.filter((p) => {
+          const bjRef = stripVersionSuffix(p.reference.trim().toUpperCase());
+          return !existingRefSet.has(bjRef);
+        });
+        const skipped = beforeFilter - allPageProducts.length;
+        if (skipped > 0) {
+          addProductLog(`⏭ ${skipped} produit(s) déjà existant(s) ou stagé(s) ignoré(s)`);
+        }
+      }
+
+      // Apply limit (based on actual new products processed, not total scanned)
       if (maxProducts > 0) {
-        const remaining = maxProducts - processed;
+        const remaining = maxProducts - ready;
+        if (remaining <= 0) break;
         allPageProducts = allPageProducts.slice(0, remaining);
       }
 
@@ -1110,7 +1143,7 @@ async function createProductChildren(
       ?? createdVariants.find((v) => v.colorRef.toLowerCase() === group.colorRef.toLowerCase())
       ?? createdVariants.find((v) => v.colorId === group.colorRef);
     if (!matchingVariant) {
-      console.warn(`[CREATE_CHILDREN] No matching variant for image group colorRef=${group.colorRef} colorId=${group.colorId}. Available: ${createdVariants.map(v => `${v.colorRef}(${v.colorId})`).join(", ")}`);
+      logger.warn(`[CREATE_CHILDREN] No matching variant for image group colorRef=${group.colorRef} colorId=${group.colorId}`, { available: createdVariants.map(v => `${v.colorRef}(${v.colorId})`).join(", ") });
       continue;
     }
 
@@ -1124,7 +1157,7 @@ async function createProductChildren(
         try {
           const urlObj = new URL(imgPath);
           if (!["static.parisfashionshops.com", "cdn.parisfashionshops.com"].includes(urlObj.hostname)) {
-            console.warn(`[CREATE_CHILDREN] Blocked download from unauthorized domain: ${urlObj.hostname}`);
+            logger.warn("[CREATE_CHILDREN] Blocked download from unauthorized domain", { hostname: urlObj.hostname });
             continue;
           }
           const buffer = await downloadImage(imgPath);
@@ -1132,7 +1165,7 @@ async function createProductChildren(
           const result = await processProductImage(buffer, "public/uploads/products", filename);
           finalPaths.push({ path: result.dbPath, order: imgOrder });
         } catch (err) {
-          console.warn(`[CREATE_CHILDREN] Failed to download external image: ${imgPath}`, err);
+          logger.warn(`[CREATE_CHILDREN] Failed to download external image: ${imgPath}`, { error: err });
         }
       } else if (imgPath.includes("/staging/")) {
         // PFS staging image — needs to be moved to final directory
@@ -1148,7 +1181,7 @@ async function createProductChildren(
             await headObjectInR2(r2KeyFromDbPath(finalDbPath));
             finalPaths.push({ path: finalDbPath, order: imgOrder });
           } catch {
-            console.warn(`[CREATE_CHILDREN] Staging image not found and not already moved: ${imgPath}`);
+            logger.warn(`[CREATE_CHILDREN] Staging image not found and not already moved: ${imgPath}`);
           }
         }
       } else {

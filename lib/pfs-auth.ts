@@ -10,6 +10,7 @@
 
 import { getCachedPfsCredentials } from "@/lib/cached-data";
 
+// TODO(2026-03): Consider moving to env var PFS_BASE_URL for multi-environment support
 const PFS_BASE_URL = "https://wholesaler-api.parisfashionshops.com/api/v1";
 
 interface TokenCache {

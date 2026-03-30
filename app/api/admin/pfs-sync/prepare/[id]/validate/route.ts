@@ -11,6 +11,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidateTag } from "next/cache";
 import { runPfsPrepare } from "@/lib/pfs-prepare";
+import { logger } from "@/lib/logger";
 
 function slugify(str: string): string {
   return str
@@ -265,11 +266,11 @@ export async function POST(
     // Fire-and-forget prepare (pass limit from analyze if set)
     const analyzeData = job.analyzeResult as Record<string, unknown> | null;
     const limit = typeof analyzeData?.limit === "number" ? analyzeData.limit : undefined;
-    runPfsPrepare(jobId, limit ? { limit } : undefined).catch(console.error);
+    runPfsPrepare(jobId, limit ? { limit } : undefined).catch((err) => logger.error("[PFS Validate] prepare failed", { error: err instanceof Error ? err.message : String(err) }));
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error("[PFS Validate] Error:", err);
+    logger.error("[PFS Validate] Error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json(
       { error: "Erreur lors de la validation des entités" },
       { status: 500 },

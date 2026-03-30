@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { rateLimit } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
     await prisma.passwordResetToken.update({ where: { token }, data: { used: true } });
     return NextResponse.json({ success: true });
   } catch (e) {
-    console.error("[reset-password]", e);
+    logger.error("[reset-password]", { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

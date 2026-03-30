@@ -12,6 +12,16 @@ import nodemailer from "nodemailer";
 import path from "path";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName, getCachedCompanyInfo, getCachedGmailConfig } from "@/lib/cached-data";
+import { logger } from "@/lib/logger";
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 interface NewClientInfo {
   firstName: string;
@@ -35,13 +45,13 @@ export async function notifyNewClientRegistration(
   const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
 
   if (!GMAIL_USER || !GMAIL_PASSWORD) {
-    console.warn("[notifications] Configuration Gmail manquante — email ignoré.");
+    logger.warn("[notifications] Configuration Gmail manquante — email ignoré.");
     return;
   }
 
   const notifyEmail = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
   if (!notifyEmail) {
-    console.warn("[notifications] Aucun email destinataire configuré — email ignoré.");
+    logger.warn("[notifications] Aucun email destinataire configuré — email ignoré.");
     return;
   }
 
@@ -68,7 +78,7 @@ export async function notifyNewClientRegistration(
   const messageBlock = client.registrationMessage
     ? `<tr>
         <td style="padding:10px 14px;font-weight:bold;vertical-align:top;">Message</td>
-        <td style="padding:10px 14px;white-space:pre-wrap;">${client.registrationMessage}</td>
+        <td style="padding:10px 14px;white-space:pre-wrap;">${escapeHtml(client.registrationMessage)}</td>
        </tr>`
     : "";
 
@@ -89,27 +99,27 @@ export async function notifyNewClientRegistration(
         <h2 style="color:#0F3460;border-bottom:2px solid #E2E8F0;padding-bottom:10px;">
           Nouvelle demande d'inscription
         </h2>
-        <p>Un nouveau client vient de s'inscrire sur la plateforme B2B ${shopName}.</p>
+        <p>Un nouveau client vient de s'inscrire sur la plateforme B2B ${escapeHtml(shopName)}.</p>
         <table style="width:100%;border-collapse:collapse;margin-top:16px;">
           <tr style="background:#F1F5F9;">
             <td style="padding:10px 14px;font-weight:bold;width:40%;">Prénom / Nom</td>
-            <td style="padding:10px 14px;">${client.firstName} ${client.lastName}</td>
+            <td style="padding:10px 14px;">${escapeHtml(client.firstName)} ${escapeHtml(client.lastName)}</td>
           </tr>
           <tr>
             <td style="padding:10px 14px;font-weight:bold;">Société</td>
-            <td style="padding:10px 14px;">${client.company}</td>
+            <td style="padding:10px 14px;">${escapeHtml(client.company)}</td>
           </tr>
           <tr style="background:#F1F5F9;">
             <td style="padding:10px 14px;font-weight:bold;">Email</td>
-            <td style="padding:10px 14px;">${client.email}</td>
+            <td style="padding:10px 14px;">${escapeHtml(client.email)}</td>
           </tr>
           <tr>
             <td style="padding:10px 14px;font-weight:bold;">Téléphone</td>
-            <td style="padding:10px 14px;">${client.phone}</td>
+            <td style="padding:10px 14px;">${escapeHtml(client.phone)}</td>
           </tr>
           <tr style="background:#F1F5F9;">
             <td style="padding:10px 14px;font-weight:bold;">SIRET</td>
-            <td style="padding:10px 14px;">${client.siret}</td>
+            <td style="padding:10px 14px;">${escapeHtml(client.siret)}</td>
           </tr>
           ${messageBlock}
         </table>
@@ -122,7 +132,7 @@ export async function notifyNewClientRegistration(
           </a>
         </div>
         <p style="margin-top:24px;color:#94A3B8;font-size:12px;">
-          ${shopName} — Administration
+          ${escapeHtml(shopName)} — Administration
         </p>
       </div>
     `,
@@ -179,18 +189,18 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
         subject: `🔔 Réassort — ${alert.product.name} (${colorName})`,
         html: `
           <div style="font-family:sans-serif;max-width:500px;margin:auto;padding:24px;">
-            <h2 style="color:#1A1A1A;">Bonne nouvelle, ${alert.user.firstName} !</h2>
+            <h2 style="color:#1A1A1A;">Bonne nouvelle, ${escapeHtml(alert.user.firstName)} !</h2>
             <p>Le produit que vous surveillez est de nouveau en stock :</p>
             <div style="background:#F7F7F8;border:1px solid #E5E5E5;border-radius:12px;padding:16px;margin:16px 0;">
-              <p style="margin:0;font-weight:600;">${alert.product.name}</p>
-              <p style="margin:4px 0 0;color:#6B7280;">Réf. ${alert.product.reference} — ${colorName}</p>
+              <p style="margin:0;font-weight:600;">${escapeHtml(alert.product.name)}</p>
+              <p style="margin:4px 0 0;color:#6B7280;">Réf. ${escapeHtml(alert.product.reference)} — ${escapeHtml(colorName)}</p>
             </div>
             <a href="${productUrl}"
                style="background:#1A1A1A;color:#fff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
               Voir le produit →
             </a>
             <p style="margin-top:24px;color:#94A3B8;font-size:12px;">
-              ${shopName} — Vous recevez cet email car vous avez activé une alerte de réassort.
+              ${escapeHtml(shopName)} — Vous recevez cet email car vous avez activé une alerte de réassort.
             </p>
           </div>
         `,
@@ -204,7 +214,7 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
     }
 
   } catch (err) {
-    console.error("[restock] Erreur envoi alertes:", err);
+    logger.error("[restock] Erreur envoi alertes", { detail: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -228,7 +238,7 @@ const STATUS_CONFIG: Record<string, {
     subject: (num, shop) => `${shop} — Commande ${num} en cours de préparation`,
     heading: "Votre commande est en cours de préparation",
     message: (num) =>
-      `Bonne nouvelle ! Votre commande <strong>${num}</strong> est en cours de préparation par notre équipe. Nous vous tiendrons informé(e) dès son expédition.`,
+      `Bonne nouvelle ! Votre commande <strong>${escapeHtml(num)}</strong> est en cours de préparation par notre équipe. Nous vous tiendrons informé(e) dès son expédition.`,
     color: "#2563EB",
     icon: "📦",
   },
@@ -236,7 +246,7 @@ const STATUS_CONFIG: Record<string, {
     subject: (num, shop) => `${shop} — Commande ${num} expédiée`,
     heading: "Votre commande a été expédiée",
     message: (num) =>
-      `Votre commande <strong>${num}</strong> a été expédiée ! Elle est en route vers votre adresse de livraison.`,
+      `Votre commande <strong>${escapeHtml(num)}</strong> a été expédiée ! Elle est en route vers votre adresse de livraison.`,
     color: "#7C3AED",
     icon: "🚚",
   },
@@ -244,7 +254,7 @@ const STATUS_CONFIG: Record<string, {
     subject: (num, shop) => `${shop} — Commande ${num} livrée`,
     heading: "Votre commande a été livrée",
     message: (num) =>
-      `Votre commande <strong>${num}</strong> a été livrée avec succès. Nous espérons que vous en êtes satisfait(e).`,
+      `Votre commande <strong>${escapeHtml(num)}</strong> a été livrée avec succès. Nous espérons que vous en êtes satisfait(e).`,
     color: "#16A34A",
     icon: "✅",
   },
@@ -252,7 +262,7 @@ const STATUS_CONFIG: Record<string, {
     subject: (num, shop) => `${shop} — Commande ${num} annulée`,
     heading: "Votre commande a été annulée",
     message: (num) =>
-      `Votre commande <strong>${num}</strong> a été annulée. Si vous avez des questions, n'hésitez pas à nous contacter.`,
+      `Votre commande <strong>${escapeHtml(num)}</strong> a été annulée. Si vous avez des questions, n'hésitez pas à nous contacter.`,
     color: "#DC2626",
     icon: "❌",
   },
@@ -278,7 +288,7 @@ export async function notifyOrderStatusChange(
     const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
     const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
     if (!GMAIL_USER || !GMAIL_PASSWORD) {
-      console.warn("[order-status-email] Configuration Gmail manquante — email ignoré.");
+      logger.warn("[order-status-email] Configuration Gmail manquante — email ignoré.");
       return;
     }
 
@@ -290,7 +300,7 @@ export async function notifyOrderStatusChange(
       },
     });
     if (!order) {
-      console.warn("[order-status-email] Commande introuvable:", data.orderId);
+      logger.warn("[order-status-email] Commande introuvable", { orderId: data.orderId });
       return;
     }
 
@@ -306,8 +316,8 @@ export async function notifyOrderStatusChange(
       data.newStatus === "SHIPPED" && order.eeTrackingId
         ? `<div style="background:#F0F4FF;border:1px solid #BFDBFE;border-radius:8px;padding:14px 18px;margin:16px 0;">
             <strong style="color:#1E40AF;">Suivi de votre colis</strong><br/>
-            <span style="color:#1A1A1A;">Transporteur : ${order.carrierName}</span><br/>
-            <span style="color:#1A1A1A;">N° de suivi : <strong>${order.eeTrackingId}</strong></span>
+            <span style="color:#1A1A1A;">Transporteur : ${escapeHtml(order.carrierName || '')}</span><br/>
+            <span style="color:#1A1A1A;">N° de suivi : <strong>${escapeHtml(order.eeTrackingId || '')}</strong></span>
           </div>`
         : "";
 
@@ -317,8 +327,8 @@ export async function notifyOrderStatusChange(
         (item) => `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #E5E5E5;">
-          <strong>${item.productName}</strong><br/>
-          <small style="color:#6B6B6B;">Réf. ${item.productRef} · ${item.colorName}${item.saleType === "PACK" ? ` · Paquet ×${item.packQty}` : ""}</small>
+          <strong>${escapeHtml(item.productName)}</strong><br/>
+          <small style="color:#6B6B6B;">Réf. ${escapeHtml(item.productRef)} · ${escapeHtml(item.colorName)}${item.saleType === "PACK" ? ` · Paquet ×${item.packQty}` : ""}</small>
         </td>
         <td style="padding:8px 12px;text-align:center;border-bottom:1px solid #E5E5E5;">${item.quantity}</td>
         <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #E5E5E5;">${Number(item.lineTotal).toFixed(2)} €</td>
@@ -332,12 +342,12 @@ export async function notifyOrderStatusChange(
         <div style="background:${config.color};color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
           <div style="font-size:36px;margin-bottom:8px;">${config.icon}</div>
           <h2 style="margin:0;font-size:20px;">${config.heading}</h2>
-          <p style="margin:8px 0 0;opacity:0.85;font-size:13px;">Commande N° ${order.orderNumber}</p>
+          <p style="margin:8px 0 0;opacity:0.85;font-size:13px;">Commande N° ${escapeHtml(order.orderNumber)}</p>
         </div>
 
         <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
           <p style="font-size:15px;line-height:1.6;">
-            Bonjour${order.clientCompany ? ` <strong>${order.clientCompany}</strong>` : ""},
+            Bonjour${order.clientCompany ? ` <strong>${escapeHtml(order.clientCompany)}</strong>` : ""},
           </p>
           <p style="font-size:15px;line-height:1.6;">
             ${config.message(order.orderNumber)}
@@ -392,12 +402,12 @@ export async function notifyOrderStatusChange(
 
           ${companyInfo?.email ? `
           <p style="margin-top:24px;font-size:13px;color:#6B6B6B;text-align:center;">
-            Une question ? Contactez-nous à <a href="mailto:${companyInfo.email}" style="color:${config.color};">${companyInfo.email}</a>
+            Une question ? Contactez-nous à <a href="mailto:${companyInfo.email}" style="color:${config.color};">${escapeHtml(companyInfo.email)}</a>
           </p>` : ""}
         </div>
 
         <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-          ${shopName} — Cet email a été envoyé automatiquement suite à la mise à jour de votre commande.
+          ${escapeHtml(shopName)} — Cet email a été envoyé automatiquement suite à la mise à jour de votre commande.
         </p>
       </div>
     `;
@@ -410,6 +420,6 @@ export async function notifyOrderStatusChange(
     });
 
   } catch (err) {
-    console.error("[order-status-email] Erreur envoi email:", err);
+    logger.error("[order-status-email] Erreur envoi email", { detail: err instanceof Error ? err.message : String(err) });
   }
 }

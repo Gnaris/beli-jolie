@@ -171,6 +171,8 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
     error: 0,
   });
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+  const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
   const [colorMap, setColorMap] = useState<Map<string, ColorMapEntry>>(new Map());
 
   // ── Job status state (live sync tracking) ──
@@ -228,7 +230,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       message: "Les produits déjà importés seront conservés. Voulez-vous arrêter l'importation en cours ?",
       confirmLabel: "Arrêter",
       cancelLabel: "Continuer",
-      variant: "danger",
+      type: "danger",
     });
     if (!ok) return;
 
@@ -389,6 +391,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
   // ── Single actions ──
   const handleApprove = useCallback(
     async (id: string) => {
+      setApprovingIds((prev) => new Set(prev).add(id));
       try {
         const res = await fetch("/api/admin/pfs-sync/staged/approve-bulk", {
           method: "POST",
@@ -411,6 +414,11 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Erreur réseau");
       } finally {
+        setApprovingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
         fetchProducts();
       }
     },
@@ -439,46 +447,75 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
     [confirm, fetchProducts, toast],
   );
 
-  // ── Bulk actions (chunked to respect API limit of 100 per request) ──
-  const BULK_CHUNK_SIZE = 100;
+  // ── Bulk actions (parallel chunks to maximize speed) ──
+  const BULK_CHUNK_SIZE = 10;
+  const PARALLEL_CHUNKS = 5;
 
   const handleBulkApprove = useCallback(async () => {
     if (selectedIds.size === 0) return;
     const allIds = [...selectedIds];
     const count = allIds.length;
     setBulkLoading(true);
+    setBulkProgress({ current: 0, total: count });
+    setApprovingIds(new Set(allIds));
     let totalErrors = 0;
+    let processed = 0;
+
+    // Split into small chunks
+    const chunks: string[][] = [];
+    for (let i = 0; i < allIds.length; i += BULK_CHUNK_SIZE) {
+      chunks.push(allIds.slice(i, i + BULK_CHUNK_SIZE));
+    }
+
     try {
-      for (let i = 0; i < allIds.length; i += BULK_CHUNK_SIZE) {
-        const chunk = allIds.slice(i, i + BULK_CHUNK_SIZE);
-        const res = await fetch("/api/admin/pfs-sync/staged/approve-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: chunk }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          toast.error(data?.error ?? `Erreur lot ${Math.floor(i / BULK_CHUNK_SIZE) + 1}`);
-          totalErrors += chunk.length;
-          continue;
+      // Process chunks in parallel waves
+      for (let w = 0; w < chunks.length; w += PARALLEL_CHUNKS) {
+        const wave = chunks.slice(w, w + PARALLEL_CHUNKS);
+        const results = await Promise.allSettled(
+          wave.map(async (chunk) => {
+            const res = await fetch("/api/admin/pfs-sync/staged/approve-bulk", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ids: chunk }),
+            });
+            if (!res.ok) {
+              const data = await res.json().catch(() => null);
+              return { errors: chunk.length, message: data?.error };
+            }
+            const data = await res.json();
+            const arr = data?.results?.results ?? data?.results ?? [];
+            const resultArr = Array.isArray(arr) ? arr : [];
+            return { errors: resultArr.filter((r: { error?: string }) => r.error).length };
+          }),
+        );
+
+        for (const result of results) {
+          const chunkSize = wave[results.indexOf(result)]?.length ?? 0;
+          if (result.status === "fulfilled") {
+            totalErrors += result.value.errors;
+            if (result.value.message) toast.error(result.value.message);
+          } else {
+            totalErrors += chunkSize;
+          }
+          processed += chunkSize;
         }
-        const data = await res.json();
-        const results = data?.results?.results ?? data?.results ?? [];
-        const resultArr = Array.isArray(results) ? results : [];
-        totalErrors += resultArr.filter((r: { error?: string }) => r.error).length;
+        setBulkProgress({ current: processed, total: count });
       }
+
       setSelectedIds(new Set());
       fetchProducts();
       const succeeded = count - totalErrors;
       if (totalErrors > 0) {
-        toast.warning(`${succeeded} approuvé(s), ${totalErrors} erreur(s)`);
+        toast.warning(`${succeeded} créé(s), ${totalErrors} erreur(s)`);
       } else {
-        toast.success(`${count} produit(s) approuvé(s)`);
+        toast.success(`${count} produit(s) créé(s)`);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur réseau");
     } finally {
       setBulkLoading(false);
+      setBulkProgress({ current: 0, total: 0 });
+      setApprovingIds(new Set());
     }
   }, [selectedIds, fetchProducts, toast]);
 
@@ -848,16 +885,22 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
           <span>traités</span>
         </div>
 
-        {/* Select all (page) */}
+        {/* Select all (all pages) */}
         {readyProductsOnPage.length > 0 && (
           <label className="flex cursor-pointer items-center gap-2 text-sm text-text-secondary whitespace-nowrap">
             <input
               type="checkbox"
-              checked={allReadySelected}
-              onChange={handleSelectAll}
+              checked={selectedIds.size >= counts.ready && counts.ready > 0}
+              onChange={() => {
+                if (selectedIds.size >= counts.ready) {
+                  setSelectedIds(new Set());
+                } else {
+                  handleSelectAllReady();
+                }
+              }}
               className="checkbox-custom h-4 w-4 rounded border-border"
             />
-            Tout sélectionner
+            Tout sélectionner ({counts.ready})
           </label>
         )}
       </div>
@@ -938,6 +981,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
               <PfsStagedProductCard
                 product={product}
                 selected={selectedIds.has(product.id)}
+                approving={approvingIds.has(product.id)}
                 colorMap={colorMap}
                 onSelect={handleSelect}
                 onApprove={handleApprove}
@@ -998,8 +1042,20 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
                 disabled={bulkLoading}
                 className="flex h-10 items-center gap-2 rounded-lg bg-[#22C55E] px-4 text-sm font-medium text-white transition-colors hover:bg-[#16A34A] disabled:opacity-50"
               >
-                <CheckIcon className="h-4 w-4" />
-                Approuver
+                {bulkLoading ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    {bulkProgress.total > 0 ? `${bulkProgress.current}/${bulkProgress.total}` : "..."}
+                  </>
+                ) : (
+                  <>
+                    <CheckIcon className="h-4 w-4" />
+                    Approuver
+                  </>
+                )}
               </button>
               <button
                 onClick={handleBulkReject}

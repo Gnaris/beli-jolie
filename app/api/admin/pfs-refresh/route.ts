@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { pfsRefreshProduct } from "@/lib/pfs-refresh";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
   }
 
   const result = await pfsRefreshProduct(productId, (progress) => {
-    console.log(`[PFS Refresh API] ${progress.step}`);
+    logger.info(`[PFS Refresh API] ${progress.step}`);
   });
 
   return NextResponse.json(result);

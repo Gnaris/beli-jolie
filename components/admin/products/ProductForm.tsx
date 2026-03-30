@@ -13,6 +13,7 @@ import CustomSelect from "@/components/ui/CustomSelect";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
+import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Category {
@@ -63,7 +64,10 @@ interface ProductFormProps {
     colorImages: ColorImageState[];
     compositions: CompositionItem[];
     similarProductIds: string[];
-    similarProducts?: { id: string; name: string; reference: string; category: string; image: string | null }[];
+    similarProducts?: { id: string; name: string; reference: string; category: string; image: string | null; maxPrice?: number }[];
+    bundleChildIds: string[];
+    bundleChildren?: { id: string; name: string; reference: string; category: string; image: string | null; maxPrice?: number }[];
+    bundleParents?: { id: string; name: string; reference: string; category: string; image: string | null; maxPrice?: number }[];
     tagNames: string[];
     isBestSeller: boolean;
     dimLength: string;
@@ -322,6 +326,7 @@ export default function ProductForm({
   );
   const [compositions, setCompositions] = useState<CompositionItem[]>(initialData?.compositions ?? []);
   const [similarProductIds, setSimilarProductIds] = useState<string[]>(initialData?.similarProductIds ?? []);
+  const [bundleChildIds, setBundleChildIds] = useState<string[]>(initialData?.bundleChildIds ?? []);
   const [tagNames,          setTagNames]          = useState<string[]>(initialData?.tagNames ?? []);
   const [isBestSeller,      setIsBestSeller]      = useState(initialData?.isBestSeller ?? false);
   const [manufacturingCountryId, setManufacturingCountryId] = useState(initialData?.manufacturingCountryId ?? "");
@@ -369,10 +374,10 @@ export default function ProductForm({
     reference, name, description, categoryId, subCategoryIds,
     variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, packColorLines: v.packColorLines, discountType: v.discountType, discountValue: v.discountValue })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
-    compositions, similarProductIds, tagNames, isBestSeller,
+    compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
     manufacturingCountryId, seasonId,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, tagNames, isBestSeller, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId]);
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId]);
 
   // Capture snapshot after first effects have settled (colorImages sync etc.)
   useEffect(() => {
@@ -1015,6 +1020,7 @@ export default function ProductForm({
         percentage:    parseFloat(c.percentage) || 0,
       })),
       similarProductIds,
+      bundleChildIds,
       tagNames,
       isBestSeller,
       status: finalStatus,
@@ -1460,6 +1466,30 @@ export default function ProductForm({
           />
         </section>
 
+        {/* ── Composition (ensemble → sous-produits) ── */}
+        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
+          <div className="border-b border-border pb-4">
+            <h2 className="font-heading text-xl font-bold text-text-primary">
+              Contenu de l&apos;ensemble
+            </h2>
+            <p className="text-sm text-text-muted font-body mt-1">
+              Si ce produit est un ensemble (ex : parure, coffret), sélectionnez les produits qu&apos;il contient.
+            </p>
+          </div>
+          <SimilarProductPicker
+            productId={productId}
+            selected={bundleChildIds}
+            initialProducts={initialData?.bundleChildren}
+            onAdd={(id) => setBundleChildIds((prev) => [...prev, id])}
+            onRemove={(id) => setBundleChildIds((prev) => prev.filter((x) => x !== id))}
+          />
+        </section>
+
+        {/* ── Ce produit se trouve aussi dans (lecture seule) ── */}
+        {initialData?.bundleParents && initialData.bundleParents.length > 0 && (
+          <BundleParentsReadonly products={initialData.bundleParents} />
+        )}
+
         <div className="sticky bottom-0 z-10 flex justify-center py-4">
           <div className="bg-bg-primary rounded-2xl px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-border space-y-3 w-fit max-w-full">
             {/* ── Erreurs ── */}
@@ -1595,13 +1625,14 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-// ── SimilarProductPicker (search-based with images) ──────────────────────
+// ── SimilarProductPicker (search-based with carousel) ──────────────────────
 interface SearchProduct {
   id: string;
   name: string;
   reference: string;
   category: string;
   image: string | null;
+  maxPrice?: number;
 }
 
 function SimilarProductPicker({
@@ -1622,6 +1653,7 @@ function SimilarProductPicker({
   const [selectedProducts, setSelectedProducts] = useState<SearchProduct[]>(initialProducts ?? []);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const carouselRef = useRef<HTMLDivElement>(null);
 
   function handleSearchChange(value: string) {
     setSearch(value);
@@ -1655,6 +1687,12 @@ function SimilarProductPicker({
     setSelectedProducts((prev) => prev.filter((p) => p.id !== id));
   }
 
+  function scrollCarousel(dir: "left" | "right") {
+    if (!carouselRef.current) return;
+    const amount = 260;
+    carouselRef.current.scrollBy({ left: dir === "left" ? -amount : amount, behavior: "smooth" });
+  }
+
   const filteredResults = results.filter((r) => !selected.includes(r.id));
 
   return (
@@ -1664,7 +1702,7 @@ function SimilarProductPicker({
           type="text"
           value={search}
           onChange={(e) => handleSearchChange(e.target.value)}
-          placeholder="Rechercher un produit par nom ou reference..."
+          placeholder="Rechercher un produit par nom ou référence..."
           className="field-input !pl-10"
         />
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1693,7 +1731,7 @@ function SimilarProductPicker({
               >
                 {product.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={product.image} alt="" className="w-10 h-10 object-cover rounded-lg border border-border" />
+                  <img src={getImageSrc(product.image, "thumb")} alt="" className="w-10 h-10 object-cover rounded-lg border border-border" />
                 ) : (
                   <div className="w-10 h-10 rounded-lg bg-[#F0F0F0] flex items-center justify-center shrink-0">
                     <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1703,7 +1741,10 @@ function SimilarProductPicker({
                 )}
                 <div className="flex-1 text-left min-w-0">
                   <p className="text-sm font-medium text-text-primary font-body truncate">{product.name}</p>
-                  <p className="text-xs text-text-muted font-body">{product.reference} · {product.category}</p>
+                  <p className="text-xs text-text-muted font-body">
+                    {product.reference} · {product.category}
+                    {product.maxPrice != null && product.maxPrice > 0 && ` · ${product.maxPrice.toFixed(2)} €`}
+                  </p>
                 </div>
               </button>
             ))
@@ -1712,27 +1753,194 @@ function SimilarProductPicker({
       )}
 
       {selectedProducts.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
             Sélectionnés ({selectedProducts.length})
           </p>
-          <div className="flex flex-wrap gap-2">
-            {selectedProducts.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 bg-bg-secondary border border-border rounded-lg px-3 py-1.5">
-                <span className="text-sm font-body text-text-primary">{p.name}</span>
-                <span className="text-xs text-text-muted font-mono">{p.reference}</span>
-                <button type="button" onClick={() => handleRemove(p.id)}
-                  className="text-text-muted hover:text-[#DC2626] transition-colors ml-1"
+          <div className="relative group/carousel">
+            {selectedProducts.length > 3 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => scrollCarousel("left")}
+                  className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-bg-primary border border-border shadow-md flex items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:border-bg-dark"
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                   </svg>
                 </button>
-              </div>
-            ))}
+                <button
+                  type="button"
+                  onClick={() => scrollCarousel("right")}
+                  className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-bg-primary border border-border shadow-md flex items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:border-bg-dark"
+                >
+                  <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </>
+            )}
+            <div
+              ref={carouselRef}
+              className="flex gap-3 overflow-x-auto scrollbar-hide scroll-smooth pb-1"
+              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            >
+              {selectedProducts.map((p) => (
+                <div
+                  key={p.id}
+                  className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-xl overflow-hidden group/card hover:border-bg-dark transition-colors"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(p.id)}
+                    className="absolute top-2 right-2 z-20 w-6 h-6 rounded-full bg-bg-primary/90 border border-border flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity text-text-muted hover:text-[#DC2626] hover:border-[#DC2626]"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                  <a
+                    href={`/admin/produits/${p.id}/modifier`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="relative block cursor-pointer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="relative">
+                      {p.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={getImageSrc(p.image, "thumb")}
+                          alt={p.name}
+                          className="w-full h-32 object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-32 bg-[#F0F0F0] flex items-center justify-center">
+                          <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                          </svg>
+                        </div>
+                      )}
+                      {/* Overlay au hover avec icone oeil */}
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity">
+                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      </div>
+                    </div>
+                    <div className="p-3 space-y-1">
+                      <p className="text-sm font-medium text-text-primary font-body truncate">{p.name}</p>
+                      <p className="text-xs text-text-muted font-mono">{p.reference}</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-text-muted font-body truncate">{p.category}</span>
+                        {p.maxPrice != null && p.maxPrice > 0 && (
+                          <span className="text-xs font-semibold text-text-primary font-body">{p.maxPrice.toFixed(2)} €</span>
+                        )}
+                      </div>
+                    </div>
+                  </a>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+// ── BundleParentsReadonly (lecture seule, carousel) ──────────────────────
+function BundleParentsReadonly({ products }: { products: SearchProduct[] }) {
+  const carouselRef = useRef<HTMLDivElement>(null);
+
+  function scrollCarousel(dir: "left" | "right") {
+    if (!carouselRef.current) return;
+    carouselRef.current.scrollBy({ left: dir === "left" ? -260 : 260, behavior: "smooth" });
+  }
+
+  return (
+    <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
+      <div className="border-b border-border pb-4">
+        <h2 className="font-heading text-xl font-bold text-text-primary">
+          Ce produit se trouve aussi dans
+        </h2>
+        <p className="text-sm text-text-muted font-body mt-1">
+          Ce produit fait partie des ensembles suivants. Pour modifier cette relation, allez sur la fiche de l&apos;ensemble.
+        </p>
+      </div>
+      <div className="relative group/carousel">
+        {products.length > 3 && (
+          <>
+            <button
+              type="button"
+              onClick={() => scrollCarousel("left")}
+              className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-bg-primary border border-border shadow-md flex items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:border-bg-dark"
+            >
+              <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollCarousel("right")}
+              className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-bg-primary border border-border shadow-md flex items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:border-bg-dark"
+            >
+              <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </>
+        )}
+        <div
+          ref={carouselRef}
+          className="flex gap-3 overflow-x-auto scrollbar-hide scroll-smooth pb-1"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        >
+          {products.map((p) => (
+            <a
+              key={p.id}
+              href={`/admin/produits/${p.id}/modifier`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-xl overflow-hidden group/card hover:border-bg-dark transition-colors"
+            >
+              <div className="relative">
+                {p.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={getImageSrc(p.image, "thumb")}
+                    alt={p.name}
+                    className="w-full h-32 object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-32 bg-[#F0F0F0] flex items-center justify-center">
+                    <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                    </svg>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+              </div>
+              <div className="p-3 space-y-1">
+                <p className="text-sm font-medium text-text-primary font-body truncate">{p.name}</p>
+                <p className="text-xs text-text-muted font-mono">{p.reference}</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-text-muted font-body truncate">{p.category}</span>
+                  {p.maxPrice != null && p.maxPrice > 0 && (
+                    <span className="text-xs font-semibold text-text-primary font-body">{p.maxPrice.toFixed(2)} €</span>
+                  )}
+                </div>
+              </div>
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }

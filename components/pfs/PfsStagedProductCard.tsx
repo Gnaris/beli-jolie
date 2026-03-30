@@ -64,6 +64,7 @@ export interface ColorMapEntry {
 interface PfsStagedProductCardProps {
   product: StagedProduct;
   selected: boolean;
+  approving?: boolean;
   colorMap: Map<string, ColorMapEntry>;
   onSelect: (id: string) => void;
   onApprove: (id: string) => void;
@@ -153,6 +154,7 @@ function StarIcon({ className }: { className?: string }) {
 export default function PfsStagedProductCard({
   product,
   selected,
+  approving,
   colorMap,
   onSelect,
   onApprove,
@@ -214,6 +216,22 @@ export default function PfsStagedProductCard({
         ${isPreparing ? "animate-pulse" : ""}
       `}
     >
+      {/* ── Approving overlay ── */}
+      {approving && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-xl bg-bg-primary/80 backdrop-blur-sm">
+          <div className="relative flex items-center justify-center">
+            <svg className="h-10 w-10 text-[#22C55E]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25 4.5-4.5M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+            </svg>
+            <svg className="absolute -bottom-1 -right-1 h-4 w-4 animate-spin text-[#22C55E]" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium text-text-primary">Création en cours…</p>
+        </div>
+      )}
+
       {/* ── Image area ── */}
       <div className="relative aspect-square w-full overflow-hidden rounded-t-xl bg-bg-secondary">
         {/* Checkbox (READY only) */}

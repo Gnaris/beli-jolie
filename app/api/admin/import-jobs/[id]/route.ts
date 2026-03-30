@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeFile, mkdir, readdir } from "fs/promises";
+import { logger } from "@/lib/logger";
 
 // Large uploads: Next.js App Router (self-hosted) has no body size limit by default.
 // If behind a reverse proxy, configure its limit to at least 300MB for image batches.
@@ -93,12 +94,12 @@ export async function POST(
 
       // Fire-and-forget
       processImageImport(id).catch((err) => {
-        console.error("[import-jobs] Image processing error:", err);
+        logger.error("[import-jobs] Image processing error", { error: err instanceof Error ? err.message : String(err) });
       });
 
       return NextResponse.json({ ok: true, totalImages: imageCount });
     } catch (err) {
-      console.error("[import-jobs] Start error:", err);
+      logger.error("[import-jobs] Start error", { error: err instanceof Error ? err.message : String(err) });
       return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
     }
   }
@@ -148,7 +149,7 @@ export async function POST(
 
     return NextResponse.json({ saved, totalImages });
   } catch (err) {
-    console.error("[import-jobs] Upload batch error:", err);
+    logger.error("[import-jobs] Upload batch error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

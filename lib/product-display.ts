@@ -1,3 +1,4 @@
+import type { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "@/lib/prisma";
 import { getCachedSiteConfig } from "@/lib/cached-data";
 import { unstable_cache } from "next/cache";
@@ -185,10 +186,10 @@ type CarouselPrismaProduct = {
   colors: {
     id: string;
     colorId: string | null;
-    unitPrice: number;
+    unitPrice: number | Decimal;
     isPrimary: boolean;
     discountType: "PERCENT" | "AMOUNT" | null;
-    discountValue: number | null;
+    discountValue: number | Decimal | null;
     color: { name: string; hex: string | null } | null;
   }[];
 };

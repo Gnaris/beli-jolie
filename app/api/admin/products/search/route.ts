@@ -79,6 +79,9 @@ export async function GET(request: NextRequest) {
       name: true,
       reference: true,
       category: { select: { name: true } },
+      colors: {
+        select: { unitPrice: true },
+      },
     },
   });
 
@@ -98,6 +101,7 @@ export async function GET(request: NextRequest) {
     reference: p.reference,
     category: p.category.name,
     image: firstImageMap.get(p.id) ?? null,
+    maxPrice: p.colors.length > 0 ? Math.max(...p.colors.map((c) => Number(c.unitPrice))) : 0,
   }));
 
   return NextResponse.json({ products: results });

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getCachedPfsEnabled } from "@/lib/cached-data";
 import { pfsGetColors, pfsGetCategories, pfsGetCompositions, pfsGetCountries, pfsGetCollections, pfsGetFamilies, pfsGetGenders, pfsGetSizes } from "@/lib/pfs-api-write";
+import { logger } from "@/lib/logger";
 
 /**
  * GET /api/admin/pfs-sync/attributes
@@ -31,7 +32,7 @@ export async function GET() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${label}: ${msg}`);
-      console.error(`[PFS attributes] ${label} failed:`, msg);
+      logger.error(`[PFS attributes] ${label} failed`, { error: msg });
       return [];
     }
   }

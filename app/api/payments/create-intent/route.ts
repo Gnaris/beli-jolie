@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { getCachedShopName } from "@/lib/cached-data";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 
 const CreateIntentSchema = z.object({
   addressId: z.string().min(1),
@@ -159,7 +160,7 @@ export async function POST(req: Request) {
         paymentIntentId: paymentIntent.id,
       });
     } catch (err) {
-      console.error("[create-intent] Erreur création PI (Connect):", err);
+      logger.error("[create-intent] Erreur création PI (Connect)", { error: err instanceof Error ? err.message : String(err) });
       return NextResponse.json({ error: "Impossible de créer le paiement." }, { status: 500 });
     }
   }
@@ -188,7 +189,7 @@ export async function POST(req: Request) {
       paymentIntentId: paymentIntent.id,
     });
   } catch (err) {
-    console.error("[create-intent] Erreur création PI:", err);
+    logger.error("[create-intent] Erreur création PI", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Impossible de créer le paiement." }, { status: 500 });
   }
 }

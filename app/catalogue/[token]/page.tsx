@@ -109,17 +109,29 @@ export default async function PublicCatalogPage({ params }: Props) {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {catalog.products.map(({ product, selectedColorId, selectedImagePath }) => (
+            {catalog.products.map(({ product, selectedColorId, selectedImagePath }) => {
+              // Serialize Decimal fields to plain numbers for client component
+              const serializedProduct = {
+                ...product,
+                colors: product.colors.map((c) => ({
+                  ...c,
+                  unitPrice: Number(c.unitPrice),
+                  stock: Number(c.stock),
+                  packQuantity: c.packQuantity != null ? Number(c.packQuantity) : null,
+                })),
+              };
+              return (
               <CatalogProductCard
                 key={product.id}
-                product={product}
+                product={serializedProduct}
                 selectedColorId={selectedColorId}
                 selectedImagePath={selectedImagePath}
                 primaryColor={primary}
                 isAuthenticated={isAuthenticated}
                 catalogToken={token}
               />
-            ))}
+            );
+            })}
           </div>
         )}
       </main>

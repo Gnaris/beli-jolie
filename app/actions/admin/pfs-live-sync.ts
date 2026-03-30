@@ -7,6 +7,7 @@ import { revalidateTag } from "next/cache";
 import { emitProductEvent } from "@/lib/product-events";
 import { syncProductToPfs, stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
 import { pfsDeleteVariant } from "@/lib/pfs-api-write";
+import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -182,7 +183,7 @@ export async function applyPfsLiveSync(
 
             changesApplied++;
           } catch (err) {
-            console.error(`[PFS_LIVE_SYNC] Failed to delete PFS variant ${pfsVariant.pfsVariantId}:`, err);
+            logger.error(`[PFS_LIVE_SYNC] Failed to delete PFS variant ${pfsVariant.pfsVariantId}`, { error: err instanceof Error ? err.message : String(err) });
           }
         }
         continue;
@@ -237,7 +238,7 @@ export async function applyPfsLiveSync(
         }
       } else if (action === "add") {
         if (!pfsVariant.colorId) {
-          console.warn(`[PFS_LIVE_SYNC] Skipping add for unmapped color "${pfsVariant.colorName}"`);
+          logger.warn(`[PFS_LIVE_SYNC] Skipping add for unmapped color "${pfsVariant.colorName}"`);
           continue;
         }
 
@@ -316,13 +317,13 @@ export async function applyPfsLiveSync(
       try {
         await syncProductToPfs(productId);
       } catch (err) {
-        console.error("[PFS_LIVE_SYNC] Reverse sync error (non-blocking):", err);
+        logger.error("[PFS_LIVE_SYNC] Reverse sync error (non-blocking)", { error: err instanceof Error ? err.message : String(err) });
       }
     }
 
     return { success: true, changesApplied };
   } catch (err) {
-    console.error("[PFS_LIVE_SYNC] Error:", err);
+    logger.error("[PFS_LIVE_SYNC] Error", { error: err instanceof Error ? err.message : String(err) });
     return {
       success: false,
       error: err instanceof Error ? err.message : String(err),

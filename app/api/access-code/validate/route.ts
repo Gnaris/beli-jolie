@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 
 /**
  * POST /api/access-code/validate
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error("[POST /api/access-code/validate]", error);
+    logger.error("[POST /api/access-code/validate]", { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

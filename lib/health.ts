@@ -6,6 +6,8 @@
  * Auto-recovers when DB becomes reachable again (only for auto-triggered maintenance).
  */
 
+import { logger } from "@/lib/logger";
+
 const ERROR_THRESHOLD = 3;
 const RECOVERY_CHECK_INTERVAL_MS = 60_000; // Check recovery every 60s
 const ERROR_WINDOW_MS = 120_000; // Errors older than 2 minutes are forgotten
@@ -47,12 +49,12 @@ export function reportCriticalError(source?: string): boolean {
   pruneErrors(state);
 
   if (process.env.NODE_ENV === "development") {
-    console.error(`[health] Critical error reported${source ? ` from ${source}` : ""}. Count: ${state.errors.length}/${ERROR_THRESHOLD}`);
+    logger.error("[health] Critical error reported", { source, count: state.errors.length, threshold: ERROR_THRESHOLD });
   }
 
   if (state.errors.length >= ERROR_THRESHOLD && !state.autoMaintenance) {
     state.autoMaintenance = true;
-    console.error(`[health] AUTO-MAINTENANCE TRIGGERED after ${state.errors.length} consecutive errors`);
+    logger.error("[health] AUTO-MAINTENANCE TRIGGERED", { consecutiveErrors: state.errors.length });
     // Try to persist to DB (best effort — DB might be down)
     triggerAutoMaintenanceInDB().catch(() => {
       // DB is down, maintenance will be served from in-memory flag
@@ -123,7 +125,7 @@ export async function attemptAutoRecovery(): Promise<boolean> {
       });
       state.autoMaintenance = false;
       state.errors = [];
-      console.error("[health] AUTO-RECOVERY: DB is back online, maintenance disabled");
+      logger.info("[health] AUTO-RECOVERY: DB is back online, maintenance disabled");
       return true;
     }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 /**
  * GET /api/admin/products/import/images/variants?reference=XXX
@@ -155,7 +156,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[variants/POST]", err);
+    logger.error("[variants/POST]", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erreur." }, { status: 500 });
   }
 }

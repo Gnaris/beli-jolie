@@ -253,7 +253,7 @@ model ProductComposition {
   compositionId String
   percentage    Float // ex: 85.5 pour 85.5%
   product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
-  composition   Composition @relation(fields: [compositionId], references: [id])
+  composition   Composition @relation(fields: [compositionId], references: [id], onDelete: Cascade)
 
   @@unique([productId, compositionId])
 }
@@ -316,6 +316,9 @@ model Product {
   // Produits similaires (M2M self)
   similarProducts        ProductSimilar[]      @relation("PSim_A")
   similarTo              ProductSimilar[]      @relation("PSim_B")
+  // Composition produit (ensemble → sous-produits)
+  bundleChildren         ProductBundle[]       @relation("Bundle_Parent")
+  bundleParents          ProductBundle[]       @relation("Bundle_Child")
   // Dimensions optionnelles (en mm)
   dimensionLength        Float?
   dimensionWidth         Float?
@@ -365,6 +368,17 @@ model ProductSimilar {
   similar   Product @relation("PSim_B", fields: [similarId], references: [id], onDelete: Cascade)
 
   @@id([productId, similarId])
+}
+
+// Composition produit (ensemble contient sous-produits, relation directionnelle)
+// parent = l'ensemble (ex: parure), child = le sous-produit (ex: collier)
+model ProductBundle {
+  parentId String
+  childId  String
+  parent   Product @relation("Bundle_Parent", fields: [parentId], references: [id], onDelete: Cascade)
+  child    Product @relation("Bundle_Child", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@id([parentId, childId])
 }
 
 // Deferred similar product links — stores references that don't exist yet at import time.
@@ -641,6 +655,7 @@ model Order {
   @@index([userId, status]) // client order listing with status filter
   @@index([paymentStatus]) // payment status queries
   @@index([createdAt]) // admin order listing
+  @@index([userId]) // standalone customer lookup
   @@index([status, createdAt]) // admin filtered + paginated listing
 }
 
@@ -1216,4 +1231,18 @@ model PfsMapping {
 
   @@unique([type, pfsName])
   @@index([type])
+}
+
+// ─────────────────────────────────────────────
+// Stripe Webhook Event Deduplication
+// ─────────────────────────────────────────────
+
+model StripeWebhookEvent {
+  id        String   @id @default(cuid())
+  eventId   String   @unique
+  type      String
+  processed Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

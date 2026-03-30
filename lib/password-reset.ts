@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName, getCachedGmailConfig } from "@/lib/cached-data";
+import { logger } from "@/lib/logger";
 
 export function generateResetToken(): string {
   return crypto.randomBytes(32).toString("hex");
@@ -26,7 +27,7 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
   const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
   const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
   if (!GMAIL_USER || !GMAIL_PASSWORD) {
-    console.warn("[password-reset] Configuration Gmail manquante.");
+    logger.warn("[password-reset] Configuration Gmail manquante");
     return;
   }
   const { NEXTAUTH_URL } = process.env;

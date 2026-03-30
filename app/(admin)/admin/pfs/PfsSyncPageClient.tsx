@@ -23,6 +23,15 @@ interface PfsPrepareJob {
   updatedAt: string;
 }
 
+interface ActiveImportJob {
+  id: string;
+  status: "PENDING" | "PROCESSING" | "UPLOADING";
+  type: string;
+  totalItems: number;
+  processedItems: number;
+  createdAt: string;
+}
+
 // ─────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────
@@ -33,6 +42,7 @@ export default function PfsSyncPageClient() {
   const [pfsCount, setPfsCount] = useState<number | null>(null);
   const [bjCount, setBjCount] = useState<number | null>(null);
   const [job, setJob] = useState<PfsPrepareJob | null>(null);
+  const [activeImportJob, setActiveImportJob] = useState<ActiveImportJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -55,6 +65,7 @@ export default function PfsSyncPageClient() {
       const data = await res.json();
       if (data.job) setJob(data.job);
       else setJob(null);
+      setActiveImportJob(data.activeImportJob || null);
     } catch {
       // ignore
     } finally {
@@ -103,8 +114,7 @@ export default function PfsSyncPageClient() {
   const countsLoaded = pfsCount !== null && bjCount !== null;
   const countsMatch = countsLoaded && pfsCount === bjCount;
   const isActive = job?.status === "RUNNING" || job?.status === "ANALYZING" || job?.status === "PENDING" || job?.status === "NEEDS_VALIDATION";
-  const isCompleted = job?.status === "COMPLETED";
-  const isFailed = job?.status === "FAILED";
+  const hasActiveImport = !!activeImportJob;
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -194,6 +204,31 @@ export default function PfsSyncPageClient() {
         </Link>
       </div>
 
+      {/* Active import job banner */}
+      {!loading && hasActiveImport && (
+        <div className="card p-4 flex items-center gap-4 border-[#F59E0B]/30 bg-[#F59E0B]/5">
+          <div className="w-10 h-10 rounded-xl bg-[#F59E0B]/10 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-[#F59E0B]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-text-primary">
+              Une importation est déjà en cours
+            </p>
+            <p className="text-xs text-text-secondary mt-0.5">
+              Veuillez attendre la fin de l&apos;importation avant d&apos;en lancer une nouvelle.
+            </p>
+          </div>
+          <Link
+            href="/admin/produits/importer/historique"
+            className="btn-secondary text-sm shrink-0"
+          >
+            Voir
+          </Link>
+        </div>
+      )}
+
       {/* Error banner */}
       {error && (
         <div className="bg-[#EF4444]/5 border border-[#EF4444]/20 text-[#EF4444] px-4 py-3 rounded-xl text-sm">
@@ -201,8 +236,27 @@ export default function PfsSyncPageClient() {
         </div>
       )}
 
-      {/* Action buttons (only when no active job) */}
-      {!loading && !isActive && (
+      {/* Already synced banner */}
+      {!loading && !isActive && !hasActiveImport && countsMatch && countsLoaded && (
+        <div className="card p-4 flex items-center gap-4 border-[#22C55E]/30 bg-[#22C55E]/5">
+          <div className="w-10 h-10 rounded-xl bg-[#22C55E]/10 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-text-primary">
+              Tous les produits sont déjà importés
+            </p>
+            <p className="text-xs text-text-secondary mt-0.5">
+              Les {pfsCount!.toLocaleString("fr-FR")} produits PFS sont synchronisés avec la boutique.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons (only when no active job, no active import, and not fully synced) */}
+      {!loading && !isActive && !hasActiveImport && !countsMatch && (
         <>
           {/* Warning alert */}
           <div className="flex items-start gap-3 bg-[#F59E0B]/10 border border-[#F59E0B]/30 rounded-xl px-4 py-3">
@@ -300,54 +354,6 @@ export default function PfsSyncPageClient() {
       {loading && (
         <div className="card p-8 text-center text-text-secondary">
           Chargement...
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!loading && !job && (
-        <div className="card p-8 text-center">
-          <svg
-            className="w-16 h-16 mx-auto mb-4 text-text-secondary opacity-40"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            strokeWidth={1}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"
-            />
-          </svg>
-          <p className="text-text-secondary text-sm">
-            Aucune importation lancée. Cliquez sur le bouton ci-dessus pour commencer.
-          </p>
-        </div>
-      )}
-
-      {/* Completed/failed job info */}
-      {!loading && job && !isActive && (
-        <div className="card p-4">
-          <div className="flex flex-wrap gap-4 text-xs text-text-secondary">
-            <span>
-              {isCompleted ? "Terminé" : isFailed ? "Échoué" : "Arrêté"} le{" "}
-              {new Date(job.updatedAt).toLocaleString("fr-FR")}
-            </span>
-            <span>{job.readyProducts} prêts</span>
-            <span>{job.approvedProducts} approuvés</span>
-            <span>{job.rejectedProducts} refusés</span>
-            {job.errorMessage && (
-              <span className="text-[#EF4444]">{job.errorMessage}</span>
-            )}
-          </div>
-          {job.readyProducts > 0 && (
-            <Link
-              href={`/admin/pfs/resume/${job.id}`}
-              className="btn-secondary text-xs mt-3 inline-block"
-            >
-              Voir les produits
-            </Link>
-          )}
         </div>
       )}
     </div>

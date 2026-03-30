@@ -8,6 +8,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getProductTranslation } from "@/lib/translate";
 import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
+import { getImageSrc } from "@/lib/image-utils";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import FloatingShapes from "@/components/ui/FloatingShapes";
@@ -55,6 +56,38 @@ const getProduct = cache(async (id: string) => {
       similarProducts: {
         include: {
           similar: {
+            select: {
+              id:        true,
+              name:      true,
+              reference: true,
+              colors: {
+                orderBy: { isPrimary: "desc" },
+                take:    1,
+                select:  { colorId: true, unitPrice: true, color: { select: { name: true } } },
+              },
+            },
+          },
+        },
+      },
+      bundleChildren: {
+        include: {
+          child: {
+            select: {
+              id:        true,
+              name:      true,
+              reference: true,
+              colors: {
+                orderBy: { isPrimary: "desc" },
+                take:    1,
+                select:  { colorId: true, unitPrice: true, color: { select: { name: true } } },
+              },
+            },
+          },
+        },
+      },
+      bundleParents: {
+        include: {
+          parent: {
             select: {
               id:        true,
               name:      true,
@@ -118,16 +151,19 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   if (!product || product.status !== "ONLINE") notFound();
 
   const similarProductIds = product.similarProducts.map((sp) => sp.similar.id);
+  const bundleChildIds = product.bundleChildren.map((b) => b.child.id);
+  const bundleParentIds = product.bundleParents.map((b) => b.parent.id);
+  const relatedIds = [...new Set([...similarProductIds, ...bundleChildIds, ...bundleParentIds])];
 
   // Fetch images and client discount in parallel
-  const [colorImages, similarColorImages, clientDiscount] = await Promise.all([
+  const [colorImages, relatedColorImages, clientDiscount] = await Promise.all([
     prisma.productColorImage.findMany({
       where:   { productId: id },
       orderBy: { order: "asc" },
     }),
-    similarProductIds.length > 0
+    relatedIds.length > 0
       ? prisma.productColorImage.findMany({
-          where:   { productId: { in: similarProductIds } },
+          where:   { productId: { in: relatedIds } },
           orderBy: { order: "asc" },
         })
       : Promise.resolve([]),
@@ -181,9 +217,9 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   });
   const tProducts = await getTranslations("products");
 
-  function toRelated(p: NonNullable<typeof product>["similarProducts"][0]["similar"]) {
+  function toRelated(p: { id: string; name: string; reference: string; colors: { colorId: string | null; unitPrice: any; color: { name: string } | null }[] }) {
     const pc  = p.colors[0];
-    const img = similarColorImages.find(
+    const img = relatedColorImages.find(
       (i) => i.productId === p.id && i.colorId === pc?.colorId
     );
     return {
@@ -202,6 +238,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     ? Math.min(...filteredColors.map((c) => Number(c.unitPrice)))
     : 0;
   const firstImg = colorImages[0]?.path;
+  const siteUrl = process.env.NEXTAUTH_URL || "";
   const productJsonLd = {
     "@context": "https://schema.org",
     "@type": "Product",
@@ -209,9 +246,14 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     description: translated.description.slice(0, 500),
     sku: product.reference,
     category: product.category.name,
-    ...(firstImg && { image: firstImg }),
+    ...(firstImg && { image: getImageSrc(firstImg, "large") }),
+    brand: {
+      "@type": "Brand",
+      name: shopName,
+    },
     offers: {
       "@type": "Offer",
+      url: `${siteUrl}/produits/${product.id}`,
       priceCurrency: "EUR",
       price: minPrice.toFixed(2),
       availability: primaryColor && primaryColor.stock > 0
@@ -301,6 +343,8 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               }}
               tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
               similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
+              bundleChildren={product.bundleChildren.map((b) => toRelated(b.child))}
+              bundleParents={product.bundleParents.map((b) => toRelated(b.parent))}
               clientDiscount={clientDiscount}
               isAuthenticated={!!session?.user?.id}
             />

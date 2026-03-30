@@ -5,6 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
@@ -71,6 +72,8 @@ export interface ProductInput {
   imagePaths?: { colorId: string; subColorIds?: string[]; variantDbId?: string; variantIndex?: number; paths: string[]; orders?: number[] }[]; // images grouped per variant
   compositions: CompositionInput[];
   similarProductIds: string[];
+  bundleChildIds: string[];
+  bundleParentIds?: string[];
   tagNames: string[];
   isBestSeller: boolean;
   status: "OFFLINE" | "ONLINE" | "ARCHIVED";
@@ -316,6 +319,14 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         ...input.similarProductIds.map((similarId) => ({ productId: product.id, similarId })),
         ...input.similarProductIds.map((similarId) => ({ productId: similarId, similarId: product.id })),
       ],
+      skipDuplicates: true,
+    });
+  }
+
+  // Composition produit (ensemble → sous-produits, directionnel)
+  if (input.bundleChildIds.length > 0) {
+    await prisma.productBundle.createMany({
+      data: input.bundleChildIds.map((childId) => ({ parentId: product.id, childId })),
       skipDuplicates: true,
     });
   }
@@ -661,6 +672,15 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       });
     }
 
+    // Composition produit — reconstruction complète (directionnel, parent = cet ensemble)
+    await tx.productBundle.deleteMany({ where: { parentId: id } });
+    if (input.bundleChildIds.length > 0) {
+      await tx.productBundle.createMany({
+        data: input.bundleChildIds.map((childId) => ({ parentId: id, childId })),
+        skipDuplicates: true,
+      });
+    }
+
     return oldStockMap;
   });
 
@@ -769,7 +789,7 @@ export async function archiveProduct(id: string) {
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
   if (product?.pfsProductId) {
     pfsUpdateStatus([{ id: product.pfsProductId, status: "ARCHIVED" }]).catch((err) => {
-      console.warn(`[PFS] Archive status sync failed for product ${id}:`, err);
+      logger.warn(`[PFS] Archive status sync failed for product ${id}`, { error: err });
     });
   }
 }
@@ -784,7 +804,7 @@ export async function unarchiveProduct(id: string) {
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
   if (product?.pfsProductId) {
     pfsUpdateStatus([{ id: product.pfsProductId, status: "DRAFT" }]).catch((err) => {
-      console.warn(`[PFS] Unarchive status sync failed for product ${id}:`, err);
+      logger.warn(`[PFS] Unarchive status sync failed for product ${id}`, { error: err });
     });
   }
 }
@@ -882,7 +902,7 @@ export async function bulkUpdateProductStatus(
       .map((p) => ({ id: p.pfsProductId!, status: pfsStatus }));
     if (pfsUpdates.length > 0) {
       pfsUpdateStatus(pfsUpdates).catch((err) => {
-        console.warn(`[PFS] Bulk status sync failed:`, err);
+        logger.warn("[PFS] Bulk status sync failed", { error: err });
       });
     }
   }

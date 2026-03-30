@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { randomUUID } from "crypto";
 import { uploadToR2, deleteFromR2, r2KeyFromDbPath } from "@/lib/r2";
+import { logger } from "@/lib/logger";
 
 const MAX_SIZE = 512 * 1024; // 500 KB
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
   try {
     await uploadToR2(`uploads/patterns/${filename}`, buffer, contentType);
   } catch (err) {
-    console.error("[upload-pattern] Upload error:", err);
+    logger.error("[upload-pattern] Upload error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur lors de l'enregistrement du fichier." }, { status: 500 });
   }
 
