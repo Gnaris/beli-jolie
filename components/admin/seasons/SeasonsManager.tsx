@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteSeason, updateSeasonDirect, updateSeasonPfsRefs } from "@/app/actions/admin/seasons";
+import { deleteSeason, updateSeasonDirect, updateSeasonPfsRef } from "@/app/actions/admin/seasons";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
@@ -11,17 +11,15 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 interface SeasonItem {
   id: string;
   name: string;
-  pfsRefs: string[];
+  pfsRef: string | null;
   productCount: number;
   translations: Record<string, string>;
 }
 
 export default function SeasonsManager({
   initialSeasons,
-  allUsedPfsRefs,
 }: {
   initialSeasons: SeasonItem[];
-  allUsedPfsRefs: string[];
 }) {
   const router = useRouter();
   const { confirm } = useConfirm();
@@ -33,7 +31,7 @@ export default function SeasonsManager({
   const filtered = search.trim()
     ? initialSeasons.filter((s) =>
         s.name.toLowerCase().includes(search.trim().toLowerCase()) ||
-        s.pfsRefs.some((r) => r.toLowerCase().includes(search.trim().toLowerCase()))
+        (s.pfsRef && s.pfsRef.toLowerCase().includes(search.trim().toLowerCase()))
       )
     : initialSeasons;
 
@@ -67,16 +65,13 @@ export default function SeasonsManager({
     translations: Record<string, string>,
     _hex?: string,
     _patternImage?: string | null,
-    pfs?: { refs?: string[] },
+    pfs?: { ref?: string },
   ) {
     if (!editTarget) return;
     await updateSeasonDirect(editTarget.id, name, translations);
-    const newRefs = pfs?.refs ?? [];
-    const oldRefs = editTarget.pfsRefs;
-    // Compare sorted arrays
-    const changed = JSON.stringify([...newRefs].sort()) !== JSON.stringify([...oldRefs].sort());
-    if (changed) {
-      await updateSeasonPfsRefs(editTarget.id, newRefs);
+    const newRef = pfs?.ref ?? null;
+    if (newRef !== editTarget.pfsRef) {
+      await updateSeasonPfsRef(editTarget.id, newRef);
     }
     router.refresh();
   }
@@ -147,12 +142,8 @@ export default function SeasonsManager({
                       <span className="badge badge-neutral text-[10px]">{item.productCount}</span>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      {item.pfsRefs.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {item.pfsRefs.map((ref) => (
-                            <span key={ref} className="badge badge-purple text-[10px]">PFS: {ref}</span>
-                          ))}
-                        </div>
+                      {item.pfsRef ? (
+                        <span className="badge badge-purple text-[10px]">PFS: {item.pfsRef}</span>
                       ) : (
                         <span className="text-text-muted text-xs">—</span>
                       )}
@@ -213,12 +204,11 @@ export default function SeasonsManager({
           open={!!editTarget}
           onClose={() => setEditTarget(null)}
           onCreated={() => { setEditTarget(null); router.refresh(); }}
-          usedPfsRefs={allUsedPfsRefs.filter((r) => !editTarget.pfsRefs.includes(r))}
           editMode={{
             id: editTarget.id,
             name: editTarget.name,
             translations: editTarget.translations,
-            pfsRefs: editTarget.pfsRefs,
+            pfsRef: editTarget.pfsRef,
             onSave: handleSave,
           }}
         />

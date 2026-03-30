@@ -2,11 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { pfsTotalProducts } from "@/lib/pfs-api";
-import { runPfsPrepare } from "@/lib/pfs-prepare";
+import { runPfsAnalyze } from "@/lib/pfs-analyze";
 
 // ─────────────────────────────────────────────
-// POST — Start a new prepare job
+// POST — Start a new import job (analyze → validate → prepare)
 // ─────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -25,50 +24,38 @@ export async function POST(req: NextRequest) {
       // No body or invalid JSON — default to unlimited
     }
 
-    // Check if a prepare job is already running
-    const running = await prisma.pfsPrepareJob.findFirst({
-      where: { status: "RUNNING" },
+    // Check if a job is already running or analyzing
+    const active = await prisma.pfsPrepareJob.findFirst({
+      where: { status: { in: ["RUNNING", "ANALYZING"] } },
       select: { id: true },
     });
 
-    if (running) {
+    if (active) {
       return NextResponse.json(
-        { error: "Une préparation est déjà en cours.", jobId: running.id },
+        { error: "Une importation est déjà en cours.", jobId: active.id },
         { status: 409 },
       );
     }
 
-    // Get total products count from PFS
-    let totalProducts = 0;
-    try {
-      totalProducts = await pfsTotalProducts();
-    } catch {
-      // Non-blocking — will update during prepare
-    }
-
-    if (limit > 0) totalProducts = Math.min(totalProducts, limit);
-
-    // Create the prepare job
+    // Create the job in ANALYZING state
     const job = await prisma.pfsPrepareJob.create({
       data: {
-        status: "RUNNING",
-        totalProducts,
+        status: "ANALYZING",
         adminId: session.user.id,
       },
     });
 
-    // Fire-and-forget
-    runPfsPrepare(job.id, { limit }).catch(console.error);
+    // Fire-and-forget analyze (will transition to RUNNING or NEEDS_VALIDATION)
+    runPfsAnalyze(job.id, { limit }).catch(console.error);
 
     return NextResponse.json({
       jobId: job.id,
-      totalProducts,
       limit,
     });
   } catch (error) {
-    console.error("[PFS Prepare] Error starting prepare job:", error);
+    console.error("[PFS Import] Error starting import job:", error);
     return NextResponse.json(
-      { error: "Erreur lors du lancement de la préparation" },
+      { error: "Erreur lors du lancement de l'importation" },
       { status: 500 },
     );
   }
@@ -100,7 +87,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Job non trouvé" }, { status: 404 });
     }
 
-    if (job.status !== "RUNNING" && job.status !== "PENDING") {
+    if (job.status !== "RUNNING" && job.status !== "PENDING" && job.status !== "ANALYZING") {
       return NextResponse.json({ error: "Le job n'est pas en cours" }, { status: 400 });
     }
 

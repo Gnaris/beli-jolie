@@ -10,7 +10,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface PrepareJob {
   id: string;
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  status: "PENDING" | "ANALYZING" | "NEEDS_VALIDATION" | "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
   totalProducts: number;
   processedProducts: number;
   readyProducts: number;
@@ -52,6 +52,9 @@ function statusBadge(status: PrepareJob["status"]) {
     FAILED: { cls: "badge badge-error", label: "Échoué" },
     PENDING: { cls: "badge badge-warning", label: "En attente" },
     RUNNING: { cls: "badge badge-info", label: "En cours" },
+    ANALYZING: { cls: "badge badge-info", label: "Analyse" },
+    NEEDS_VALIDATION: { cls: "badge badge-warning", label: "Validation requise" },
+    STOPPED: { cls: "badge badge-neutral", label: "Arrêté" },
   };
   const s = map[status] || { cls: "badge badge-neutral", label: status };
   return <span className={s.cls}>{s.label}</span>;

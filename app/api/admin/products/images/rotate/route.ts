@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
-import { readFile, writeFile } from "fs/promises";
-import path from "path";
+import { downloadFromR2, uploadToR2, r2KeyFromDbPath } from "@/lib/r2";
+import { getImagePaths } from "@/lib/image-utils";
 
 /**
  * POST /api/admin/products/images/rotate
@@ -29,25 +29,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
   }
 
-  const baseName = path.basename(normalized, path.extname(normalized));
-  const dir = path.join(process.cwd(), "public", path.dirname(normalized));
-
+  const paths = getImagePaths(normalized);
   const variants = [
-    { suffix: "", file: `${baseName}.webp` },
-    { suffix: "_md", file: `${baseName}_md.webp` },
-    { suffix: "_thumb", file: `${baseName}_thumb.webp` },
+    { dbPath: paths.large, quality: 100 },
+    { dbPath: paths.medium, quality: 100 },
+    { dbPath: paths.thumb, quality: 100 },
   ];
 
   try {
     for (const v of variants) {
-      const filePath = path.join(dir, v.file);
+      const key = r2KeyFromDbPath(v.dbPath);
       try {
-        const buffer = await readFile(filePath);
+        const buffer = await downloadFromR2(key);
         const rotated = await sharp(buffer)
           .rotate(90)
-          .webp({ quality: v.suffix === "" ? 90 : v.suffix === "_md" ? 82 : 80 })
+          .webp({ quality: v.quality })
           .toBuffer();
-        await writeFile(filePath, rotated);
+        await uploadToR2(key, rotated);
       } catch {
         // Variant file might not exist (e.g. missing thumb), skip
       }

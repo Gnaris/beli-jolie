@@ -2,42 +2,37 @@
  * Image Processing Pipeline
  *
  * Converts any uploaded image to WebP format with 3 sizes:
- *   - thumb  (400px)  — lossy q80  — for lists, cart, grids
- *   - medium (800px)  — lossy q82  — for product cards, detail page
- *   - large  (1200px) — lossy q90  — for zoom, full quality
+ *   - thumb  (400px)  — lossy q100 — for lists, cart, grids
+ *   - medium (800px)  — lossy q100 — for product cards, detail page
+ *   - large  (1200px) — lossy q100 — for zoom, full quality
  *
  * Naming convention:
  *   DB stores:   /uploads/products/abc123.webp       (= large)
- *   On disk:     abc123.webp        (large)
- *                abc123_md.webp     (medium)
- *                abc123_thumb.webp  (thumb)
+ *   On R2:       uploads/products/abc123.webp        (large)
+ *                uploads/products/abc123_md.webp     (medium)
+ *                uploads/products/abc123_thumb.webp  (thumb)
  *
  * Usage:
- *   const { basePath } = await processProductImage(buffer, "uploads/products");
- *   // basePath = "/uploads/products/1710000000_1.webp"
- *   // Also created: _md.webp and _thumb.webp
+ *   const { dbPath } = await processProductImage(buffer, "public/uploads/products", "1710000000_1");
+ *   // dbPath = "/uploads/products/1710000000_1.webp"
+ *   // Also uploaded: _md.webp and _thumb.webp to R2
  */
 
 import sharp from "sharp";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
+import { uploadToR2, r2PrefixFromDestDir } from "@/lib/r2";
+
+// Re-export client-safe utilities (backward compat)
+export { getImagePaths, getImageSrc } from "@/lib/image-utils";
 
 // ─────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────
 
 const SIZES = {
-  large:  { width: 1200, height: 1200, quality: 90 },
-  medium: { width: 800,  height: 800,  quality: 82 },
-  thumb:  { width: 400,  height: 400,  quality: 80 },
+  large:  { width: 1200, height: 1200, quality: 100 },
+  medium: { width: 800,  height: 800,  quality: 100 },
+  thumb:  { width: 400,  height: 400,  quality: 100 },
 } as const;
-
-// ─────────────────────────────────────────────
-// Path helpers
-// ─────────────────────────────────────────────
-
-// Re-export client-safe utilities (backward compat)
-export { getImagePaths, getImageSrc } from "@/lib/image-utils";
 
 // ─────────────────────────────────────────────
 // Processing
@@ -46,17 +41,15 @@ export { getImagePaths, getImageSrc } from "@/lib/image-utils";
 interface ProcessResult {
   /** Path stored in DB (large version), e.g. "/uploads/products/abc123.webp" */
   dbPath: string;
-  /** Absolute path to large file on disk */
-  largePath: string;
   /** Sizes in bytes */
   sizes: { large: number; medium: number; thumb: number };
 }
 
 /**
- * Process a single image: convert to WebP, generate 3 sizes.
+ * Process a single image: convert to WebP, generate 3 sizes, upload to R2.
  *
  * @param buffer   Raw image buffer (any format: JPEG, PNG, GIF, TIFF, HEIC, BMP, WebP)
- * @param destDir  Relative directory from project root (e.g. "public/uploads/products")
+ * @param destDir  Logical directory (e.g. "public/uploads/products") — "public/" prefix is stripped for R2
  * @param filename Base filename without extension (e.g. "1710000000_1")
  */
 export async function processProductImage(
@@ -64,12 +57,11 @@ export async function processProductImage(
   destDir: string,
   filename: string,
 ): Promise<ProcessResult> {
-  const fullDir = path.join(process.cwd(), destDir);
-  await mkdir(fullDir, { recursive: true });
+  const prefix = r2PrefixFromDestDir(destDir);
 
-  const webpName = `${filename}.webp`;
-  const mdName = `${filename}_md.webp`;
-  const thumbName = `${filename}_thumb.webp`;
+  const webpKey = `${prefix}/${filename}.webp`;
+  const mdKey = `${prefix}/${filename}_md.webp`;
+  const thumbKey = `${prefix}/${filename}_thumb.webp`;
 
   // Auto-rotate based on EXIF orientation before resizing (fixes rotated images from bulk import)
   const oriented = sharp(buffer).rotate();
@@ -93,20 +85,18 @@ export async function processProductImage(
       .toBuffer(),
   ]);
 
-  // Write all 3 files in parallel
+  // Upload all 3 files to R2 in parallel
   await Promise.all([
-    writeFile(path.join(fullDir, webpName), largeBuffer),
-    writeFile(path.join(fullDir, mdName), mediumBuffer),
-    writeFile(path.join(fullDir, thumbName), thumbBuffer),
+    uploadToR2(webpKey, largeBuffer),
+    uploadToR2(mdKey, mediumBuffer),
+    uploadToR2(thumbKey, thumbBuffer),
   ]);
 
-  // Derive the public URL path (strip "public/" prefix if present)
-  const publicPrefix = destDir.startsWith("public/") ? destDir.slice(7) : destDir;
-  const dbPath = `/${publicPrefix}/${webpName}`;
+  // DB path keeps the leading slash for backward compat
+  const dbPath = `/${prefix}/${filename}.webp`;
 
   return {
     dbPath,
-    largePath: path.join(fullDir, webpName),
     sizes: {
       large: largeBuffer.length,
       medium: mediumBuffer.length,

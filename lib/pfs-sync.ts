@@ -31,7 +31,15 @@ import {
 import { processProductImage } from "@/lib/image-processor";
 import { normalizeColorName } from "@/lib/import-processor";
 import { stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
-import { autoTranslateProduct } from "@/lib/auto-translate";
+import {
+  autoTranslateProduct,
+  autoTranslateColor,
+  autoTranslateCategory,
+  autoTranslateComposition,
+  autoTranslateManufacturingCountry,
+  autoTranslateSeason,
+} from "@/lib/auto-translate";
+import { deleteMultipleFromR2, r2KeyFromDbPath } from "@/lib/r2";
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -368,6 +376,9 @@ export async function findOrCreateColor(
     }).catch(() => {});
     colorCache.set(normalized, existing.id);
     await upsertColorTranslations(existing.id, labels);
+    // Auto-translate missing locales (ar, zh) if enabled
+    const existingLocales = Object.keys(labels).filter((l) => l !== "fr" && labels[l]);
+    autoTranslateColor(existing.id, frLabel, existingLocales);
     return existing.id;
   }
 
@@ -450,7 +461,12 @@ export async function findOrCreateCategory(
       update: { bjEntityId: existing.id, bjName: name },
     }).catch(() => {});
     categoryCache.set(name, existing.id);
-    if (labels) await upsertCategoryTranslations(existing.id, labels);
+    if (labels) {
+      await upsertCategoryTranslations(existing.id, labels);
+      // Auto-translate missing locales (ar, zh) if enabled
+      const existingLocales = Object.keys(labels).filter((l) => l !== "fr" && labels[l]);
+      autoTranslateCategory(existing.id, name, existingLocales);
+    }
     return existing.id;
   }
 
@@ -535,6 +551,9 @@ export async function findOrCreateComposition(
         // Race condition: concurrent sync already created this — safe to ignore
       }
     }
+    // Auto-translate missing locales (ar, zh) if enabled
+    const existingLocales = Object.keys(labels).filter((l) => l !== "fr" && labels[l]);
+    autoTranslateComposition(existing.id, frName, existingLocales);
     return existing.id;
   }
 
@@ -601,6 +620,8 @@ export async function findOrCreateCountry(
     update: { bjEntityId: created.id, bjName: normalized },
   }).catch(() => {});
   countryCache.set(normalized, created.id);
+  // Auto-translate country name to all locales if enabled
+  autoTranslateManufacturingCountry(created.id, normalized);
   return created.id;
 }
 
@@ -631,33 +652,36 @@ export async function findOrCreateSeason(
     await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
   }
 
-  // Check by PFS ref in SeasonPfsRef table
-  const existingByRef = await prisma.seasonPfsRef.findUnique({
+  // Check by pfsRef on Season
+  const existingByRef = await prisma.season.findUnique({
     where: { pfsRef: normalized },
-    select: { seasonId: true },
+    select: { id: true },
   });
   if (existingByRef) {
     // Ensure PfsMapping exists
     await prisma.pfsMapping.upsert({
       where: { type_pfsName: { type: "season", pfsName: reference.toLowerCase() } },
-      create: { type: "season", pfsName: reference.toLowerCase(), bjEntityId: existingByRef.seasonId, bjName: labels?.fr || normalized },
-      update: { bjEntityId: existingByRef.seasonId, bjName: labels?.fr || normalized },
+      create: { type: "season", pfsName: reference.toLowerCase(), bjEntityId: existingByRef.id, bjName: labels?.fr || normalized },
+      update: { bjEntityId: existingByRef.id, bjName: labels?.fr || normalized },
     }).catch(() => {});
-    seasonCache.set(normalized, existingByRef.seasonId);
-    return existingByRef.seasonId;
+    seasonCache.set(normalized, existingByRef.id);
+    // Auto-translate missing locales if enabled
+    const seasonFrName = labels?.fr || normalized;
+    const seasonExistingLocales = Object.keys(labels).filter((l) => l !== "fr" && labels[l]);
+    autoTranslateSeason(existingByRef.id, seasonFrName, seasonExistingLocales);
+    return existingByRef.id;
   }
 
   // Check by name (FR label)
   const frName = labels?.fr || normalized;
   const existingByName = await prisma.season.findFirst({
     where: { name: frName },
-    select: { id: true, pfsRefs: { select: { pfsRef: true } } },
+    select: { id: true, pfsRef: true },
   });
   if (existingByName) {
-    // Add pfsRef if not already linked
-    const hasRef = existingByName.pfsRefs.some((r) => r.pfsRef === normalized);
-    if (!hasRef) {
-      await prisma.seasonPfsRef.create({ data: { seasonId: existingByName.id, pfsRef: normalized } }).catch(() => {});
+    // Set pfsRef if not already set
+    if (!existingByName.pfsRef) {
+      await prisma.season.update({ where: { id: existingByName.id }, data: { pfsRef: normalized } }).catch(() => {});
     }
     // Ensure PfsMapping exists
     await prisma.pfsMapping.upsert({
@@ -666,6 +690,9 @@ export async function findOrCreateSeason(
       update: { bjEntityId: existingByName.id, bjName: frName },
     }).catch(() => {});
     seasonCache.set(normalized, existingByName.id);
+    // Auto-translate missing locales if enabled
+    const existingLocales = Object.keys(labels).filter((l) => l !== "fr" && labels[l]);
+    autoTranslateSeason(existingByName.id, frName, existingLocales);
     return existingByName.id;
   }
 
@@ -1060,6 +1087,24 @@ async function syncSingleProduct(
     if (isUpdate) {
       // ── UPDATE existing product ──
       const productId = existing!.id;
+
+      // Delete old image files from R2 before removing DB records
+      const oldImages = await prisma.productColorImage.findMany({
+        where: { productId },
+        select: { path: true },
+      });
+      if (oldImages.length > 0) {
+        const r2Keys = oldImages.flatMap(({ path }) => {
+          const base = r2KeyFromDbPath(path);
+          const ext = ".webp";
+          if (!base.endsWith(ext)) return [base];
+          const stem = base.slice(0, -ext.length);
+          return [`${stem}${ext}`, `${stem}_md${ext}`, `${stem}_thumb${ext}`];
+        });
+        await deleteMultipleFromR2(r2Keys).catch((err) =>
+          console.warn(`[PFS_SYNC] Failed to delete old R2 images for ${bjRef}:`, err),
+        );
+      }
 
       // Run independent DB operations in parallel
       await Promise.all([

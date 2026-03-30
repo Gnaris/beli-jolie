@@ -32,8 +32,6 @@ interface QuickCreateModalProps {
   defaultPfsCategoryFamilyId?: string;
   defaultHex?: string | null;
   pfsEnabled?: boolean;
-  /** PFS refs already linked to other seasons — shown strikethrough + disabled */
-  usedPfsRefs?: string[];
   /** Edit mode — if set, the modal edits instead of creating */
   editMode?: {
     id: string;
@@ -42,7 +40,6 @@ interface QuickCreateModalProps {
     hex?: string | null;
     patternImage?: string | null;
     pfsRef?: string | null;
-    pfsRefs?: string[];
     pfsCategoryId?: string | null;
     pfsCategoryGender?: string | null;
     pfsCategoryFamilyId?: string | null;
@@ -51,7 +48,7 @@ interface QuickCreateModalProps {
       translations: Record<string, string>,
       hex?: string,
       patternImage?: string | null,
-      pfs?: { ref?: string; refs?: string[]; categoryId?: string; categoryGender?: string | null; categoryFamilyId?: string | null },
+      pfs?: { ref?: string; categoryId?: string; categoryGender?: string | null; categoryFamilyId?: string | null },
     ) => Promise<void>;
   };
 }
@@ -92,7 +89,7 @@ const RTL = ["ar"];
 export default function QuickCreateModal({
   type, open, onClose, onCreated, categoryId, defaultName, defaultPfsRef,
   defaultPfsCategoryId, defaultPfsCategoryGender, defaultPfsCategoryFamilyId,
-  defaultHex, usedPfsRefs, editMode, pfsEnabled = true,
+  defaultHex, editMode, pfsEnabled = true,
 }: QuickCreateModalProps) {
   const isEdit = !!editMode;
   const autoTranslateEnabled = useAutoTranslateEnabled();
@@ -108,7 +105,6 @@ export default function QuickCreateModal({
 
   // Marketplace mapping state
   const [pfsRef, setPfsRef] = useState("");
-  const [pfsRefs, setPfsRefs] = useState<string[]>([]);
   const [pfsCategoryId, setPfsCategoryId] = useState("");
   const [pfsCategoryGender, setPfsCategoryGender] = useState<string | null>(null);
   const [pfsCategoryFamilyId, setPfsCategoryFamilyId] = useState<string | null>(null);
@@ -125,7 +121,6 @@ export default function QuickCreateModal({
         setPatternPreview(editMode.patternImage ?? null);
         setError("");
         setPfsRef(editMode.pfsRef ?? "");
-        setPfsRefs(editMode.pfsRefs ?? (editMode.pfsRef ? [editMode.pfsRef] : []));
         setPfsCategoryId(editMode.pfsCategoryId ?? "");
         setPfsCategoryGender(editMode.pfsCategoryGender ?? null);
         setPfsCategoryFamilyId(editMode.pfsCategoryFamilyId ?? null);
@@ -137,7 +132,6 @@ export default function QuickCreateModal({
         setPatternPreview(null);
         setError("");
         setPfsRef(defaultPfsRef ?? "");
-        setPfsRefs(defaultPfsRef ? [defaultPfsRef] : []);
         setPfsCategoryId(defaultPfsCategoryId ?? "");
         setPfsCategoryGender(defaultPfsCategoryGender ?? null);
         setPfsCategoryFamilyId(defaultPfsCategoryFamilyId ?? null);
@@ -208,7 +202,6 @@ export default function QuickCreateModal({
           finalPatternImage,
           {
             ref: pfsRef || undefined,
-            refs: type === "season" ? pfsRefs : undefined,
             categoryId: pfsCategoryId || undefined,
             categoryGender: pfsCategoryGender,
             categoryFamilyId: pfsCategoryFamilyId,
@@ -223,10 +216,7 @@ export default function QuickCreateModal({
         if (type === "category" && !pfsCategoryId) {
           setError("La correspondance PFS est requise."); setLoading(false); return;
         }
-        if (type === "season" && pfsRefs.length === 0) {
-          setError("La correspondance PFS est requise."); setLoading(false); return;
-        }
-        if (type !== "category" && type !== "season" && !pfsRef) {
+        if (type !== "category" && !pfsRef) {
           setError("La correspondance PFS est requise."); setLoading(false); return;
         }
       }
@@ -244,7 +234,7 @@ export default function QuickCreateModal({
       } else if (type === "country") {
         result = await createManufacturingCountryQuick(names, undefined, pfsRef || null);
       } else if (type === "season") {
-        result = await createSeasonQuick(names, pfsRefs);
+        result = await createSeasonQuick(names, pfsRef || null);
       } else {
         let patternPath: string | null = null;
         if (colorMode === "pattern") {
@@ -443,16 +433,9 @@ export default function QuickCreateModal({
                     pfsCategoryId={pfsCategoryId}
                     onPfsCategoryChange={handlePfsCategoryChange}
                   />
-                ) : type === "season" ? (
-                  <MarketplaceMappingSection
-                    entityType="season"
-                    pfsRefs={pfsRefs}
-                    onPfsRefsChange={setPfsRefs}
-                    usedPfsRefs={usedPfsRefs}
-                  />
                 ) : (
                   <MarketplaceMappingSection
-                    entityType={type as "color" | "composition" | "country"}
+                    entityType={type as "color" | "composition" | "country" | "season"}
                     pfsRef={pfsRef}
                     onPfsRefChange={setPfsRef}
                   />

@@ -27,8 +27,8 @@ export async function GET() {
     }),
     prisma.season.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, pfsRefs: { select: { pfsRef: true } } },
-    }).then((seasons) => seasons.map((s) => ({ ...s, pfsRefs: s.pfsRefs.map((r) => r.pfsRef) }))),
+      select: { id: true, name: true, pfsRef: true },
+    }),
     prisma.size.findMany({
       orderBy: { position: "asc" },
       select: {

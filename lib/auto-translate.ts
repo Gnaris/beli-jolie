@@ -7,7 +7,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { translateToAllLocales, translateText, type Locale } from "@/lib/translate";
+import { translateText, type Locale } from "@/lib/translate";
 
 const TARGET_LOCALES: Locale[] = ["en", "ar", "zh", "de", "es", "it"];
 
@@ -40,74 +40,77 @@ async function autoTranslateEntity(entity: EntityTranslator) {
       : TARGET_LOCALES;
     if (localesToTranslate.length === 0) return;
 
-    const translations = await translateToAllLocales(entity.name);
-    if (!translations || Object.keys(translations).length === 0) return;
-
+    // Translate each locale individually (graceful degradation on quota)
     for (const locale of localesToTranslate) {
-      const val = translations[locale]?.trim();
-      if (!val) continue;
+      try {
+        const val = await translateText(entity.name, "fr", locale);
+        if (!val?.trim() || val === entity.name) continue;
 
-      switch (entity.table) {
-        case "color":
-          await prisma.colorTranslation.upsert({
-            where: { colorId_locale: { colorId: entity.id, locale } },
-            update: { name: val },
-            create: { colorId: entity.id, locale, name: val },
-          });
-          break;
-        case "composition":
-          await prisma.compositionTranslation.upsert({
-            where: { compositionId_locale: { compositionId: entity.id, locale } },
-            update: { name: val },
-            create: { compositionId: entity.id, locale, name: val },
-          });
-          break;
-        case "category":
-          await prisma.categoryTranslation.upsert({
-            where: { categoryId_locale: { categoryId: entity.id, locale } },
-            update: { name: val },
-            create: { categoryId: entity.id, locale, name: val },
-          });
-          break;
-        case "subcategory":
-          await prisma.subCategoryTranslation.upsert({
-            where: { subCategoryId_locale: { subCategoryId: entity.id, locale } },
-            update: { name: val },
-            create: { subCategoryId: entity.id, locale, name: val },
-          });
-          break;
-        case "collection":
-          await prisma.collectionTranslation.upsert({
-            where: { collectionId_locale: { collectionId: entity.id, locale } },
-            update: { name: val },
-            create: { collectionId: entity.id, locale, name: val },
-          });
-          break;
-        case "manufacturing-country":
-          await prisma.manufacturingCountryTranslation.upsert({
-            where: { manufacturingCountryId_locale: { manufacturingCountryId: entity.id, locale } },
-            update: { name: val },
-            create: { manufacturingCountryId: entity.id, locale, name: val },
-          });
-          break;
-        case "season":
-          await prisma.seasonTranslation.upsert({
-            where: { seasonId_locale: { seasonId: entity.id, locale } },
-            update: { name: val },
-            create: { seasonId: entity.id, locale, name: val },
-          });
-          break;
-        case "tag":
-          await prisma.tagTranslation.upsert({
-            where: { tagId_locale: { tagId: entity.id, locale } },
-            update: { name: val },
-            create: { tagId: entity.id, locale, name: val },
-          });
-          break;
+        switch (entity.table) {
+          case "color":
+            await prisma.colorTranslation.upsert({
+              where: { colorId_locale: { colorId: entity.id, locale } },
+              update: { name: val },
+              create: { colorId: entity.id, locale, name: val },
+            });
+            break;
+          case "composition":
+            await prisma.compositionTranslation.upsert({
+              where: { compositionId_locale: { compositionId: entity.id, locale } },
+              update: { name: val },
+              create: { compositionId: entity.id, locale, name: val },
+            });
+            break;
+          case "category":
+            await prisma.categoryTranslation.upsert({
+              where: { categoryId_locale: { categoryId: entity.id, locale } },
+              update: { name: val },
+              create: { categoryId: entity.id, locale, name: val },
+            });
+            break;
+          case "subcategory":
+            await prisma.subCategoryTranslation.upsert({
+              where: { subCategoryId_locale: { subCategoryId: entity.id, locale } },
+              update: { name: val },
+              create: { subCategoryId: entity.id, locale, name: val },
+            });
+            break;
+          case "collection":
+            await prisma.collectionTranslation.upsert({
+              where: { collectionId_locale: { collectionId: entity.id, locale } },
+              update: { name: val },
+              create: { collectionId: entity.id, locale, name: val },
+            });
+            break;
+          case "manufacturing-country":
+            await prisma.manufacturingCountryTranslation.upsert({
+              where: { manufacturingCountryId_locale: { manufacturingCountryId: entity.id, locale } },
+              update: { name: val },
+              create: { manufacturingCountryId: entity.id, locale, name: val },
+            });
+            break;
+          case "season":
+            await prisma.seasonTranslation.upsert({
+              where: { seasonId_locale: { seasonId: entity.id, locale } },
+              update: { name: val },
+              create: { seasonId: entity.id, locale, name: val },
+            });
+            break;
+          case "tag":
+            await prisma.tagTranslation.upsert({
+              where: { tagId_locale: { tagId: entity.id, locale } },
+              update: { name: val },
+              create: { tagId: entity.id, locale, name: val },
+            });
+            break;
+        }
+        console.log(`[AutoTranslate] ${entity.table} "${entity.name}" → ${locale}: "${val}"`);
+      } catch (err) {
+        console.warn(`[AutoTranslate] Failed ${entity.table} "${entity.name}" → ${locale}:`, err);
       }
     }
-  } catch {
-    // Silent — never block entity creation
+  } catch (err) {
+    console.warn(`[AutoTranslate] Failed for ${entity.table} "${entity.name}":`, err);
   }
 }
 
@@ -189,9 +192,10 @@ async function _autoTranslateProduct(
           update: { name: translatedName, description: translatedDesc },
           create: { productId, locale, name: translatedName, description: translatedDesc },
         });
+        console.log(`[AutoTranslate] Product "${name}" → ${locale}: "${translatedName}"`);
       }
     }
-  } catch {
-    // Silent
+  } catch (err) {
+    console.warn(`[AutoTranslate] Failed for product "${name}":`, err);
   }
 }

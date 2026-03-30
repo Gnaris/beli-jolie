@@ -29,7 +29,7 @@ export default async function ModifierProduitPage({
       include: {
         category: true,
         manufacturingCountry: true,
-        season: { include: { pfsRefs: { select: { pfsRef: true } } } },
+        season: true,
         colors: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
           include: {
@@ -272,7 +272,7 @@ export default async function ModifierProduitPage({
     if (product.manufacturingCountry && !product.manufacturingCountry.pfsCountryRef) {
       mappingIssues.push(`Pays "${product.manufacturingCountry.name}" non mappé`);
     }
-    if (product.season && product.season.pfsRefs.length === 0) {
+    if (product.season && !product.season.pfsRef) {
       mappingIssues.push(`Saison "${product.season.name}" non mappée`);
     }
   }

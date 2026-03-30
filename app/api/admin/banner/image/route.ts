@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
+import { uploadToR2 } from "@/lib/r2";
 
 /**
  * POST /api/admin/banner/image
@@ -39,9 +38,6 @@ export async function POST(request: NextRequest) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const destDir = path.join(process.cwd(), "public/uploads/banner");
-    await mkdir(destDir, { recursive: true });
-
     const filename = `banner-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Banner: wide format, 1920px max width, auto height
@@ -51,18 +47,18 @@ export async function POST(request: NextRequest) {
       oriented
         .clone()
         .resize(1920, 800, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 90 })
+        .webp({ quality: 100 })
         .toBuffer(),
       oriented
         .clone()
         .resize(960, 400, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 82 })
+        .webp({ quality: 100 })
         .toBuffer(),
     ]);
 
     await Promise.all([
-      writeFile(path.join(destDir, `${filename}.webp`), largeBuffer),
-      writeFile(path.join(destDir, `${filename}_md.webp`), mediumBuffer),
+      uploadToR2(`uploads/banner/${filename}.webp`, largeBuffer),
+      uploadToR2(`uploads/banner/${filename}_md.webp`, mediumBuffer),
     ]);
 
     const dbPath = `/uploads/banner/${filename}.webp`;

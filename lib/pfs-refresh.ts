@@ -72,7 +72,7 @@ function generateDeleteRef(): string {
 async function convertToJpeg(imagePath: string): Promise<Buffer> {
   const fsPath = path.join(process.cwd(), "public", imagePath);
   const buffer = await readFile(fsPath);
-  return sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+  return sharp(buffer).jpeg({ quality: 100, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer();
 }
 
 // ─────────────────────────────────────────────
@@ -140,7 +140,7 @@ interface FullProduct {
     composition: { id: string; name: string; pfsCompositionRef: string | null };
   }[];
   manufacturingCountry: { id: string; name: string; isoCode: string | null; pfsCountryRef: string | null } | null;
-  season: { id: string; name: string; pfsRefs: { pfsRef: string }[] } | null;
+  season: { id: string; name: string; pfsRef: string | null } | null;
 }
 
 const PFS_DEFAULTS = {
@@ -209,7 +209,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
         select: { compositionId: true, percentage: true, composition: { select: { id: true, name: true, pfsCompositionRef: true } } },
       },
       manufacturingCountry: { select: { id: true, name: true, isoCode: true, pfsCountryRef: true } },
-      season: { select: { id: true, name: true, pfsRefs: { select: { pfsRef: true } } } },
+      season: { select: { id: true, name: true, pfsRef: true } },
     },
   }) as unknown as FullProduct | null;
 }
@@ -291,7 +291,7 @@ export async function pfsRefreshProduct(
       brand_name: brandName,
       family,
       category: product.category.pfsCategoryId!,
-      season_name: product.season?.pfsRefs[0]?.pfsRef ?? PFS_DEFAULTS.season_name,
+      season_name: product.season?.pfsRef ?? PFS_DEFAULTS.season_name,
       label: translated.productName,
       description: translated.productDescription,
       material_composition: mainComposition,

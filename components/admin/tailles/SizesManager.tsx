@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { createSize, updateSize, deleteSize, toggleSizePfsMapping } from "@/app/actions/admin/sizes";
+import {
+  createSizesBatch,
+  updateSize,
+  deleteSize,
+  reorderSizes,
+} from "@/app/actions/admin/sizes";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
-import { usePfsAttributes } from "@/components/admin/MarketplaceMappingSection";
-import PfsSizeMultiSelect from "@/components/pfs/PfsSizeMultiSelect";
 
 interface SizeItem {
   id: string;
@@ -23,6 +26,16 @@ interface CategoryOption {
   name: string;
 }
 
+// ─────────────────────────────────────────────
+// Preset groups for quick add
+// ─────────────────────────────────────────────
+const PRESETS = [
+  { label: "Standard", sizes: "XS, S, M, L, XL, XXL" },
+  { label: "Chaussures", sizes: "36, 37, 38, 39, 40, 41, 42, 43, 44, 45" },
+  { label: "Pantalons", sizes: "T34, T36, T38, T40, T42, T44, T46" },
+  { label: "Unique", sizes: "Taille unique" },
+];
+
 export default function SizesManager({
   initialSizes,
   categories,
@@ -37,45 +50,95 @@ export default function SizesManager({
   const { showLoading, hideLoading } = useLoadingOverlay();
 
   // Create form
-  const [newName, setNewName] = useState("");
-  const [newCategoryIds, setNewCategoryIds] = useState<string[]>([]);
-  const [newPfsSizeRefs, setNewPfsSizeRefs] = useState<Set<string>>(new Set());
+  const [inputValue, setInputValue] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [showCategories, setShowCategories] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Edit state
+  // Edit state (per-row inline)
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editCategoryIds, setEditCategoryIds] = useState<string[]>([]);
 
-  // PFS data for size mapping
-  const { data: pfsData, loading: pfsLoading, error: pfsError, retry: pfsRetry } = usePfsAttributes();
+  // Local sizes for reorder
+  const [sizes, setSizes] = useState(initialSizes);
+  useEffect(() => { setSizes(initialSizes); }, [initialSizes]);
 
-  function toggleNewPfsSize(ref: string) {
-    setNewPfsSizeRefs((prev) => {
-      const next = new Set(prev);
-      if (next.has(ref)) next.delete(ref);
-      else next.add(ref);
-      return next;
-    });
+  // ─────────────────────────────────────────────
+  // Tag input logic
+  // ─────────────────────────────────────────────
+  function addTagsFromInput(value: string) {
+    const newTags = value
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((s) => !tags.includes(s));
+    if (newTags.length > 0) {
+      setTags((prev) => [...prev, ...newTags]);
+    }
+    setInputValue("");
   }
 
-  function handleCreate() {
-    if (!newName.trim()) return;
-    if (newPfsSizeRefs.size === 0) {
-      toast.error("La correspondance PFS est requise. Sélectionnez au moins une taille PFS.");
-      return;
+  function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      if (inputValue.trim()) {
+        addTagsFromInput(inputValue);
+      } else if (tags.length > 0) {
+        handleCreate();
+      }
+    } else if (e.key === "Backspace" && !inputValue && tags.length > 0) {
+      setTags((prev) => prev.slice(0, -1));
     }
-    const selectedPfsRefs = [...newPfsSizeRefs];
+  }
+
+  function removeTag(tag: string) {
+    setTags((prev) => prev.filter((t) => t !== tag));
+  }
+
+  function applyPreset(preset: string) {
+    const newTags = preset
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((s) => !tags.includes(s));
+    setTags((prev) => [...prev, ...newTags]);
+    setInputValue("");
+    inputRef.current?.focus();
+  }
+
+  // ─────────────────────────────────────────────
+  // CRUD
+  // ─────────────────────────────────────────────
+  function handleCreate() {
+    // Include any remaining input text
+    const allNames = [...tags];
+    if (inputValue.trim()) {
+      const remaining = inputValue
+        .split(/[,;]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      allNames.push(...remaining);
+    }
+    const unique = Array.from(new Set(allNames)).filter(Boolean);
+    if (unique.length === 0) return;
+
     showLoading();
     startTransition(async () => {
       try {
-        const created = await createSize(newName, newCategoryIds);
-        // Apply PFS size mappings after creation
-        for (const ref of selectedPfsRefs) {
-          await toggleSizePfsMapping(created.id, ref);
-        }
-        setNewName("");
-        setNewPfsSizeRefs(new Set());
-        toast.success(`Taille « ${newName.trim()} » créée.`);
+        const result = await createSizesBatch(unique, selectedCategoryIds);
+        setTags([]);
+        setInputValue("");
+        const msg =
+          result.created === 1
+            ? `Taille créée.`
+            : `${result.created} tailles créées.`;
+        const skip =
+          result.skipped.length > 0
+            ? ` (déjà existantes : ${result.skipped.join(", ")})`
+            : "";
+        toast.success(msg + skip);
         router.refresh();
       } catch (err: unknown) {
         toast.error((err as Error).message);
@@ -89,6 +152,10 @@ export default function SizesManager({
     setEditId(size.id);
     setEditName(size.name);
     setEditCategoryIds(size.categoryIds);
+  }
+
+  function cancelEdit() {
+    setEditId(null);
   }
 
   function handleUpdate() {
@@ -130,214 +197,301 @@ export default function SizesManager({
     });
   }
 
-  function toggleCategory(categoryId: string, list: string[], setter: (v: string[]) => void) {
-    setter(
-      list.includes(categoryId)
-        ? list.filter((id) => id !== categoryId)
-        : [...list, categoryId]
-    );
-  }
+  // ─────────────────────────────────────────────
+  // Reorder
+  // ─────────────────────────────────────────────
+  const moveSize = useCallback(
+    (index: number, direction: -1 | 1) => {
+      const newIndex = index + direction;
+      if (newIndex < 0 || newIndex >= sizes.length) return;
+      const newSizes = [...sizes];
+      [newSizes[index], newSizes[newIndex]] = [newSizes[newIndex], newSizes[index]];
+      setSizes(newSizes);
+      // Persist
+      startTransition(async () => {
+        try {
+          await reorderSizes(newSizes.map((s) => s.id));
+        } catch {
+          // Revert on error
+          setSizes(initialSizes);
+        }
+      });
+    },
+    [sizes, initialSizes, startTransition]
+  );
 
   return (
     <>
-      {/* Create form */}
+      {/* ═══ CREATE FORM ═══ */}
       <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h2 className="text-sm font-semibold text-text-primary font-heading mb-4">
-          Nouvelle taille
+        <h2 className="text-sm font-semibold text-text-primary font-heading mb-1">
+          Ajouter des tailles
         </h2>
+        <p className="text-xs text-text-muted font-body mb-4">
+          Séparez par des virgules pour en créer plusieurs d&apos;un coup.
+        </p>
 
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        {/* Tag input */}
+        <div
+          className="flex flex-wrap items-center gap-1.5 min-h-[44px] px-3 py-2 rounded-xl border border-border bg-bg-primary focus-within:border-text-primary transition-colors cursor-text"
+          onClick={() => inputRef.current?.focus()}
+        >
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-bg-dark text-text-inverse text-xs font-medium font-body animate-[fadeIn_0.15s_ease-out]"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeTag(tag);
+                }}
+                className="ml-0.5 hover:opacity-70 transition-opacity"
+                aria-label={`Retirer ${tag}`}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          ))}
           <input
+            ref={inputRef}
             type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Nom de la taille (ex: XS, 17, Taille unique)"
-            className="field-input flex-1"
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleInputKeyDown}
+            onBlur={() => {
+              if (inputValue.trim()) addTagsFromInput(inputValue);
+            }}
+            placeholder={tags.length === 0 ? "XS, S, M, L, XL, XXL…" : ""}
+            className="flex-1 min-w-[120px] bg-transparent border-none outline-none text-sm text-text-primary placeholder:text-text-muted font-body"
           />
-          <button
-            onClick={handleCreate}
-            disabled={!newName.trim() || isPending}
-            className="btn-primary whitespace-nowrap"
-          >
-            + Créer
-          </button>
         </div>
 
-        {/* Category checkboxes for new size */}
-        {categories.length > 0 && (
-          <div className="mb-4">
-            <p className="text-xs text-text-secondary mb-2 font-body">
-              Associer aux catégories :
-            </p>
-            <CategoryPicker
-              categories={categories}
-              selected={newCategoryIds}
-              onToggle={(catId) => toggleCategory(catId, newCategoryIds, setNewCategoryIds)}
-            />
-          </div>
-        )}
+        {/* Presets */}
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <span className="text-[11px] text-text-muted font-body">Rapide :</span>
+          {PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => applyPreset(p.sizes)}
+              className="text-[11px] px-2.5 py-1 rounded-lg border border-border text-text-secondary hover:border-text-primary hover:text-text-primary transition-colors font-body"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
 
-        {/* PFS Size Mapping — hidden when PFS is disabled */}
-        {!pfsData?.pfsDisabled && (
-        <div className="border border-border rounded-xl overflow-hidden">
-          <div className="px-4 py-2.5 bg-bg-secondary border-b border-border flex items-center justify-between">
-            <p className="text-xs font-semibold text-text-secondary font-body uppercase tracking-wider">
-              Mapping Marketplaces
-            </p>
-            <span className="text-[10px] text-text-muted font-semibold font-body">Optionnel</span>
-          </div>
-          <div className="p-4">
-            <p className="text-xs font-medium text-text-primary font-body mb-2 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" />
-              Paris Fashion Shop
-            </p>
-            {pfsLoading ? (
-              <div className="flex items-center gap-2 text-text-secondary text-sm font-body">
-                <div className="animate-spin h-4 w-4 border-2 border-text-secondary border-t-transparent rounded-full shrink-0" />
-                Chargement…
+        {/* Category association (collapsible) */}
+        {categories.length > 0 && (
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => setShowCategories(!showCategories)}
+              className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors font-body"
+            >
+              <svg
+                className={`w-3.5 h-3.5 transition-transform ${showCategories ? "rotate-90" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
+              </svg>
+              Associer aux catégories
+              {selectedCategoryIds.length > 0 && (
+                <span className="badge badge-neutral text-[10px]">{selectedCategoryIds.length}</span>
+              )}
+            </button>
+            {showCategories && (
+              <div className="mt-2">
+                <CategoryPicker
+                  categories={categories}
+                  selected={selectedCategoryIds}
+                  onToggle={(catId) =>
+                    setSelectedCategoryIds((prev) =>
+                      prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
+                    )
+                  }
+                />
               </div>
-            ) : pfsError ? (
-              <div className="space-y-1">
-                <p className="text-xs text-red-500 font-body">
-                  Mapping non disponible
-                </p>
-                <p className="text-[11px] text-text-muted font-body break-all">
-                  {pfsError}
-                </p>
-                <button
-                  type="button"
-                  onClick={pfsRetry}
-                  className="text-xs text-text-secondary hover:text-text-primary underline font-body transition-colors"
-                >
-                  Réessayer
-                </button>
-              </div>
-            ) : pfsData?.sizes ? (
-              <PfsSizeMultiSelect
-                pfsSizes={pfsData.sizes}
-                selected={newPfsSizeRefs}
-                onToggle={toggleNewPfsSize}
-                disabled={false}
-                className="w-full max-w-sm"
-              />
-            ) : (
-              <p className="text-xs text-text-muted font-body">
-                Aucune taille PFS disponible
-              </p>
             )}
           </div>
-        </div>
         )}
+
+        {/* Create button */}
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={handleCreate}
+            disabled={tags.length === 0 && !inputValue.trim() || isPending}
+            className="btn-primary"
+          >
+            {tags.length > 1
+              ? `Créer ${tags.length} tailles`
+              : tags.length === 1
+                ? `Créer « ${tags[0]} »`
+                : "Créer"}
+          </button>
+          {tags.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setTags([]);
+                setInputValue("");
+              }}
+              className="text-xs text-text-muted hover:text-text-primary transition-colors font-body"
+            >
+              Tout effacer
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Sizes list */}
+      {/* ═══ SIZES LIST ═══ */}
       <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
           <h2 className="text-sm font-semibold text-text-primary font-heading">
-            Tailles existantes ({initialSizes.length})
+            Tailles existantes ({sizes.length})
           </h2>
         </div>
 
-        {initialSizes.length === 0 ? (
+        {sizes.length === 0 ? (
           <p className="text-sm text-text-secondary font-body p-6">
             Aucune taille créée.
           </p>
-        ) : editId ? (
-          /* Edit mode - inline form */
-          <div className="p-6 space-y-3">
-            <input
-              type="text"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              className="field-input w-full"
-              onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-            />
-            <CategoryPicker
-              categories={categories}
-              selected={editCategoryIds}
-              onToggle={(catId) => toggleCategory(catId, editCategoryIds, setEditCategoryIds)}
-            />
-            <div className="flex gap-2">
-              <button onClick={handleUpdate} disabled={isPending} className="btn-primary text-xs">
-                Enregistrer
-              </button>
-              <button onClick={() => setEditId(null)} className="btn-secondary text-xs">
-                Annuler
-              </button>
-            </div>
-          </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm font-body">
-              <thead>
-                <tr className="bg-bg-secondary border-b border-border">
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Nom</th>
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Catégories</th>
-                  <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Variantes</th>
-                  <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {initialSizes.map((size) => (
-                  <tr key={size.id} className="hover:bg-bg-secondary/50 transition-colors">
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-text-primary font-heading">{size.name}</span>
-                    </td>
-                    <td className="px-4 py-3 hidden sm:table-cell">
-                      {size.categoryNames.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
+          <div className="divide-y divide-border">
+            {sizes.map((size, index) => (
+              <div
+                key={size.id}
+                className="group flex items-center gap-3 px-4 py-3 hover:bg-bg-secondary/50 transition-colors"
+              >
+                {/* Reorder arrows */}
+                <div className="flex flex-col gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => moveSize(index, -1)}
+                    disabled={index === 0}
+                    className="p-0.5 text-text-muted hover:text-text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-colors rounded"
+                    title="Monter"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveSize(index, 1)}
+                    disabled={index === sizes.length - 1}
+                    className="p-0.5 text-text-muted hover:text-text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-colors rounded"
+                    title="Descendre"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                  </button>
+                </div>
+
+                {editId === size.id ? (
+                  /* ─── Inline edit ─── */
+                  <div className="flex-1 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleUpdate();
+                          if (e.key === "Escape") cancelEdit();
+                        }}
+                        className="field-input flex-1 text-sm"
+                        autoFocus
+                      />
+                      <button onClick={handleUpdate} disabled={isPending} className="btn-primary text-xs py-1.5 px-3">
+                        OK
+                      </button>
+                      <button onClick={cancelEdit} className="btn-secondary text-xs py-1.5 px-3">
+                        Annuler
+                      </button>
+                    </div>
+                    {categories.length > 0 && (
+                      <CategoryPicker
+                        categories={categories}
+                        selected={editCategoryIds}
+                        onToggle={(catId) =>
+                          setEditCategoryIds((prev) =>
+                            prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
+                          )
+                        }
+                      />
+                    )}
+                  </div>
+                ) : (
+                  /* ─── Display row ─── */
+                  <>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium text-sm text-text-primary font-heading">
+                        {size.name}
+                      </span>
+                      {size.categoryNames.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
                           {size.categoryNames.map((name) => (
                             <span
                               key={name}
-                              className="text-[10px] px-2 py-0.5 rounded-full bg-bg-primary border border-border text-text-secondary"
+                              className="text-[10px] px-2 py-0.5 rounded-full bg-bg-secondary border border-border text-text-secondary"
                             >
                               {name}
                             </span>
                           ))}
                         </div>
-                      ) : (
-                        <span className="text-text-muted text-xs">—</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
+                    </div>
+
+                    {/* Variant count */}
+                    <div className="shrink-0">
                       {size.variantCount > 0 ? (
-                        <span className="badge badge-neutral text-[10px]">{size.variantCount}</span>
+                        <span className="badge badge-neutral text-[10px]">
+                          {size.variantCount} variante{size.variantCount > 1 ? "s" : ""}
+                        </span>
                       ) : (
-                        <span className="text-text-muted text-xs">0</span>
+                        <span className="text-text-muted text-[11px] font-body">Inutilisée</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-0.5">
-                        <button
-                          onClick={() => startEdit(size)}
-                          className="p-2 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-bg-secondary"
-                          title="Modifier"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => handleDelete(size)}
-                          disabled={size.variantCount > 0}
-                          className="p-2 text-text-muted hover:text-[#EF4444] transition-colors disabled:opacity-30 disabled:cursor-not-allowed rounded-lg hover:bg-bg-secondary"
-                          title={size.variantCount > 0 ? "Utilisée dans des variantes" : "Supprimer"}
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => startEdit(size)}
+                        className="p-2 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-bg-secondary"
+                        title="Modifier"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => handleDelete(size)}
+                        disabled={size.variantCount > 0}
+                        className="p-2 text-text-muted hover:text-[#EF4444] transition-colors disabled:opacity-30 disabled:cursor-not-allowed rounded-lg hover:bg-bg-secondary"
+                        title={size.variantCount > 0 ? "Utilisée dans des variantes" : "Supprimer"}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
-
     </>
   );
 }
@@ -351,7 +505,7 @@ function CategoryPicker({
   selected,
   onToggle,
 }: {
-  categories: CategoryOption[];
+  categories: { id: string; name: string }[];
   selected: string[];
   onToggle: (catId: string) => void;
 }) {
@@ -369,7 +523,6 @@ function CategoryPicker({
 
   return (
     <div className="border border-border rounded-xl overflow-hidden">
-      {/* Search */}
       {categories.length > 8 && (
         <div className="px-3 py-2 border-b border-border bg-bg-secondary">
           <div className="relative">
@@ -387,8 +540,7 @@ function CategoryPicker({
         </div>
       )}
 
-      {/* Scrollable list */}
-      <div className="max-h-48 overflow-y-auto p-2 space-y-0.5">
+      <div className="max-h-36 overflow-y-auto p-2 space-y-0.5">
         {sorted.length === 0 ? (
           <p className="text-xs text-text-muted text-center py-3 font-body">Aucune catégorie trouvée</p>
         ) : (
@@ -425,7 +577,6 @@ function CategoryPicker({
         )}
       </div>
 
-      {/* Footer: count */}
       {selected.length > 0 && (
         <div className="px-3 py-1.5 border-t border-border bg-bg-secondary">
           <p className="text-[10px] text-text-secondary font-body">

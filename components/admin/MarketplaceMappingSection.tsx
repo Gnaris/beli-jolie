@@ -163,17 +163,9 @@ interface BaseProps {
 }
 
 interface SimpleProps extends BaseProps {
-  entityType: "color" | "composition" | "country";
+  entityType: "color" | "composition" | "country" | "season";
   pfsRef: string;
   onPfsRefChange: (ref: string) => void;
-}
-
-interface SeasonProps extends BaseProps {
-  entityType: "season";
-  pfsRefs: string[];
-  onPfsRefsChange: (refs: string[]) => void;
-  /** Refs already linked to other seasons — shown strikethrough + disabled */
-  usedPfsRefs?: string[];
 }
 
 interface CategoryProps extends BaseProps {
@@ -182,7 +174,7 @@ interface CategoryProps extends BaseProps {
   onPfsCategoryChange: (catId: string, gender: string | null, familyId: string | null) => void;
 }
 
-type MarketplaceMappingSectionProps = SimpleProps | CategoryProps | SeasonProps;
+type MarketplaceMappingSectionProps = SimpleProps | CategoryProps;
 
 /* ─────────────────────────────────────────────
    Component
@@ -377,63 +369,25 @@ function PfsMapping({
     );
   }
 
-  /* ── Season (multi-select) ── */
+  /* ── Season ── */
   if (entityType === "season") {
-    const { pfsRefs, onPfsRefsChange, usedPfsRefs } = props as SeasonProps;
-    const usedByOthers = new Set(usedPfsRefs ?? []);
-    const available = pfsData.collections.filter((pc) => !pfsRefs.includes(pc.reference));
+    const { pfsRef, onPfsRefChange } = props as SimpleProps;
     return (
-      <div className="space-y-2">
-        {/* Selected refs as removable chips */}
-        {pfsRefs.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {pfsRefs.map((ref) => {
-              const col = pfsData.collections.find((c) => c.reference === ref);
-              const label = col ? `${col.labels?.fr ?? col.reference} (${col.reference})` : ref;
-              return (
-                <span key={ref} className="inline-flex items-center gap-1 badge badge-purple text-[10px] pr-0.5">
-                  {label}
-                  <button
-                    type="button"
-                    onClick={() => onPfsRefsChange(pfsRefs.filter((r) => r !== ref))}
-                    className="ml-0.5 p-0.5 rounded-full hover:bg-purple-200 transition-colors"
-                    aria-label={`Retirer ${ref}`}
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </span>
-              );
-            })}
-          </div>
-        )}
-        {/* Dropdown to add more */}
-        <CustomSelect
-          value=""
-          onChange={(val) => {
-            if (val && !pfsRefs.includes(val)) {
-              onPfsRefsChange([...pfsRefs, val]);
-            }
-          }}
-          size="sm"
-          searchable
-          className="w-full"
-          aria-label="Ajouter une collection PFS"
-          options={[
-            { value: "", label: pfsRefs.length > 0 ? "— Ajouter une correspondance —" : "— Sélectionner —" },
-            ...available.map((pc) => {
-              const taken = usedByOthers.has(pc.reference);
-              return {
-                value: pc.reference,
-                label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
-                disabled: taken,
-                className: taken ? "line-through" : undefined,
-              };
-            }),
-          ]}
-        />
-      </div>
+      <CustomSelect
+        value={pfsRef}
+        onChange={(val) => onPfsRefChange(val)}
+        size="sm"
+        searchable
+        className="w-full"
+        aria-label="Collection PFS"
+        options={[
+          { value: "", label: "— Sélectionner —" },
+          ...pfsData.collections.map((pc) => ({
+            value: pc.reference,
+            label: `${pc.labels?.fr ?? pc.reference} (${pc.reference})`,
+          })),
+        ]}
+      />
     );
   }
 

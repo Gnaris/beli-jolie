@@ -6,8 +6,7 @@
  */
 
 import PDFDocument from "pdfkit";
-import path from "path";
-import fs from "fs";
+import { downloadFromR2, r2KeyFromDbPath } from "@/lib/r2";
 import { prisma } from "@/lib/prisma";
 
 // ─────────────────────────────────────────────
@@ -110,12 +109,14 @@ function tvaLabel(rate: number): string {
   return `${(rate * 100).toFixed(0)}%`;
 }
 
-/** Résout un chemin d'image stocké en base (ex: /uploads/products/xxx.jpg) → chemin absolu */
-function resolveImagePath(imagePath: string | null): string | null {
+/** Télécharge une image depuis R2 et retourne un Buffer pour pdfkit */
+async function resolveImageBuffer(imagePath: string | null): Promise<Buffer | null> {
   if (!imagePath) return null;
-  const abs = path.join(process.cwd(), "public", imagePath.replace(/^\//, ""));
-  if (fs.existsSync(abs)) return abs;
-  return null;
+  try {
+    return await downloadFromR2(r2KeyFromDbPath(imagePath));
+  } catch {
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -125,6 +126,17 @@ function resolveImagePath(imagePath: string | null): string | null {
 export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
   const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
   const shopName = shopNameInfo?.shopName || "Ma Boutique";
+
+  // Prefetch all item images from R2 before PDF generation
+  const imageBuffers = new Map<string, Buffer>();
+  await Promise.all(
+    data.items.map(async (item) => {
+      if (item.imagePath) {
+        const buf = await resolveImageBuffer(item.imagePath);
+        if (buf) imageBuffers.set(item.imagePath, buf);
+      }
+    })
+  );
 
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -289,10 +301,10 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
       doc.rect(ML, y, CW, rowH).stroke(hex2rgb(C.roseLight) as [number, number, number]);
 
       // Image produit
-      const imgPath = resolveImagePath(item.imagePath);
-      if (imgPath) {
+      const imgBuffer = item.imagePath ? imageBuffers.get(item.imagePath) : undefined;
+      if (imgBuffer) {
         try {
-          doc.image(imgPath, ML + 8, y + 8, { width: IMG_W - 16, height: IMG_H - 16, fit: [IMG_W - 16, IMG_H - 16] });
+          doc.image(imgBuffer, ML + 8, y + 8, { width: IMG_W - 16, height: IMG_H - 16, fit: [IMG_W - 16, IMG_H - 16] });
         } catch {
           // Image corrompue — placeholder
           doc.rect(ML + 8, y + 8, IMG_W - 16, IMG_H - 16).fill(hex2rgb(C.roseBg) as [number, number, number]);

@@ -6,8 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { processProductImage, getImagePaths } from "@/lib/image-processor";
 import { downloadImage } from "@/lib/pfs-sync";
-import { unlink } from "fs/promises";
-import path from "path";
+import { deleteFromR2, r2KeyFromDbPath } from "@/lib/r2";
 import { z } from "zod";
 
 const modificationsSchema = z.object({
@@ -45,14 +44,13 @@ interface ImageModifications {
   reorders: Array<{ imageId: string; newOrder: number }>;
 }
 
-/** Delete the 3 WebP files (large, medium, thumb) from disk. */
+/** Delete the 3 WebP files (large, medium, thumb) from R2. */
 async function deleteImageFiles(dbPath: string) {
   if (!dbPath || !dbPath.endsWith(".webp")) return;
   const paths = getImagePaths(dbPath);
-  const root = process.cwd();
   for (const p of [paths.large, paths.medium, paths.thumb]) {
     try {
-      await unlink(path.join(root, "public", p));
+      await deleteFromR2(r2KeyFromDbPath(p));
     } catch {
       // File may not exist — ignore
     }

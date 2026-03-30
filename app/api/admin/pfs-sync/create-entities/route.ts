@@ -148,13 +148,13 @@ export async function POST(req: NextRequest) {
     }
     for (const season of seasons) {
       if (!season.pfsReference || season.bjEntityId) continue; // skip link mode
-      const conflict = await prisma.seasonPfsRef.findUnique({
-        where: { pfsRef: season.pfsReference },
-        select: { season: { select: { id: true, name: true } } },
+      const conflict = await prisma.season.findFirst({
+        where: { pfsRef: season.pfsReference.trim().toUpperCase() },
+        select: { id: true, name: true },
       });
       if (conflict) {
         return NextResponse.json(
-          { error: `La référence PFS saison « ${season.pfsReference} » est déjà utilisée par « ${conflict.season.name} ».` },
+          { error: `La référence PFS saison « ${season.pfsReference} » est déjà utilisée par « ${conflict.name} ».` },
           { status: 409 },
         );
       }
@@ -513,14 +513,14 @@ export async function POST(req: NextRequest) {
         if (season.bjEntityId) {
           const entity = await prisma.season.findUnique({
             where: { id: season.bjEntityId },
-            select: { id: true, name: true, pfsRefs: { select: { pfsRef: true } } },
+            select: { id: true, name: true, pfsRef: true },
           });
           if (!entity) {
             return NextResponse.json({ error: `Saison BJ introuvable: ${season.bjEntityId}` }, { status: 404 });
           }
-          // Add pfsRef if not already linked
-          if (season.pfsReference && !entity.pfsRefs.some((r) => r.pfsRef === season.pfsReference)) {
-            await prisma.seasonPfsRef.create({ data: { seasonId: entity.id, pfsRef: season.pfsReference } }).catch(() => {});
+          // Set pfsRef if not already set
+          if (season.pfsReference && !entity.pfsRef) {
+            await prisma.season.update({ where: { id: entity.id }, data: { pfsRef: season.pfsReference.trim().toUpperCase() } }).catch(() => {});
           }
           await prisma.pfsMapping.upsert({
             where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
@@ -539,20 +539,18 @@ export async function POST(req: NextRequest) {
         const entity = await prisma.$transaction(async (tx) => {
           let existing = await tx.season.findFirst({
             where: { name: season.name },
-            include: { pfsRefs: { select: { pfsRef: true } } },
           });
 
           if (!existing) {
             existing = await tx.season.create({
               data: {
                 name: season.name!,
-                pfsRefs: season.pfsReference ? { create: { pfsRef: season.pfsReference } } : undefined,
+                pfsRef: season.pfsReference ? season.pfsReference.trim().toUpperCase() : null,
               },
-              include: { pfsRefs: { select: { pfsRef: true } } },
             });
             createdSeasons++;
-          } else if (season.pfsReference && !existing.pfsRefs.some((r) => r.pfsRef === season.pfsReference)) {
-            await tx.seasonPfsRef.create({ data: { seasonId: existing.id, pfsRef: season.pfsReference } }).catch(() => {});
+          } else if (season.pfsReference && !existing.pfsRef) {
+            existing = await tx.season.update({ where: { id: existing.id }, data: { pfsRef: season.pfsReference.trim().toUpperCase() } });
           }
 
           if (season.labels) {

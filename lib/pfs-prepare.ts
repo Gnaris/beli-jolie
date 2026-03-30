@@ -33,12 +33,12 @@ import {
   IMAGE_CONCURRENCY,
   MAX_LOGS,
 } from "@/lib/pfs-sync";
-import { rename, unlink, mkdir, access } from "fs/promises";
+import { moveInR2, deleteFromR2, deleteMultipleFromR2, r2KeyFromDbPath } from "@/lib/r2";
+import { autoTranslateProduct } from "@/lib/auto-translate";
 
 // Lower concurrency for prepare to avoid PFS API rate-limiting
 // Each product makes 2 API calls (getVariants + checkReference) so 5 products = 10 concurrent API calls
 const PREPARE_CONCURRENCY = 5;
-import path from "path";
 
 // ─────────────────────────────────────────────
 // Types
@@ -400,6 +400,27 @@ async function prepareSingleProduct(
       const desc = rawDesc ? stripDimensionsSuffix(rawDesc) : name;
       if (name) {
         translations.push({ locale, name, description: desc || name });
+      }
+    }
+
+    // ── Clean up old staging images if re-preparing ──
+    const existingStaged = await prisma.pfsStagedProduct.findUnique({
+      where: { pfsProductId_prepareJobId: { pfsProductId: pfsProduct.id, prepareJobId } },
+      select: { imagesByColor: true },
+    });
+    if (existingStaged?.imagesByColor) {
+      const oldGroups = existingStaged.imagesByColor as unknown as StagedImageGroup[];
+      const r2Keys = oldGroups.flatMap((g) =>
+        g.paths.flatMap((p) => {
+          const ext = ".webp";
+          const base = r2KeyFromDbPath(p);
+          if (!base.endsWith(ext)) return [base];
+          const stem = base.slice(0, -ext.length);
+          return [`${stem}${ext}`, `${stem}_md${ext}`, `${stem}_thumb${ext}`];
+        }),
+      );
+      if (r2Keys.length > 0) {
+        await deleteMultipleFromR2(r2Keys).catch(() => {});
       }
     }
 
@@ -939,6 +960,10 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
 
   await createProductChildren(product.id, variants, compositions, translations, imageGroups, tagNames);
 
+  // Auto-translate product name/description for missing locales (ar, zh) if enabled
+  const existingLocales = translations.map((t) => t.locale);
+  autoTranslateProduct(product.id, staged.name, staged.description, existingLocales);
+
   // Resolve PendingSimilar
   const pending = await prisma.pendingSimilar.findMany({
     where: { similarRef: staged.reference },
@@ -1118,7 +1143,9 @@ async function createProductChildren(
           // Source file missing — check if already moved (same staging image used by another color group)
           const finalDbPath = imgPath.replace("/uploads/products/staging/", "/uploads/products/");
           try {
-            await access(path.join(process.cwd(), "public", finalDbPath));
+            // Check if image exists on R2 (already moved by another color group)
+            const { headObjectInR2 } = await import("@/lib/r2");
+            await headObjectInR2(r2KeyFromDbPath(finalDbPath));
             finalPaths.push({ path: finalDbPath, order: imgOrder });
           } catch {
             console.warn(`[CREATE_CHILDREN] Staging image not found and not already moved: ${imgPath}`);
@@ -1204,19 +1231,13 @@ async function moveImageFromStaging(stagingDbPath: string): Promise<string> {
   // finalDbPath   = "/uploads/products/pfs_xxx.webp"
   const finalDbPath = stagingDbPath.replace("/uploads/products/staging/", "/uploads/products/");
 
-  const cwd = process.cwd();
   const suffixes = ["", "_md", "_thumb"];
   const ext = ".webp";
 
   for (const suffix of suffixes) {
-    const baseSrc = stagingDbPath.replace(ext, `${suffix}${ext}`);
-    const baseDst = finalDbPath.replace(ext, `${suffix}${ext}`);
-    const srcAbs = path.join(cwd, "public", baseSrc);
-    const dstAbs = path.join(cwd, "public", baseDst);
-
-    // Ensure destination directory exists
-    await mkdir(path.dirname(dstAbs), { recursive: true });
-    await rename(srcAbs, dstAbs);
+    const srcDb = stagingDbPath.replace(ext, `${suffix}${ext}`);
+    const dstDb = finalDbPath.replace(ext, `${suffix}${ext}`);
+    await moveInR2(r2KeyFromDbPath(srcDb), r2KeyFromDbPath(dstDb));
   }
 
   return finalDbPath;
@@ -1252,14 +1273,12 @@ export async function rejectStagedProduct(stagedId: string): Promise<void> {
 }
 
 async function deleteStagingImage(dbPath: string): Promise<void> {
-  const cwd = process.cwd();
   const ext = ".webp";
   const suffixes = ["", "_md", "_thumb"];
 
   for (const suffix of suffixes) {
     const fullPath = dbPath.replace(ext, `${suffix}${ext}`);
-    const absPath = path.join(cwd, "public", fullPath);
-    await unlink(absPath).catch(() => {}); // Ignore if already deleted
+    await deleteFromR2(r2KeyFromDbPath(fullPath)).catch(() => {}); // Ignore if already deleted
   }
 }
 

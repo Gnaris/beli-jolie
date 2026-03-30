@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { writeFile, unlink, mkdir } from "fs/promises";
-import path from "path";
 import { randomUUID } from "crypto";
+import { uploadToR2, deleteFromR2, r2KeyFromDbPath } from "@/lib/r2";
 
 const MAX_SIZE = 512 * 1024; // 500 KB
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "patterns");
+
+const CONTENT_TYPE_MAP: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+};
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -38,12 +43,12 @@ export async function POST(req: NextRequest) {
   const ext = file.name.split(".").pop()?.toLowerCase() || "png";
   const filename = `${randomUUID()}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
+  const contentType = CONTENT_TYPE_MAP[ext] || "image/png";
 
   try {
-    await mkdir(UPLOAD_DIR, { recursive: true });
-    await writeFile(path.join(UPLOAD_DIR, filename), buffer);
+    await uploadToR2(`uploads/patterns/${filename}`, buffer, contentType);
   } catch (err) {
-    console.error("[upload-pattern] Write error:", err);
+    console.error("[upload-pattern] Upload error:", err);
     return NextResponse.json({ error: "Erreur lors de l'enregistrement du fichier." }, { status: 500 });
   }
 
@@ -61,10 +66,8 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Chemin invalide." }, { status: 400 });
   }
 
-  const safeName = path.basename(filePath);
-  const absolute = path.join(process.cwd(), "public", "uploads", "patterns", safeName);
   try {
-    await unlink(absolute);
+    await deleteFromR2(r2KeyFromDbPath(filePath));
   } catch {
     // File may already be deleted — ignore
   }

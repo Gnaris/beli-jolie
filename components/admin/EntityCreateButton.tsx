@@ -9,7 +9,6 @@ interface EntityCreateButtonProps {
   label?: string;
   categoryId?: string;
   className?: string;
-  usedPfsRefs?: string[];
 }
 
 export default function EntityCreateButton({
@@ -17,7 +16,6 @@ export default function EntityCreateButton({
   label = "Créer",
   categoryId,
   className = "btn-primary whitespace-nowrap",
-  usedPfsRefs,
 }: EntityCreateButtonProps) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -33,7 +31,6 @@ export default function EntityCreateButton({
         onClose={() => setOpen(false)}
         onCreated={() => { setOpen(false); router.refresh(); }}
         categoryId={categoryId}
-        usedPfsRefs={usedPfsRefs}
       />
     </>
   );

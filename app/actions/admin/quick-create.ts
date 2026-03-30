@@ -254,7 +254,7 @@ export async function createManufacturingCountryQuick(
 
 export async function createSeasonQuick(
   names: Record<string, string>,
-  pfsSeasonRefs?: string[] | string | null
+  pfsSeasonRef?: string | string[] | null
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const frName = names["fr"]?.trim();
@@ -266,26 +266,23 @@ export async function createSeasonQuick(
   });
   if (existing) throw new Error(`La saison "${frName}" existe déjà.`);
 
-  // Normalize refs: accept string or string[]
-  const refs = (Array.isArray(pfsSeasonRefs) ? pfsSeasonRefs : pfsSeasonRefs ? [pfsSeasonRefs] : [])
-    .map((r) => r.trim())
-    .filter(Boolean);
-  // Check uniqueness (only if refs provided)
-  if (refs.length > 0) {
-    const conflicts = await prisma.seasonPfsRef.findMany({
-      where: { pfsRef: { in: refs } },
-      select: { pfsRef: true, season: { select: { name: true } } },
+  // Normalize: accept string or string[] (take first), trim + uppercase
+  const ref = (Array.isArray(pfsSeasonRef) ? pfsSeasonRef[0] : pfsSeasonRef)?.trim().toUpperCase() || null;
+  // Check uniqueness
+  if (ref) {
+    const conflict = await prisma.season.findFirst({
+      where: { pfsRef: ref },
+      select: { name: true },
     });
-    if (conflicts.length > 0) {
-      const detail = conflicts.map((c) => `« ${c.pfsRef} » (${c.season.name})`).join(", ");
-      throw new Error(`Correspondances PFS déjà utilisées : ${detail}`);
+    if (conflict) {
+      throw new Error(`Correspondance PFS « ${ref} » déjà utilisée par « ${conflict.name} »`);
     }
   }
 
   const season = await prisma.season.create({
     data: {
       name: frName,
-      pfsRefs: { create: refs.map((pfsRef) => ({ pfsRef })) },
+      pfsRef: ref,
     },
     select: { id: true, name: true },
   });

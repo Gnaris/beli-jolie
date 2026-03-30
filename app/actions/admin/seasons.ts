@@ -71,46 +71,29 @@ export async function updateSeasonDirect(
 }
 
 /**
- * Replace all PFS refs for a season.
- * Each ref must be unique across all seasons.
+ * Update the single PFS ref for a season.
+ * The ref must be unique across all seasons.
  */
-export async function updateSeasonPfsRefs(id: string, pfsRefs: string[]) {
+export async function updateSeasonPfsRef(id: string, pfsRef: string | null) {
   await requireAdmin();
 
-  // Normalize & dedupe
-  const normalized = [...new Set(pfsRefs.map((r) => r.trim()).filter(Boolean))];
+  const normalized = pfsRef?.trim().toUpperCase() || null;
 
   // Check for conflicts with other seasons
-  if (normalized.length > 0) {
-    const conflicts = await prisma.seasonPfsRef.findMany({
-      where: { pfsRef: { in: normalized }, seasonId: { not: id } },
-      select: { pfsRef: true, season: { select: { name: true } } },
+  if (normalized) {
+    const conflict = await prisma.season.findFirst({
+      where: { pfsRef: normalized, id: { not: id } },
+      select: { name: true },
     });
-    if (conflicts.length > 0) {
-      const detail = conflicts.map((c) => `« ${c.pfsRef} » (${c.season.name})`).join(", ");
-      throw new Error(`Correspondances déjà utilisées par d'autres saisons : ${detail}`);
+    if (conflict) {
+      throw new Error(`Correspondance « ${normalized} » déjà utilisée par « ${conflict.name} »`);
     }
   }
 
-  // Replace all refs for this season in a transaction
-  await prisma.$transaction(async (tx) => {
-    await tx.seasonPfsRef.deleteMany({ where: { seasonId: id } });
-    if (normalized.length > 0) {
-      await tx.seasonPfsRef.createMany({
-        data: normalized.map((pfsRef) => ({ seasonId: id, pfsRef })),
-      });
-    }
-  });
+  await prisma.season.update({ where: { id }, data: { pfsRef: normalized } });
 
   revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
-}
-
-/**
- * @deprecated Use updateSeasonPfsRefs instead. Kept for backward compat during migration.
- */
-export async function updateSeasonPfsRef(id: string, pfsSeasonRef: string | null) {
-  await updateSeasonPfsRefs(id, pfsSeasonRef ? [pfsSeasonRef] : []);
 }
 
 export async function deleteSeason(id: string) {

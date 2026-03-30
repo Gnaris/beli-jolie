@@ -12,19 +12,16 @@ export default async function SaisonsPage() {
     include: {
       _count: { select: { products: true } },
       translations: true,
-      pfsRefs: { select: { pfsRef: true } },
     },
   });
 
   const seasonItems = seasons.map((s) => ({
     id: s.id,
     name: s.name,
-    pfsRefs: s.pfsRefs.map((r) => r.pfsRef),
+    pfsRef: s.pfsRef,
     productCount: s._count.products,
     translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
   }));
-
-  const allUsedPfsRefs = seasonItems.flatMap((s) => s.pfsRefs);
 
   return (
     <div className="space-y-6">
@@ -40,10 +37,10 @@ export default async function SaisonsPage() {
             Gérez les saisons / collections de vos produits (ex: Printemps/Été 2026).
           </p>
         </div>
-        <EntityCreateButton type="season" label="+ Créer une saison" usedPfsRefs={allUsedPfsRefs} />
+        <EntityCreateButton type="season" label="+ Créer une saison" />
       </div>
 
-      <SeasonsManager initialSeasons={seasonItems} allUsedPfsRefs={allUsedPfsRefs} />
+      <SeasonsManager initialSeasons={seasonItems} />
     </div>
   );
 }

@@ -41,6 +41,52 @@ export async function createSize(name: string, categoryIds: string[]) {
   return { id: created.id, name: created.name };
 }
 
+/** Create multiple sizes at once. Returns created count and any skipped names. */
+export async function createSizesBatch(names: string[], categoryIds: string[]) {
+  await requireAdmin();
+
+  const trimmedNames = names.map((n) => n.trim()).filter(Boolean);
+  if (trimmedNames.length === 0) throw new Error("Au moins un nom est requis.");
+
+  // Check existing
+  const existing = await prisma.size.findMany({
+    where: { name: { in: trimmedNames } },
+    select: { name: true },
+  });
+  const existingSet = new Set(existing.map((e) => e.name));
+
+  const toCreate = trimmedNames.filter((n) => !existingSet.has(n));
+  const skipped = trimmedNames.filter((n) => existingSet.has(n));
+
+  if (toCreate.length === 0) {
+    throw new Error(`Toutes les tailles existent déjà : ${skipped.join(", ")}`);
+  }
+
+  // Get max position
+  const maxPos = await prisma.size.aggregate({ _max: { position: true } });
+  let position = (maxPos._max.position ?? -1) + 1;
+
+  // Create all in transaction
+  await prisma.$transaction(
+    toCreate.map((name) =>
+      prisma.size.create({
+        data: {
+          name,
+          position: position++,
+          categories: {
+            create: categoryIds.map((categoryId) => ({ categoryId })),
+          },
+        },
+      })
+    )
+  );
+
+  revalidatePath("/admin/produits");
+  revalidateTag("sizes", "default");
+
+  return { created: toCreate.length, skipped };
+}
+
 /** Update a size name and its category links */
 export async function updateSize(
   id: string,

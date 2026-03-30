@@ -186,9 +186,6 @@ async function main() {
   const seasonTranslations = await prisma.seasonTranslation.deleteMany();
   console.log(`  SeasonTranslation              : ${seasonTranslations.count}`);
 
-  const seasonPfsRefs = await prisma.seasonPfsRef.deleteMany();
-  console.log(`  SeasonPfsRef                   : ${seasonPfsRefs.count}`);
-
   const seasons = await prisma.season.deleteMany();
   console.log(`  Season                         : ${seasons.count}`);
 

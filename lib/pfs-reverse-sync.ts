@@ -30,8 +30,7 @@ import {
 } from "@/lib/pfs-api-write";
 import { pfsGetVariants, pfsCheckReference, type PfsCheckReferenceResponse, type PfsVariantDetail } from "@/lib/pfs-api";
 import sharp from "sharp";
-import { readFile, stat } from "fs/promises";
-import path from "path";
+// fs/promises and path no longer needed — images are on R2
 
 // Prices are sent as-is to PFS (no markup)
 
@@ -225,7 +224,7 @@ interface FullProduct {
     composition: { id: string; name: string; pfsCompositionRef: string | null };
   }[];
   manufacturingCountry: { id: string; name: string; isoCode: string | null; pfsCountryRef: string | null } | null;
-  season: { id: string; name: string; pfsRefs: { pfsRef: string }[] } | null;
+  season: { id: string; name: string; pfsRef: string | null } | null;
 }
 
 async function loadProductFull(productId: string): Promise<FullProduct | null> {
@@ -285,7 +284,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
         select: { compositionId: true, percentage: true, composition: { select: { id: true, name: true, pfsCompositionRef: true } } },
       },
       manufacturingCountry: { select: { id: true, name: true, isoCode: true, pfsCountryRef: true } },
-      season: { select: { id: true, name: true, pfsRefs: { select: { pfsRef: true } } } },
+      season: { select: { id: true, name: true, pfsRef: true } },
     },
   }) as unknown as FullProduct | null;
 }
@@ -354,7 +353,7 @@ async function createProductOnPfs(product: FullProduct): Promise<string> {
     brand_name: brandName,
     family,
     category: product.category.pfsCategoryId!,
-    season_name: product.season?.pfsRefs[0]?.pfsRef ?? PFS_DEFAULTS.season_name,
+    season_name: product.season?.pfsRef ?? PFS_DEFAULTS.season_name,
     label,
     description,
     material_composition: mainComposition,
@@ -407,11 +406,9 @@ async function diffAndUpdateMetadata(
   const pfsCategoryId = pfs.category?.id;
   const bjCountry = product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode ?? PFS_DEFAULTS.country_of_manufacture;
   const pfsCountry = pfs.country_of_manufacture ?? "";
-  const bjSeasonRefs = product.season?.pfsRefs.map((r) => r.pfsRef) ?? [];
-  const bjSeason = bjSeasonRefs[0] ?? PFS_DEFAULTS.season_name;
+  const bjSeason = product.season?.pfsRef ?? PFS_DEFAULTS.season_name;
   const pfsSeason = pfs.collection?.reference ?? "";
-  // Season matches if PFS ref is among BJ season's refs
-  const seasonMatched = pfsSeason ? bjSeasonRefs.includes(pfsSeason.toUpperCase()) || bjSeasonRefs.includes(pfsSeason) : bjSeason === PFS_DEFAULTS.season_name;
+  const seasonMatched = pfsSeason ? bjSeason === pfsSeason.toUpperCase() || bjSeason === pfsSeason : bjSeason === PFS_DEFAULTS.season_name;
 
   // Compare compositions
   const bjComps = product.compositions
@@ -507,7 +504,7 @@ async function forceUpdateMetadata(pfsProductId: string, product: FullProduct): 
 
   const countryRef = product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode;
   if (countryRef) updates.country_of_manufacture = countryRef;
-  if (product.season?.pfsRefs[0]?.pfsRef) updates.season_name = product.season.pfsRefs[0].pfsRef;
+  if (product.season?.pfsRef) updates.season_name = product.season.pfsRef;
 
   const compositionArray = product.compositions
     .filter((c) => c.composition.pfsCompositionRef)
@@ -1020,25 +1017,21 @@ async function syncImages(
  * For first-time syncs (no PFS data / new slot), the caller already forces upload
  * via the `i >= pfsUrls.length` check — this is only for existing-slot diff.
  */
-async function imageChanged(imagePath: string): Promise<boolean> {
-  try {
-    const fsPath = path.join(process.cwd(), "public", imagePath);
-    const stats = await stat(fsPath);
-    const ageMs = Date.now() - stats.mtimeMs;
-    return ageMs < 600_000; // Modified in last 10 minutes
-  } catch {
-    return true; // If we can't check, upload it
-  }
+async function imageChanged(_imagePath: string): Promise<boolean> {
+  // With R2 storage, we can't check local file modification time.
+  // Always return true (upload it) — the PFS diff check in the caller
+  // already skips unchanged images via URL comparison.
+  return true;
 }
 
 /**
  * Convert a WebP/PNG image from public/uploads to JPEG buffer.
  */
 async function convertToJpeg(imagePath: string): Promise<Buffer> {
-  // imagePath is like "/uploads/products/abc.webp" — resolve to filesystem
-  const fsPath = path.join(process.cwd(), "public", imagePath);
-  const buffer = await readFile(fsPath);
-  return sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+  // imagePath is like "/uploads/products/abc.webp" — download from R2
+  const { downloadFromR2, r2KeyFromDbPath } = await import("@/lib/r2");
+  const buffer = await downloadFromR2(r2KeyFromDbPath(imagePath));
+  return sharp(buffer).jpeg({ quality: 100, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer();
 }
 
 // ─────────────────────────────────────────────
@@ -1139,7 +1132,7 @@ function validatePfsMappings(product: FullProduct): void {
   }
 
   // Saison
-  if (product.season && (!product.season.pfsRefs || product.season.pfsRefs.length === 0)) {
+  if (product.season && !product.season.pfsRef) {
     issues.push(`Saison "${product.season.name}" non mappée (aucune correspondance PFS)`);
   }
 

@@ -208,21 +208,10 @@ model ManufacturingCountryTranslation {
 model Season {
   id           String              @id @default(cuid())
   name         String              @unique
+  pfsRef       String?             @unique // PFS collection reference: "PE2026", "AH2025" — unique across all seasons
   createdAt    DateTime            @default(now())
   products     Product[]
   translations SeasonTranslation[]
-  pfsRefs      SeasonPfsRef[]
-}
-
-// Correspondances PFS pour une saison (1 saison → N refs, chaque ref unique)
-model SeasonPfsRef {
-  id        String   @id @default(cuid())
-  seasonId  String
-  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  pfsRef    String   @unique // PFS collection reference: "PE2026", "AH2025" — unique across all seasons
-  createdAt DateTime @default(now())
-
-  @@index([seasonId])
 }
 
 model SeasonTranslation {
@@ -1026,6 +1015,8 @@ model TranslationQuota {
 
 enum PfsSyncStatus {
   PENDING
+  ANALYZING
+  NEEDS_VALIDATION
   RUNNING
   COMPLETED
   FAILED
@@ -1100,6 +1091,7 @@ model PfsPrepareJob {
   lastPage          Int                @default(0)
   errorMessage      String?            @db.Text
   logs              Json?
+  analyzeResult     Json?
   adminId           String
   admin             User               @relation(fields: [adminId], references: [id])
   stagedProducts    PfsStagedProduct[]

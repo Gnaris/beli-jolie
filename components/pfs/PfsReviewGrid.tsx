@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import PfsStagedProductCard from "./PfsStagedProductCard";
+import PfsValidationPanel from "./PfsValidationPanel";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import type { StagedProduct, ColorMapEntry } from "./PfsStagedProductCard";
@@ -26,7 +27,7 @@ interface PfsReviewGridProps {
 
 interface JobData {
   id: string;
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
+  status: "PENDING" | "ANALYZING" | "NEEDS_VALIDATION" | "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
   totalProducts: number;
   processedProducts: number;
   readyProducts: number;
@@ -35,10 +36,12 @@ interface JobData {
   rejectedProducts: number;
   lastPage: number;
   errorMessage: string | null;
+  analyzeResult: Record<string, unknown> | null;
   logs: {
-    productLogs: string[];
-    imageLogs: string[];
-    imageStats: {
+    productLogs?: string[];
+    imageLogs?: string[];
+    analyzeLogs?: string[];
+    imageStats?: {
       total: number;
       completed: number;
       failed: number;
@@ -154,7 +157,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
   // ── State ──
   const [products, setProducts] = useState<StagedProduct[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<StatusFilter>("ALL");
+  const [filter, setFilter] = useState<StatusFilter>("READY");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -183,7 +186,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isJobRunning = job?.status === "RUNNING" || job?.status === "PENDING";
+  const isJobRunning = job?.status === "RUNNING" || job?.status === "PENDING" || job?.status === "ANALYZING";
   const isJobRunningRef = useRef(isJobRunning);
   isJobRunningRef.current = isJobRunning;
 
@@ -575,13 +578,17 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
                     </svg>
                   )}
                   <h2 className="font-heading font-semibold text-text-primary text-sm sm:text-base">
-                    {isJobRunning
-                      ? "Importation en cours..."
-                      : job.status === "COMPLETED"
-                        ? "Importation terminée"
-                        : job.status === "STOPPED"
-                          ? "Importation arrêtée"
-                          : "Importation échouée"}
+                    {job.status === "ANALYZING"
+                      ? "Analyse en cours..."
+                      : job.status === "NEEDS_VALIDATION"
+                        ? "Validation requise"
+                        : isJobRunning
+                          ? "Importation en cours..."
+                          : job.status === "COMPLETED"
+                            ? "Importation terminée"
+                            : job.status === "STOPPED"
+                              ? "Importation arrêtée"
+                              : "Importation échouée"}
                   </h2>
                 </div>
                 <div className="flex items-center gap-2">
@@ -600,16 +607,20 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
                   )}
                   <span
                     className={`badge ${
-                      isJobRunning
+                      job.status === "ANALYZING"
                         ? "badge-info"
-                        : job.status === "COMPLETED"
-                          ? "badge-success"
-                          : job.status === "STOPPED"
-                            ? "badge-warning"
-                            : "badge-error"
+                        : job.status === "NEEDS_VALIDATION"
+                          ? "badge-warning"
+                          : isJobRunning
+                            ? "badge-info"
+                            : job.status === "COMPLETED"
+                              ? "badge-success"
+                              : job.status === "STOPPED"
+                                ? "badge-warning"
+                                : "badge-error"
                     }`}
                   >
-                    {isJobRunning ? `${progress}%` : job.status === "COMPLETED" ? "Terminé" : job.status === "STOPPED" ? "Arrêté" : "Échoué"}
+                    {job.status === "ANALYZING" ? "Analyse..." : job.status === "NEEDS_VALIDATION" ? "Validation requise" : isJobRunning ? `${progress}%` : job.status === "COMPLETED" ? "Terminé" : job.status === "STOPPED" ? "Arrêté" : "Échoué"}
                   </span>
                 </div>
               </div>
@@ -763,6 +774,50 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
             </div>
           )}
         </div>
+      )}
+
+      {/* ══════════════════════════════════════════ */}
+      {/* ANALYZING — show analyze logs              */}
+      {/* ══════════════════════════════════════════ */}
+      {job?.status === "ANALYZING" && job.logs?.analyzeLogs && job.logs.analyzeLogs.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-6 py-3 bg-bg-dark text-text-inverse flex items-center gap-3">
+            <svg className="w-4 h-4 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            <span className="font-heading font-semibold text-sm">
+              Console d&apos;analyse ({job.logs.analyzeLogs.length} lignes)
+            </span>
+          </div>
+          <div className="bg-[#0D0D0D] text-[#E0E0E0] px-6 py-4 max-h-64 overflow-y-auto font-mono text-xs leading-relaxed">
+            {job.logs.analyzeLogs.map((line, idx) => (
+              <div
+                key={idx}
+                className={`py-0.5 ${
+                  line.includes("terminée") ? "text-green-400"
+                    : line.includes("Page") ? "text-blue-300"
+                      : line.includes("chargé") ? "text-cyan-300"
+                        : line.includes("❌") ? "text-red-400"
+                          : line.includes("⚠️") ? "text-yellow-400"
+                            : ""
+                }`}
+              >
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════ */}
+      {/* NEEDS_VALIDATION — show validation panel   */}
+      {/* ══════════════════════════════════════════ */}
+      {job?.status === "NEEDS_VALIDATION" && job.analyzeResult && (
+        <PfsValidationPanel
+          jobId={jobId}
+          analyzeResult={job.analyzeResult as unknown as Parameters<typeof PfsValidationPanel>[0]["analyzeResult"]}
+          onValidated={() => fetchJob()}
+        />
       )}
 
       {/* ── Top bar ── */}

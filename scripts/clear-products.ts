@@ -9,8 +9,7 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import { rm, readdir } from "fs/promises";
-import path from "path";
+import { listR2Keys, deleteMultipleFromR2 } from "../lib/r2";
 
 const prisma = new PrismaClient();
 
@@ -130,33 +129,23 @@ async function main() {
   const sizes = await prisma.size.deleteMany();
   console.log(`  Size                : ${sizes.count}`);
 
-  // 6. Supprimer les fichiers images
-  console.log("\n🗂️  Suppression des fichiers images...");
+  // 6. Supprimer les images sur R2
+  console.log("\n🗂️  Suppression des images sur R2...");
 
-  const rootDir = path.resolve(__dirname, "..");
-  const imageDirs = [
-    path.join(rootDir, "public/uploads/products"),
-    path.join(rootDir, "public/uploads/colors"),
+  const prefixes = [
+    "uploads/products/",          // images produit (large, _md, _thumb)
+    "uploads/products/staging/",  // images PFS en attente d'approbation (inclus dans products/ mais listé pour clarté)
+    "uploads/patterns/",          // patterns couleurs (upload-pattern)
   ];
-
-  for (const dir of imageDirs) {
+  for (const prefix of prefixes) {
     try {
-      const entries = await readdir(dir);
-      let count = 0;
-      for (const entry of entries) {
-        // Préserver les sous-dossiers vides (staging, etc.) mais supprimer les fichiers
-        const fullPath = path.join(dir, entry);
-        try {
-          await rm(fullPath, { recursive: true });
-          count++;
-        } catch {
-          // Ignorer les erreurs individuelles
-        }
+      const keys = await listR2Keys(prefix);
+      if (keys.length > 0) {
+        await deleteMultipleFromR2(keys);
       }
-      const relDir = path.relative(rootDir, dir);
-      console.log(`  ${relDir}: ${count} élément(s) supprimé(s)`);
-    } catch {
-      // Le dossier n'existe pas, ignorer
+      console.log(`  ${prefix}: ${keys.length} fichier(s) supprimé(s)`);
+    } catch (err) {
+      console.warn(`  ⚠️ Erreur R2 pour ${prefix}:`, err);
     }
   }
 
