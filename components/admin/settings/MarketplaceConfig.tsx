@@ -9,6 +9,11 @@ import {
   validateEfashionCredentials,
   toggleEfashionEnabled,
 } from "@/app/actions/admin/site-config";
+import {
+  validateAnkorstoreCredentials,
+  updateAnkorstoreCredentials,
+  toggleAnkorstoreEnabled,
+} from "@/app/actions/admin/ankorstore-sync";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
@@ -17,6 +22,8 @@ interface Props {
   pfsEnabled: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  hasAnkorstoreConfig: boolean;
+  ankorstoreEnabled: boolean;
 }
 
 export default function MarketplaceConfig({
@@ -24,6 +31,8 @@ export default function MarketplaceConfig({
   pfsEnabled: initialPfsEnabled,
   hasEfashionConfig,
   efashionEnabled: initialEfashionEnabled,
+  hasAnkorstoreConfig,
+  ankorstoreEnabled: initialAnkorstoreEnabled,
 }: Props) {
   // ── PFS state ──────────────────────────────────────────────────────────────
   const [pfsEmail, setPfsEmail] = useState("");
@@ -51,11 +60,24 @@ export default function MarketplaceConfig({
   const [isValidatingEfashion, startValidatingEfashion] = useTransition();
   const [isTogglingEfashion, startTogglingEfashion] = useTransition();
 
+  // ── Ankorstore state ──────────────────────────────────────────────────────
+  const [akClientId, setAkClientId] = useState("");
+  const [akClientSecret, setAkClientSecret] = useState("");
+  const [akStatus, setAkStatus] = useState<"none" | "valid" | "invalid" | "checking">(
+    hasAnkorstoreConfig ? "valid" : "none"
+  );
+  const [akEnabled, setAkEnabled] = useState(initialAnkorstoreEnabled);
+  const [akEditing, setAkEditing] = useState(!hasAnkorstoreConfig);
+  const [isSavingAk, startSavingAk] = useTransition();
+  const [isValidatingAk, startValidatingAk] = useTransition();
+  const [isTogglingAk, startTogglingAk] = useTransition();
+
   const toast = useToast();
   const { showLoading, hideLoading } = useLoadingOverlay();
 
   const isPendingPfs = isSavingPfs || isValidatingPfs || isTogglingPfs;
   const isPendingEfashion = isSavingEfashion || isValidatingEfashion || isTogglingEfashion;
+  const isPendingAk = isSavingAk || isValidatingAk || isTogglingAk;
 
   // ── PFS handlers ───────────────────────────────────────────────────────────
 
@@ -184,6 +206,71 @@ export default function MarketplaceConfig({
           newValue
             ? "La synchronisation eFashion Paris est maintenant active."
             : "Les fonctionnalités eFashion Paris sont désactivées."
+        );
+      } else {
+        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      }
+    });
+  }
+
+  // ── Ankorstore handlers ────────────────────────────────────────────────────
+
+  function handleAkValidate() {
+    if (!akClientId.trim() || !akClientSecret.trim()) return;
+    showLoading();
+    startValidatingAk(async () => {
+      try {
+        setAkStatus("checking");
+        const result = await validateAnkorstoreCredentials({
+          clientId: akClientId.trim(),
+          clientSecret: akClientSecret.trim(),
+        });
+        if (result.valid) {
+          setAkStatus("valid");
+          toast.success("Connexion réussie", "Identifiants Ankorstore valides.");
+        } else {
+          setAkStatus("invalid");
+          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleAkSave() {
+    showLoading();
+    startSavingAk(async () => {
+      try {
+        const result = await updateAnkorstoreCredentials({
+          clientId: akClientId.trim(),
+          clientSecret: akClientSecret.trim(),
+        });
+        if (result.success) {
+          toast.success("Enregistré", "Identifiants Ankorstore sauvegardés.");
+          setAkEditing(false);
+          setAkClientId("");
+          setAkClientSecret("");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleAkToggle() {
+    const newValue = !akEnabled;
+    startTogglingAk(async () => {
+      const result = await toggleAnkorstoreEnabled(newValue);
+      if (result.success) {
+        setAkEnabled(newValue);
+        toast.success(
+          newValue ? "Ankorstore activé" : "Ankorstore désactivé",
+          newValue
+            ? "La synchronisation Ankorstore est maintenant active."
+            : "Les fonctionnalités Ankorstore sont désactivées."
         );
       } else {
         toast.error("Erreur", result.error ?? "Une erreur est survenue.");
@@ -439,6 +526,136 @@ export default function MarketplaceConfig({
                   type="button"
                   onClick={() => { setEfashionEditing(false); setEfashionEmail(""); setEfashionPassword(""); setEfashionStatus("valid"); }}
                   disabled={isPendingEfashion}
+                  className="h-9 px-3 text-sm font-body text-text-secondary hover:text-text-primary"
+                >
+                  Annuler
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="border-t border-border" />
+
+      {/* Ankorstore Section */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div>
+              <h4 className="font-heading text-sm font-semibold text-text-primary">Ankorstore</h4>
+              <a
+                href="https://www.ankorstore.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-body text-xs text-text-secondary hover:text-text-primary underline"
+              >
+                ankorstore.com
+              </a>
+            </div>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                akStatus === "valid" ? "bg-[#22C55E]" :
+                akStatus === "invalid" ? "bg-[#EF4444]" :
+                akStatus === "checking" ? "bg-[#F59E0B] animate-pulse" :
+                "bg-[#D1D1D1]"
+              }`}
+            />
+            <span className="font-body text-xs text-text-secondary">
+              {akStatus === "valid" && "Connecté"}
+              {akStatus === "invalid" && "Invalide"}
+              {akStatus === "checking" && "Vérification..."}
+              {akStatus === "none" && "Non configuré"}
+            </span>
+          </div>
+
+          {/* Toggle ON/OFF — only show when credentials are configured */}
+          {hasAnkorstoreConfig && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={akEnabled}
+              aria-label="Activer Ankorstore"
+              disabled={isPendingAk}
+              onClick={handleAkToggle}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 focus:ring-offset-2 disabled:opacity-50 ${
+                akEnabled ? "bg-[#22C55E]" : "bg-[#D1D1D1]"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                  akEnabled ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          )}
+        </div>
+
+        {!akEditing && hasAnkorstoreConfig ? (
+          <div className="flex items-center gap-3">
+            <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
+              ••••••••••••••••
+            </div>
+            <button
+              type="button"
+              onClick={() => setAkEditing(true)}
+              className="text-sm font-body text-text-secondary hover:text-text-primary underline"
+            >
+              Modifier
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={akClientId}
+                onChange={(e) => {
+                  setAkClientId(e.target.value);
+                  if (akStatus === "valid" || akStatus === "invalid") setAkStatus("none");
+                }}
+                placeholder="Client ID"
+                className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+                disabled={isPendingAk}
+                autoComplete="off"
+              />
+              <input
+                type="password"
+                value={akClientSecret}
+                onChange={(e) => {
+                  setAkClientSecret(e.target.value);
+                  if (akStatus === "valid" || akStatus === "invalid") setAkStatus("none");
+                }}
+                placeholder="Client Secret"
+                className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+                disabled={isPendingAk}
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAkValidate}
+                disabled={isPendingAk || !akClientId.trim() || !akClientSecret.trim()}
+                className="h-9 px-4 rounded-lg border border-border text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+              >
+                {isValidatingAk ? "Vérification..." : "Tester la connexion"}
+              </button>
+              <button
+                type="button"
+                onClick={handleAkSave}
+                disabled={isPendingAk || !akClientId.trim() || !akClientSecret.trim() || akStatus !== "valid"}
+                className="h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+              >
+                {isSavingAk ? "Enregistrement..." : "Sauvegarder"}
+              </button>
+              {hasAnkorstoreConfig && (
+                <button
+                  type="button"
+                  onClick={() => { setAkEditing(false); setAkClientId(""); setAkClientSecret(""); setAkStatus("valid"); }}
+                  disabled={isPendingAk}
                   className="h-9 px-3 text-sm font-body text-text-secondary hover:text-text-primary"
                 >
                   Annuler

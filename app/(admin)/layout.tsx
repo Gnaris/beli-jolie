@@ -15,7 +15,7 @@ import AdminEmailWrapper from "@/components/admin/email/AdminEmailWrapper";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
 import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
-import { getCachedSiteConfig, getCachedPfsEnabled, getCachedEfashionEnabled } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedPfsEnabled, getCachedEfashionEnabled, getCachedAnkorstoreEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -54,6 +54,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   const pfsEnabled = await getCachedPfsEnabled();
   const efashionEnabled = await getCachedEfashionEnabled();
+  const ankorstoreEnabled = await getCachedAnkorstoreEnabled();
 
   const totalAttributeWarnings = untranslatedCount + unusedColorsCount + unusedCompositionsCount + unusedTagsCount + untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
@@ -84,7 +85,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 overflow-y-auto" aria-label="Navigation admin">
-          {getAdminNavSections({ efashionEnabled }).map((section, sectionIdx) => (
+          {getAdminNavSections({ efashionEnabled, ankorstoreEnabled }).map((section, sectionIdx) => (
             <div key={section.title}>
               <p className={`text-[10px] uppercase tracking-widest text-text-muted font-medium px-4 mb-2 ${sectionIdx === 0 ? "mt-1" : "mt-6"}`}>
                 {section.title}
@@ -199,7 +200,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 /* --- Admin navigation (grouped by section) --------------------------- */
 type NavSection = { title: string; items: { label: string; href: string; icon: React.ReactNode; soon?: boolean }[] };
 
-function getAdminNavSections({ efashionEnabled }: { efashionEnabled: boolean }): NavSection[] {
+function getAdminNavSections({ efashionEnabled, ankorstoreEnabled }: { efashionEnabled: boolean; ankorstoreEnabled: boolean }): NavSection[] {
   const sections: NavSection[] = [...ADMIN_NAV_SECTIONS_BASE];
 
   // Conditionally add Importation section before "Système"
@@ -211,6 +212,17 @@ function getAdminNavSections({ efashionEnabled }: { efashionEnabled: boolean }):
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+        </svg>
+      ),
+    });
+  }
+  if (ankorstoreEnabled) {
+    importItems.push({
+      label: "Ankorstore",
+      href: "/admin/ankorstore",
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
         </svg>
       ),
     });
