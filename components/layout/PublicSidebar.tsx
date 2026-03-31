@@ -64,7 +64,6 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
   const [prevCount, setPrevCount]         = useState(0);
   const [badgeBounce, setBadgeBounce]     = useState(false);
   const [scrolled, setScrolled]           = useState(false);
-  const [isAdminPreview, setIsAdminPreview] = useState(false);
   const [previewPending] = useTransition();
   const pathname  = usePathname();
   const router = useRouter();
@@ -82,11 +81,6 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     { label: t("orders"),    href: "/commandes" },
     { label: t("favorites"), href: "/favoris" },
   ];
-
-  // Détecte le cookie mode aperçu admin (recalculé à chaque changement de page)
-  useEffect(() => {
-    setIsAdminPreview(document.cookie.includes("bj_admin_preview=1"));
-  }, [pathname]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -150,8 +144,8 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
   }
 
   const isClient     = session?.user?.role === "CLIENT";
-  const isAdminMode  = session?.user?.role === "ADMIN" && isAdminPreview;
-  const showClientUI = isClient || isAdminMode;
+  const isAdmin      = session?.user?.role === "ADMIN";
+  const showClientUI = isClient || isAdmin;
   const company      = (session?.user as { company?: string })?.company ?? session?.user?.name ?? "";
   const initials     = company ? company.slice(0, 2).toUpperCase() : "?";
 

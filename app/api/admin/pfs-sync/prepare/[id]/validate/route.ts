@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidateTag } from "next/cache";
 import { runPfsPrepare } from "@/lib/pfs-prepare";
 import { logger } from "@/lib/logger";
+import { ensurePfsMapping } from "@/lib/pfs-sync";
 
 function slugify(str: string): string {
   return str
@@ -119,11 +120,7 @@ export async function POST(
               data: { pfsCategoryId: cat.pfsCategoryId, pfsGender: cat.pfsGender || null, pfsFamilyId: cat.pfsFamilyId || null },
             });
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "category", pfsName: cat.pfsName.toLowerCase() } },
-            create: { type: "category", pfsName: cat.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("category", cat.pfsName.toLowerCase(), entity.id, entity.name);
         }
       } catch { /* skip */ }
     }
@@ -140,11 +137,7 @@ export async function POST(
           if (col.pfsReference && !entity.pfsColorRef) {
             await prisma.color.update({ where: { id: entity.id }, data: { pfsColorRef: col.pfsReference } });
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "color", pfsName: col.pfsName.toLowerCase() } },
-            create: { type: "color", pfsName: col.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("color", col.pfsName.toLowerCase(), entity.id, entity.name);
         }
       } catch { /* skip */ }
     }
@@ -161,11 +154,7 @@ export async function POST(
           if (comp.pfsReference && !entity.pfsCompositionRef) {
             await prisma.composition.update({ where: { id: entity.id }, data: { pfsCompositionRef: comp.pfsReference } });
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "composition", pfsName: comp.pfsName.toLowerCase() } },
-            create: { type: "composition", pfsName: comp.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("composition", comp.pfsName.toLowerCase(), entity.id, entity.name);
         }
       } catch { /* skip */ }
     }
@@ -182,11 +171,7 @@ export async function POST(
           if (country.pfsReference && !entity.pfsCountryRef) {
             await prisma.manufacturingCountry.update({ where: { id: entity.id }, data: { pfsCountryRef: country.pfsReference } });
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
-            create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("country", country.pfsName.toLowerCase(), entity.id, entity.name);
         }
       } catch { /* skip */ }
     }
@@ -203,11 +188,7 @@ export async function POST(
           if (season.pfsReference && !entity.pfsRef) {
             await prisma.season.update({ where: { id: entity.id }, data: { pfsRef: season.pfsReference.trim().toUpperCase() } }).catch(() => {});
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
-            create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("season", season.pfsName.toLowerCase(), entity.id, entity.name);
         }
       } catch { /* skip */ }
     }
@@ -229,11 +210,10 @@ export async function POST(
         }
         if (sizeRecord && sz.bjCategoryIds?.length) {
           for (const bjCatId of sz.bjCategoryIds) {
-            await prisma.sizeCategoryLink.upsert({
-              where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId: bjCatId } },
-              create: { sizeId: sizeRecord.id, categoryId: bjCatId },
-              update: {},
-            }).catch(() => { /* ignore duplicate */ });
+            await prisma.sizeCategoryLink.createMany({
+              data: [{ sizeId: sizeRecord.id, categoryId: bjCatId }],
+              skipDuplicates: true,
+            });
           }
         }
         if (sizeRecord && sz.pfsSizeRefs?.length) {

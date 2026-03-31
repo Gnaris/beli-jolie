@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
+import { ensurePfsMapping } from "@/lib/pfs-sync";
 
 // ─────────────────────────────────────────────
 // POST — Create missing entities from PFS analyze
@@ -188,11 +189,7 @@ export async function POST(req: NextRequest) {
               data: { pfsCategoryId: cat.pfsCategoryId, pfsGender: cat.pfsGender || null, pfsFamilyId: cat.pfsFamilyId || null },
             });
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "category", pfsName: cat.pfsName.toLowerCase() } },
-            create: { type: "category", pfsName: cat.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("category", cat.pfsName.toLowerCase(), entity.id, entity.name);
           mappingsCount++;
           continue;
         }
@@ -245,21 +242,13 @@ export async function POST(req: NextRequest) {
           return existing;
         });
 
-        await prisma.pfsMapping.upsert({
-          where: { type_pfsName: { type: "category", pfsName: cat.pfsName.toLowerCase() } },
-          create: { type: "category", pfsName: cat.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: cat.name! },
-          update: { bjEntityId: entity.id, bjName: cat.name! },
-        });
+        await ensurePfsMapping("category", cat.pfsName.toLowerCase(), entity.id, cat.name!);
         mappingsCount++;
       } catch (err) {
         if (cat.name) {
           const existing = await prisma.category.findFirst({ where: { name: cat.name } });
           if (existing) {
-            await prisma.pfsMapping.upsert({
-              where: { type_pfsName: { type: "category", pfsName: cat.pfsName.toLowerCase() } },
-              create: { type: "category", pfsName: cat.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: cat.name },
-              update: { bjEntityId: existing.id, bjName: cat.name },
-            });
+            await ensurePfsMapping("category", cat.pfsName.toLowerCase(), existing.id, cat.name);
             mappingsCount++;
           } else {
             logger.error(`[PFS] Failed to create category "${cat.name}"`, { error: err instanceof Error ? err.message : String(err) });
@@ -283,11 +272,7 @@ export async function POST(req: NextRequest) {
           if (col.pfsReference && !entity.pfsColorRef) {
             await prisma.color.update({ where: { id: entity.id }, data: { pfsColorRef: col.pfsReference } });
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "color", pfsName: col.pfsName.toLowerCase() } },
-            create: { type: "color", pfsName: col.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("color", col.pfsName.toLowerCase(), entity.id, entity.name);
           mappingsCount++;
           continue;
         }
@@ -328,21 +313,13 @@ export async function POST(req: NextRequest) {
           return existing;
         });
 
-        await prisma.pfsMapping.upsert({
-          where: { type_pfsName: { type: "color", pfsName: col.pfsName.toLowerCase() } },
-          create: { type: "color", pfsName: col.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: col.name! },
-          update: { bjEntityId: entity.id, bjName: col.name! },
-        });
+        await ensurePfsMapping("color", col.pfsName.toLowerCase(), entity.id, col.name!);
         mappingsCount++;
       } catch (err) {
         if (col.name) {
           const existing = await prisma.color.findFirst({ where: { name: col.name } });
           if (existing) {
-            await prisma.pfsMapping.upsert({
-              where: { type_pfsName: { type: "color", pfsName: col.pfsName.toLowerCase() } },
-              create: { type: "color", pfsName: col.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: col.name },
-              update: { bjEntityId: existing.id, bjName: col.name },
-            });
+            await ensurePfsMapping("color", col.pfsName.toLowerCase(), existing.id, col.name);
             mappingsCount++;
           } else {
             logger.error(`[PFS] Failed to create color "${col.name}"`, { error: err instanceof Error ? err.message : String(err) });
@@ -366,11 +343,7 @@ export async function POST(req: NextRequest) {
           if (comp.pfsReference && !entity.pfsCompositionRef) {
             await prisma.composition.update({ where: { id: entity.id }, data: { pfsCompositionRef: comp.pfsReference } });
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "composition", pfsName: comp.pfsName.toLowerCase() } },
-            create: { type: "composition", pfsName: comp.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("composition", comp.pfsName.toLowerCase(), entity.id, entity.name);
           mappingsCount++;
           continue;
         }
@@ -406,21 +379,13 @@ export async function POST(req: NextRequest) {
           return existing;
         });
 
-        await prisma.pfsMapping.upsert({
-          where: { type_pfsName: { type: "composition", pfsName: comp.pfsName.toLowerCase() } },
-          create: { type: "composition", pfsName: comp.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: comp.name! },
-          update: { bjEntityId: entity.id, bjName: comp.name! },
-        });
+        await ensurePfsMapping("composition", comp.pfsName.toLowerCase(), entity.id, comp.name!);
         mappingsCount++;
       } catch (err) {
         if (comp.name) {
           const existing = await prisma.composition.findFirst({ where: { name: comp.name } });
           if (existing) {
-            await prisma.pfsMapping.upsert({
-              where: { type_pfsName: { type: "composition", pfsName: comp.pfsName.toLowerCase() } },
-              create: { type: "composition", pfsName: comp.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: comp.name },
-              update: { bjEntityId: existing.id, bjName: comp.name },
-            });
+            await ensurePfsMapping("composition", comp.pfsName.toLowerCase(), existing.id, comp.name);
             mappingsCount++;
           } else {
             logger.error(`[PFS] Failed to create composition "${comp.name}"`, { error: err instanceof Error ? err.message : String(err) });
@@ -444,11 +409,7 @@ export async function POST(req: NextRequest) {
           if (country.pfsReference && !entity.pfsCountryRef) {
             await prisma.manufacturingCountry.update({ where: { id: entity.id }, data: { pfsCountryRef: country.pfsReference } });
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
-            create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("country", country.pfsName.toLowerCase(), entity.id, entity.name);
           mappingsCount++;
           continue;
         }
@@ -484,21 +445,13 @@ export async function POST(req: NextRequest) {
           return existing;
         });
 
-        await prisma.pfsMapping.upsert({
-          where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
-          create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: country.name! },
-          update: { bjEntityId: entity.id, bjName: country.name! },
-        });
+        await ensurePfsMapping("country", country.pfsName.toLowerCase(), entity.id, country.name!);
         mappingsCount++;
       } catch (err) {
         if (country.name) {
           const existing = await prisma.manufacturingCountry.findFirst({ where: { name: country.name } });
           if (existing) {
-            await prisma.pfsMapping.upsert({
-              where: { type_pfsName: { type: "country", pfsName: country.pfsName.toLowerCase() } },
-              create: { type: "country", pfsName: country.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: country.name },
-              update: { bjEntityId: existing.id, bjName: country.name },
-            });
+            await ensurePfsMapping("country", country.pfsName.toLowerCase(), existing.id, country.name);
             mappingsCount++;
           } else {
             logger.error(`[PFS] Failed to create country "${country.name}"`, { error: err instanceof Error ? err.message : String(err) });
@@ -523,11 +476,7 @@ export async function POST(req: NextRequest) {
           if (season.pfsReference && !entity.pfsRef) {
             await prisma.season.update({ where: { id: entity.id }, data: { pfsRef: season.pfsReference.trim().toUpperCase() } }).catch(() => {});
           }
-          await prisma.pfsMapping.upsert({
-            where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
-            create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: entity.name },
-            update: { bjEntityId: entity.id, bjName: entity.name },
-          });
+          await ensurePfsMapping("season", season.pfsName.toLowerCase(), entity.id, entity.name);
           mappingsCount++;
           continue;
         }
@@ -568,21 +517,13 @@ export async function POST(req: NextRequest) {
           return existing;
         });
 
-        await prisma.pfsMapping.upsert({
-          where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
-          create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: entity.id, bjName: season.name! },
-          update: { bjEntityId: entity.id, bjName: season.name! },
-        });
+        await ensurePfsMapping("season", season.pfsName.toLowerCase(), entity.id, season.name!);
         mappingsCount++;
       } catch (err) {
         if (season.name) {
           const existing = await prisma.season.findFirst({ where: { name: season.name } });
           if (existing) {
-            await prisma.pfsMapping.upsert({
-              where: { type_pfsName: { type: "season", pfsName: season.pfsName.toLowerCase() } },
-              create: { type: "season", pfsName: season.pfsName.toLowerCase(), bjEntityId: existing.id, bjName: season.name },
-              update: { bjEntityId: existing.id, bjName: season.name },
-            });
+            await ensurePfsMapping("season", season.pfsName.toLowerCase(), existing.id, season.name);
             mappingsCount++;
           } else {
             logger.error(`[PFS] Failed to create season "${season.name}"`, { error: err instanceof Error ? err.message : String(err) });
@@ -610,11 +551,10 @@ export async function POST(req: NextRequest) {
         // Link to categories via SizeCategoryLink (idempotent upsert)
         if (sizeRecord && sz.bjCategoryIds?.length) {
           for (const bjCatId of sz.bjCategoryIds) {
-            await prisma.sizeCategoryLink.upsert({
-              where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId: bjCatId } },
-              create: { sizeId: sizeRecord.id, categoryId: bjCatId },
-              update: {},
-            }).catch(() => { /* ignore duplicate */ });
+            await prisma.sizeCategoryLink.createMany({
+              data: [{ sizeId: sizeRecord.id, categoryId: bjCatId }],
+              skipDuplicates: true,
+            });
           }
         }
         // Link to PFS size refs via SizePfsMapping (idempotent upsert)

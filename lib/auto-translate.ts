@@ -8,7 +8,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { translateText, type Locale } from "@/lib/translate";
-import { logger } from "@/lib/logger";
+
 
 const TARGET_LOCALES: Locale[] = ["en", "ar", "zh", "de", "es", "it"];
 
@@ -105,13 +105,12 @@ async function autoTranslateEntity(entity: EntityTranslator) {
             });
             break;
         }
-        logger.info(`[AutoTranslate] ${entity.table} "${entity.name}" → ${locale}: "${val}"`);
-      } catch (err) {
-        logger.warn(`[AutoTranslate] Failed ${entity.table} "${entity.name}" → ${locale}`, { error: err instanceof Error ? err.message : String(err) });
+      } catch {
+        // Silently ignore per-locale translation failures
       }
     }
   } catch (err) {
-    logger.warn(`[AutoTranslate] Failed for ${entity.table} "${entity.name}"`, { error: err instanceof Error ? err.message : String(err) });
+    // Silently ignore entity translation failures
   }
 }
 
@@ -193,10 +192,9 @@ async function _autoTranslateProduct(
           update: { name: translatedName, description: translatedDesc },
           create: { productId, locale, name: translatedName, description: translatedDesc },
         });
-        logger.info(`[AutoTranslate] Product "${name}" → ${locale}: "${translatedName}"`);
       }
     }
-  } catch (err) {
-    logger.warn(`[AutoTranslate] Failed for product "${name}"`, { error: err instanceof Error ? err.message : String(err) });
+  } catch {
+    // Silently ignore product translation failures
   }
 }

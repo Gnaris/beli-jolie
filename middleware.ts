@@ -114,8 +114,12 @@ export async function middleware(request: NextRequest) {
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    // Un admin redirigé vers son panel, sauf en mode preview
-    if (isAdmin && !previewMode) return NextResponse.redirect(new URL("/admin", request.url));
+    if (isAdmin && !previewMode) {
+      // Set preview cookie automatically for admin accessing client routes
+      const response = NextResponse.next();
+      response.cookies.set("bj_admin_preview", "1", { path: "/", httpOnly: false, sameSite: "lax", maxAge: 8 * 3600 });
+      return response;
+    }
     return NextResponse.next();
   }
 
@@ -126,8 +130,11 @@ export async function middleware(request: NextRequest) {
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    // Un admin redirigé vers son panel, sauf en mode preview
-    if (isAdmin && !previewMode) return NextResponse.redirect(new URL("/admin", request.url));
+    if (isAdmin && !previewMode) {
+      const response = NextResponse.next();
+      response.cookies.set("bj_admin_preview", "1", { path: "/", httpOnly: false, sameSite: "lax", maxAge: 8 * 3600 });
+      return response;
+    }
     return NextResponse.next();
   }
 
@@ -157,6 +164,21 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // ── Favoris (protégé, inscription obligatoire) ─────────────────────
+  if (pathname.startsWith("/favoris")) {
+    if (!isAuthenticated) {
+      const loginUrl = new URL("/connexion", request.url);
+      loginUrl.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    if (isAdmin && !previewMode) {
+      const response = NextResponse.next();
+      response.cookies.set("bj_admin_preview", "1", { path: "/", httpOnly: false, sameSite: "lax", maxAge: 8 * 3600 });
+      return response;
+    }
+    return NextResponse.next();
+  }
+
   // ── Routes commandes (protégées, inscription obligatoire) ──────────
   if (pathname.startsWith("/commandes")) {
     if (!isAuthenticated) {
@@ -165,7 +187,9 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
     if (isAdmin && !previewMode) {
-      return NextResponse.redirect(new URL("/admin", request.url));
+      const response = NextResponse.next();
+      response.cookies.set("bj_admin_preview", "1", { path: "/", httpOnly: false, sameSite: "lax", maxAge: 8 * 3600 });
+      return response;
     }
     return NextResponse.next();
   }

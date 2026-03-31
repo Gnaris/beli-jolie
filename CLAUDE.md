@@ -63,7 +63,7 @@ NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. 
 
 ### i18n
 
-next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (RTL). Messages: `messages/[locale].json`. Auto-translations: DeepL Free (500K chars/month) + Claude AI (`lib/claude.ts`).
+next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (RTL), zh. Messages: `messages/[locale].json`. Auto-translations: DeepL Free (500K chars/month) + Claude AI (`lib/claude.ts`). Auto-translate toggle: `auto_translate_enabled` in SiteConfig.
 
 ### Styling
 
@@ -87,17 +87,29 @@ next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (R
 
 ```bash
 npm run dev / build / start / lint
+npm run test / test:watch / test:coverage   # Vitest
+npm run test:pfs-smoke                      # PFS smoke tests
 npx prisma db push && npx prisma generate   # Apres modif schema, redemerrer dev server d'abord
 npx prisma studio
 npx tsx scripts/create-admin.ts / generate-translations.ts / seed.ts / encrypt-secrets.ts
 npm run clear:products
 ```
 
+### Testing
+
+Vitest + `__tests__/` dir. Integration tests in `__tests__/integration/` (DB-backed, `fileParallelism: false`). PFS smoke tests in `__tests__/pfs/`.
+
 ## Variables d'environnement
 
 **Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ANTHROPIC_API_KEY`, `ENCRYPTION_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`, `NEXT_PUBLIC_R2_URL`
 
+**Optionnelles** : `STRIPE_PLATFORM_SECRET_KEY` (Stripe Connect platform mode)
+
 **Configurables via paramètres admin** (env var = fallback, admin UI prend priorité) : `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NOTIFY_EMAIL`, `EASY_EXPRESS_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `DEEPL_API_KEY`, `PFS_EMAIL`, `PFS_PASSWORD`, `EFASHION_EMAIL`, `EFASHION_PASSWORD`
+
+### Stripe Connect
+
+Dual-mode: **Platform** (`STRIPE_PLATFORM_SECRET_KEY` + per-client `stripe_connect_account_id` in DB) ou **Manual** (per-client `stripe_secret_key` in DB). Endpoints: `/api/stripe/connect`, `/api/stripe/disconnect`, `/api/stripe/reset`.
 
 ## Versions critiques
 

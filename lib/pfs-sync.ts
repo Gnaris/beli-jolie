@@ -71,6 +71,26 @@ function getVersionSuffix(_ref: string): string | null {
 }
 
 
+/**
+ * Race-safe PfsMapping ensure via raw SQL.
+ * Prisma logs prisma:error to stderr from the Rust engine BEFORE rejecting
+ * the JS promise, so neither upsert nor try/catch can suppress the log.
+ * MySQL's INSERT ... ON DUPLICATE KEY UPDATE is truly atomic and silent.
+ */
+export async function ensurePfsMapping(
+  type: string,
+  pfsName: string,
+  bjEntityId: string,
+  bjName: string,
+): Promise<void> {
+  const id = `${type}_${pfsName}_${Date.now()}`;
+  await prisma.$executeRaw`
+    INSERT INTO PfsMapping (id, type, pfsName, bjEntityId, bjName, createdAt, updatedAt)
+    VALUES (${id}, ${type}, ${pfsName}, ${bjEntityId}, ${bjName}, NOW(), NOW())
+    ON DUPLICATE KEY UPDATE bjEntityId = VALUES(bjEntityId), bjName = VALUES(bjName), updatedAt = NOW()
+  `;
+}
+
 /** Remove ?image_process=... from PFS CDN URLs to get full-size image. */
 export function fullSizeImageUrl(url: string): string {
   return url.replace(/\?image_process=.*$/, "");
@@ -128,7 +148,7 @@ export function detectDefaultColorRef(
 // Playwright pool (up to MAX_PW_CONTEXTS, lazy, diverse fingerprints)
 // ─────────────────────────────────────────────
 
-const MAX_PW_CONTEXTS = 5;
+const MAX_PW_CONTEXTS = 3;
 
 // Diverse browser fingerprints to avoid detection
 const PW_FINGERPRINTS = [
@@ -186,7 +206,7 @@ export async function closePlaywright(): Promise<void> {
   }
 }
 
-/** Download image via Playwright (fallback for stubborn CDNs). */
+/** Download image via Playwright (primary method — 3 concurrent browsers). */
 async function downloadImagePlaywright(url: string): Promise<Buffer> {
   const { page } = await getPlaywrightPage();
   try {
@@ -204,72 +224,25 @@ async function downloadImagePlaywright(url: string): Promise<Buffer> {
   }
 }
 
-// Rotating User-Agents for fetch-based downloads
-const FETCH_USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-];
-let fetchUaIdx = 0;
-
-/** Download an image from URL with fetch, fallback to Playwright. */
+/** Download an image from URL via Playwright with retries. */
 export async function downloadImage(url: string, maxRetries = 3): Promise<Buffer> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
-      const ua = FETCH_USER_AGENTS[fetchUaIdx++ % FETCH_USER_AGENTS.length];
-
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": ua,
-          Accept: "image/*,*/*;q=0.8",
-          Referer: "https://www.parisfashionshops.com/",
-        },
-      });
-
-      clearTimeout(timeout);
-
-      if (res.ok) {
-        const arrayBuffer = await res.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        if (buffer.length < 1024) {
-          throw new Error(`Image too small (${buffer.length} bytes): ${url}`);
-        }
-        return buffer;
-      }
-
-      if ((res.status === 403 || res.status === 429 || res.status >= 500) && attempt < maxRetries) {
-        const delay = Math.min(3000 * Math.pow(2, attempt), 30000);
-        await new Promise((r) => setTimeout(r, delay));
-        continue;
-      }
-
-      throw new Error(`HTTP ${res.status}`);
+      return await downloadImagePlaywright(url);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxRetries) {
-        const delay = Math.min(3000 * Math.pow(2, attempt), 30000);
+        const delay = Math.min(2000 * Math.pow(2, attempt), 15000);
+        logger.warn(`[PFS Images] Playwright attempt ${attempt + 1} failed for ${url}: ${lastError.message} — retrying in ${delay}ms`);
         await new Promise((r) => setTimeout(r, delay));
-        continue;
       }
     }
   }
 
-  // All fetch attempts failed — try Playwright as last resort
-  try {
-    logger.info(`[PFS Images] Fetch failed after ${maxRetries} retries, trying Playwright: ${url}`);
-    return await downloadImagePlaywright(url);
-  } catch (pwErr) {
-    const pwMsg = pwErr instanceof Error ? pwErr.message : String(pwErr);
-    logger.error(`[PFS Images] Playwright fallback also failed: ${pwMsg} (url: ${url})`);
-  }
-
-  throw lastError || new Error(`Failed after ${maxRetries} retries + Playwright`);
+  logger.error(`[PFS Images] All ${maxRetries + 1} Playwright attempts failed for ${url}`);
+  throw lastError || new Error(`Failed after ${maxRetries + 1} Playwright attempts`);
 }
 
 /** Map PFS category reference to BJ category name. */
@@ -354,7 +327,7 @@ export async function findOrCreateColor(
       return mapping.bjEntityId;
     }
     // Mapping is orphaned — delete it and continue
-    await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
+    await prisma.pfsMapping.deleteMany({ where: { id: mapping.id } });
   }
 
   // MySQL is case-insensitive by default — also try by pfsColorRef
@@ -372,11 +345,7 @@ export async function findOrCreateColor(
       await prisma.color.update({ where: { id: existing.id }, data: { pfsColorRef: reference } }).catch(() => {});
     }
     // Ensure PfsMapping exists
-    await prisma.pfsMapping.upsert({
-      where: { type_pfsName: { type: "color", pfsName: frLabel.toLowerCase() } },
-      create: { type: "color", pfsName: frLabel.toLowerCase(), bjEntityId: existing.id, bjName: frLabel },
-      update: { bjEntityId: existing.id, bjName: frLabel },
-    }).catch(() => {});
+    await ensurePfsMapping("color", frLabel.toLowerCase(), existing.id, frLabel);
     colorCache.set(normalized, existing.id);
     await upsertColorTranslations(existing.id, labels);
     // Auto-translate missing locales (ar, zh) if enabled
@@ -435,7 +404,7 @@ export async function findOrCreateCategory(
         categoryCache.set(name, mapping.bjEntityId);
         return mapping.bjEntityId;
       }
-      await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
+      await prisma.pfsMapping.deleteMany({ where: { id: mapping.id } });
     }
   }
 
@@ -458,11 +427,7 @@ export async function findOrCreateCategory(
       await prisma.category.update({ where: { id: existing.id }, data: { pfsCategoryId: pfsCatId } }).catch(() => {});
     }
     // Ensure PfsMapping exists
-    await prisma.pfsMapping.upsert({
-      where: { type_pfsName: { type: "category", pfsName: pfsKey } },
-      create: { type: "category", pfsName: pfsKey, bjEntityId: existing.id, bjName: name },
-      update: { bjEntityId: existing.id, bjName: name },
-    }).catch(() => {});
+    await ensurePfsMapping("category", pfsKey, existing.id, name);
     categoryCache.set(name, existing.id);
     if (labels) {
       await upsertCategoryTranslations(existing.id, labels);
@@ -518,7 +483,7 @@ export async function findOrCreateComposition(
       compositionCache.set(normalized, mapping.bjEntityId);
       return mapping.bjEntityId;
     }
-    await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
+    await prisma.pfsMapping.deleteMany({ where: { id: mapping.id } });
   }
 
   // Also try by pfsCompositionRef
@@ -536,11 +501,7 @@ export async function findOrCreateComposition(
       await prisma.composition.update({ where: { id: existing.id }, data: { pfsCompositionRef: pfsReference } }).catch(() => {});
     }
     // Ensure PfsMapping exists
-    await prisma.pfsMapping.upsert({
-      where: { type_pfsName: { type: "composition", pfsName: frName.toLowerCase() } },
-      create: { type: "composition", pfsName: frName.toLowerCase(), bjEntityId: existing.id, bjName: frName },
-      update: { bjEntityId: existing.id, bjName: frName },
-    }).catch(() => {});
+    await ensurePfsMapping("composition", frName.toLowerCase(), existing.id, frName);
     compositionCache.set(normalized, existing.id);
     for (const [locale, name] of Object.entries(labels)) {
       if (locale === "fr" || !name) continue;
@@ -586,7 +547,7 @@ export async function findOrCreateCountry(
       countryCache.set(normalized, mapping.bjEntityId);
       return mapping.bjEntityId;
     }
-    await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
+    await prisma.pfsMapping.deleteMany({ where: { id: mapping.id } });
   }
 
   // Check by ISO code, pfsCountryRef, OR name
@@ -603,11 +564,7 @@ export async function findOrCreateCountry(
       await prisma.manufacturingCountry.update({ where: { id: existing.id }, data: updates }).catch(() => {});
     }
     // Ensure PfsMapping exists
-    await prisma.pfsMapping.upsert({
-      where: { type_pfsName: { type: "country", pfsName: normalized.toLowerCase() } },
-      create: { type: "country", pfsName: normalized.toLowerCase(), bjEntityId: existing.id, bjName: normalized },
-      update: { bjEntityId: existing.id, bjName: normalized },
-    }).catch(() => {});
+    await ensurePfsMapping("country", normalized.toLowerCase(), existing.id, normalized);
     countryCache.set(normalized, existing.id);
     return existing.id;
   }
@@ -617,11 +574,7 @@ export async function findOrCreateCountry(
     data: { name: normalized, isoCode: normalized, pfsCountryRef: normalized },
     select: { id: true },
   });
-  await prisma.pfsMapping.upsert({
-    where: { type_pfsName: { type: "country", pfsName: normalized.toLowerCase() } },
-    create: { type: "country", pfsName: normalized.toLowerCase(), bjEntityId: created.id, bjName: normalized },
-    update: { bjEntityId: created.id, bjName: normalized },
-  }).catch(() => {});
+  await ensurePfsMapping("country", normalized.toLowerCase(), created.id, normalized);
   countryCache.set(normalized, created.id);
   // Auto-translate country name to all locales if enabled
   autoTranslateManufacturingCountry(created.id, normalized);
@@ -652,7 +605,7 @@ export async function findOrCreateSeason(
       seasonCache.set(normalized, mapping.bjEntityId);
       return mapping.bjEntityId;
     }
-    await prisma.pfsMapping.delete({ where: { id: mapping.id } }).catch(() => {});
+    await prisma.pfsMapping.deleteMany({ where: { id: mapping.id } });
   }
 
   // Check by pfsRef on Season
@@ -662,11 +615,7 @@ export async function findOrCreateSeason(
   });
   if (existingByRef) {
     // Ensure PfsMapping exists
-    await prisma.pfsMapping.upsert({
-      where: { type_pfsName: { type: "season", pfsName: reference.toLowerCase() } },
-      create: { type: "season", pfsName: reference.toLowerCase(), bjEntityId: existingByRef.id, bjName: labels?.fr || normalized },
-      update: { bjEntityId: existingByRef.id, bjName: labels?.fr || normalized },
-    }).catch(() => {});
+    await ensurePfsMapping("season", reference.toLowerCase(), existingByRef.id, labels?.fr || normalized);
     seasonCache.set(normalized, existingByRef.id);
     // Auto-translate missing locales if enabled
     const seasonFrName = labels?.fr || normalized;
@@ -687,11 +636,7 @@ export async function findOrCreateSeason(
       await prisma.season.update({ where: { id: existingByName.id }, data: { pfsRef: normalized } }).catch(() => {});
     }
     // Ensure PfsMapping exists
-    await prisma.pfsMapping.upsert({
-      where: { type_pfsName: { type: "season", pfsName: reference.toLowerCase() } },
-      create: { type: "season", pfsName: reference.toLowerCase(), bjEntityId: existingByName.id, bjName: frName },
-      update: { bjEntityId: existingByName.id, bjName: frName },
-    }).catch(() => {});
+    await ensurePfsMapping("season", reference.toLowerCase(), existingByName.id, frName);
     seasonCache.set(normalized, existingByName.id);
     // Auto-translate missing locales if enabled
     const existingLocales = Object.keys(labels).filter((l) => l !== "fr" && labels[l]);
@@ -730,11 +675,10 @@ async function resolveSizeRecord(sizeName: string, categoryId?: string) {
 
   // Ensure the size is linked to the product's category
   if (categoryId) {
-    await prisma.sizeCategoryLink.upsert({
-      where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId } },
-      create: { sizeId: sizeRecord.id, categoryId },
-      update: {},
-    }).catch(() => { /* ignore duplicate — concurrent upsert race */ });
+    await prisma.sizeCategoryLink.createMany({
+      data: [{ sizeId: sizeRecord.id, categoryId }],
+      skipDuplicates: true,
+    });
   }
 
   return sizeRecord;
@@ -957,15 +901,24 @@ async function syncSingleProduct(
     for (const v of allVariants) {
       const detail = variantMap.get(v.id);
       const weight = detail?.weight ?? v.weight ?? 0;
+      // /variants endpoint returns colors[] instead of item for ITEM variants
+      const detailColors = (v as PfsVariantDetail).colors;
 
-      if (v.type === "ITEM" && v.item) {
+      if (v.type === "ITEM") {
+        // Resolve color: prefer v.item (inline), fallback to colors[] (detailed endpoint)
+        const itemColor = v.item?.color ?? detailColors?.[0];
+        if (!itemColor) {
+          addLog(`  ⚠️ Variante UNIT ${v.id} — pas de couleur (ni item ni colors[]), ignorée`);
+          continue;
+        }
+
         const colorId = await findOrCreateColor(
-          v.item.color.reference,
-          v.item.color.value,
-          v.item.color.labels,
+          itemColor.reference,
+          itemColor.value,
+          itemColor.labels,
         );
         if (!colorId) {
-          addLog(`  ⚠️ Couleur non liée: "${v.item.color.labels?.fr || v.item.color.reference}" — variante ignorée`);
+          addLog(`  ⚠️ Couleur non liée: "${itemColor.labels?.fr || itemColor.reference}" — variante ignorée`);
           continue;
         }
 
@@ -979,17 +932,20 @@ async function syncSingleProduct(
           discountValue = v.discount.value;
         }
 
-        addLog(`  🎨 UNIT ${v.item.color.labels?.fr || v.item.color.reference} — PFS: ${pfsPrice}€ → BJ: ${bjPrice}€ | stock: ${v.stock_qty} | poids: ${weight}kg`);
+        // Size: prefer v.item.size, fallback to size_details_tu from detailed endpoint
+        const sizeName = v.item?.size || (v as PfsVariantDetail).size_details_tu || null;
+
+        addLog(`  🎨 UNIT ${itemColor.labels?.fr || itemColor.reference} — PFS: ${pfsPrice}€ → BJ: ${bjPrice}€ | stock: ${v.stock_qty} | poids: ${weight}kg`);
 
         variants.push({
           colorId,
-          colorRef: v.item.color.reference,
+          colorRef: itemColor.reference,
           unitPrice: bjPrice,
           weight,
           stock: v.is_active ? v.stock_qty : 0,
           saleType: "UNIT",
           packQuantity: null,
-          sizeName: v.item.size || null,
+          sizeName,
           isPrimary: false, // resolved below
           discountType,
           discountValue,
@@ -1054,6 +1010,8 @@ async function syncSingleProduct(
           discountType,
           discountValue,
         });
+      } else {
+        addLog(`  ⚠️ Variante ${v.id} type="${v.type}" ignorée (données manquantes: item=${!!v.item}, packs=${!!v.packs})`);
       }
     }
 

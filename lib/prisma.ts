@@ -7,15 +7,31 @@ import { reportCriticalError, reportSuccess } from "@/lib/health";
  * and report them to the circuit breaker for auto-maintenance.
  */
 
+/** Prisma error messages that are expected during concurrent upsert/delete operations */
+const SUPPRESSED_ERROR_PATTERNS = [
+  "Unique constraint failed",
+  "Record to delete does not exist",
+  "Record to update not found",
+];
+
 const globalForPrisma = globalThis as unknown as {
   prisma: ReturnType<typeof createMonitoredClient> | undefined;
 };
 
 function createMonitoredClient() {
   const base = new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+    log: [
+      { level: "error", emit: "event" },
+      ...(process.env.NODE_ENV === "development" ? [{ level: "warn" as const, emit: "stdout" as const }] : []),
+    ],
     // Connection pool: handle 100k visitors with efficient DB connections
     datasourceUrl: process.env.DATABASE_URL,
+  });
+
+  // Filter out known race-condition errors from Prisma's internal logging
+  base.$on("error", (e: { message: string }) => {
+    if (SUPPRESSED_ERROR_PATTERNS.some((p) => e.message.includes(p))) return;
+    console.error("prisma:error", e.message);
   });
 
   return base.$extends({

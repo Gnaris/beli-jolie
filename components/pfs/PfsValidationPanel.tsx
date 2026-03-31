@@ -421,7 +421,7 @@ export default function PfsValidationPanel({ jobId, analyzeResult, onValidated }
 
       {/* Entity sections */}
       {editCategories.length > 0 && (
-        <GridValidationSection title="Catégories non reconnues" count={editCategories.length} unresolvedCount={editCategories.filter((c) => !c.bjEntityId).length} onBatchCreate={handleBatchCreateCategories} batchCreating={batchCreating === "categories"}>
+        <GridValidationSection title="Catégories non reconnues" count={editCategories.length} unresolvedCount={editCategories.filter((c) => !c.bjEntityId).length} onBatchCreate={handleBatchCreateCategories} batchCreating={batchCreating !== null} batchActive={batchCreating === "categories"}>
           {editCategories.map((cat, idx) => (
             <CompactEntityCard key={`cat-${idx}`} pfsName={cat.pfsName} usedBy={cat.usedBy} bjEntityId={cat.bjEntityId} existingOptions={existingEntities.categories} modalType="category" pfsCategoryId={cat.pfsCategoryId} pfsCategoryGender={cat.pfsGender} pfsCategoryFamilyId={cat.pfsFamilyId}
               onBjEntityIdChange={(id) => { const u = [...editCategories]; u[idx] = { ...u[idx], bjEntityId: id }; setEditCategories(u); }}
@@ -432,7 +432,7 @@ export default function PfsValidationPanel({ jobId, analyzeResult, onValidated }
       )}
 
       {editColors.length > 0 && (
-        <GridValidationSection title="Couleurs non reconnues" count={editColors.length} unresolvedCount={editColors.filter((c) => !c.bjEntityId).length} onBatchCreate={handleBatchCreateColors} batchCreating={batchCreating === "colors"}>
+        <GridValidationSection title="Couleurs non reconnues" count={editColors.length} unresolvedCount={editColors.filter((c) => !c.bjEntityId).length} onBatchCreate={handleBatchCreateColors} batchCreating={batchCreating !== null} batchActive={batchCreating === "colors"}>
           {editColors.map((col, idx) => (
             <CompactColorCard key={`col-${idx}`} color={col} existingColors={existingEntities.colors}
               onBjEntityIdChange={(id) => { const u = [...editColors]; u[idx] = { ...u[idx], bjEntityId: id }; setEditColors(u); }}
@@ -442,7 +442,7 @@ export default function PfsValidationPanel({ jobId, analyzeResult, onValidated }
         </GridValidationSection>
       )}
 
-      <GridValidationSection title="Compositions" count={editCompositions.length} allClearMessage="Toutes les compositions sont déjà présentes." unresolvedCount={editCompositions.filter((c) => !c.bjEntityId).length} onBatchCreate={handleBatchCreateCompositions} batchCreating={batchCreating === "compositions"}>
+      <GridValidationSection title="Compositions" count={editCompositions.length} allClearMessage="Toutes les compositions sont déjà présentes." unresolvedCount={editCompositions.filter((c) => !c.bjEntityId).length} onBatchCreate={handleBatchCreateCompositions} batchCreating={batchCreating !== null} batchActive={batchCreating === "compositions"}>
         {editCompositions.map((comp, idx) => (
           <CompactEntityCard key={comp.pfsReference} pfsName={comp.pfsName} pfsRef={comp.pfsReference} usedBy={comp.usedBy} bjEntityId={comp.bjEntityId} existingOptions={existingEntities.compositions} modalType="composition"
             onBjEntityIdChange={(id) => { const u = [...editCompositions]; u[idx] = { ...u[idx], bjEntityId: id }; setEditCompositions(u); }}
@@ -451,7 +451,7 @@ export default function PfsValidationPanel({ jobId, analyzeResult, onValidated }
         ))}
       </GridValidationSection>
 
-      <GridValidationSection title="Pays de fabrication" count={editCountries.length} allClearMessage="Tous les pays sont déjà présents." unresolvedCount={editCountries.filter((c) => !c.bjEntityId).length} onBatchCreate={handleBatchCreateCountries} batchCreating={batchCreating === "countries"}>
+      <GridValidationSection title="Pays de fabrication" count={editCountries.length} allClearMessage="Tous les pays sont déjà présents." unresolvedCount={editCountries.filter((c) => !c.bjEntityId).length} onBatchCreate={handleBatchCreateCountries} batchCreating={batchCreating !== null} batchActive={batchCreating === "countries"}>
         {editCountries.map((ctr, idx) => (
           <CompactEntityCard key={ctr.pfsReference} pfsName={ctr.pfsName} pfsRef={ctr.pfsReference} bjEntityId={ctr.bjEntityId} existingOptions={existingEntities.countries} modalType="country"
             onBjEntityIdChange={(id) => { const u = [...editCountries]; u[idx] = { ...u[idx], bjEntityId: id }; setEditCountries(u); }}
@@ -460,7 +460,7 @@ export default function PfsValidationPanel({ jobId, analyzeResult, onValidated }
         ))}
       </GridValidationSection>
 
-      <GridValidationSection title="Saisons / Collections" count={editSeasons.length} allClearMessage="Toutes les saisons sont déjà présentes." unresolvedCount={editSeasons.filter((s) => !s.bjEntityId).length} onBatchCreate={handleBatchCreateSeasons} batchCreating={batchCreating === "seasons"}>
+      <GridValidationSection title="Saisons / Collections" count={editSeasons.length} allClearMessage="Toutes les saisons sont déjà présentes." unresolvedCount={editSeasons.filter((s) => !s.bjEntityId).length} onBatchCreate={handleBatchCreateSeasons} batchCreating={batchCreating !== null} batchActive={batchCreating === "seasons"}>
         {editSeasons.map((s, idx) => (
           <CompactEntityCard key={s.pfsReference} pfsName={s.pfsName} pfsRef={s.pfsReference} bjEntityId={s.bjEntityId} existingOptions={existingEntities.seasons} modalType="season"
             onBjEntityIdChange={(id) => { const u = [...editSeasons]; u[idx] = { ...u[idx], bjEntityId: id }; setEditSeasons(u); }}
@@ -517,7 +517,7 @@ export default function PfsValidationPanel({ jobId, analyzeResult, onValidated }
 
 function GridValidationSection({
   title, count, allClearMessage, children,
-  unresolvedCount, onBatchCreate, batchCreating,
+  unresolvedCount, onBatchCreate, batchCreating, batchActive,
 }: {
   title: string;
   count: number;
@@ -526,6 +526,7 @@ function GridValidationSection({
   unresolvedCount?: number;
   onBatchCreate?: () => void;
   batchCreating?: boolean;
+  batchActive?: boolean;
 }) {
   return (
     <div className="card p-5 space-y-3">
@@ -545,7 +546,7 @@ function GridValidationSection({
             disabled={batchCreating}
             className="flex items-center gap-1.5 text-[11px] font-medium text-text-inverse bg-bg-dark hover:bg-black px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
           >
-            {batchCreating ? (
+            {batchActive ? (
               <>
                 <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

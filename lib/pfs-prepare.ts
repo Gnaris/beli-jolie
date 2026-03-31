@@ -13,6 +13,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import {
   pfsListProducts,
   type PfsProduct,
+  type PfsVariantDetail,
 } from "@/lib/pfs-api";
 import { processProductImage } from "@/lib/image-processor";
 import { stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
@@ -215,14 +216,24 @@ async function prepareSingleProduct(
       const detail = variantMap.get(v.id);
       const weight = detail?.weight ?? v.weight ?? 0;
 
-      if (v.type === "ITEM" && v.item) {
+      // /variants endpoint returns colors[] instead of item for ITEM variants
+      const detailColors = (v as PfsVariantDetail).colors;
+
+      if (v.type === "ITEM") {
+        // Resolve color: prefer v.item (inline), fallback to colors[] (detailed endpoint)
+        const itemColor = v.item?.color ?? detailColors?.[0];
+        if (!itemColor) {
+          addLog(`  ⚠️ Variante UNIT ${v.id} — pas de couleur (ni item ni colors[]), ignorée`);
+          continue;
+        }
+
         const colorId = await findOrCreateColor(
-          v.item.color.reference,
-          v.item.color.value,
-          v.item.color.labels,
+          itemColor.reference,
+          itemColor.value,
+          itemColor.labels,
         );
         if (!colorId) {
-          addLog(`  ⚠️ Couleur non liée: "${v.item.color.labels?.fr || v.item.color.reference}" — variante ignorée`);
+          addLog(`  ⚠️ Couleur non liée: "${itemColor.labels?.fr || itemColor.reference}" — variante ignorée`);
           continue;
         }
         const pfsPrice = v.price_sale.unit.value;
@@ -235,16 +246,18 @@ async function prepareSingleProduct(
           discountValue = v.discount.value;
         }
 
+        const sizeName = v.item?.size || (v as PfsVariantDetail).size_details_tu || null;
+
         variants.push({
           colorId,
-          colorRef: v.item.color.reference,
-          colorName: v.item.color.labels?.fr || v.item.color.reference,
+          colorRef: itemColor.reference,
+          colorName: itemColor.labels?.fr || itemColor.reference,
           unitPrice: bjPrice,
           weight,
           stock: v.is_active ? v.stock_qty : 0,
           saleType: "UNIT",
           packQuantity: null,
-          sizeName: v.item.size || null,
+          sizeName,
           isPrimary: false,
           discountType,
           discountValue,
@@ -337,27 +350,20 @@ async function prepareSingleProduct(
       addLog(`  ⚠️ ${inactiveCount} variante(s) désactivée(s) importée(s) avec stock=0`);
     }
 
-    // ── Deduplicate variants by colorId ──
-    // PFS can return both ITEM (UNIT) and PACK variants for the same color.
-    // BJ expects one ProductColor per color. When both exist, keep PACK (richer data).
-    const colorVariantMap = new Map<string, StagedVariantData[]>();
-    for (const v of variants) {
-      const key = v.colorId;
-      if (!colorVariantMap.has(key)) colorVariantMap.set(key, []);
-      colorVariantMap.get(key)!.push(v);
-    }
+    // ── Deduplicate variants by colorId + saleType ──
+    // PFS can return multiple variants for the same color+type (e.g. same UNIT color twice).
+    // Keep all distinct saleTypes per color (both UNIT and PACK are valid).
+    const seenKeys = new Set<string>();
     const deduplicatedVariants: StagedVariantData[] = [];
-    for (const [, group] of colorVariantMap) {
-      if (group.length === 1) {
-        deduplicatedVariants.push(group[0]);
-      } else {
-        // Prefer PACK over UNIT (has size entries, pack quantities, pack color lines)
-        const packVariant = group.find((v) => v.saleType === "PACK");
-        deduplicatedVariants.push(packVariant || group[0]);
+    for (const v of variants) {
+      const key = `${v.colorId}:${v.saleType}`;
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        deduplicatedVariants.push(v);
       }
     }
     if (deduplicatedVariants.length < variants.length) {
-      addLog(`  🔄 ${variants.length - deduplicatedVariants.length} variante(s) dupliquée(s) fusionnée(s) (UNIT+PACK → PACK)`);
+      addLog(`  🔄 ${variants.length - deduplicatedVariants.length} variante(s) en double ignorée(s)`);
     }
     variants.length = 0;
     variants.push(...deduplicatedVariants);
@@ -1100,11 +1106,10 @@ async function createProductChildren(
         }).catch(() => prisma.size.findFirstOrThrow({ where: { name: entry.name } }));
         // Link size to category
         if (categoryId) {
-          await prisma.sizeCategoryLink.upsert({
-            where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId } },
-            create: { sizeId: sizeRecord.id, categoryId },
-            update: {},
-          }).catch(() => { /* ignore duplicate — concurrent upsert race */ });
+          await prisma.sizeCategoryLink.createMany({
+            data: [{ sizeId: sizeRecord.id, categoryId }],
+            skipDuplicates: true,
+          });
         }
         await prisma.variantSize.create({
           data: {
@@ -1126,11 +1131,10 @@ async function createProductChildren(
         }).catch(() => prisma.size.findFirstOrThrow({ where: { name: sizeName } }));
         // Link size to category
         if (categoryId) {
-          await prisma.sizeCategoryLink.upsert({
-            where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId } },
-            create: { sizeId: sizeRecord.id, categoryId },
-            update: {},
-          }).catch(() => { /* ignore duplicate — concurrent upsert race */ });
+          await prisma.sizeCategoryLink.createMany({
+            data: [{ sizeId: sizeRecord.id, categoryId }],
+            skipDuplicates: true,
+          });
         }
         await prisma.variantSize.create({
           data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
