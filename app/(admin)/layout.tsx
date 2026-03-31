@@ -15,7 +15,7 @@ import AdminEmailWrapper from "@/components/admin/email/AdminEmailWrapper";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
 import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
-import { getCachedSiteConfig, getCachedPfsEnabled } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedPfsEnabled, getCachedEfashionEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -53,6 +53,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const autoTranslateEnabled = deeplEnabled && autoTranslateConfig?.value === "true";
 
   const pfsEnabled = await getCachedPfsEnabled();
+  const efashionEnabled = await getCachedEfashionEnabled();
 
   const totalAttributeWarnings = untranslatedCount + unusedColorsCount + unusedCompositionsCount + unusedTagsCount + untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
@@ -83,7 +84,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 overflow-y-auto" aria-label="Navigation admin">
-          {ADMIN_NAV_SECTIONS.map((section, sectionIdx) => (
+          {getAdminNavSections({ efashionEnabled }).map((section, sectionIdx) => (
             <div key={section.title}>
               <p className={`text-[10px] uppercase tracking-widest text-text-muted font-medium px-4 mb-2 ${sectionIdx === 0 ? "mt-1" : "mt-6"}`}>
                 {section.title}
@@ -196,7 +197,36 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 }
 
 /* --- Admin navigation (grouped by section) --------------------------- */
-const ADMIN_NAV_SECTIONS: { title: string; items: { label: string; href: string; icon: React.ReactNode; soon?: boolean }[] }[] = [
+type NavSection = { title: string; items: { label: string; href: string; icon: React.ReactNode; soon?: boolean }[] };
+
+function getAdminNavSections({ efashionEnabled }: { efashionEnabled: boolean }): NavSection[] {
+  const sections: NavSection[] = [...ADMIN_NAV_SECTIONS_BASE];
+
+  // Conditionally add Importation section before "Système"
+  const importItems: NavSection["items"] = [];
+  if (efashionEnabled) {
+    importItems.push({
+      label: "eFashion Paris",
+      href: "/admin/efashion",
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+        </svg>
+      ),
+    });
+  }
+
+  if (importItems.length > 0) {
+    // Insert before "Système" section
+    const systemIdx = sections.findIndex((s) => s.title === "Système");
+    const insertIdx = systemIdx >= 0 ? systemIdx : sections.length;
+    sections.splice(insertIdx, 0, { title: "Importation", items: importItems });
+  }
+
+  return sections;
+}
+
+const ADMIN_NAV_SECTIONS_BASE: NavSection[] = [
   {
     title: "Principal",
     items: [
