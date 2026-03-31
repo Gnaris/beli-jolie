@@ -78,22 +78,13 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
 
 /**
  * Create a new product on eFashion.
- * Returns the created product's id_produit.
+ * CreateProduitInput only accepts: id_vendeur, id_categorie, reference, prix.
+ * Other fields (vendu_par, poids, visible, etc.) must be set via updateProduit after creation.
  */
 export async function createEfashionProduct(data: {
   id_categorie: number;
-  id_declinaison?: number;
-  id_pack?: number;
-  id_collection?: number;
-  id_provenance?: number;
   reference: string;
-  vendu_par: string; // "couleurs" | "assortiment"
   prix: number;
-  prixReduit?: number;
-  poids?: number;
-  visible?: boolean;
-  qteMini?: number;
-  dimension?: string;
 }): Promise<{ id_produit: number }> {
   return withRetry(async () => {
     const vendorId = getEfashionVendorId();
@@ -110,7 +101,14 @@ export async function createEfashionProduct(data: {
           reference
         }
       }`,
-      { input: { id_vendeur: vendorId, ...data } }
+      {
+        input: {
+          id_vendeur: vendorId,
+          id_categorie: data.id_categorie,
+          reference: data.reference,
+          prix: data.prix,
+        },
+      }
     );
 
     logger.info("[eFashion] Product created", {
@@ -132,14 +130,17 @@ export async function updateEfashionProduct(data: {
   id_declinaison?: number;
   id_pack?: number;
   id_collection?: number;
+  id_provenance?: number;
+  id_vendeur_marque?: number;
+  id_couleur_liee?: number;
   reference?: string;
+  reference_base?: string;
   vendu_par?: string;
   prix?: number;
   prixReduit?: number;
   poids?: number;
   visible?: boolean;
-  qteMini?: number;
-  dimension?: string;
+  main?: boolean;
 }): Promise<{ id_produit: number }> {
   return withRetry(async () => {
     const result = await efashionGraphQL<{
@@ -167,30 +168,22 @@ export async function updateEfashionProduct(data: {
 
 /**
  * Save the FR/UK descriptions for a product.
- * Maps texte_fr / texte_uk to the { lang, description } format the mutation expects.
+ * SaveProduitDescriptionInput uses direct fields: texte_fr, texte_uk, instructions, commentaires.
+ * The mutation returns Boolean! (no sub-selection).
  */
 export async function saveEfashionDescription(data: {
   id_produit: number;
   texte_fr?: string;
   texte_uk?: string;
+  instructions?: string;
+  commentaires?: string;
 }): Promise<void> {
   return withRetry(async () => {
-    const descriptions: Array<{ lang: string; titre: string; description: string }> = [];
-
-    if (data.texte_fr !== undefined) {
-      descriptions.push({ lang: "fr", titre: "", description: data.texte_fr });
-    }
-    if (data.texte_uk !== undefined) {
-      descriptions.push({ lang: "en", titre: "", description: data.texte_uk });
-    }
-
-    await efashionGraphQL<{ saveProduitDescription: { success: boolean } }>(
+    await efashionGraphQL<{ saveProduitDescription: boolean }>(
       `mutation SaveProduitDescription($input: SaveProduitDescriptionInput!) {
-        saveProduitDescription(input: $input) {
-          success
-        }
+        saveProduitDescription(input: $input)
       }`,
-      { input: { id_produit: data.id_produit, descriptions } }
+      { input: data }
     );
 
     logger.info("[eFashion] Description saved", { id_produit: data.id_produit });
@@ -209,11 +202,9 @@ export async function saveEfashionStocks(data: {
   stocks: Array<{ id_couleur: number; taille?: string; value: number }>;
 }): Promise<void> {
   return withRetry(async () => {
-    await efashionGraphQL<{ saveProduitStocks: { success: boolean } }>(
+    await efashionGraphQL<{ saveProduitStocks: boolean }>(
       `mutation SaveProduitStocks($input: SaveProduitStocksInput!) {
-        saveProduitStocks(input: $input) {
-          success
-        }
+        saveProduitStocks(input: $input)
       }`,
       { input: data }
     );
@@ -237,11 +228,9 @@ export async function updateEfashionProductColors(data: {
   couleurs: number[];
 }): Promise<void> {
   return withRetry(async () => {
-    await efashionGraphQL<{ updateProduitCouleursProduit: { success: boolean } }>(
-      `mutation UpdateProduitCouleursProduit($input: UpdateProduitCouleursProduitInput!) {
-        updateProduitCouleursProduit(input: $input) {
-          success
-        }
+    await efashionGraphQL<{ updateProduitCouleursProduit: boolean }>(
+      `mutation UpdateProduitCouleursProduit($input: UpdateProduitCouleursInput!) {
+        updateProduitCouleursProduit(input: $input)
       }`,
       { input: data }
     );
@@ -265,11 +254,9 @@ export async function setEfashionProductsVisible(
   visible: boolean
 ): Promise<void> {
   return withRetry(async () => {
-    await efashionGraphQL<{ setProduitsVisible: { success: boolean } }>(
+    await efashionGraphQL<{ setProduitsVisible: boolean }>(
       `mutation SetProduitsVisible($ids: [Int!]!, $visible: Boolean!) {
-        setProduitsVisible(ids: $ids, visible: $visible) {
-          success
-        }
+        setProduitsVisible(ids: $ids, visible: $visible)
       }`,
       { ids, visible }
     );
@@ -283,11 +270,9 @@ export async function setEfashionProductsVisible(
  */
 export async function softDeleteEfashionProducts(ids: number[]): Promise<void> {
   return withRetry(async () => {
-    await efashionGraphQL<{ softDeleteProduits: { success: boolean } }>(
+    await efashionGraphQL<{ softDeleteProduits: boolean }>(
       `mutation SoftDeleteProduits($ids: [Int!]!) {
-        softDeleteProduits(ids: $ids) {
-          success
-        }
+        softDeleteProduits(ids: $ids)
       }`,
       { ids }
     );
@@ -375,11 +360,9 @@ export async function saveEfashionCompositions(data: {
   }>;
 }): Promise<void> {
   return withRetry(async () => {
-    await efashionGraphQL<{ saveProduitCompositions: { success: boolean } }>(
+    await efashionGraphQL<{ saveProduitCompositions: boolean }>(
       `mutation SaveProduitCompositions($input: SaveProduitCompositionsInput!) {
-        saveProduitCompositions(input: $input) {
-          success
-        }
+        saveProduitCompositions(input: $input)
       }`,
       { input: data }
     );

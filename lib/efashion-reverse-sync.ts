@@ -330,13 +330,19 @@ async function createProductOnEfashion(
   const price = primaryVariant ? getUnitPrice(primaryVariant) : 0;
   const weight = primaryVariant?.weight ?? 0;
 
-  const efashionProductId = await createEfashionProduct({
-    id_vendeur: vendorId,
-    reference: product.reference,
+  // Step 1: Create with minimal fields (CreateProduitInput only accepts id_vendeur, id_categorie, reference, prix)
+  const { id_produit: efashionProductId } = await createEfashionProduct({
     id_categorie: product.category.efashionCategoryId!,
-    vendu_par: getVenduPar(product),
+    reference: product.reference,
     prix: price,
+  });
+
+  // Step 2: Update with additional fields
+  await updateEfashionProduct({
+    id_produit: efashionProductId,
+    vendu_par: getVenduPar(product),
     poids: weight,
+    visible: product.status === "ONLINE",
   });
 
   // Store efashionProductId
