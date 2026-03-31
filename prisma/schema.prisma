@@ -63,6 +63,7 @@ model User {
   pfsPrepareJobs      PfsPrepareJob[]
   efashionSyncJobs    EfashionSyncJob[]
   efashionPrepareJobs EfashionPrepareJob[]
+  ankorstoreSyncJobs  AnkorstoreSyncJob[]
   accessCodes         AccessCode[]
   activity       UserActivity?
   restockAlerts  RestockAlert[]
@@ -304,6 +305,11 @@ model Product {
   efashionSyncStatus     String? // null | "pending" | "synced" | "failed"
   efashionSyncError      String?               @db.Text
   efashionSyncedAt       DateTime?
+  // ── Ankorstore sync ──
+  akProductId            String?               @unique
+  akSyncStatus           String? // null | "pending" | "synced" | "failed"
+  akSyncError            String?               @db.Text
+  akSyncedAt             DateTime?
   name                   String
   description            String                @db.Text
   categoryId             String
@@ -432,6 +438,7 @@ model ProductColor {
   pfsColorRef         String? // Override couleur PFS pour variantes multi-couleur
   pfsVariantId        String? // ID variant sur PFS — pour reverse sync
   efashionColorId     Int?
+  akVariantId         String?               @unique // Ankorstore variant UUID
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
@@ -1352,4 +1359,45 @@ model EfashionStagedProduct {
 
   @@index([prepareJobId])
   @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// Ankorstore Sync
+// ─────────────────────────────────────────────
+
+model AnkorstoreSyncJob {
+  id                String        @id @default(cuid())
+  status            PfsSyncStatus @default(PENDING)
+  totalProducts     Int           @default(0)
+  processedProducts Int           @default(0)
+  createdProducts   Int           @default(0)
+  updatedProducts   Int           @default(0)
+  skippedProducts   Int           @default(0)
+  errorProducts     Int           @default(0)
+  lastCursor        String? // for resume — last cursor position
+  errorMessage      String?       @db.Text
+  errorDetails      Json? // per-product errors
+  logs              Json? // detailed sync logs for frontend display
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  adminId           String
+  admin             User          @relation(fields: [adminId], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Ankorstore productTypeId → BJ entity mapping
+model AnkorstoreMapping {
+  id         String   @id @default(cuid())
+  type       String // "productType"
+  akValue    String // Ankorstore value (e.g., "6716")
+  akName     String // Display name (e.g., "Colliers")
+  bjEntityId String // BJ entity id (Category.id)
+  bjName     String // BJ entity name
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([type, akValue])
+  @@index([type])
 }
