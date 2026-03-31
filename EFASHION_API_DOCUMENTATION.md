@@ -1,6 +1,7 @@
 # API eFashion Paris - Documentation
 
-> **Note**: Field names verified via GraphQL introspection (March 2026). Some names differ from original documentation.
+> **Note**: Field names verified via GraphQL introspection (March 2026). Many names and types differ from original API docs.
+> **IMPORTANT**: `productsPage` uses `FilterProduitInput!` (not separate args). `createProduit` only accepts 4 fields. Many mutations return `Boolean!` (no sub-selection).
 
 > Base URL: `https://wapi.efashion-paris.com` | GraphQL: `https://wapi.efashion-paris.com/graphql`
 > Frontend: `https://wholesaler.efashion-paris.com` | CDN shooting: `https://shooting.efashion-paris.com`
@@ -38,65 +39,53 @@ mutation {
 
 ## 2. Lister produits — `query productsPage`
 
+**Type du filtre** : `FilterProduitInput!` (un seul argument `filter`, tout est dedans y compris `skip`/`take`)
+
 ```graphql
-query {
-  productsPage(filter: {
-    id_vendeur: Int!
-    skip: 0
-    take: 50
-    statut: EN_VENTE          # TOUS | EN_VENTE | HORS_LIGNE | RUPTURE
-    orderBy: "dateModification"
-    orderDir: "DESC"
-    # Filtres optionnels:
-    # id_categorie: Int
-    # reference: String
-    # marque: String
-    # collection: String
-    # categorie: String
-    # prix_min: Float
-    # prix_max: Float
-    # dateFrom: String
-    # dateTo: String
-    # vendu_par: String         # UNIT | PACK
-    # stockStatus: String
-    # includePremel: Boolean
-    # premelFilter: String
-  }) {
+query ($filter: FilterProduitInput!) {
+  productsPage(filter: $filter) {
     items {
       id_produit
       id_vendeur
-      id_categorie
-      id_declinaison
-      id_pack
-      id_collection
-      id_provenance
+      date_produit
       reference
       reference_base
-      dimension
-      vendu_par              # "UNIT" | "PACK"
+      marque
+      collection
+      categorie
+      id_categorie
       prix
-      prixReduit
+      promotion
       poids
       visible
       supprimer
-      selection
-      main
-      nb_photos
-      qteMini
-      dateCreation
-      dateModification
-      dateReassort
+      id_couleur
+      couleur
+      stock_value
+      stock_renseigne
+      liaison
+      vendu_par              # "couleurs" | "assortiment"
+      id_pack
+      id_declinaison
+      id_collection
+      id_vendeur_marque
+      id_provenance
+      provenance
+      prixReduit
       premel
-      id_shooting
-      taille_shooting
+      nb_photos
     }
     total
   }
 }
+# Variables:
+# { "filter": { "id_vendeur": 2017, "skip": 0, "take": 50, "statut": "EN_VENTE", "orderBy": "dateModification", "orderDir": "DESC" } }
 ```
 
-**Pagination**: `skip` + `take` (pas de page/per_page). Pas de `hasMore` — utiliser `total` pour determiner s'il reste des produits.
-**Statuts**: `EN_VENTE` (visible), `HORS_LIGNE` (invisible), `RUPTURE` (stock 0), `TOUS`.
+**ATTENTION** : `items` retourne des `ProduitListItem` (pas `Produit`). Les champs sont differents du detail produit.
+**Pagination**: `skip` + `take` dans le filter (pas de page/per_page). Pas de `hasMore` — utiliser `total`.
+**Statuts** (enum `StatutProduit`): `EN_VENTE`, `HORS_LIGNE`, `RUPTURE`, `TOUS`.
+**vendu_par**: `"couleurs"` (=UNIT) ou `"assortiment"` (=PACK) — PAS "UNIT"/"PACK".
 
 ---
 
@@ -267,24 +256,15 @@ query {
 
 ## 9. Creer produit — `mutation createProduit`
 
+**ATTENTION** : `CreateProduitInput` n'accepte que 4 champs ! Tous les autres (vendu_par, poids, visible, etc.) doivent etre sets via `updateProduit` apres creation.
+
 ```graphql
 mutation {
   createProduit(input: {
     id_vendeur: Int!
-    id_categorie: Int!
-    id_declinaison: Int        # grille tailles (UNIT)
-    id_pack: Int               # pack tailles (PACK)
-    id_collection: Int
-    id_provenance: Int
-    reference: String!
-    reference_base: String
-    vendu_par: String!         # "UNIT" | "PACK"
-    prix: Float!
-    prixReduit: Float
-    poids: Float
-    visible: Boolean
-    qteMini: Int
-    dimension: String
+    id_categorie: Int
+    reference: String
+    prix: Float
   }) {
     id_produit
     reference
@@ -299,20 +279,22 @@ mutation {
 ```graphql
 mutation {
   updateProduit(input: {
-    id_produit: Int!
-    id_categorie: Int
-    id_declinaison: Int
-    id_pack: Int
-    id_collection: Int
-    id_provenance: Int
+    id_produit: Int!           # OBLIGATOIRE
     reference: String
-    vendu_par: String
+    reference_base: String
     prix: Float
-    prixReduit: Float
     poids: Float
+    id_collection: Int
+    id_categorie: Int
+    id_vendeur_marque: Int
+    vendu_par: String          # "couleurs" | "assortiment"
     visible: Boolean
-    qteMini: Int
-    dimension: String
+    id_pack: Int
+    id_declinaison: Int
+    id_provenance: Int
+    prixReduit: Float
+    id_couleur_liee: Int
+    main: Boolean
   }) {
     id_produit
   }
@@ -323,18 +305,19 @@ mutation {
 
 ## 11. Descriptions produit — `mutation saveProduitDescription`
 
+**Retourne `Boolean!`** — pas de sous-selection `{ success }`.
+**Champs directs** — pas un array de `{lang, description}`.
+
 ```graphql
 mutation {
   saveProduitDescription(input: {
     id_produit: Int!
-    descriptions: [
-      { lang: "fr", titre: "...", description: "..." }
-      { lang: "en", titre: "...", description: "..." }
-      # Langues supportees: fr, en, de, es, it, ar, etc.
-    ]
-  }) {
-    success
-  }
+    texte_fr: String           # Description francaise
+    texte_uk: String           # Description anglaise
+    instructions: String
+    commentaires: String
+  })
+  # Retourne: true/false (Boolean!)
 }
 ```
 
@@ -438,12 +421,14 @@ mutation {
 
 ## 17. Visibilite / Suppression — Mutations batch
 
+**Toutes retournent `Boolean!`** — pas de sous-selection.
+
 ```graphql
 # Activer/desactiver la visibilite
-mutation { setProduitsVisible(ids: [Int!]!, visible: Boolean!) { success } }
+mutation { setProduitsVisible(ids: [Int!]!, visible: Boolean!) }
 
 # Supprimer (soft delete)
-mutation { softDeleteProduits(ids: [Int!]!) { success } }
+mutation { softDeleteProduits(ids: [Int!]!) }
 
 # Publier un brouillon
 mutation { publishBrouillon(id_produit: Int!, id_vendeur: Int!) { success } }
