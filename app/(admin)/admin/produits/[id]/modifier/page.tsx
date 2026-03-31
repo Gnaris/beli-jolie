@@ -5,9 +5,10 @@ import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
 import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
-import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes, getCachedPfsEnabled } from "@/lib/cached-data";
+import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes, getCachedPfsEnabled, getCachedEfashionEnabled } from "@/lib/cached-data";
 import PfsSyncButton from "@/components/pfs/PfsSyncButton";
 import RetryImagesButton from "@/components/pfs/RetryImagesButton";
+import EfashionSyncButton from "@/components/efashion/EfashionSyncButton";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 
@@ -24,7 +25,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes, hasPfsConfig] = await Promise.all([
+  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes, hasPfsConfig, hasEfashionConfig] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -123,6 +124,7 @@ export default async function ModifierProduitPage({
     getCachedSeasons(),
     getCachedSizes(),
     getCachedPfsEnabled(),
+    getCachedEfashionEnabled(),
   ]);
 
   if (!product) notFound();
@@ -386,6 +388,12 @@ export default async function ModifierProduitPage({
                     pfsSyncError={product.pfsSyncError}
                     pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
                     mappingIssues={mappingIssues}
+                  />
+                )}
+                {hasEfashionConfig && (
+                  <EfashionSyncButton
+                    productId={product.id}
+                    efashionProductId={product.efashionProductId}
                   />
                 )}
                 {hasMissingImages && (
