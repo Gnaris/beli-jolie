@@ -255,9 +255,31 @@ async function createNewProduct(
   akProduct: AkProduct,
   akVariants: AkVariant[],
 ): Promise<void> {
-  const categoryId = categoryCache.get(String(akProduct.productTypeId));
+  let categoryId = categoryCache.get(String(akProduct.productTypeId));
   if (!categoryId) {
-    throw new Error(`ProductType ${akProduct.productTypeId} non mappé — configurer dans Mapping`);
+    // Auto-create category from Ankorstore productTypeId
+    const typeName = `Ankorstore ${akProduct.productTypeId}`;
+    const typeSlug = `ankorstore-${akProduct.productTypeId}`;
+    const created = await prisma.category.create({
+      data: { name: typeName, slug: typeSlug },
+    });
+    categoryId = created.id;
+    categoryCache.set(String(akProduct.productTypeId), categoryId);
+
+    // Also save the mapping for future syncs
+    await prisma.ankorstoreMapping.upsert({
+      where: { type_akValue: { type: "productType", akValue: String(akProduct.productTypeId) } },
+      create: {
+        type: "productType",
+        akValue: String(akProduct.productTypeId),
+        akName: typeName,
+        bjEntityId: categoryId,
+        bjName: typeName,
+      },
+      update: { bjEntityId: categoryId, bjName: typeName },
+    });
+
+    addLog(`📁 Catégorie créée : ${typeName}`);
   }
 
   const product = await prisma.product.create({
@@ -292,7 +314,7 @@ async function createNewProduct(
       },
     });
 
-    await downloadVariantImages(productColor.id, product.id, akVariant.images, reference);
+    await downloadVariantImages(productColor.id, product.id, colorId, akVariant.images, reference);
   }
 }
 
@@ -334,6 +356,7 @@ let activeImageDownloads = 0;
 async function downloadVariantImages(
   productColorId: string,
   productId: string,
+  colorId: string | null,
   images: { order: number; url: string }[],
   reference: string,
 ): Promise<void> {
@@ -368,8 +391,9 @@ async function downloadVariantImages(
         data: {
           productColorId,
           productId,
+          colorId: colorId || "", // colorId from the variant's color
           path: dbPath,
-          position: img.order - 1,
+          order: img.order - 1,
         },
       });
 
@@ -391,7 +415,7 @@ async function findOrCreateColor(name: string): Promise<string | null> {
   if (colorCache.has(normalized)) return colorCache.get(normalized)!;
 
   const existing = await prisma.color.findFirst({
-    where: { name: { equals: name, mode: "insensitive" } },
+    where: { name: name.trim() },
   });
 
   if (existing) {
