@@ -77,6 +77,9 @@ interface PfsStagedProductCardProps {
 
 function getThumbSrc(path: string): string {
   if (!path) return "";
+  // PFS CDN URLs — use as-is (no local thumbnail variant)
+  if (path.startsWith("http")) return path;
+  // Local R2 paths — use thumbnail variant
   if (path.endsWith(".webp")) {
     return path.replace(/\.webp$/, "_thumb.webp");
   }

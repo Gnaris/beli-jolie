@@ -134,7 +134,6 @@ async function main() {
 
   const prefixes = [
     "uploads/products/",          // images produit (large, _md, _thumb)
-    "uploads/products/staging/",  // images PFS en attente d'approbation (inclus dans products/ mais listé pour clarté)
     "uploads/patterns/",          // patterns couleurs (upload-pattern)
   ];
   for (const prefix of prefixes) {

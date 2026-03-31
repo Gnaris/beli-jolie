@@ -1378,8 +1378,9 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
             const hasMultiColors = imgVariant && (imgVariant.subColors.length > 0 || imgVariant.saleType === "PACK");
             const imgPfsRef = imgVariant?.pfsColorRef;
             const imgPfsLabel = imgPfsRef ? pfsColorLabels.get(imgPfsRef) : undefined;
+            const missingImages = cimg.uploadedPaths.length === 0;
             return (
-            <div key={cimg.groupKey} className="border border-border rounded-xl p-4">
+            <div key={cimg.groupKey} className={`border rounded-xl p-4 ${missingImages ? "border-[#EF4444] bg-red-50/30" : "border-border"}`}>
               <div className="flex items-center gap-2 mb-3">
                 <ColorSwatch
                   hex={seg.main.hex}
@@ -1412,7 +1413,11 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
                 onCrossColorDrop={(srcGroupKey, srcPos, targetPos) => handleCrossColorDrop(srcGroupKey, srcPos, cimg.groupKey, targetPos)}
                 uploading={cimg.uploading}
                 uploadingPosition={uploadingSlots[cimg.groupKey] ?? null}
+                hasError={missingImages}
               />
+              {missingImages && (
+                <p className="text-xs text-[#EF4444] mt-1.5 font-body">Aucune image — ajoutez au moins une image pour cette variante</p>
+              )}
             </div>
           );
           })}
@@ -2345,6 +2350,7 @@ export default function ColorVariantManager({
   }, [selectedIds, variants.length]);
 
   const totalPhotos   = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
+  const hasAnyMissingImages = colorImages.some((c) => c.uploadedPaths.length === 0);
   const showBulkRow   = selectedIds.size > 0;
   const duplicateTempIds = findDuplicateVariantTempIds(variants);
 
@@ -3105,7 +3111,11 @@ export default function ColorVariantManager({
           <button
             type="button"
             onClick={() => setShowImageModal(true)}
-            className="w-full border-2 border-dashed border-border py-3 text-sm font-body text-text-secondary hover:border-bg-dark hover:bg-bg-secondary transition-colors flex items-center justify-center gap-2 rounded-lg"
+            className={`w-full border-2 border-dashed py-3 text-sm font-body transition-colors flex items-center justify-center gap-2 rounded-lg ${
+              hasAnyMissingImages
+                ? "border-[#EF4444] text-[#EF4444] hover:border-red-400 hover:bg-red-50/50"
+                : "border-border text-text-secondary hover:border-bg-dark hover:bg-bg-secondary"
+            }`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />

@@ -220,7 +220,7 @@ export async function downloadImage(url: string, maxRetries = 3): Promise<Buffer
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), 30000);
       const ua = FETCH_USER_AGENTS[fetchUaIdx++ % FETCH_USER_AGENTS.length];
 
       const res = await fetch(url, {
@@ -262,9 +262,11 @@ export async function downloadImage(url: string, maxRetries = 3): Promise<Buffer
 
   // All fetch attempts failed — try Playwright as last resort
   try {
+    logger.info(`[PFS Images] Fetch failed after ${maxRetries} retries, trying Playwright: ${url}`);
     return await downloadImagePlaywright(url);
-  } catch {
-    // Playwright also failed
+  } catch (pwErr) {
+    const pwMsg = pwErr instanceof Error ? pwErr.message : String(pwErr);
+    logger.error(`[PFS Images] Playwright fallback also failed: ${pwMsg} (url: ${url})`);
   }
 
   throw lastError || new Error(`Failed after ${maxRetries} retries + Playwright`);
@@ -704,22 +706,38 @@ export async function findOrCreateSeason(
 // Size resolution helper
 // ─────────────────────────────────────────────
 
-async function resolveSizeRecord(sizeName: string) {
+async function resolveSizeRecord(sizeName: string, categoryId?: string) {
   // First try to find by SizePfsMapping, then by name, then create with mapping
+  let sizeRecord: { id: string; name: string } | null = null;
+
   const mapping = await prisma.sizePfsMapping.findFirst({
     where: { pfsSizeRef: sizeName },
     select: { size: true },
   });
-  if (mapping?.size) return mapping.size;
+  if (mapping?.size) {
+    sizeRecord = mapping.size;
+  } else {
+    const existing = await prisma.size.findUnique({ where: { name: sizeName } });
+    if (existing) {
+      sizeRecord = existing;
+    } else {
+      sizeRecord = await prisma.size.create({ data: { name: sizeName } });
+      await prisma.sizePfsMapping.create({
+        data: { sizeId: sizeRecord.id, pfsSizeRef: sizeName },
+      });
+    }
+  }
 
-  const existing = await prisma.size.findUnique({ where: { name: sizeName } });
-  if (existing) return existing;
+  // Ensure the size is linked to the product's category
+  if (categoryId) {
+    await prisma.sizeCategoryLink.upsert({
+      where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId } },
+      create: { sizeId: sizeRecord.id, categoryId },
+      update: {},
+    }).catch(() => { /* ignore duplicate — concurrent upsert race */ });
+  }
 
-  const created = await prisma.size.create({ data: { name: sizeName } });
-  await prisma.sizePfsMapping.create({
-    data: { sizeId: created.id, pfsSizeRef: sizeName },
-  });
-  return created;
+  return sizeRecord;
 }
 
 // ─────────────────────────────────────────────
@@ -739,24 +757,33 @@ export async function downloadAndProcessImages(
 
       try {
         buffer = await downloadImage(url);
-      } catch {
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[PFS Images] ${reference}/${colorRef} img${idx} — primary download failed: ${msg} (url: ${url})`);
         // Try fallback
         if (fallbackUrls && fallbackUrls[idx]) {
           try {
             buffer = await downloadImage(fallbackUrls[idx]);
-          } catch {
-            // Both failed
+            logger.info(`[PFS Images] ${reference}/${colorRef} img${idx} — fallback succeeded`);
+          } catch (fbErr) {
+            const fbMsg = fbErr instanceof Error ? fbErr.message : String(fbErr);
+            logger.warn(`[PFS Images] ${reference}/${colorRef} img${idx} — fallback also failed: ${fbMsg}`);
           }
         }
       }
 
-      if (!buffer) return null;
+      if (!buffer) {
+        logger.warn(`[PFS Images] ${reference}/${colorRef} img${idx} — no image data, skipping`);
+        return null;
+      }
 
       try {
         const filename = `pfs_${reference}_${colorRef}_${idx}_${Date.now()}`;
         const result = await processProductImage(buffer, "public/uploads/products", filename);
         return { path: result.dbPath, order: idx };
-      } catch {
+      } catch (procErr) {
+        const procMsg = procErr instanceof Error ? procErr.message : String(procErr);
+        logger.error(`[PFS Images] ${reference}/${colorRef} img${idx} — processing failed: ${procMsg}`);
         return null;
       }
     }),
@@ -818,7 +845,7 @@ export interface SyncResult {
   /** Product DB id (for status update after images) */
   productId?: string;
   /** Image task to run in background after product is created/updated */
-  imageTask?: () => Promise<void>;
+  imageTask?: () => Promise<{ expected: number; downloaded: number }>;
   /** BJ status derived from PFS status (ONLINE if READY_FOR_SALE, OFFLINE otherwise) */
   bjStatus?: "ONLINE" | "OFFLINE";
 }
@@ -1158,7 +1185,7 @@ async function syncSingleProduct(
         // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
         if (v.sizeEntries?.length) {
           for (const entry of v.sizeEntries) {
-            const sizeRecord = await resolveSizeRecord(entry.name);
+            const sizeRecord = await resolveSizeRecord(entry.name, categoryId);
             await prisma.variantSize.create({
               data: {
                 productColorId: created.id,
@@ -1171,7 +1198,7 @@ async function syncSingleProduct(
         } else {
           const sizes = v.sizeNames?.length ? v.sizeNames : (v.sizeName ? [v.sizeName] : []);
           for (const sizeName of sizes) {
-            const sizeRecord = await resolveSizeRecord(sizeName);
+            const sizeRecord = await resolveSizeRecord(sizeName, categoryId);
             await prisma.variantSize.create({
               data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
             });
@@ -1234,7 +1261,7 @@ async function syncSingleProduct(
         // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
         if (v.sizeEntries?.length) {
           for (const entry of v.sizeEntries) {
-            const sizeRecord = await resolveSizeRecord(entry.name);
+            const sizeRecord = await resolveSizeRecord(entry.name, categoryId);
             await prisma.variantSize.create({
               data: {
                 productColorId: created.id,
@@ -1247,7 +1274,7 @@ async function syncSingleProduct(
         } else {
           const sizes = v.sizeNames?.length ? v.sizeNames : (v.sizeName ? [v.sizeName] : []);
           for (const sizeName of sizes) {
-            const sizeRecord = await resolveSizeRecord(sizeName);
+            const sizeRecord = await resolveSizeRecord(sizeName, categoryId);
             await prisma.variantSize.create({
               data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
             });
@@ -1317,10 +1344,13 @@ async function syncProductImages(
   createdVariants: { id: string; colorId: string | null; colorRef: string }[],
   addLog: (msg: string) => void,
   addImageLog?: (msg: string) => void,
-): Promise<void> {
+): Promise<{ expected: number; downloaded: number }> {
   const imgLog = addImageLog || addLog;
   const primaryImages = extractColorImages(imageSource.primary);
   const fallbackImages = imageSource.fallback ? extractColorImages(imageSource.fallback) : null;
+
+  let totalExpected = 0;
+  let totalDownloaded = 0;
 
   for (const [colorRef, urls] of primaryImages) {
     const matchingVariants = createdVariants.filter((v) => v.colorRef === colorRef);
@@ -1328,12 +1358,14 @@ async function syncProductImages(
 
     // Download and process images (max 5 per color)
     const limitedUrls = urls.slice(0, 5);
+    totalExpected += limitedUrls.length;
 
     // Also prepare fallback URLs for this color (if available)
     const fallbackUrls = fallbackImages?.get(colorRef)?.slice(0, 5) || null;
 
     imgLog(`  🖼️ ${bjRef} — téléchargement ${limitedUrls.length} image(s), couleur : ${colorRef}`);
     const paths = await downloadAndProcessImages(limitedUrls, bjRef, colorRef, fallbackUrls);
+    totalDownloaded += paths.length;
 
     if (paths.length === 0) {
       imgLog(`  ⚠️ ${bjRef} — aucune image récupérée pour couleur : ${colorRef}`);
@@ -1353,6 +1385,8 @@ async function syncProductImages(
     await prisma.productColorImage.createMany({ data: imageData });
     imgLog(`  ✅ ${bjRef} — ${paths.length}/${limitedUrls.length} image(s) sauvegardées, couleur : ${colorRef}`);
   }
+
+  return { expected: totalExpected, downloaded: totalDownloaded };
 }
 
 // ─────────────────────────────────────────────
@@ -1398,8 +1432,38 @@ export async function retryPfsProducts(
       const result = await syncSingleProduct(found, variantDetails, refDetails, noop);
 
       // Run image task immediately
-      if (result.imageTask) {
-        try { await result.imageTask(); } catch { /* ignore image errors */ }
+      if (result.imageTask && result.productId) {
+        try {
+          const imgStats = await result.imageTask();
+          const finalStatus = result.bjStatus || "ONLINE";
+          if (imgStats.downloaded > 0 && imgStats.downloaded >= imgStats.expected) {
+            await prisma.product.update({
+              where: { id: result.productId },
+              data: { status: finalStatus },
+            });
+          } else if (imgStats.downloaded === 0) {
+            // No images — delete product
+            await prisma.product.delete({ where: { id: result.productId } }).catch(() => {});
+            result.action = "error";
+            result.error = `Aucune image téléchargée (0/${imgStats.expected})`;
+            logger.warn(`[PFS Images] retry ${ref} — product DELETED: 0/${imgStats.expected} images`);
+          } else {
+            // Partial — keep OFFLINE
+            await prisma.product.update({
+              where: { id: result.productId },
+              data: { status: "OFFLINE" },
+            });
+            result.action = "error";
+            result.error = `Images incomplètes (${imgStats.downloaded}/${imgStats.expected})`;
+            logger.warn(`[PFS Images] retry ${ref} — set OFFLINE: ${imgStats.downloaded}/${imgStats.expected} images`);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.error(`[PFS Images] retry ${ref} — image task failed: ${msg}`);
+          await prisma.product.delete({ where: { id: result.productId } }).catch(() => {});
+          result.action = "error";
+          result.error = `Erreur images: ${msg}`;
+        }
       }
 
       results.push(result);
@@ -1536,7 +1600,7 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
       activeImageTasks++;
       task()
         .then(() => { completedImageTasks++; })
-        .catch(() => { failedImageTasks++; })
+        .catch((err) => { failedImageTasks++; logger.error(`[PFS Images] Image task failed in pool: ${err instanceof Error ? err.message : String(err)}`); })
         .finally(() => {
           activeImageTasks--;
           tryDrainImagePool();
@@ -1572,6 +1636,7 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
     let lastPage = Infinity;
 
     const errors: { reference: string; error: string }[] = [];
+    const imageFailures: { reference: string; reason: string; downloaded: number; expected: number }[] = [];
     let created = job.createdProducts;
     let updated = job.updatedProducts;
     let skipped = job.skippedProducts;
@@ -1684,24 +1749,44 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
             enqueueImageTask(async () => {
               addImageLog(`⬇️ ${ref} — téléchargement en cours...`);
               try {
-                await result.imageTask!();
-                // Images done → set product status based on PFS status
-                if (pid) {
+                const imgStats = await result.imageTask!();
+                if (!pid) return;
+
+                if (imgStats.downloaded === 0) {
+                  // No images at all — delete the product entirely
+                  await prisma.product.delete({ where: { id: pid } }).catch(() => {});
+                  created = Math.max(0, created - 1);
+                  errored++;
+                  imageFailures.push({ reference: ref, reason: "Aucune image téléchargée", downloaded: 0, expected: imgStats.expected });
+                  addImageLog(`🗑️ ${ref} — 0/${imgStats.expected} images, produit supprimé`);
+                  logger.warn(`[PFS Images] ${ref} — product ${pid} DELETED: 0/${imgStats.expected} images`);
+                } else if (imgStats.downloaded < imgStats.expected) {
+                  // Partial images — keep OFFLINE (user wants ALL images before showing)
+                  await prisma.product.update({
+                    where: { id: pid },
+                    data: { status: "OFFLINE" },
+                  });
+                  imageFailures.push({ reference: ref, reason: "Images incomplètes", downloaded: imgStats.downloaded, expected: imgStats.expected });
+                  addImageLog(`⚠️ ${ref} — images incomplètes (${imgStats.downloaded}/${imgStats.expected}), produit mis OFFLINE`);
+                  logger.warn(`[PFS Images] ${ref} — product ${pid} set OFFLINE: only ${imgStats.downloaded}/${imgStats.expected} images downloaded`);
+                } else {
+                  // All images downloaded — set final status
                   await prisma.product.update({
                     where: { id: pid },
                     data: { status: finalStatus },
                   });
+                  addImageLog(`✅ ${ref} — ${imgStats.downloaded}/${imgStats.expected} image(s) OK, produit ${finalStatus === "ONLINE" ? "en ligne" : "hors ligne"}`);
                 }
-                addImageLog(`✅ ${ref} — images OK, produit ${finalStatus === "ONLINE" ? "en ligne" : "hors ligne"}`);
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
-                addImageLog(`❌ ${ref} — erreur: ${msg}`);
-                // Still set status even if images fail (product data is valid)
+                addImageLog(`❌ ${ref} — erreur images: ${msg}, produit supprimé`);
+                logger.error(`[PFS Images] ${ref} — image task failed: ${msg}`);
+                // Image task crashed — delete the product
                 if (pid) {
-                  await prisma.product.update({
-                    where: { id: pid },
-                    data: { status: finalStatus },
-                  }).catch(() => {});
+                  await prisma.product.delete({ where: { id: pid } }).catch(() => {});
+                  created = Math.max(0, created - 1);
+                  errored++;
+                  imageFailures.push({ reference: ref, reason: msg, downloaded: 0, expected: 0 });
                 }
               }
             });
@@ -1759,8 +1844,23 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
 
     addImageLog(`🏁 Images terminées — ${completedImageTasks} OK${failedImageTasks > 0 ? `, ${failedImageTasks} échouées` : ""}`);
 
+    // ── Image failure summary ──
+    if (imageFailures.length > 0) {
+      addImageLog(`\n📋 Résumé des échecs images (${imageFailures.length} produit(s)) :`);
+      for (const f of imageFailures) {
+        addImageLog(`  • ${f.reference} — ${f.reason} (${f.downloaded}/${f.expected})`);
+      }
+      addImageLog(`\n💡 Vous pouvez réimporter ces produits via "Réimporter les échoués" ci-dessous.`);
+    }
+
     await closePlaywright();
-    addProductLog(`🏁 Synchronisation complète — ${processed} produits, ${completedImageTasks} images`);
+    addProductLog(`🏁 Synchronisation complète — ${processed} produits, ${completedImageTasks} images${imageFailures.length > 0 ? `, ${imageFailures.length} échoué(s)` : ""}`);
+
+    // Merge product errors + image failures for errorDetails
+    const allErrors = [
+      ...errors,
+      ...imageFailures.map((f) => ({ reference: f.reference, error: `${f.reason} (${f.downloaded}/${f.expected} images)` })),
+    ];
 
     await prisma.pfsSyncJob.update({
       where: { id: jobId },
@@ -1771,7 +1871,8 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
         updatedProducts: updated,
         skippedProducts: skipped,
         errorProducts: errored,
-        errorDetails: errors.length > 0 ? errors : undefined,
+        errorDetails: allErrors.length > 0 ? allErrors : undefined,
+        failedReferences: imageFailures.length > 0 ? imageFailures.map((f) => f.reference) : undefined,
         logs: buildLogsPayload(),
       },
     });

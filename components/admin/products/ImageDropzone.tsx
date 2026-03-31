@@ -13,6 +13,7 @@ interface ImageDropzoneProps {
   onCrossColorDrop?: (sourceGroupKey: string, sourcePos: number, targetPos: number) => void;
   uploading: boolean;
   uploadingPosition?: number | null;
+  hasError?: boolean;
 }
 
 const MAX_IMAGES = 5;
@@ -28,6 +29,7 @@ export default function ImageDropzone({
   onCrossColorDrop,
   uploading,
   uploadingPosition,
+  hasError,
 }: ImageDropzoneProps) {
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [draggedPos, setDraggedPos] = useState<number | null>(null);
@@ -124,7 +126,9 @@ export default function ImageDropzone({
                   ? "border-bg-dark bg-bg-secondary scale-[1.02]"
                   : img
                     ? "border-border bg-bg-primary"
-                    : "border-dashed border-border-light bg-bg-secondary hover:border-text-muted hover:bg-bg-tertiary"
+                    : hasError
+                      ? "border-dashed border-[#EF4444] bg-red-50/50 hover:border-red-400 hover:bg-red-50"
+                      : "border-dashed border-border-light bg-bg-secondary hover:border-text-muted hover:bg-bg-tertiary"
               } ${isDraggedFrom ? "opacity-30 scale-95" : ""} ${
                 isUploading ? "opacity-60 pointer-events-none" : ""
               }`}

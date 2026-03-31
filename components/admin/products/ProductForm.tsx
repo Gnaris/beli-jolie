@@ -3,7 +3,7 @@
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, packDisplayName, packDisplayHex, computeTotalPrice } from "./ColorVariantManager";
-import { createProduct, updateProduct, saveProductTranslations } from "@/app/actions/admin/products";
+import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller } from "@/app/actions/admin/products";
 import { createSize, toggleSizePfsMapping } from "@/app/actions/admin/sizes";
 import { forcePfsSync } from "@/app/actions/admin/pfs-reverse-sync";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
@@ -114,6 +114,8 @@ function TagsDropdown({
   onCreateClick,
   isBestSeller,
   setIsBestSeller,
+  productId,
+  mode,
 }: {
   localTags: { id: string; name: string }[];
   tagNames: string[];
@@ -121,6 +123,8 @@ function TagsDropdown({
   onCreateClick: () => void;
   isBestSeller: boolean;
   setIsBestSeller: (v: boolean) => void;
+  productId?: string;
+  mode?: "create" | "edit";
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -274,7 +278,13 @@ function TagsDropdown({
       {/* Best Seller */}
       <div className="pt-3 border-t border-border-light">
         <label className="flex items-center gap-3 cursor-pointer group">
-          <input type="checkbox" checked={isBestSeller} onChange={(e) => setIsBestSeller(e.target.checked)}
+          <input type="checkbox" checked={isBestSeller} onChange={async (e) => {
+            const val = e.target.checked;
+            setIsBestSeller(val);
+            if (mode === "edit" && productId) {
+              toggleBestSeller(productId, val).catch(() => setIsBestSeller(!val));
+            }
+          }}
             className="w-4 h-4 border-border accent-[#1A1A1A]" />
           <div>
             <span className="text-sm font-body font-semibold text-text-secondary">Best Seller</span>
@@ -805,9 +815,12 @@ export default function ProductForm({
     if (variants.length === 0) {
       errors.push("Au moins une variante de couleur est requise");
     } else {
-      // Every variant must have at least one image
+      // Every variant must have at least one image (deduplicate by groupKey)
+      const checkedGroupKeys = new Set<string>();
       for (const v of variants) {
         const gk = variantGroupKeyFromState(v);
+        if (checkedGroupKeys.has(gk)) continue;
+        checkedGroupKeys.add(gk);
         const ci = colorImages.find((c) => c.groupKey === gk);
         if (!ci || ci.uploadedPaths.length === 0) {
           const label = v.colorName || "variante pack";
@@ -1299,6 +1312,8 @@ export default function ProductForm({
               onCreateClick={() => setModalType("tag")}
               isBestSeller={isBestSeller}
               setIsBestSeller={setIsBestSeller}
+              productId={productId}
+              mode={mode}
             />
           </div>
 
@@ -1505,8 +1520,8 @@ export default function ProductForm({
                   Ce produit ne peut pas être mis en ligne :
                 </p>
                 <ul className="space-y-1 list-none">
-                  {onlineErrors.map((e) => (
-                    <li key={e} className="flex items-start gap-2">
+                  {onlineErrors.map((e, i) => (
+                    <li key={`${e}-${i}`} className="flex items-start gap-2">
                       <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>

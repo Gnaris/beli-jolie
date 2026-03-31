@@ -2,12 +2,12 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
-import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes } from "@/lib/cached-data";
+import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes, getCachedPfsEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Nouveau produit" };
 
 export default async function NouveauProduitPage() {
-  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes] = await Promise.all([
+  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes, hasPfsConfig] = await Promise.all([
     getCachedCategories(),
     getCachedColors(),
     prisma.composition.findMany({ orderBy: { name: "asc" } }),
@@ -15,6 +15,7 @@ export default async function NouveauProduitPage() {
     getCachedManufacturingCountries(),
     getCachedSeasons(),
     getCachedSizes(),
+    getCachedPfsEnabled(),
   ]);
 
   return (
@@ -52,6 +53,7 @@ export default async function NouveauProduitPage() {
         availableCountries={manufacturingCountries}
         availableSeasons={seasons}
         availableTags={tags}
+        hasPfsConfig={hasPfsConfig}
       />
     </div>
   );

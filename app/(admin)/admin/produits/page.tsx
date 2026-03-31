@@ -521,13 +521,14 @@ async function SaisonsContent() {
    TAB: Tailles
    ═══════════════════════════════════════════════════════════════════════════ */
 async function TaillesContent() {
-  const [sizes, categories] = await Promise.all([
+  const [sizes, categories, pfsEnabled] = await Promise.all([
     prisma.size.findMany({
       orderBy: { position: "asc" },
       include: {
         categories: {
           include: { category: { select: { id: true, name: true } } },
         },
+        pfsMappings: { select: { pfsSizeRef: true } },
         _count: { select: { variantSizes: true } },
       },
     }),
@@ -535,7 +536,19 @@ async function TaillesContent() {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    getCachedPfsEnabled(),
   ]);
+
+  // Fetch PFS sizes if enabled (best-effort)
+  let pfsSizes: { reference: string }[] = [];
+  if (pfsEnabled) {
+    try {
+      const { pfsGetSizes } = await import("@/lib/pfs-api-write");
+      pfsSizes = await pfsGetSizes();
+    } catch {
+      // PFS unavailable
+    }
+  }
 
   const sizeItems = sizes.map((s) => ({
     id: s.id,
@@ -544,6 +557,7 @@ async function TaillesContent() {
     variantCount: s._count.variantSizes,
     categoryIds: s.categories.map((c) => c.category.id),
     categoryNames: s.categories.map((c) => c.category.name),
+    pfsMappings: s.pfsMappings.map((m) => m.pfsSizeRef),
   }));
 
   return (
@@ -555,7 +569,12 @@ async function TaillesContent() {
         </p>
       </div>
 
-      <SizesManager initialSizes={sizeItems} categories={categories} />
+      <SizesManager
+        initialSizes={sizeItems}
+        categories={categories}
+        pfsEnabled={pfsEnabled}
+        pfsSizes={pfsSizes}
+      />
     </div>
   );
 }

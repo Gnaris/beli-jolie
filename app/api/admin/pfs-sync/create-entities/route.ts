@@ -614,7 +614,7 @@ export async function POST(req: NextRequest) {
               where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId: bjCatId } },
               create: { sizeId: sizeRecord.id, categoryId: bjCatId },
               update: {},
-            });
+            }).catch(() => { /* ignore duplicate */ });
           }
         }
         // Link to PFS size refs via SizePfsMapping (idempotent upsert)

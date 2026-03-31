@@ -72,7 +72,7 @@ export interface PfsVariantUpdateData {
   discount_value?: number | null;
 }
 
-export type PfsStatus = "READY_FOR_SALE" | "DRAFT" | "NEW" | "ARCHIVED" | "DELETED";
+export type PfsStatus = "READY_FOR_SALE" | "DRAFT" | "NEW" | "ARCHIVED" | "DELETED" | "STAR" | "REMOVE_STAR";
 
 // ─────────────────────────────────────────────
 // Retry logic (shared with pfs-api.ts pattern)

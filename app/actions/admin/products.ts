@@ -386,7 +386,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
 
   const oldProduct = await prisma.product.findUnique({
     where: { id },
-    select: { status: true, isBestSeller: true },
+    select: { status: true, isBestSeller: true, pfsProductId: true },
   });
 
   const dup = await prisma.product.findFirst({
@@ -748,7 +748,45 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
   }
 
+  // PFS best seller sync (only when the checkbox was actually toggled)
+  if (oldProduct?.pfsProductId && oldProduct.isBestSeller !== input.isBestSeller) {
+    const starStatus: PfsStatus = input.isBestSeller ? "STAR" : "REMOVE_STAR";
+    pfsUpdateStatus([{ id: oldProduct.pfsProductId, status: starStatus }]).catch((err) => {
+      logger.warn(`[PFS] Best seller sync failed for product ${id}`, { error: err });
+    });
+  }
+}
 
+// ─────────────────────────────────────────────
+// Toggle Best Seller (lightweight, no full save)
+// ─────────────────────────────────────────────
+
+export async function toggleBestSeller(productId: string, isBestSeller: boolean): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { isBestSeller: true, pfsProductId: true },
+  });
+  if (!product) return { success: false, error: "Produit introuvable." };
+  if (product.isBestSeller === isBestSeller) return { success: true };
+
+  await prisma.product.update({
+    where: { id: productId },
+    data: { isBestSeller },
+  });
+
+  revalidateTag("products", "default");
+  emitProductEvent({ type: "BESTSELLER_CHANGED", productId });
+
+  if (product.pfsProductId) {
+    const starStatus: PfsStatus = isBestSeller ? "STAR" : "REMOVE_STAR";
+    pfsUpdateStatus([{ id: product.pfsProductId, status: starStatus }]).catch((err) => {
+      logger.warn(`[PFS] Best seller sync failed for product ${productId}`, { error: err });
+    });
+  }
+
+  return { success: true };
 }
 
 // ─────────────────────────────────────────────
@@ -1178,4 +1216,158 @@ export async function saveProductTranslations(
       skipDuplicates: true,
     });
   }
+}
+
+// ─────────────────────────────────────────────
+// Retry missing PFS images for a product
+// ─────────────────────────────────────────────
+
+export async function retryProductImages(productId: string): Promise<{ success: boolean; error?: string; downloaded: number; expected: number }> {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      reference: true,
+      pfsProductId: true,
+      colors: {
+        select: {
+          id: true,
+          colorId: true,
+          color: { select: { name: true } },
+          images: { select: { id: true } },
+        },
+      },
+    },
+  });
+
+  if (!product) return { success: false, error: "Produit introuvable", downloaded: 0, expected: 0 };
+  if (!product.pfsProductId) return { success: false, error: "Ce produit n'est pas lié à PFS", downloaded: 0, expected: 0 };
+
+  // Find variants with no images
+  const variantsWithoutImages = product.colors.filter((c) => c.images.length === 0);
+  if (variantsWithoutImages.length === 0) return { success: true, downloaded: 0, expected: 0 };
+
+  // Fetch product images from PFS API
+  const { pfsCheckReference } = await import("@/lib/pfs-api");
+  const { extractColorImages, fullSizeImageUrl, downloadImage } = await import("@/lib/pfs-sync");
+  const { processProductImage } = await import("@/lib/image-processor");
+
+  let pfsImages: Record<string, string | string[]>;
+  try {
+    const checkData = await pfsCheckReference(product.reference);
+    pfsImages = checkData.product?.images || {};
+  } catch {
+    return { success: false, error: "Impossible de récupérer les images depuis PFS", downloaded: 0, expected: 0 };
+  }
+
+  const colorImages = extractColorImages(pfsImages);
+  let totalExpected = 0;
+  let totalDownloaded = 0;
+
+  for (const variant of variantsWithoutImages) {
+    const colorName = variant.color?.name?.toUpperCase() || "";
+
+    // Try to match PFS color images to this variant
+    let urls: string[] | undefined;
+    for (const [colorRef, colorUrls] of colorImages) {
+      if (
+        colorRef.toUpperCase() === colorName ||
+        colorRef.toUpperCase() === variant.colorId?.toUpperCase()
+      ) {
+        urls = colorUrls;
+        break;
+      }
+    }
+
+    if (!urls || urls.length === 0) continue;
+
+    const limitedUrls = urls.slice(0, 5).map(fullSizeImageUrl);
+    totalExpected += limitedUrls.length;
+
+    for (let idx = 0; idx < limitedUrls.length; idx++) {
+      try {
+        const buffer = await downloadImage(limitedUrls[idx]);
+        const filename = `pfs_retry_${product.reference}_${idx}_${Date.now()}`;
+        const result = await processProductImage(buffer, "public/uploads/products", filename);
+
+        await prisma.productColorImage.create({
+          data: {
+            productId: product.id,
+            colorId: variant.colorId ?? "",
+            productColorId: variant.id,
+            path: result.dbPath,
+            order: idx,
+          },
+        });
+        totalDownloaded++;
+      } catch (err) {
+        logger.warn(`[PFS Retry] ${product.reference} — failed to download image ${idx}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  // If all images downloaded and product was OFFLINE/SYNCING, set to ONLINE
+  if (totalDownloaded > 0 && totalDownloaded >= totalExpected) {
+    const currentProduct = await prisma.product.findUnique({ where: { id: productId }, select: { status: true } });
+    if (currentProduct && (currentProduct.status === "OFFLINE" || currentProduct.status === "SYNCING")) {
+      await prisma.product.update({ where: { id: productId }, data: { status: "ONLINE" } });
+    }
+  }
+
+  revalidatePath(`/admin/produits/${productId}/modifier`);
+  revalidateTag("products", "default");
+
+  return {
+    success: totalDownloaded > 0,
+    downloaded: totalDownloaded,
+    expected: totalExpected,
+    error: totalDownloaded === 0 && totalExpected > 0 ? "Aucune image n'a pu être téléchargée" : undefined,
+  };
+}
+
+// ─────────────────────────────────────────────
+// Bulk retry missing PFS images
+// ─────────────────────────────────────────────
+
+export async function retryAllMissingImages(): Promise<{ success: boolean; total: number; retried: number; downloaded: number; failed: number }> {
+  await requireAdmin();
+
+  // Find all PFS products that have variants without images
+  const pfsProducts = await prisma.product.findMany({
+    where: {
+      pfsProductId: { not: null },
+      colors: { some: { images: { none: {} } } },
+    },
+    select: { id: true, reference: true },
+  });
+
+  if (pfsProducts.length === 0) {
+    return { success: true, total: 0, retried: 0, downloaded: 0, failed: 0 };
+  }
+
+  let totalDownloaded = 0;
+  let totalFailed = 0;
+
+  for (const p of pfsProducts) {
+    try {
+      const result = await retryProductImages(p.id);
+      totalDownloaded += result.downloaded;
+      if (!result.success && result.expected > 0) totalFailed++;
+    } catch {
+      totalFailed++;
+    }
+  }
+
+  revalidatePath("/admin/produits");
+  revalidateTag("products", "default");
+
+  return {
+    success: totalFailed === 0,
+    total: pfsProducts.length,
+    retried: pfsProducts.length,
+    downloaded: totalDownloaded,
+    failed: totalFailed,
+  };
 }

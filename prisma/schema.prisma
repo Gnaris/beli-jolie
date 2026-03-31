@@ -1050,6 +1050,7 @@ model PfsSyncJob {
   lastPage          Int           @default(0) // for resume — last fully processed page
   errorMessage      String?       @db.Text
   errorDetails      Json? // per-product errors
+  failedReferences  Json? // references that failed image download (for retry)
   logs              Json? // detailed sync logs for frontend display
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
@@ -1083,7 +1084,7 @@ model SentEmail {
 }
 
 // ─────────────────────────────────────────────
-// PFS Prepare — staging before approval
+// PFS Prepare — review before approval
 // ─────────────────────────────────────────────
 
 enum PfsStagedStatus {

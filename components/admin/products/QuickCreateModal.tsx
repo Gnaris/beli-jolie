@@ -211,8 +211,8 @@ export default function QuickCreateModal({
         return;
       }
 
-      // Create mode — enforce PFS mapping for mappable types
-      if (MAPPABLE_TYPES.has(type)) {
+      // Create mode — enforce PFS mapping for mappable types (only when PFS is enabled)
+      if (pfsEnabled && MAPPABLE_TYPES.has(type)) {
         if (type === "category" && !pfsCategoryId) {
           setError("La correspondance PFS est requise."); setLoading(false); return;
         }

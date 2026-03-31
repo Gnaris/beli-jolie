@@ -37,6 +37,8 @@ interface JobData {
   lastPage: number;
   errorMessage: string | null;
   analyzeResult: Record<string, unknown> | null;
+  failedReferences?: string[] | null;
+  errorDetails?: { reference: string; error: string }[] | null;
   logs: {
     productLogs?: string[];
     imageLogs?: string[];
@@ -224,6 +226,10 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
   // ── Stop job ──
   const [stopping, setStopping] = useState(false);
 
+  // ── Retry failed images ──
+  const [retrying, setRetrying] = useState(false);
+  const [retryResult, setRetryResult] = useState<{ success: number; failed: number } | null>(null);
+
   const stopJob = async () => {
     const ok = await confirm({
       title: "Arrêter l'importation",
@@ -242,6 +248,30 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       // silent
     } finally {
       setStopping(false);
+    }
+  };
+
+  const retryFailedImages = async () => {
+    if (!job?.failedReferences?.length) return;
+    setRetrying(true);
+    setRetryResult(null);
+    try {
+      const res = await fetch("/api/admin/pfs-sync/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ references: job.failedReferences }),
+      });
+      const data = await res.json();
+      if (data.results) {
+        const success = data.results.filter((r: { action: string }) => r.action === "created" || r.action === "updated").length;
+        const failed = data.results.filter((r: { action: string }) => r.action === "error").length;
+        setRetryResult({ success, failed });
+      }
+      await fetchJob();
+    } catch {
+      // silent
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -731,6 +761,63 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
               {job.status === "FAILED" && job.errorMessage && (
                 <div className="bg-[#EF4444]/5 border border-[#EF4444]/20 text-[#EF4444] px-4 py-2.5 rounded-xl text-sm">
                   {job.errorMessage}
+                </div>
+              )}
+
+              {/* Failed images summary + retry button */}
+              {!isJobRunning && job.failedReferences && job.failedReferences.length > 0 && (
+                <div className="bg-[#F59E0B]/5 border border-[#F59E0B]/20 rounded-xl p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-[#F59E0B] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary">
+                        {job.failedReferences.length} produit(s) sans images
+                      </p>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Ces produits n&apos;ont pas été créés car leurs images n&apos;ont pas pu être téléchargées.
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {job.failedReferences.slice(0, 20).map((ref) => (
+                          <span key={ref} className="badge badge-warning text-[10px]">{ref}</span>
+                        ))}
+                        {job.failedReferences.length > 20 && (
+                          <span className="badge badge-neutral text-[10px]">+{job.failedReferences.length - 20} autres</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {retryResult && (
+                    <div className={`text-xs px-3 py-2 rounded-lg ${retryResult.failed > 0 ? "bg-[#F59E0B]/10 text-[#92400E]" : "bg-[#22C55E]/10 text-[#166534]"}`}>
+                      Résultat : {retryResult.success} réussi(s), {retryResult.failed} échoué(s)
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={retryFailedImages}
+                    disabled={retrying}
+                    className="btn-primary text-sm"
+                  >
+                    {retrying ? (
+                      <>
+                        <svg className="animate-spin w-4 h-4 mr-2 inline" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Réimportation en cours...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                        </svg>
+                        Réimporter les {job.failedReferences.length} produit(s) échoué(s)
+                      </>
+                    )}
+                  </button>
                 </div>
               )}
             </div>

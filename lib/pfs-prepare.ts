@@ -2,9 +2,9 @@
  * PFS Prepare Processor
  *
  * Prepares PFS products for review before creating them in the BJ database.
- * Downloads data + images to staging, stores in PfsStagedProduct for admin approval.
+ * Stores PFS image URLs for preview, downloads images only on approval.
  *
- * Flow: Prepare (staging) → Review (edit) → Approve (create in DB) / Reject (delete)
+ * Flow: Prepare (URLs) → Review (edit) → Approve (download + create in DB) / Reject (discard)
  */
 
 import { prisma } from "@/lib/prisma";
@@ -34,7 +34,6 @@ import {
   IMAGE_CONCURRENCY,
   MAX_LOGS,
 } from "@/lib/pfs-sync";
-import { moveInR2, deleteFromR2, deleteMultipleFromR2, r2KeyFromDbPath } from "@/lib/r2";
 import { autoTranslateProduct } from "@/lib/auto-translate";
 
 // Lower concurrency for prepare to avoid PFS API rate-limiting
@@ -92,45 +91,8 @@ export interface StagedImageGroup {
   colorName: string;
   colorId: string;
   colorHex?: string | null;
-  paths: string[]; // staging paths like /uploads/products/staging/pfs_...webp
+  paths: string[]; // PFS CDN URLs (downloaded only on approval)
   orders?: number[]; // optional: explicit order for each path (same length as paths)
-}
-
-// ─────────────────────────────────────────────
-// Image staging
-// ─────────────────────────────────────────────
-
-const STAGING_DIR = "public/uploads/products/staging";
-
-async function downloadAndProcessStagingImages(
-  imageUrls: string[],
-  reference: string,
-  colorRef: string,
-): Promise<string[]> {
-  const results = await Promise.allSettled(
-    imageUrls.map(async (url, idx) => {
-      let buffer: Buffer | null = null;
-      try {
-        buffer = await downloadImage(url);
-      } catch {
-        // Download failed
-      }
-      if (!buffer) return null;
-      try {
-        const filename = `pfs_${reference}_${colorRef}_${idx}_${Date.now()}`;
-        const result = await processProductImage(buffer, STAGING_DIR, filename);
-        return { path: result.dbPath, order: idx };
-      } catch {
-        return null;
-      }
-    }),
-  );
-
-  return results
-    .map((r) => (r.status === "fulfilled" && r.value ? r.value : null))
-    .filter((r): r is { path: string; order: number } => r !== null)
-    .sort((a, b) => a.order - b.order)
-    .map((r) => r.path);
 }
 
 // ─────────────────────────────────────────────
@@ -375,6 +337,31 @@ async function prepareSingleProduct(
       addLog(`  ⚠️ ${inactiveCount} variante(s) désactivée(s) importée(s) avec stock=0`);
     }
 
+    // ── Deduplicate variants by colorId ──
+    // PFS can return both ITEM (UNIT) and PACK variants for the same color.
+    // BJ expects one ProductColor per color. When both exist, keep PACK (richer data).
+    const colorVariantMap = new Map<string, StagedVariantData[]>();
+    for (const v of variants) {
+      const key = v.colorId;
+      if (!colorVariantMap.has(key)) colorVariantMap.set(key, []);
+      colorVariantMap.get(key)!.push(v);
+    }
+    const deduplicatedVariants: StagedVariantData[] = [];
+    for (const [, group] of colorVariantMap) {
+      if (group.length === 1) {
+        deduplicatedVariants.push(group[0]);
+      } else {
+        // Prefer PACK over UNIT (has size entries, pack quantities, pack color lines)
+        const packVariant = group.find((v) => v.saleType === "PACK");
+        deduplicatedVariants.push(packVariant || group[0]);
+      }
+    }
+    if (deduplicatedVariants.length < variants.length) {
+      addLog(`  🔄 ${variants.length - deduplicatedVariants.length} variante(s) dupliquée(s) fusionnée(s) (UNIT+PACK → PACK)`);
+    }
+    variants.length = 0;
+    variants.push(...deduplicatedVariants);
+
     // Set isPrimary
     if (defaultColorRef && variants.length > 0) {
       const primaryIdx = variants.findIndex((v) => v.colorRef === defaultColorRef);
@@ -401,27 +388,6 @@ async function prepareSingleProduct(
       const desc = rawDesc ? stripDimensionsSuffix(rawDesc) : name;
       if (name) {
         translations.push({ locale, name, description: desc || name });
-      }
-    }
-
-    // ── Clean up old staging images if re-preparing ──
-    const existingStaged = await prisma.pfsStagedProduct.findUnique({
-      where: { pfsProductId_prepareJobId: { pfsProductId: pfsProduct.id, prepareJobId } },
-      select: { imagesByColor: true },
-    });
-    if (existingStaged?.imagesByColor) {
-      const oldGroups = existingStaged.imagesByColor as unknown as StagedImageGroup[];
-      const r2Keys = oldGroups.flatMap((g) =>
-        g.paths.flatMap((p) => {
-          const ext = ".webp";
-          const base = r2KeyFromDbPath(p);
-          if (!base.endsWith(ext)) return [base];
-          const stem = base.slice(0, -ext.length);
-          return [`${stem}${ext}`, `${stem}_md${ext}`, `${stem}_thumb${ext}`];
-        }),
-      );
-      if (r2Keys.length > 0) {
-        await deleteMultipleFromR2(r2Keys).catch(() => {});
       }
     }
 
@@ -476,17 +442,17 @@ async function prepareSingleProduct(
       },
     });
 
-    addLog(`  ✅ ${bjRef} données préparées — images en file d'attente`);
+    addLog(`  ✅ ${bjRef} données préparées — résolution des URLs images`);
 
-    // ── Build image task ──
+    // ── Build image task (stores PFS URLs only, no download) ──
     const imageTask = async () => {
       try {
         const colorImages = extractColorImages(pfsProduct.images);
         const imageGroups: StagedImageGroup[] = [];
 
         for (const [colorRef, urls] of colorImages) {
-          const limitedUrls = urls.slice(0, 5).map(fullSizeImageUrl);
-          const paths = await downloadAndProcessStagingImages(limitedUrls, bjRef, colorRef);
+          // Store raw PFS CDN URLs (max 5 per color) — no download at this stage
+          const pfsUrls = urls.slice(0, 5).map(fullSizeImageUrl);
 
           // Find color name from variants (case-insensitive — PFS API may use
           // different casing for image keys vs variant color references)
@@ -496,12 +462,12 @@ async function prepareSingleProduct(
           // Use colorRef as fallback (not "") so orphan groups remain uniquely identifiable
           const colorId = matchingVariant?.colorId || colorRef;
 
-          if (paths.length > 0) {
-            imageGroups.push({ colorRef, colorName, colorId, paths });
+          if (pfsUrls.length > 0) {
+            imageGroups.push({ colorRef, colorName, colorId, paths: pfsUrls });
           }
         }
 
-        // Update staged product with images + set READY
+        // Update staged product with PFS URLs + set READY
         await prisma.pfsStagedProduct.update({
           where: { id: staged.id },
           data: {
@@ -766,10 +732,10 @@ export async function runPfsPrepare(
               const ref = result.reference;
               addImageLog(`📥 ${ref} — ajouté à la file d'attente`);
               enqueueImageTask(async () => {
-                addImageLog(`⬇️ ${ref} — téléchargement en cours...`);
+                addImageLog(`⬇️ ${ref} — résolution URLs en cours...`);
                 try {
                   await result.imageTask!();
-                  addImageLog(`✅ ${ref} — images téléchargées`);
+                  addImageLog(`✅ ${ref} — URLs images prêtes (téléchargement à l'approbation)`);
                 } catch (err) {
                   const msg = err instanceof Error ? err.message : String(err);
                   addImageLog(`❌ ${ref} — erreur: ${msg}`);
@@ -975,7 +941,7 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
   // Subcategory connection
   const subCategoryIds = (staged.subCategoryIds as unknown as string[]) ?? [];
 
-  // Create new product
+  // Create new product (SYNCING until images are confirmed)
   const product = await prisma.product.create({
     data: {
       reference: staged.reference,
@@ -987,11 +953,34 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
       isBestSeller: staged.isBestSeller,
       manufacturingCountryId: staged.manufacturingCountryId || null,
       seasonId: staged.seasonId || null,
-      status: bjStatus,
+      status: "SYNCING",
     },
   });
 
-  await createProductChildren(product.id, variants, compositions, translations, imageGroups, tagNames);
+  const imageStats = await createProductChildren(product.id, variants, compositions, translations, imageGroups, tagNames, staged.categoryId);
+
+  // Only set final status if ALL images were downloaded
+  if (imageStats.expected === 0 || imageStats.downloaded >= imageStats.expected) {
+    await prisma.product.update({
+      where: { id: product.id },
+      data: { status: bjStatus },
+    });
+  } else if (imageStats.downloaded === 0) {
+    // No images at all — delete the product
+    await prisma.product.delete({ where: { id: product.id } });
+    await prisma.pfsStagedProduct.update({
+      where: { id: stagedId },
+      data: { status: "ERROR", errorMessage: `Aucune image téléchargée (0/${imageStats.expected})` },
+    });
+    throw new Error(`Aucune image téléchargée pour ${staged.reference} (0/${imageStats.expected}). Réessayez plus tard.`);
+  } else {
+    // Partial images — keep OFFLINE
+    await prisma.product.update({
+      where: { id: product.id },
+      data: { status: "OFFLINE" },
+    });
+    logger.warn(`[PFS Approve] ${staged.reference} — partial images: ${imageStats.downloaded}/${imageStats.expected}, set OFFLINE`);
+  }
 
   // Auto-translate product name/description for missing locales (ar, zh) if enabled
   const existingLocales = translations.map((t) => t.locale);
@@ -1046,7 +1035,8 @@ async function createProductChildren(
   translations: StagedTranslation[],
   imageGroups: StagedImageGroup[],
   tagNames: string[] = [],
-): Promise<void> {
+  categoryId?: string,
+): Promise<{ expected: number; downloaded: number }> {
   // Create variants sequentially (need IDs for images)
   // Verify all color IDs exist before creating (FK constraint protection)
   const uniqueColorIds = [...new Set(variants.map((v) => v.colorId))];
@@ -1107,7 +1097,15 @@ async function createProductChildren(
           where: { name: entry.name },
           create: { name: entry.name },
           update: {},
-        });
+        }).catch(() => prisma.size.findFirstOrThrow({ where: { name: entry.name } }));
+        // Link size to category
+        if (categoryId) {
+          await prisma.sizeCategoryLink.upsert({
+            where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId } },
+            create: { sizeId: sizeRecord.id, categoryId },
+            update: {},
+          }).catch(() => { /* ignore duplicate — concurrent upsert race */ });
+        }
         await prisma.variantSize.create({
           data: {
             productColorId: created.id,
@@ -1125,7 +1123,15 @@ async function createProductChildren(
           where: { name: sizeName },
           create: { name: sizeName },
           update: {},
-        });
+        }).catch(() => prisma.size.findFirstOrThrow({ where: { name: sizeName } }));
+        // Link size to category
+        if (categoryId) {
+          await prisma.sizeCategoryLink.upsert({
+            where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId } },
+            create: { sizeId: sizeRecord.id, categoryId },
+            update: {},
+          }).catch(() => { /* ignore duplicate — concurrent upsert race */ });
+        }
         await prisma.variantSize.create({
           data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
         });
@@ -1133,7 +1139,9 @@ async function createProductChildren(
     }
   }
 
-  // Move images from staging to final + create DB records
+  // Download PFS images + create DB records
+  let imgExpected = 0;
+  let imgDownloaded = 0;
   for (const group of imageGroups) {
     // Match by colorId (database ID), then colorRef exact, then case-insensitive.
     // PFS API can use different casing for image keys vs variant references (e.g. "SILVER" vs "Silver")
@@ -1152,7 +1160,8 @@ async function createProductChildren(
       const imgPath = group.paths[imgIdx];
       const imgOrder = group.orders?.[imgIdx] ?? imgIdx;
       if (imgPath.startsWith("http")) {
-        // External PFS CDN URL — download and process to local WebP
+        imgExpected++;
+        // PFS CDN URL — download, process to WebP, upload to R2 final
         // SSRF protection: only allow PFS CDN domains
         try {
           const urlObj = new URL(imgPath);
@@ -1164,28 +1173,14 @@ async function createProductChildren(
           const filename = `pfs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           const result = await processProductImage(buffer, "public/uploads/products", filename);
           finalPaths.push({ path: result.dbPath, order: imgOrder });
+          imgDownloaded++;
         } catch (err) {
-          logger.warn(`[CREATE_CHILDREN] Failed to download external image: ${imgPath}`, { error: err });
-        }
-      } else if (imgPath.includes("/staging/")) {
-        // PFS staging image — needs to be moved to final directory
-        try {
-          const finalPath = await moveImageFromStaging(imgPath);
-          finalPaths.push({ path: finalPath, order: imgOrder });
-        } catch {
-          // Source file missing — check if already moved (same staging image used by another color group)
-          const finalDbPath = imgPath.replace("/uploads/products/staging/", "/uploads/products/");
-          try {
-            // Check if image exists on R2 (already moved by another color group)
-            const { headObjectInR2 } = await import("@/lib/r2");
-            await headObjectInR2(r2KeyFromDbPath(finalDbPath));
-            finalPaths.push({ path: finalDbPath, order: imgOrder });
-          } catch {
-            logger.warn(`[CREATE_CHILDREN] Staging image not found and not already moved: ${imgPath}`);
-          }
+          logger.warn(`[CREATE_CHILDREN] Failed to download PFS image: ${imgPath}`, { error: err });
         }
       } else {
         // Already a final path (BJ existing image kept via compare modal) — use as-is
+        imgExpected++;
+        imgDownloaded++;
         finalPaths.push({ path: imgPath, order: imgOrder });
       }
     }
@@ -1253,46 +1248,18 @@ async function createProductChildren(
       }
     }
   }
+
+  return { expected: imgExpected, downloaded: imgDownloaded };
 }
 
 // ─────────────────────────────────────────────
-// Move image from staging to final directory
-// ─────────────────────────────────────────────
-
-async function moveImageFromStaging(stagingDbPath: string): Promise<string> {
-  // stagingDbPath = "/uploads/products/staging/pfs_xxx.webp"
-  // finalDbPath   = "/uploads/products/pfs_xxx.webp"
-  const finalDbPath = stagingDbPath.replace("/uploads/products/staging/", "/uploads/products/");
-
-  const suffixes = ["", "_md", "_thumb"];
-  const ext = ".webp";
-
-  for (const suffix of suffixes) {
-    const srcDb = stagingDbPath.replace(ext, `${suffix}${ext}`);
-    const dstDb = finalDbPath.replace(ext, `${suffix}${ext}`);
-    await moveInR2(r2KeyFromDbPath(srcDb), r2KeyFromDbPath(dstDb));
-  }
-
-  return finalDbPath;
-}
-
-// ─────────────────────────────────────────────
-// Reject a staged product → delete images
+// Reject a staged product (no images to clean up — only URLs stored)
 // ─────────────────────────────────────────────
 
 export async function rejectStagedProduct(stagedId: string): Promise<void> {
   const staged = await prisma.pfsStagedProduct.findUnique({ where: { id: stagedId } });
   if (!staged) throw new Error("Produit staged non trouvé");
   if (staged.status !== "READY") throw new Error(`Statut invalide: ${staged.status}`);
-
-  const imageGroups = staged.imagesByColor as unknown as StagedImageGroup[];
-
-  // Delete all staging images
-  for (const group of imageGroups) {
-    for (const imgPath of group.paths) {
-      await deleteStagingImage(imgPath);
-    }
-  }
 
   await prisma.pfsStagedProduct.update({
     where: { id: stagedId },
@@ -1303,16 +1270,6 @@ export async function rejectStagedProduct(stagedId: string): Promise<void> {
     where: { id: staged.prepareJobId },
     data: { rejectedProducts: { increment: 1 } },
   });
-}
-
-async function deleteStagingImage(dbPath: string): Promise<void> {
-  const ext = ".webp";
-  const suffixes = ["", "_md", "_thumb"];
-
-  for (const suffix of suffixes) {
-    const fullPath = dbPath.replace(ext, `${suffix}${ext}`);
-    await deleteFromR2(r2KeyFromDbPath(fullPath)).catch(() => {}); // Ignore if already deleted
-  }
 }
 
 // ─────────────────────────────────────────────

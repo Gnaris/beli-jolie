@@ -7,6 +7,7 @@ import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes, getCachedPfsEnabled } from "@/lib/cached-data";
 import PfsSyncButton from "@/components/pfs/PfsSyncButton";
+import RetryImagesButton from "@/components/pfs/RetryImagesButton";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 
@@ -323,6 +324,10 @@ export default async function ModifierProduitPage({
     }
   }
 
+  // Check for missing images on PFS products
+  const hasMissingImages = hasPfsConfig && !!product.pfsProductId &&
+    product.colors.some((c) => !colorImagesDb.some((img) => img.productColorId === c.id));
+
   // ── Initial header state ─────────────────────────────────────────────────
   const initialProductStatus = (product.status === "SYNCING" ? "OFFLINE" : product.status) as "OFFLINE" | "ONLINE" | "ARCHIVED";
   const variantsWithStock = product.colors.filter(c => c.stock !== null && c.stock !== undefined);
@@ -382,6 +387,9 @@ export default async function ModifierProduitPage({
                     pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
                     mappingIssues={mappingIssues}
                   />
+                )}
+                {hasMissingImages && (
+                  <RetryImagesButton productId={product.id} />
                 )}
               </div>
             </div>

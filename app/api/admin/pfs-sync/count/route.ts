@@ -16,13 +16,19 @@ export async function GET(_req: NextRequest) {
   }
 
   try {
-    const [pfsCount, bjCount] = await Promise.all([
+    const [pfsCount, bjCount, missingImagesCount] = await Promise.all([
       pfsTotalProducts(),
       prisma.product.count({ where: { pfsProductId: { not: null } } }),
+      prisma.product.count({
+        where: {
+          pfsProductId: { not: null },
+          colors: { some: { images: { none: {} } } },
+        },
+      }),
     ]);
 
     return NextResponse.json(
-      { pfsCount, bjCount },
+      { pfsCount, bjCount, missingImagesCount },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

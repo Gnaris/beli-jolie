@@ -233,7 +233,7 @@ export async function POST(
               where: { sizeId_categoryId: { sizeId: sizeRecord.id, categoryId: bjCatId } },
               create: { sizeId: sizeRecord.id, categoryId: bjCatId },
               update: {},
-            });
+            }).catch(() => { /* ignore duplicate */ });
           }
         }
         if (sizeRecord && sz.pfsSizeRefs?.length) {

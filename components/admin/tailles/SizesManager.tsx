@@ -7,10 +7,12 @@ import {
   updateSize,
   deleteSize,
   reorderSizes,
+  toggleSizePfsMapping,
 } from "@/app/actions/admin/sizes";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import PfsSizeMultiSelect from "@/components/pfs/PfsSizeMultiSelect";
 
 interface SizeItem {
   id: string;
@@ -19,6 +21,7 @@ interface SizeItem {
   variantCount: number;
   categoryIds: string[];
   categoryNames: string[];
+  pfsMappings: string[];
 }
 
 interface CategoryOption {
@@ -39,9 +42,13 @@ const PRESETS = [
 export default function SizesManager({
   initialSizes,
   categories,
+  pfsEnabled = false,
+  pfsSizes = [],
 }: {
   initialSizes: SizeItem[];
   categories: CategoryOption[];
+  pfsEnabled?: boolean;
+  pfsSizes?: { reference: string }[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -53,7 +60,6 @@ export default function SizesManager({
   const [inputValue, setInputValue] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
-  const [showCategories, setShowCategories] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Edit state (per-row inline)
@@ -64,6 +70,18 @@ export default function SizesManager({
   // Local sizes for reorder
   const [sizes, setSizes] = useState(initialSizes);
   useEffect(() => { setSizes(initialSizes); }, [initialSizes]);
+
+  // PFS mapping state (local copy for instant feedback)
+  const [pfsMappingsMap, setPfsMappingsMap] = useState<Record<string, string[]>>(() =>
+    Object.fromEntries(initialSizes.map((s) => [s.id, s.pfsMappings]))
+  );
+  useEffect(() => {
+    setPfsMappingsMap(Object.fromEntries(initialSizes.map((s) => [s.id, s.pfsMappings])));
+  }, [initialSizes]);
+  const [pfsSaving, setPfsSaving] = useState<string | null>(null);
+
+  // Inline category add dropdown (per-row)
+  const [catDropdownId, setCatDropdownId] = useState<string | null>(null);
 
   // ─────────────────────────────────────────────
   // Tag input logic
@@ -198,6 +216,40 @@ export default function SizesManager({
   }
 
   // ─────────────────────────────────────────────
+  // Inline category toggle (add/remove without edit mode)
+  // ─────────────────────────────────────────────
+  function handleInlineCategoryToggle(size: SizeItem, categoryId: string) {
+    const currentIds = size.categoryIds;
+    const newIds = currentIds.includes(categoryId)
+      ? currentIds.filter((id) => id !== categoryId)
+      : [...currentIds, categoryId];
+
+    startTransition(async () => {
+      try {
+        await updateSize(size.id, size.name, newIds);
+        router.refresh();
+      } catch (err: unknown) {
+        toast.error((err as Error).message);
+      }
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  // PFS mapping
+  // ─────────────────────────────────────────────
+  async function handleTogglePfsMapping(sizeId: string, pfsSizeRef: string) {
+    setPfsSaving(sizeId);
+    try {
+      const updated = await toggleSizePfsMapping(sizeId, pfsSizeRef);
+      setPfsMappingsMap((prev) => ({ ...prev, [sizeId]: updated }));
+    } catch (err: unknown) {
+      toast.error((err as Error).message);
+    } finally {
+      setPfsSaving(null);
+    }
+  }
+
+  // ─────────────────────────────────────────────
   // Reorder
   // ─────────────────────────────────────────────
   const moveSize = useCallback(
@@ -286,41 +338,26 @@ export default function SizesManager({
           ))}
         </div>
 
-        {/* Category association (collapsible) */}
+        {/* Category association */}
         {categories.length > 0 && (
           <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => setShowCategories(!showCategories)}
-              className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors font-body"
-            >
-              <svg
-                className={`w-3.5 h-3.5 transition-transform ${showCategories ? "rotate-90" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
-              </svg>
+            <label className="text-xs font-medium text-text-secondary font-body mb-2 block">
               Associer aux catégories
               {selectedCategoryIds.length > 0 && (
-                <span className="badge badge-neutral text-[10px]">{selectedCategoryIds.length}</span>
+                <span className="badge badge-neutral text-[10px] ml-2">{selectedCategoryIds.length}</span>
               )}
-            </button>
-            {showCategories && (
-              <div className="mt-2">
-                <CategoryPicker
-                  categories={categories}
-                  selected={selectedCategoryIds}
-                  onToggle={(catId) =>
-                    setSelectedCategoryIds((prev) =>
-                      prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
-                    )
-                  }
-                />
-              </div>
-            )}
+            </label>
+            <CategoryPicker
+              categories={categories}
+              selected={selectedCategoryIds}
+              onToggle={(catId) =>
+                setSelectedCategoryIds((prev) =>
+                  prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
+                )
+              }
+              onSelectAll={() => setSelectedCategoryIds(categories.map((c) => c.id))}
+              onDeselectAll={() => setSelectedCategoryIds([])}
+            />
           </div>
         )}
 
@@ -428,6 +465,8 @@ export default function SizesManager({
                             prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
                           )
                         }
+                        onSelectAll={() => setEditCategoryIds(categories.map((c) => c.id))}
+                        onDeselectAll={() => setEditCategoryIds([])}
                       />
                     )}
                   </div>
@@ -438,19 +477,65 @@ export default function SizesManager({
                       <span className="font-medium text-sm text-text-primary font-heading">
                         {size.name}
                       </span>
-                      {size.categoryNames.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {size.categoryNames.map((name) => (
-                            <span
-                              key={name}
-                              className="text-[10px] px-2 py-0.5 rounded-full bg-bg-secondary border border-border text-text-secondary"
+                      <div className="flex flex-wrap items-center gap-1 mt-1">
+                        {size.categoryIds.map((catId, ci) => (
+                          <span
+                            key={catId}
+                            className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full bg-bg-secondary border border-border text-text-secondary group/cat"
+                          >
+                            {size.categoryNames[ci]}
+                            <button
+                              type="button"
+                              onClick={() => handleInlineCategoryToggle(size, catId)}
+                              className="ml-0.5 opacity-0 group-hover/cat:opacity-100 hover:text-[#EF4444] transition-all"
+                              title={`Retirer ${size.categoryNames[ci]}`}
                             >
-                              {name}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </span>
+                        ))}
+                        {/* Add category button */}
+                        {categories.length > size.categoryIds.length && (
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setCatDropdownId(catDropdownId === size.id ? null : size.id)}
+                              className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-dashed border-border text-text-muted hover:border-text-primary hover:text-text-primary transition-colors"
+                              title="Ajouter une catégorie"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                              </svg>
+                            </button>
+                            {catDropdownId === size.id && (
+                              <InlineCategoryDropdown
+                                categories={categories}
+                                selectedIds={size.categoryIds}
+                                onToggle={(catId) => handleInlineCategoryToggle(size, catId)}
+                                onClose={() => setCatDropdownId(null)}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
+
+                    {/* PFS mapping */}
+                    {pfsEnabled && pfsSizes.length > 0 && (
+                      <div className="shrink-0 w-48">
+                        {pfsSaving === size.id ? (
+                          <span className="text-[11px] text-text-muted font-body">...</span>
+                        ) : (
+                          <PfsSizeMultiSelect
+                            pfsSizes={pfsSizes}
+                            selected={new Set(pfsMappingsMap[size.id] ?? [])}
+                            onToggle={(ref) => handleTogglePfsMapping(size.id, ref)}
+                          />
+                        )}
+                      </div>
+                    )}
 
                     {/* Variant count */}
                     <div className="shrink-0">
@@ -497,54 +582,78 @@ export default function SizesManager({
 }
 
 /* ─────────────────────────────────────────────
-   Searchable, scrollable category picker
+   Large dropdown category picker with "Select all"
    ───────────────────────────────────────────── */
 
 function CategoryPicker({
   categories,
   selected,
   onToggle,
+  onSelectAll,
+  onDeselectAll,
 }: {
   categories: { id: string; name: string }[];
   selected: string[];
   onToggle: (catId: string) => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
 }) {
   const [search, setSearch] = useState("");
   const filtered = search.trim()
     ? categories.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
     : categories;
 
-  // Show selected first, then unselected
-  const sorted = [...filtered].sort((a, b) => {
-    const aSelected = selected.includes(a.id) ? 0 : 1;
-    const bSelected = selected.includes(b.id) ? 0 : 1;
-    return aSelected - bSelected || a.name.localeCompare(b.name);
-  });
+  const allFilteredSelected = filtered.length > 0 && filtered.every((c) => selected.includes(c.id));
 
   return (
     <div className="border border-border rounded-xl overflow-hidden">
-      {categories.length > 8 && (
-        <div className="px-3 py-2 border-b border-border bg-bg-secondary">
-          <div className="relative">
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0Z" />
-            </svg>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher une catégorie…"
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-lg bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] font-body"
-            />
-          </div>
+      {/* Search + select all header */}
+      <div className="px-3 py-2 border-b border-border bg-bg-secondary space-y-2">
+        <div className="relative">
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0Z" />
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher une catégorie…"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-lg bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] font-body"
+          />
         </div>
-      )}
+        <label
+          className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer text-xs transition-colors font-body font-semibold ${
+            allFilteredSelected
+              ? "bg-bg-dark text-text-inverse"
+              : "text-text-primary hover:bg-bg-secondary"
+          }`}
+          onClick={(e) => {
+            e.preventDefault();
+            if (allFilteredSelected) {
+              onDeselectAll();
+            } else {
+              onSelectAll();
+            }
+          }}
+        >
+          <span className={`flex items-center justify-center w-4 h-4 rounded border shrink-0 transition-colors ${
+            allFilteredSelected ? "bg-bg-primary border-white" : "border-border bg-bg-primary"
+          }`}>
+            {allFilteredSelected && (
+              <svg className="w-2.5 h-2.5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </span>
+          <span>Toutes les catégories</span>
+        </label>
+      </div>
 
-      <div className="max-h-36 overflow-y-auto p-2 space-y-0.5">
-        {sorted.length === 0 ? (
+      <div className="max-h-64 overflow-y-auto p-2 space-y-0.5">
+        {filtered.length === 0 ? (
           <p className="text-xs text-text-muted text-center py-3 font-body">Aucune catégorie trouvée</p>
         ) : (
-          sorted.map((cat) => {
+          filtered.map((cat) => {
             const isChecked = selected.includes(cat.id);
             return (
               <label
@@ -578,12 +687,113 @@ function CategoryPicker({
       </div>
 
       {selected.length > 0 && (
-        <div className="px-3 py-1.5 border-t border-border bg-bg-secondary">
+        <div className="px-3 py-1.5 border-t border-border bg-bg-secondary flex items-center justify-between">
           <p className="text-[10px] text-text-secondary font-body">
             {selected.length} catégorie{selected.length > 1 ? "s" : ""} sélectionnée{selected.length > 1 ? "s" : ""}
           </p>
+          <button
+            type="button"
+            onClick={onDeselectAll}
+            className="text-[10px] text-[#EF4444] hover:text-[#DC2626] font-medium font-body transition-colors"
+          >
+            Tout désélectionner
+          </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Inline category dropdown (per-row quick add)
+   ───────────────────────────────────────────── */
+
+function InlineCategoryDropdown({
+  categories,
+  selectedIds,
+  onToggle,
+  onClose,
+}: {
+  categories: { id: string; name: string }[];
+  selectedIds: string[];
+  onToggle: (catId: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus search
+  useEffect(() => {
+    const t = setTimeout(() => searchRef.current?.focus(), 40);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Close on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  // Close on Escape
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const unselected = categories.filter((c) => !selectedIds.includes(c.id));
+  const filtered = search.trim()
+    ? unselected.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : unselected;
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-7 z-50 w-56 bg-bg-primary border border-border rounded-xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.12)]"
+      style={{ animation: "customSelectDown 0.15s ease-out" }}
+    >
+      <div className="px-2 pt-2 pb-1.5 border-b border-border">
+        <div className="relative">
+          <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0Z" />
+          </svg>
+          <input
+            ref={searchRef}
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher…"
+            className="w-full pl-6 pr-2.5 py-1.5 text-[11px] border border-border rounded-lg focus:outline-none focus:border-[#1A1A1A] bg-bg-secondary font-body text-text-primary placeholder:text-text-muted"
+          />
+        </div>
+      </div>
+      <div className="max-h-48 overflow-y-auto py-1">
+        {filtered.length === 0 ? (
+          <p className="px-3 py-2 text-[11px] text-text-muted text-center font-body">
+            {unselected.length === 0 ? "Toutes les catégories sont déjà liées" : "Aucun résultat"}
+          </p>
+        ) : (
+          filtered.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => {
+                onToggle(cat.id);
+                onClose();
+              }}
+              className="w-full text-left px-3 py-2 text-[11px] text-text-primary hover:bg-bg-secondary transition-colors font-body truncate"
+            >
+              {cat.name}
+            </button>
+          ))
+        )}
+      </div>
     </div>
   );
 }
