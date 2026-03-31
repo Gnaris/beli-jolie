@@ -1,5 +1,7 @@
 # API eFashion Paris - Documentation
 
+> **Note**: Field names verified via GraphQL introspection (March 2026). Some names differ from original documentation.
+
 > Base URL: `https://wapi.efashion-paris.com` | GraphQL: `https://wapi.efashion-paris.com/graphql`
 > Frontend: `https://wholesaler.efashion-paris.com` | CDN shooting: `https://shooting.efashion-paris.com`
 > Type: **GraphQL** (introspection ouverte) + REST (images/fichiers) | Auth: **Cookie-based** (Bearer token fallback)
@@ -60,7 +62,7 @@ query {
     # includePremel: Boolean
     # premelFilter: String
   }) {
-    products {
+    items {
       id_produit
       id_vendeur
       id_categorie
@@ -89,12 +91,11 @@ query {
       taille_shooting
     }
     total
-    hasMore
   }
 }
 ```
 
-**Pagination**: `skip` + `take` (pas de page/per_page). `hasMore` indique s'il reste des produits.
+**Pagination**: `skip` + `take` (pas de page/per_page). Pas de `hasMore` — utiliser `total` pour determiner s'il reste des produits.
 **Statuts**: `EN_VENTE` (visible), `HORS_LIGNE` (invisible), `RUPTURE` (stock 0), `TOUS`.
 
 ---
@@ -139,13 +140,15 @@ query {
 query {
   produitDescription(id_produit: Int!) {
     id_produit
-    lang
-    titre
-    description
-    # Retourne un array de descriptions par langue
+    texte_fr
+    texte_uk
+    instructions
+    commentaires
   }
 }
 ```
+
+**Note**: Retourne un seul objet (pas un array par langue). `texte_fr` = description francaise, `texte_uk` = description anglaise.
 
 ---
 
@@ -181,14 +184,18 @@ query {
 ```graphql
 query {
   couleursProduitByProduitId(id_produit: Int!) {
-    id_couleur
-    nom
-    hex
-    image
+    id_couleur_produit
+    couleur {
+      couleur_FR
+      couleur_EN
+      defaut
+    }
     # Couleurs associees au produit
   }
 }
 ```
+
+**Note**: Retourne `id_couleur_produit` (pas `id_couleur`). Les infos couleur sont dans l'objet nested `couleur { couleur_FR couleur_EN defaut }` — pas de champs plats `nom`/`hex`/`image`.
 
 **Couleurs vendeur** (toutes les couleurs du vendeur):
 ```graphql
@@ -213,8 +220,10 @@ query { allCouleursDefaut() { id_couleur nom hex } }
 
 ### Categories (arbre)
 ```graphql
-query { categoriesTree(lang: "fr") { id_categorie nom children { id_categorie nom } } }
+query { categoriesTree(lang: "fr") { id_categorie label children { id_categorie label } } }
 ```
+
+**Note**: Le champ s'appelle `label` (pas `nom`) pour les noeuds de l'arbre de categories.
 
 ### Collections
 ```graphql
