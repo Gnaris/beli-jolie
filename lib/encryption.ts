@@ -22,6 +22,8 @@ export const SENSITIVE_KEYS = new Set([
   "deepl_api_key",
   "pfs_email",
   "pfs_password",
+  "efashion_email",
+  "efashion_password",
   "stripe_connect_account_id",
 ]);
 

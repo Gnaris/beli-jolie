@@ -202,6 +202,53 @@ export const getCachedPfsCredentials = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── eFashion configured? ───────────────────────────────────────────────
+export const getCachedHasEfashionConfig = unstable_cache(
+  async () => {
+    const row = await prisma.siteConfig.findUnique({
+      where: { key: "efashion_email" },
+      select: { key: true },
+    });
+    return !!row;
+  },
+  ["has-efashion-config"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+// ─── eFashion enabled? ─────────────────────────────────────────────────
+export const getCachedEfashionEnabled = unstable_cache(
+  async () => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["efashion_email", "efashion_enabled"] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const hasEmail = map.has("efashion_email");
+    const enabled = map.get("efashion_enabled");
+    return hasEmail && enabled === "true";
+  },
+  ["efashion-enabled"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+// ─── eFashion credentials ──────────────────────────────────────────────
+export const getCachedEfashionCredentials = unstable_cache(
+  async () => {
+    const rows = await prisma.siteConfig.findMany({
+      where: { key: { in: ["efashion_email", "efashion_password"] } },
+    });
+    const map = new Map(
+      rows.map((r) => [r.key, decryptIfSensitive(r.key, r.value)])
+    );
+    return {
+      email: map.get("efashion_email") ?? null,
+      password: map.get("efashion_password") ?? null,
+    };
+  },
+  ["efashion-credentials"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── Product count (expensive count on 78k rows, cache 5min) ───────────────────
 export const getCachedProductCount = unstable_cache(
   async () => prisma.product.count({ where: { status: "ONLINE" } }),
