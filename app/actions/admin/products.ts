@@ -10,6 +10,8 @@ import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
 import { pfsUpdateStatus, type PfsStatus } from "@/lib/pfs-api-write";
+import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
+import { triggerEfashionSync } from "@/lib/efashion-reverse-sync";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 
 async function requireAdmin() {
@@ -359,6 +361,10 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   if (effectiveStatus === "ONLINE") {
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
+
+  // Fire-and-forget sync to PFS and eFashion
+  triggerPfsSync(product.id);
+  triggerEfashionSync(product.id);
 
   return { id: product.id };
 }
@@ -755,6 +761,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       logger.warn(`[PFS] Best seller sync failed for product ${id}`, { error: err });
     });
   }
+
+  // Fire-and-forget sync to PFS and eFashion
+  triggerPfsSync(id);
+  triggerEfashionSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -830,6 +840,8 @@ export async function archiveProduct(id: string) {
       logger.warn(`[PFS] Archive status sync failed for product ${id}`, { error: err });
     });
   }
+  triggerPfsSync(id);
+  triggerEfashionSync(id);
 }
 
 export async function unarchiveProduct(id: string) {
@@ -845,6 +857,8 @@ export async function unarchiveProduct(id: string) {
       logger.warn(`[PFS] Unarchive status sync failed for product ${id}`, { error: err });
     });
   }
+  triggerPfsSync(id);
+  triggerEfashionSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -945,6 +959,12 @@ export async function bulkUpdateProductStatus(
     }
   }
 
+  // Fire-and-forget sync to PFS and eFashion for each updated product
+  for (const pid of success) {
+    triggerPfsSync(pid);
+    triggerEfashionSync(pid);
+  }
+
   return { success, errors };
 }
 
@@ -1035,6 +1055,8 @@ export async function updateVariantQuick(
   revalidatePath(`/produits/${variant.productId}`);
   emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
 
+  triggerPfsSync(variant.productId);
+  triggerEfashionSync(variant.productId);
 }
 
 // ─────────────────────────────────────────────
@@ -1078,6 +1100,8 @@ export async function bulkUpdateVariants(
   for (const pid of productIds) {
     revalidatePath(`/produits/${pid}`);
     emitProductEvent({ type: "STOCK_CHANGED", productId: pid });
+    triggerPfsSync(pid);
+    triggerEfashionSync(pid);
   }
 
   return { updated: variants.length };
