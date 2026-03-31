@@ -277,18 +277,30 @@ export async function efashionListProducts(
   statut: EfashionStatut = "TOUS"
 ): Promise<{ items: EfashionProductListItem[]; total: number }> {
   return withRetry(async () => {
+    const vendorId = getEfashionVendorId();
+    if (!vendorId) throw new Error("eFashion vendor ID not available — login first");
+
     const data = await efashionGraphQL<{
       productsPage: { items: EfashionProductListItem[]; total: number };
     }>(
-      `query ListProducts($skip: Int!, $take: Int!, $filter: ProductFilter) {
-        productsPage(skip: $skip, take: $take, filter: $filter) {
+      `query ListProducts($filter: FilterProduitInput!) {
+        productsPage(filter: $filter) {
           total
           items {
             ${PRODUCT_LIST_FIELDS}
           }
         }
       }`,
-      { skip, take, filter: { statut } }
+      {
+        filter: {
+          id_vendeur: vendorId,
+          skip,
+          take,
+          statut,
+          orderBy: "dateModification",
+          orderDir: "DESC",
+        },
+      }
     );
 
     return data.productsPage;
@@ -603,15 +615,18 @@ export async function efashionTotalProducts(
   statut: EfashionStatut = "TOUS"
 ): Promise<number> {
   return withRetry(async () => {
+    const vendorId = getEfashionVendorId();
+    if (!vendorId) throw new Error("eFashion vendor ID not available — login first");
+
     const data = await efashionGraphQL<{
       productsPage: { total: number };
     }>(
-      `query TotalProducts($filter: ProductFilter) {
-        productsPage(skip: 0, take: 1, filter: $filter) {
+      `query TotalProducts($filter: FilterProduitInput!) {
+        productsPage(filter: $filter) {
           total
         }
       }`,
-      { filter: { statut } }
+      { filter: { id_vendeur: vendorId, skip: 0, take: 1, statut } }
     );
 
     return data.productsPage.total;
