@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ensureEfashionAuth } from "@/lib/efashion-auth";
 import {
@@ -15,7 +16,10 @@ export async function GET(
   { params }: { params: Promise<{ productId: string }> }
 ) {
   try {
-    await requireAdmin();
+    const session = await getServerSession(authOptions);
+    if (!session || session.user.role !== "ADMIN") {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
+    }
     const { productId } = await params;
 
     // Load BJ product

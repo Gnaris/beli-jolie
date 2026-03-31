@@ -1,7 +1,15 @@
 "use server";
 
-import { requireAdmin } from "@/lib/auth";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { syncProductToEfashion } from "@/lib/efashion-reverse-sync";
+
+async function requireAdmin() {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    throw new Error("Accès non autorisé.");
+  }
+}
 
 export async function forceEfashionSync(
   productId: string
