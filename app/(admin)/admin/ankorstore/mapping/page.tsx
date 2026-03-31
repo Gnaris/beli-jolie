@@ -98,7 +98,7 @@ export default function AnkorstoreMappingPage() {
           </thead>
           <tbody>
             {mappings.map((m) => (
-              <tr key={m.akValue} className="border-b border-border">
+              <tr key={m.akValue} className={`border-b border-border ${!m.bjEntityId ? "bg-amber-50/50" : ""}`}>
                 <td className="p-4 font-mono text-xs">{m.akValue}</td>
                 <td className="p-4">{m.akName}</td>
                 <td className="p-4">

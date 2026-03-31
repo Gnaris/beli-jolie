@@ -79,6 +79,27 @@ export async function runAnkorstoreAnalyze(options?: {
     (pt) => !mappedTypes.has(String(pt.id)),
   );
 
+  // Auto-create unmapped entries in AnkorstoreMapping so they appear in the mapping UI
+  for (const pt of unmappedProductTypes) {
+    try {
+      await prisma.ankorstoreMapping.upsert({
+        where: { type_akValue: { type: "productType", akValue: String(pt.id) } },
+        create: {
+          type: "productType",
+          akValue: String(pt.id),
+          akName: `Type ${pt.id} (${pt.count} produits)`,
+          bjEntityId: "",
+          bjName: "",
+        },
+        update: {
+          akName: `Type ${pt.id} (${pt.count} produits)`,
+        },
+      });
+    } catch {
+      // ignore race conditions
+    }
+  }
+
   onProgress(
     `Analyse terminée : ${totalProducts} produits, ${unmappedProductTypes.length} types non mappés`,
   );
