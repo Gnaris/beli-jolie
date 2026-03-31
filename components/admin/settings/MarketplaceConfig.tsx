@@ -1,33 +1,68 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { updatePfsCredentials, validatePfsCredentials, togglePfsEnabled } from "@/app/actions/admin/site-config";
+import {
+  updatePfsCredentials,
+  validatePfsCredentials,
+  togglePfsEnabled,
+  updateEfashionCredentials,
+  validateEfashionCredentials,
+  toggleEfashionEnabled,
+} from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface Props {
   hasPfsConfig: boolean;
   pfsEnabled: boolean;
+  hasEfashionConfig: boolean;
+  efashionEnabled: boolean;
 }
 
-export default function MarketplaceConfig({ hasPfsConfig, pfsEnabled: initialEnabled }: Props) {
+export default function MarketplaceConfig({
+  hasPfsConfig,
+  pfsEnabled: initialPfsEnabled,
+  hasEfashionConfig,
+  efashionEnabled: initialEfashionEnabled,
+}: Props) {
+  // ── PFS state ──────────────────────────────────────────────────────────────
   const [pfsEmail, setPfsEmail] = useState("");
   const [pfsPassword, setPfsPassword] = useState("");
   const [pfsStatus, setPfsStatus] = useState<"none" | "valid" | "invalid" | "checking">(
     hasPfsConfig ? "valid" : "none"
   );
-  const [enabled, setEnabled] = useState(initialEnabled);
-  const [isSaving, startSaving] = useTransition();
-  const [isValidating, startValidating] = useTransition();
-  const [isToggling, startToggling] = useTransition();
+  const [pfsEnabled, setPfsEnabled] = useState(initialPfsEnabled);
+  const [pfsEditing, setPfsEditing] = useState(!hasPfsConfig);
+  const [isSavingPfs, startSavingPfs] = useTransition();
+  const [isValidatingPfs, startValidatingPfs] = useTransition();
+  const [isTogglingPfs, startTogglingPfs] = useTransition();
+
+  // ── eFashion state ─────────────────────────────────────────────────────────
+  const [efashionEmail, setEfashionEmail] = useState("");
+  const [efashionPassword, setEfashionPassword] = useState("");
+  const [efashionStatus, setEfashionStatus] = useState<"none" | "valid" | "invalid" | "checking">(
+    hasEfashionConfig ? "valid" : "none"
+  );
+  const [efashionEnabled, setEfashionEnabled] = useState(initialEfashionEnabled);
+  const [efashionEditing, setEfashionEditing] = useState(!hasEfashionConfig);
+  const [efashionVendorId, setEfashionVendorId] = useState<number | undefined>();
+  const [efashionBoutique, setEfashionBoutique] = useState<string | undefined>();
+  const [isSavingEfashion, startSavingEfashion] = useTransition();
+  const [isValidatingEfashion, startValidatingEfashion] = useTransition();
+  const [isTogglingEfashion, startTogglingEfashion] = useTransition();
+
   const toast = useToast();
   const { showLoading, hideLoading } = useLoadingOverlay();
-  const [editing, setEditing] = useState(!hasPfsConfig);
 
-  function handleValidate() {
+  const isPendingPfs = isSavingPfs || isValidatingPfs || isTogglingPfs;
+  const isPendingEfashion = isSavingEfashion || isValidatingEfashion || isTogglingEfashion;
+
+  // ── PFS handlers ───────────────────────────────────────────────────────────
+
+  function handlePfsValidate() {
     if (!pfsEmail.trim() || !pfsPassword.trim()) return;
     showLoading();
-    startValidating(async () => {
+    startValidatingPfs(async () => {
       try {
         setPfsStatus("checking");
         const result = await validatePfsCredentials({
@@ -47,9 +82,9 @@ export default function MarketplaceConfig({ hasPfsConfig, pfsEnabled: initialEna
     });
   }
 
-  function handleSave() {
+  function handlePfsSave() {
     showLoading();
-    startSaving(async () => {
+    startSavingPfs(async () => {
       try {
         const result = await updatePfsCredentials({
           email: pfsEmail.trim(),
@@ -57,7 +92,7 @@ export default function MarketplaceConfig({ hasPfsConfig, pfsEnabled: initialEna
         });
         if (result.success) {
           toast.success("Enregistré", "Identifiants PFS sauvegardés.");
-          setEditing(false);
+          setPfsEditing(false);
           setPfsEmail("");
           setPfsPassword("");
         } else {
@@ -69,12 +104,12 @@ export default function MarketplaceConfig({ hasPfsConfig, pfsEnabled: initialEna
     });
   }
 
-  function handleToggle() {
-    const newValue = !enabled;
-    startToggling(async () => {
+  function handlePfsToggle() {
+    const newValue = !pfsEnabled;
+    startTogglingPfs(async () => {
       const result = await togglePfsEnabled(newValue);
       if (result.success) {
-        setEnabled(newValue);
+        setPfsEnabled(newValue);
         toast.success(
           newValue ? "PFS activé" : "PFS désactivé",
           newValue
@@ -87,10 +122,77 @@ export default function MarketplaceConfig({ hasPfsConfig, pfsEnabled: initialEna
     });
   }
 
-  const isPending = isSaving || isValidating || isToggling;
+  // ── eFashion handlers ──────────────────────────────────────────────────────
+
+  function handleEfashionValidate() {
+    if (!efashionEmail.trim() || !efashionPassword.trim()) return;
+    showLoading();
+    startValidatingEfashion(async () => {
+      try {
+        setEfashionStatus("checking");
+        setEfashionVendorId(undefined);
+        setEfashionBoutique(undefined);
+        const result = await validateEfashionCredentials({
+          email: efashionEmail.trim(),
+          password: efashionPassword.trim(),
+        });
+        if (result.valid) {
+          setEfashionStatus("valid");
+          setEfashionVendorId(result.vendorId);
+          setEfashionBoutique(result.boutique);
+          toast.success("Connexion réussie", `eFashion Paris — ${result.boutique ?? "boutique connectée"}`);
+        } else {
+          setEfashionStatus("invalid");
+          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleEfashionSave() {
+    showLoading();
+    startSavingEfashion(async () => {
+      try {
+        const result = await updateEfashionCredentials({
+          email: efashionEmail.trim(),
+          password: efashionPassword.trim(),
+        });
+        if (result.success) {
+          toast.success("Enregistré", "Identifiants eFashion Paris sauvegardés.");
+          setEfashionEditing(false);
+          setEfashionEmail("");
+          setEfashionPassword("");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleEfashionToggle() {
+    const newValue = !efashionEnabled;
+    startTogglingEfashion(async () => {
+      const result = await toggleEfashionEnabled(newValue);
+      if (result.success) {
+        setEfashionEnabled(newValue);
+        toast.success(
+          newValue ? "eFashion activé" : "eFashion désactivé",
+          newValue
+            ? "La synchronisation eFashion Paris est maintenant active."
+            : "Les fonctionnalités eFashion Paris sont désactivées."
+        );
+      } else {
+        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      }
+    });
+  }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* PFS Section */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -117,31 +219,31 @@ export default function MarketplaceConfig({ hasPfsConfig, pfsEnabled: initialEna
             <button
               type="button"
               role="switch"
-              aria-checked={enabled}
+              aria-checked={pfsEnabled}
               aria-label="Activer Paris Fashion Shops"
-              disabled={isPending}
-              onClick={handleToggle}
+              disabled={isPendingPfs}
+              onClick={handlePfsToggle}
               className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 focus:ring-offset-2 disabled:opacity-50 ${
-                enabled ? "bg-[#22C55E]" : "bg-[#D1D1D1]"
+                pfsEnabled ? "bg-[#22C55E]" : "bg-[#D1D1D1]"
               }`}
             >
               <span
                 className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                  enabled ? "translate-x-6" : "translate-x-1"
+                  pfsEnabled ? "translate-x-6" : "translate-x-1"
                 }`}
               />
             </button>
           )}
         </div>
 
-        {!editing && hasPfsConfig ? (
+        {!pfsEditing && hasPfsConfig ? (
           <div className="flex items-center gap-3">
             <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
               ••••••••••••••••
             </div>
             <button
               type="button"
-              onClick={() => setEditing(true)}
+              onClick={() => setPfsEditing(true)}
               className="text-sm font-body text-text-secondary hover:text-text-primary underline"
             >
               Modifier
@@ -159,7 +261,7 @@ export default function MarketplaceConfig({ hasPfsConfig, pfsEnabled: initialEna
                 }}
                 placeholder="Email PFS"
                 className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-                disabled={isPending}
+                disabled={isPendingPfs}
                 autoComplete="off"
               />
               <input
@@ -171,7 +273,7 @@ export default function MarketplaceConfig({ hasPfsConfig, pfsEnabled: initialEna
                 }}
                 placeholder="Mot de passe PFS"
                 className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-                disabled={isPending}
+                disabled={isPendingPfs}
                 autoComplete="off"
               />
             </div>
@@ -179,25 +281,164 @@ export default function MarketplaceConfig({ hasPfsConfig, pfsEnabled: initialEna
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleValidate}
-                disabled={isPending || !pfsEmail.trim() || !pfsPassword.trim()}
+                onClick={handlePfsValidate}
+                disabled={isPendingPfs || !pfsEmail.trim() || !pfsPassword.trim()}
                 className="h-9 px-4 rounded-lg border border-border text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
               >
-                {isValidating ? "Vérification..." : "Vérifier"}
+                {isValidatingPfs ? "Vérification..." : "Tester la connexion"}
               </button>
               <button
                 type="button"
-                onClick={handleSave}
-                disabled={isPending || !pfsEmail.trim() || !pfsPassword.trim() || pfsStatus !== "valid"}
+                onClick={handlePfsSave}
+                disabled={isPendingPfs || !pfsEmail.trim() || !pfsPassword.trim() || pfsStatus !== "valid"}
                 className="h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
               >
-                {isSaving ? "Enregistrement..." : "Enregistrer"}
+                {isSavingPfs ? "Enregistrement..." : "Sauvegarder"}
               </button>
               {hasPfsConfig && (
                 <button
                   type="button"
-                  onClick={() => { setEditing(false); setPfsEmail(""); setPfsPassword(""); setPfsStatus("valid"); }}
-                  disabled={isPending}
+                  onClick={() => { setPfsEditing(false); setPfsEmail(""); setPfsPassword(""); setPfsStatus("valid"); }}
+                  disabled={isPendingPfs}
+                  className="h-9 px-3 text-sm font-body text-text-secondary hover:text-text-primary"
+                >
+                  Annuler
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="border-t border-border" />
+
+      {/* eFashion Paris Section */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div>
+              <h4 className="font-heading text-sm font-semibold text-text-primary">eFashion Paris</h4>
+              <a
+                href="https://wapi.efashion-paris.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-body text-xs text-text-secondary hover:text-text-primary underline"
+              >
+                wapi.efashion-paris.com
+              </a>
+            </div>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                efashionStatus === "valid" ? "bg-[#22C55E]" :
+                efashionStatus === "invalid" ? "bg-[#EF4444]" :
+                efashionStatus === "checking" ? "bg-[#F59E0B] animate-pulse" :
+                "bg-[#D1D1D1]"
+              }`}
+            />
+            <span className="font-body text-xs text-text-secondary">
+              {efashionStatus === "valid" && "Connecté"}
+              {efashionStatus === "invalid" && "Invalide"}
+              {efashionStatus === "checking" && "Vérification..."}
+              {efashionStatus === "none" && "Non configuré"}
+            </span>
+          </div>
+
+          {/* Toggle ON/OFF — only show when credentials are configured */}
+          {hasEfashionConfig && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={efashionEnabled}
+              aria-label="Activer eFashion Paris"
+              disabled={isPendingEfashion}
+              onClick={handleEfashionToggle}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 focus:ring-offset-2 disabled:opacity-50 ${
+                efashionEnabled ? "bg-[#22C55E]" : "bg-[#D1D1D1]"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                  efashionEnabled ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          )}
+        </div>
+
+        {/* Validation result info */}
+        {efashionStatus === "valid" && efashionVendorId && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#22C55E]/10 border border-[#22C55E]/20">
+            <span className="font-body text-xs text-[#16A34A]">
+              Vendeur #{efashionVendorId}{efashionBoutique ? ` — ${efashionBoutique}` : ""}
+            </span>
+          </div>
+        )}
+
+        {!efashionEditing && hasEfashionConfig ? (
+          <div className="flex items-center gap-3">
+            <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
+              ••••••••••••••••
+            </div>
+            <button
+              type="button"
+              onClick={() => setEfashionEditing(true)}
+              className="text-sm font-body text-text-secondary hover:text-text-primary underline"
+            >
+              Modifier
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <input
+                type="email"
+                value={efashionEmail}
+                onChange={(e) => {
+                  setEfashionEmail(e.target.value);
+                  if (efashionStatus === "valid" || efashionStatus === "invalid") setEfashionStatus("none");
+                }}
+                placeholder="Email eFashion Paris"
+                className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+                disabled={isPendingEfashion}
+                autoComplete="off"
+              />
+              <input
+                type="password"
+                value={efashionPassword}
+                onChange={(e) => {
+                  setEfashionPassword(e.target.value);
+                  if (efashionStatus === "valid" || efashionStatus === "invalid") setEfashionStatus("none");
+                }}
+                placeholder="Mot de passe eFashion Paris"
+                className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+                disabled={isPendingEfashion}
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleEfashionValidate}
+                disabled={isPendingEfashion || !efashionEmail.trim() || !efashionPassword.trim()}
+                className="h-9 px-4 rounded-lg border border-border text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+              >
+                {isValidatingEfashion ? "Vérification..." : "Tester la connexion"}
+              </button>
+              <button
+                type="button"
+                onClick={handleEfashionSave}
+                disabled={isPendingEfashion || !efashionEmail.trim() || !efashionPassword.trim() || efashionStatus !== "valid"}
+                className="h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+              >
+                {isSavingEfashion ? "Enregistrement..." : "Sauvegarder"}
+              </button>
+              {hasEfashionConfig && (
+                <button
+                  type="button"
+                  onClick={() => { setEfashionEditing(false); setEfashionEmail(""); setEfashionPassword(""); setEfashionStatus("valid"); }}
+                  disabled={isPendingEfashion}
                   className="h-9 px-3 text-sm font-body text-text-secondary hover:text-text-primary"
                 >
                   Annuler

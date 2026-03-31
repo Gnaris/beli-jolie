@@ -316,12 +316,14 @@ async function LivraisonTab() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Marketplaces — PFS
+   TAB : Marketplaces — PFS + eFashion
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MarketplacesTab() {
-  const [pfsConfig, pfsEnabledRow] = await Promise.all([
+  const [pfsConfig, pfsEnabledRow, efashionConfig, efashionEnabledRow] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findUnique({ where: { key: "pfs_enabled" }, select: { value: true } }),
+    prisma.siteConfig.findUnique({ where: { key: "efashion_email" }, select: { key: true } }),
+    prisma.siteConfig.findUnique({ where: { key: "efashion_enabled" }, select: { value: true } }),
   ]);
 
   return (
@@ -329,7 +331,12 @@ async function MarketplacesTab() {
       <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Marketplaces</h3>
         <p className="text-sm text-text-secondary font-body mb-4">Identifiants de connexion aux plateformes B2B.</p>
-        <MarketplaceConfig hasPfsConfig={!!pfsConfig} pfsEnabled={pfsEnabledRow?.value === "true"} />
+        <MarketplaceConfig
+          hasPfsConfig={!!pfsConfig}
+          pfsEnabled={pfsEnabledRow?.value === "true"}
+          hasEfashionConfig={!!efashionConfig}
+          efashionEnabled={efashionEnabledRow?.value === "true"}
+        />
       </div>
     </div>
   );
