@@ -59,9 +59,11 @@ model User {
   favorites      Favorite[]
   importDrafts   ImportDraft[]
   importJobs     ImportJob[]
-  pfsSyncJobs    PfsSyncJob[]
-  pfsPrepareJobs PfsPrepareJob[]
-  accessCodes    AccessCode[]
+  pfsSyncJobs         PfsSyncJob[]
+  pfsPrepareJobs      PfsPrepareJob[]
+  efashionSyncJobs    EfashionSyncJob[]
+  efashionPrepareJobs EfashionPrepareJob[]
+  accessCodes         AccessCode[]
   activity       UserActivity?
   restockAlerts  RestockAlert[]
   sentEmails     SentEmail[]
@@ -110,10 +112,11 @@ model Category {
   id            String                @id @default(cuid())
   name          String                @unique
   slug          String                @unique
-  pfsCategoryId String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
-  pfsGender     String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
-  pfsFamilyId   String? // ID famille PFS (ex: "a035J00000185J7QAI")
-  subCategories SubCategory[]
+  pfsCategoryId      String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
+  pfsGender          String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
+  pfsFamilyId        String? // ID famille PFS (ex: "a035J00000185J7QAI")
+  efashionCategoryId Int?
+  subCategories      SubCategory[]
   products      Product[]
   translations  CategoryTranslation[]
   sizes         SizeCategoryLink[]
@@ -163,6 +166,7 @@ model Color {
   hex                 String?
   patternImage        String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
   pfsColorRef         String? // Référence couleur PFS (ex: "GOLDEN", "SILVER") — pour reverse sync
+  efashionColorId     Int?
   createdAt           DateTime               @default(now())
   productColors       ProductColor[]
   colorImages         ProductColorImage[]
@@ -295,6 +299,11 @@ model Product {
   pfsSyncStatus          String? // null=jamais sync, "synced"=OK, "pending"=en cours, "failed"=échec
   pfsSyncError           String?               @db.Text // Dernier message d'erreur de sync PFS
   pfsSyncedAt            DateTime? // Dernière sync réussie vers PFS
+  // ── eFashion Paris sync ──
+  efashionProductId      Int?                  @unique
+  efashionSyncStatus     String? // null | "pending" | "synced" | "failed"
+  efashionSyncError      String?               @db.Text
+  efashionSyncedAt       DateTime?
   name                   String
   description            String                @db.Text
   categoryId             String
@@ -422,6 +431,7 @@ model ProductColor {
   restockAlerts       RestockAlert[]
   pfsColorRef         String? // Override couleur PFS pour variantes multi-couleur
   pfsVariantId        String? // ID variant sur PFS — pour reverse sync
+  efashionColorId     Int?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
@@ -1246,4 +1256,100 @@ model StripeWebhookEvent {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// eFashion Paris Sync
+// ─────────────────────────────────────────────
+
+// eFashion name → BJ entity mapping (remembered across syncs)
+model EfashionMapping {
+  id           String   @id @default(cuid())
+  type         String // "category" | "color" | "composition" | "pack" | "declinaison"
+  efashionName String
+  efashionId   Int?
+  bjEntityId   String
+  bjName       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([type, efashionName])
+  @@index([type])
+}
+
+model EfashionSyncJob {
+  id                String        @id @default(cuid())
+  status            PfsSyncStatus @default(PENDING)
+  totalProducts     Int           @default(0)
+  processedProducts Int           @default(0)
+  createdProducts   Int           @default(0)
+  updatedProducts   Int           @default(0)
+  skippedProducts   Int           @default(0)
+  errorProducts     Int           @default(0)
+  lastSkip          Int           @default(0)
+  errorMessage      String?       @db.Text
+  errorDetails      Json?
+  failedReferences  Json?
+  logs              Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  adminId           String
+  admin             User          @relation(fields: [adminId], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model EfashionPrepareJob {
+  id                String                  @id @default(cuid())
+  status            PfsSyncStatus           @default(PENDING)
+  totalProducts     Int                     @default(0)
+  processedProducts Int                     @default(0)
+  readyProducts     Int                     @default(0)
+  errorProducts     Int                     @default(0)
+  approvedProducts  Int                     @default(0)
+  rejectedProducts  Int                     @default(0)
+  lastSkip          Int                     @default(0)
+  errorMessage      String?                 @db.Text
+  logs              Json?
+  analyzeResult     Json?
+  adminId           String
+  admin             User                    @relation(fields: [adminId], references: [id])
+  stagedProducts    EfashionStagedProduct[]
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model EfashionStagedProduct {
+  id                       String             @id @default(cuid())
+  prepareJobId             String
+  prepareJob               EfashionPrepareJob @relation(fields: [prepareJobId], references: [id], onDelete: Cascade)
+  efashionProductId        Int
+  reference                String
+  status                   PfsStagedStatus    @default(PREPARING)
+  name                     String
+  description              String             @db.Text
+  categoryId               Int
+  categoryName             String
+  isBestSeller             Boolean            @default(false)
+  variants                 Json
+  compositions             Json
+  translations             Json
+  imageUrls                Json
+  colorData                Json
+  manufacturingCountryId   String?
+  manufacturingCountryName String?
+  errorMessage             String?            @db.Text
+  existsInDb               Boolean            @default(false)
+  existingProductId        String?
+  differences              Json?
+  createdProductId         String?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  @@index([prepareJobId])
+  @@index([status])
 }
