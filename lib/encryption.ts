@@ -25,6 +25,7 @@ export const SENSITIVE_KEYS = new Set([
   "efashion_email",
   "efashion_password",
   "stripe_connect_account_id",
+  "ankorstore_client_secret",
 ]);
 
 function getEncryptionKey(): Buffer {
