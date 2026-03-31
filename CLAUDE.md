@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **PFS Sync** : `docs/pfs-system.md` (sync, reverse sync, mapping, prepare flow)
 > **Styling** : `docs/styling.md` (palette, CSS utilities, conventions)
 > **API PFS** : `API_DOCUMENTATION.md` (endpoints, request/response formats)
+> **Ankorstore** : `docs/ankorstore-system.md` (API, sync, mapping)
 
 ---
 
@@ -47,6 +48,10 @@ Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib
 ### PFS sync (bidirectional)
 
 `lib/pfs-reverse-sync.ts` (local→PFS push), `lib/pfs-sync.ts` (PFS→local import), `lib/pfs-api.ts` (read), `lib/pfs-api-write.ts` (write). Auth via `lib/pfs-auth.ts` (token cache).
+
+### Ankorstore sync (bidirectional)
+
+`lib/ankorstore-auth.ts` (OAuth2 token), `lib/ankorstore-api.ts` (read), `lib/ankorstore-api-write.ts` (write), `lib/ankorstore-sync.ts` (import AK→BJ), `lib/ankorstore-reverse-sync.ts` (export BJ→AK). Config: `ankorstore_client_id`, `ankorstore_client_secret`, `ankorstore_enabled` in SiteConfig.
 
 ### eFashion Paris sync (bidirectional)
 
@@ -145,7 +150,7 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthro
 
 ### Encryption (secrets en BDD)
 - **`lib/encryption.ts`** : AES-256-GCM. Clé maître = `ENCRYPTION_KEY` (env var, base64 32 bytes)
-- **`SENSITIVE_KEYS`** dans encryption.ts = liste des clés SiteConfig chiffrées. Toute nouvelle clé sensible doit y être ajoutée
+- **`SENSITIVE_KEYS`** dans encryption.ts = liste des clés SiteConfig chiffrées. Toute nouvelle clé sensible doit y être ajoutée (inclut `ankorstore_client_secret`)
 - **Écriture** : `encryptIfSensitive(key, value)` avant `prisma.siteConfig.upsert()`
 - **Lecture** : `decryptIfSensitive(key, value)` après lecture BDD. Compatible migration progressive (valeurs en clair retournées telles quelles)
 - **Migration** : `npx tsx scripts/encrypt-secrets.ts` — chiffre les valeurs existantes, idempotent

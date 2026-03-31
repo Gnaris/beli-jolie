@@ -12,6 +12,7 @@ import { emitProductEvent } from "@/lib/product-events";
 import { pfsUpdateStatus, type PfsStatus } from "@/lib/pfs-api-write";
 import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
 import { triggerEfashionSync } from "@/lib/efashion-reverse-sync";
+import { triggerAnkorstoreSync } from "@/lib/ankorstore-reverse-sync";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 
 async function requireAdmin() {
@@ -365,6 +366,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   // Fire-and-forget sync to PFS and eFashion
   triggerPfsSync(product.id);
   triggerEfashionSync(product.id);
+  triggerAnkorstoreSync(product.id);
 
   return { id: product.id };
 }
@@ -765,6 +767,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   // Fire-and-forget sync to PFS and eFashion
   triggerPfsSync(id);
   triggerEfashionSync(id);
+  triggerAnkorstoreSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -842,6 +845,7 @@ export async function archiveProduct(id: string) {
   }
   triggerPfsSync(id);
   triggerEfashionSync(id);
+  triggerAnkorstoreSync(id);
 }
 
 export async function unarchiveProduct(id: string) {
@@ -859,6 +863,7 @@ export async function unarchiveProduct(id: string) {
   }
   triggerPfsSync(id);
   triggerEfashionSync(id);
+  triggerAnkorstoreSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -963,6 +968,7 @@ export async function bulkUpdateProductStatus(
   for (const pid of success) {
     triggerPfsSync(pid);
     triggerEfashionSync(pid);
+    triggerAnkorstoreSync(pid);
   }
 
   return { success, errors };
@@ -1057,6 +1063,7 @@ export async function updateVariantQuick(
 
   triggerPfsSync(variant.productId);
   triggerEfashionSync(variant.productId);
+  triggerAnkorstoreSync(variant.productId);
 }
 
 // ─────────────────────────────────────────────
@@ -1102,6 +1109,7 @@ export async function bulkUpdateVariants(
     emitProductEvent({ type: "STOCK_CHANGED", productId: pid });
     triggerPfsSync(pid);
     triggerEfashionSync(pid);
+    triggerAnkorstoreSync(pid);
   }
 
   return { updated: variants.length };
