@@ -47,7 +47,32 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const activeTab = (VALID_TABS.includes(params.tab as TabKey) ? params.tab : "produits") as TabKey;
 
-  // Warning counts for tab badges
+  // Render immediately — warnings load in parallel via Suspense
+  return (
+    <div className="space-y-6">
+      <Suspense fallback={
+        <AdminProductsTabsWrapper
+          initialTab={activeTab}
+          tabs={[
+            { key: "produits",     content: <Suspense><ProduitsContent params={params} /></Suspense> },
+            { key: "categories",   content: <Suspense><CategoriesContent /></Suspense> },
+            { key: "couleurs",     content: <Suspense><CouleursContent /></Suspense> },
+            { key: "compositions", content: <Suspense><CompositionsContent /></Suspense> },
+            { key: "pays",         content: <Suspense><PaysContent /></Suspense> },
+            { key: "saisons",      content: <Suspense><SaisonsContent /></Suspense> },
+            { key: "tailles",      content: <Suspense><TaillesContent /></Suspense> },
+            { key: "mots-cles",    content: <Suspense><MotsClesContent /></Suspense> },
+          ]}
+        />
+      }>
+        <TabsWithWarnings activeTab={activeTab} params={params} />
+      </Suspense>
+    </div>
+  );
+}
+
+/** Async wrapper that loads tab warnings without blocking the page render */
+async function TabsWithWarnings({ activeTab, params }: { activeTab: TabKey; params: Record<string, string | undefined> }) {
   const {
     untranslatedCount,
     unusedColorsCount,
@@ -65,22 +90,20 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   if (untranslatedCategoriesCount + untranslatedSubCategoriesCount > 0) tabWarnings["categories"] = untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
   return (
-    <div className="space-y-6">
-      <AdminProductsTabsWrapper
-        initialTab={activeTab}
-        warnings={tabWarnings}
-        tabs={[
-          { key: "produits",     content: <Suspense><ProduitsContent params={params} /></Suspense> },
-          { key: "categories",   content: <Suspense><CategoriesContent /></Suspense> },
-          { key: "couleurs",     content: <Suspense><CouleursContent /></Suspense> },
-          { key: "compositions", content: <Suspense><CompositionsContent /></Suspense> },
-          { key: "pays",         content: <Suspense><PaysContent /></Suspense> },
-          { key: "saisons",      content: <Suspense><SaisonsContent /></Suspense> },
-          { key: "tailles",      content: <Suspense><TaillesContent /></Suspense> },
-          { key: "mots-cles",    content: <Suspense><MotsClesContent /></Suspense> },
-        ]}
-      />
-    </div>
+    <AdminProductsTabsWrapper
+      initialTab={activeTab}
+      warnings={tabWarnings}
+      tabs={[
+        { key: "produits",     content: <Suspense><ProduitsContent params={params} /></Suspense> },
+        { key: "categories",   content: <Suspense><CategoriesContent /></Suspense> },
+        { key: "couleurs",     content: <Suspense><CouleursContent /></Suspense> },
+        { key: "compositions", content: <Suspense><CompositionsContent /></Suspense> },
+        { key: "pays",         content: <Suspense><PaysContent /></Suspense> },
+        { key: "saisons",      content: <Suspense><SaisonsContent /></Suspense> },
+        { key: "tailles",      content: <Suspense><TaillesContent /></Suspense> },
+        { key: "mots-cles",    content: <Suspense><MotsClesContent /></Suspense> },
+      ]}
+    />
   );
 }
 

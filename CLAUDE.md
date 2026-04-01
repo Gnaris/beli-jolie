@@ -7,6 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **Styling** : `docs/styling.md` (palette, CSS utilities, conventions)
 > **API PFS** : `API_DOCUMENTATION.md` (endpoints, request/response formats)
 > **Ankorstore** : `docs/ankorstore-system.md` (API, sync, mapping)
+> **API eFashion** : `EFASHION_API_DOCUMENTATION.md` (GraphQL mutations, REST upload, field names, pieges)
+> **eFashion Sync** : `docs/efashion-system.md` (import/export flow, staging, DB models)
 
 ---
 

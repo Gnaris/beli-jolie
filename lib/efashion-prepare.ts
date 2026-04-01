@@ -19,10 +19,7 @@ import {
   efashionGetDeclinaisons,
   efashionImageUrl,
   type EfashionProductListItem,
-  type EfashionProductDetails,
-  type EfashionCouleurProduit,
   type EfashionStock,
-  type EfashionComposition,
   type EfashionPack,
   type EfashionDeclinaison,
 } from "@/lib/efashion-api";
@@ -171,18 +168,40 @@ async function downloadImage(url: string, maxRetries = 3): Promise<Buffer> {
 }
 
 // ---------------------------------------------------------------------------
-// Prepare single product
+// Prepare a product group (items linked by liaison)
 // ---------------------------------------------------------------------------
 
-interface PrepareSingleResult {
+interface PrepareGroupResult {
   status: "ready" | "error";
-  efashionProductId: number;
+  efashionProductIds: number[];
   reference: string;
   error?: string;
 }
 
-async function prepareSingleProduct(
-  item: EfashionProductListItem,
+/**
+ * Group eFashion list items by `liaison`.
+ * Items with the same non-null `liaison` are variants of the same product.
+ * Items with null `liaison` are standalone products.
+ */
+function groupByLiaison(items: EfashionProductListItem[]): EfashionProductListItem[][] {
+  const groups = new Map<number, EfashionProductListItem[]>();
+  const standalone: EfashionProductListItem[][] = [];
+
+  for (const item of items) {
+    if (item.liaison != null) {
+      const key = item.liaison;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(item);
+    } else {
+      standalone.push([item]);
+    }
+  }
+
+  return [...groups.values(), ...standalone];
+}
+
+async function prepareProductGroup(
+  groupItems: EfashionProductListItem[],
   prepareJobId: string,
   packsMap: Map<number, EfashionPack>,
   declMap: Map<number, EfashionDeclinaison>,
@@ -191,23 +210,31 @@ async function prepareSingleProduct(
   dbCategoriesByEfId: Map<number, { id: string; name: string }>,
   dbColorsByEfId: Map<number, { id: string; name: string }>,
   addLog: (msg: string) => void,
-): Promise<PrepareSingleResult> {
-  const efId = item.id_produit;
-  const ref = item.reference;
+): Promise<PrepareGroupResult> {
+  // Primary item = first in group (used for reference, category, etc.)
+  const primary = groupItems[0];
+  const primaryEfId = primary.id_produit;
+  const allEfIds = groupItems.map((i) => i.id_produit);
+  // Use reference_base if available, otherwise strip color suffix from reference
+  const ref = primary.reference_base || primary.reference;
 
   try {
-    addLog(`▶ ${ref} — préparation...`);
+    addLog(`▶ ${ref} — préparation (${groupItems.length} variante(s))...`);
 
-    // Fetch full details in parallel
-    const details = await efashionGetProductDetails(efId);
-    const { product, colors, description, stocks, compositions, photos } = details;
+    // Fetch full details for ALL items in the group in parallel
+    const allDetails = await Promise.all(
+      groupItems.map((item) => efashionGetProductDetails(item.id_produit)),
+    );
+
+    // Use primary item for category, description, compositions
+    const primaryDetails = allDetails[0];
+    const { product: primaryProduct, description: primaryDescription } = primaryDetails;
 
     // ── Resolve category ──
-    const efCatId = product.id_categorie;
-    let resolvedCategoryName = item.categorie || `Catégorie ${efCatId}`;
-    let resolvedCategoryId: number = efCatId;
+    const efCatId = primaryProduct.id_categorie;
+    let resolvedCategoryName = primary.categorie || `Catégorie ${efCatId}`;
+    const resolvedCategoryId: number = efCatId;
 
-    // Check direct DB mapping (Category.efashionCategoryId) or EfashionMapping
     const dbCat = dbCategoriesByEfId.get(efCatId);
     const mappingCat = categoryMappings.get(efCatId);
 
@@ -219,134 +246,127 @@ async function prepareSingleProduct(
       resolvedCategoryName = mappingCat.bjName;
     }
 
-    // ── Determine sale type ──
-    const saleType: "UNIT" | "PACK" = product.vendu_par === "assortiment" ? "PACK" : "UNIT";
-
-    // ── Get sizes ──
-    let sizeNames: string[] = [];
-    let packQuantity: number | null = null;
-
-    if (saleType === "PACK" && product.id_pack) {
-      const pack = packsMap.get(product.id_pack);
-      if (pack) {
-        sizeNames = extractPackSizes(pack);
-        packQuantity = computePackQuantity(pack);
-      }
-    } else if (saleType === "UNIT" && product.id_declinaison) {
-      const decl = declMap.get(product.id_declinaison);
-      if (decl) {
-        sizeNames = extractDeclinaisonSizes(decl);
-      }
-    }
-
-    if (sizeNames.length === 0) {
-      sizeNames = ["TU"];
-    }
-
-    // ── Build stock map ──
-    const stockMap = buildStockMap(stocks);
-
-    // ── Build variants (one per color) ──
+    // ── Merge variants from ALL items in the group ──
     const variants: StagedVariant[] = [];
     const colorDataList: StagedColorData[] = [];
+    const allImageUrls: string[] = [];
+    const seenColorIds = new Set<number>();
 
-    for (const cp of colors) {
-      const colorId = cp.id_couleur;
-      const colorName = cp.couleur.couleur_FR;
-      const colorNameEN = cp.couleur.couleur_EN;
+    for (const details of allDetails) {
+      const { product, colors, stocks, photos } = details;
 
-      // Stock per size for this color
-      const colorStockMap = stockMap.get(colorId);
-      const sizes: Array<{ name: string; quantity: number }> = sizeNames.map((name) => ({
-        name,
-        quantity: colorStockMap?.get(name) || 0,
-      }));
+      const saleType: "UNIT" | "PACK" = product.vendu_par === "assortiment" ? "PACK" : "UNIT";
 
-      const totalStock = totalStockForColor(stockMap, colorId);
+      // Get sizes for this item
+      let sizeNames: string[] = [];
+      if (saleType === "PACK" && product.id_pack) {
+        const pack = packsMap.get(product.id_pack);
+        if (pack) sizeNames = extractPackSizes(pack);
+      } else if (saleType === "UNIT" && product.id_declinaison) {
+        const decl = declMap.get(product.id_declinaison);
+        if (decl) sizeNames = extractDeclinaisonSizes(decl);
+      }
+      if (sizeNames.length === 0) sizeNames = ["TU"];
 
-      const price = parseFloat(String(product.prix)) || 0;
-      const discount = product.prixReduit != null ? product.prixReduit : null;
+      const stockMap = buildStockMap(stocks);
 
-      variants.push({
-        colorId,
-        colorName,
-        colorNameEN,
-        saleType,
-        price,
-        weight: product.poids || 0,
-        stock: totalStock,
-        sizes,
-        discount,
-      });
+      // Add colors from this item
+      for (const cp of colors) {
+        const colorId = cp.id_couleur;
+        if (seenColorIds.has(colorId)) continue; // deduplicate across items
+        seenColorIds.add(colorId);
 
-      colorDataList.push({
-        efashionColorId: colorId,
-        colorName,
-        colorNameEN,
-      });
+        const colorStockMap = stockMap.get(colorId);
+        const sizes = sizeNames.map((name) => ({
+          name,
+          quantity: colorStockMap?.get(name) || 0,
+        }));
+        const totalStock = totalStockForColor(stockMap, colorId);
+        const price = parseFloat(String(product.prix)) || 0;
+
+        variants.push({
+          colorId,
+          colorName: cp.couleur.couleur_FR,
+          colorNameEN: cp.couleur.couleur_EN,
+          saleType,
+          price,
+          weight: product.poids || 0,
+          stock: totalStock,
+          sizes,
+          discount: product.prixReduit != null ? product.prixReduit : null,
+        });
+
+        colorDataList.push({
+          efashionColorId: colorId,
+          colorName: cp.couleur.couleur_FR,
+          colorNameEN: cp.couleur.couleur_EN,
+        });
+      }
+
+      // If this item had no colors, add a default variant (only if no other variants exist)
+      if (colors.length === 0 && variants.length === 0) {
+        const totalStock = stocks.reduce((sum, s) => sum + s.value, 0);
+        variants.push({
+          colorId: 0,
+          colorName: "Défaut",
+          colorNameEN: "Default",
+          saleType,
+          price: parseFloat(String(product.prix)) || 0,
+          weight: product.poids || 0,
+          stock: totalStock,
+          sizes: sizeNames.map((name) => ({ name, quantity: 0 })),
+          discount: product.prixReduit != null ? product.prixReduit : null,
+        });
+      }
+
+      // Collect images from all items
+      for (const p of photos) {
+        const url = efashionImageUrl(p);
+        if (!allImageUrls.includes(url)) allImageUrls.push(url);
+      }
     }
 
-    if (variants.length === 0) {
-      // Product has no colors — create a single default variant
-      const totalStock = stocks.reduce((sum, s) => sum + s.value, 0);
-      variants.push({
-        colorId: 0,
-        colorName: "Défaut",
-        colorNameEN: "Default",
-        saleType,
-        price: parseFloat(String(product.prix)) || 0,
-        weight: product.poids || 0,
-        stock: totalStock,
-        sizes: sizeNames.map((name) => ({ name, quantity: 0 })),
-        discount: product.prixReduit != null ? product.prixReduit : null,
-      });
-    }
-
-    // ── Build compositions ──
-    const stagedCompositions: StagedComposition[] = compositions.map((c) => ({
+    // ── Build compositions (from primary) ──
+    const stagedCompositions: StagedComposition[] = primaryDetails.compositions.map((c) => ({
       efashionId: c.id_composition,
       name: c.libelle,
       percentage: c.value,
     }));
 
-    // ── Build translations ──
+    // ── Build translations (from primary description) ──
     const translations: StagedTranslation[] = [];
-    if (description?.texte_fr) {
+    if (primaryDescription?.texte_fr) {
       translations.push({
         locale: "fr",
-        name: description.texte_fr,
-        description: description.texte_fr,
+        name: primaryDescription.texte_fr,
+        description: primaryDescription.texte_fr,
       });
     }
-    if (description?.texte_uk) {
+    if (primaryDescription?.texte_uk) {
       translations.push({
         locale: "en",
-        name: description.texte_uk,
-        description: description.texte_uk,
+        name: primaryDescription.texte_uk,
+        description: primaryDescription.texte_uk,
       });
     }
 
-    // ── Image URLs ──
-    const imageUrls = photos.map((p) => efashionImageUrl(p));
-
     // ── Create staged product ──
-    // Check if already staged (idempotent)
     const existingStaged = await prisma.efashionStagedProduct.findFirst({
-      where: { prepareJobId, efashionProductId: efId },
+      where: { prepareJobId, efashionProductId: primaryEfId },
       select: { id: true },
     });
 
     const stagedData = {
       reference: ref,
-      name: item.marque ? `${item.marque} - ${ref}` : ref,
-      description: description?.texte_fr || ref,
+      name: primary.marque ? `${primary.marque} - ${ref}` : ref,
+      description: primaryDescription?.texte_fr || ref,
       categoryId: resolvedCategoryId,
       categoryName: resolvedCategoryName,
       isBestSeller: false,
       variants: variants as unknown as import("@prisma/client").Prisma.InputJsonValue,
       compositions: stagedCompositions as unknown as import("@prisma/client").Prisma.InputJsonValue,
       translations: translations as unknown as import("@prisma/client").Prisma.InputJsonValue,
-      imageUrls: imageUrls as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      imageUrls: allImageUrls as unknown as import("@prisma/client").Prisma.InputJsonValue,
       colorData: colorDataList as unknown as import("@prisma/client").Prisma.InputJsonValue,
       status: "READY" as const,
       errorMessage: null,
@@ -361,19 +381,19 @@ async function prepareSingleProduct(
       await prisma.efashionStagedProduct.create({
         data: {
           prepareJobId,
-          efashionProductId: efId,
+          efashionProductId: primaryEfId,
           ...stagedData,
         },
       });
     }
 
-    addLog(`  ✅ ${ref} — stagé (${variants.length} variante(s), ${imageUrls.length} image(s))`);
+    addLog(`  ✅ ${ref} — stagé (${variants.length} couleur(s), ${allImageUrls.length} image(s), groupé de ${groupItems.length} variante(s) eFashion)`);
 
-    return { status: "ready", efashionProductId: efId, reference: ref };
+    return { status: "ready", efashionProductIds: allEfIds, reference: ref };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     addLog(`  ❌ ${ref} — Erreur: ${message}`);
-    return { status: "error", efashionProductId: efId, reference: ref, error: message };
+    return { status: "error", efashionProductIds: allEfIds, reference: ref, error: message };
   }
 }
 
@@ -513,8 +533,9 @@ export async function runEfashionPrepare(
         const { items, total } = await efashionListProducts(skip, PAGE_SIZE, "EN_VENTE");
 
         if (skip === 0) {
-          addLog(`${total} produits EN_VENTE sur eFashion`);
-          await updateJob({ totalProducts: total });
+          const effectiveTotal = maxProducts > 0 ? Math.min(maxProducts, total) : total;
+          addLog(`${total} produits EN_VENTE sur eFashion${maxProducts > 0 ? ` (limité à ${maxProducts})` : ""}`);
+          await updateJob({ totalProducts: effectiveTotal });
         }
 
         if (items.length === 0) {
@@ -539,23 +560,26 @@ export async function runEfashionPrepare(
           continue;
         }
 
-        // Apply limit
-        let toProcess = newItems;
+        // Group items by liaison (variants of same product = one group)
+        const groups = groupByLiaison(newItems);
+
+        // Apply limit (on groups, not individual items)
+        let toProcess = groups;
         if (maxProducts > 0) {
           const remaining = maxProducts - readyCount;
           if (remaining <= 0) break;
-          toProcess = newItems.slice(0, remaining);
+          toProcess = groups.slice(0, remaining);
         }
 
-        // Process in batches
+        // Process groups in batches
         for (let i = 0; i < toProcess.length; i += PREPARE_CONCURRENCY) {
           if (await checkStopped()) break;
 
           const batch = toProcess.slice(i, i + PREPARE_CONCURRENCY);
           const results = await Promise.allSettled(
-            batch.map((item) =>
-              prepareSingleProduct(
-                item,
+            batch.map((groupItems) =>
+              prepareProductGroup(
+                groupItems,
                 jobId,
                 packsMap,
                 declMap,
@@ -573,8 +597,10 @@ export async function runEfashionPrepare(
               errorCount++;
             } else if (r.value.status === "ready") {
               readyCount++;
-              // Track staged so we don't re-stage on next page
-              existingStagedProductIds.add(r.value.efashionProductId);
+              // Track all efashion IDs in the group so we don't re-stage them
+              for (const efId of r.value.efashionProductIds) {
+                existingStagedProductIds.add(efId);
+              }
             } else {
               errorCount++;
             }
@@ -1017,6 +1043,38 @@ export async function rejectEfashionStagedProduct(
     where: { id: staged.prepareJobId },
     data: { rejectedProducts: { increment: 1 } },
   });
+}
+
+export async function retryEfashionStagedProduct(
+  stagedId: string,
+): Promise<{ productId: string }> {
+  const staged = await prisma.efashionStagedProduct.findUnique({
+    where: { id: stagedId },
+  });
+  if (!staged) throw new Error("Produit stagé non trouvé");
+  if (staged.status !== "ERROR") {
+    throw new Error(`Statut invalide pour réessai: ${staged.status}`);
+  }
+
+  // Reset to READY so approveEfashionStagedProduct accepts it
+  await prisma.efashionStagedProduct.update({
+    where: { id: stagedId },
+    data: { status: "READY", errorMessage: null },
+  });
+
+  try {
+    const result = await approveEfashionStagedProduct(stagedId);
+    // Success: decrement error count (approve already incremented approved count)
+    await prisma.efashionPrepareJob.update({
+      where: { id: staged.prepareJobId },
+      data: { errorProducts: { decrement: 1 } },
+    });
+    return result;
+  } catch (err) {
+    // Approve failed again — status is already back to ERROR via approveEfashionStagedProduct
+    // Error count stays the same (no decrement needed)
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

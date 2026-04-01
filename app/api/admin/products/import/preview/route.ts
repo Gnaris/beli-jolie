@@ -53,6 +53,8 @@ export interface PreviewResult {
   withErrors: number;
   alreadyExist: number;
   missingEntities: MissingEntity[];
+  totalInFile?: number;
+  maxProducts?: number;
 }
 
 // ─────────────────────────────────────────────
@@ -164,6 +166,8 @@ export async function POST(req: NextRequest) {
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
+    const maxProductsRaw = formData.get("maxProducts") as string | null;
+    const maxProducts = maxProductsRaw ? parseInt(maxProductsRaw) : 0;
     if (!file) return NextResponse.json({ error: "Aucun fichier." }, { status: 400 });
     if (file.size > MAX_IMPORT_SIZE) {
       return NextResponse.json({ error: "Fichier trop volumineux (max 10 Mo)." }, { status: 400 });
@@ -270,7 +274,14 @@ export async function POST(req: NextRequest) {
     let withErrors = 0;
     let alreadyExist = 0;
 
-    for (const [ref, groupRows] of grouped.entries()) {
+    // Apply maxProducts limit — only preview first N products
+    let entries = [...grouped.entries()];
+    const totalBeforeLimit = entries.length;
+    if (maxProducts > 0 && entries.length > maxProducts) {
+      entries = entries.slice(0, maxProducts);
+    }
+
+    for (const [ref, groupRows] of entries) {
       const firstRow = groupRows[0];
       const referenceExists = existingRefSet.has(ref);
 
@@ -366,11 +377,13 @@ export async function POST(req: NextRequest) {
     const result: PreviewResult = {
       products,
       totalProducts: products.length,
-      totalVariants: rows.length,
+      totalVariants: entries.reduce((sum, [, rows]) => sum + rows.length, 0),
       readyToImport,
       withErrors,
       alreadyExist,
       missingEntities: [...missingMap.values()],
+      totalInFile: totalBeforeLimit,
+      maxProducts: maxProducts > 0 ? maxProducts : undefined,
     };
 
     return NextResponse.json(result);

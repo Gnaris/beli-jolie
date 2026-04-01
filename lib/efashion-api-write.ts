@@ -296,12 +296,12 @@ export async function uploadEfashionImage(
 ): Promise<void> {
   return withRetry(async () => {
     const formData = new FormData();
+    formData.append("productId", String(productId));
     formData.append(
-      "file",
+      "photos",
       new Blob([imageBuffer], { type: "image/jpeg" }),
       filename
     );
-    formData.append("id_produit", String(productId));
 
     const res = await efashionREST("/api/upload-product-photo", {
       method: "POST",

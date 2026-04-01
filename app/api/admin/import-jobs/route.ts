@@ -22,6 +22,8 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     const type = formData.get("type") as string | null; // "PRODUCTS" or "IMAGES"
+    const maxProductsRaw = formData.get("maxProducts") as string | null;
+    const maxProducts = maxProductsRaw ? parseInt(maxProductsRaw) : 0;
 
     if (!file) return NextResponse.json({ error: "Aucun fichier fourni." }, { status: 400 });
 
@@ -77,7 +79,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Fire-and-forget: start background processing
-    processProductImport(job.id).catch((err) => {
+    processProductImport(job.id, maxProducts > 0 ? maxProducts : undefined).catch((err) => {
       logger.error("[import-jobs] Background processing error", { error: err instanceof Error ? err.message : String(err) });
     });
 

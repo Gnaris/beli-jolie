@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { approveEfashionStagedProduct, rejectEfashionStagedProduct } from "@/lib/efashion-prepare";
+import { approveEfashionStagedProduct, rejectEfashionStagedProduct, retryEfashionStagedProduct } from "@/lib/efashion-prepare";
 
 export async function PUT(
   req: NextRequest,
@@ -22,6 +22,9 @@ export async function PUT(
       return NextResponse.json({ success: true, result });
     } else if (action === "reject") {
       const result = await rejectEfashionStagedProduct(id);
+      return NextResponse.json({ success: true, result });
+    } else if (action === "retry") {
+      const result = await retryEfashionStagedProduct(id);
       return NextResponse.json({ success: true, result });
     } else {
       return NextResponse.json({ error: "Action invalide" }, { status: 400 });

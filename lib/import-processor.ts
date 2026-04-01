@@ -15,6 +15,7 @@ import { logger } from "@/lib/logger";
 import * as XLSX from "xlsx";
 import { readFile, readdir, mkdir } from "fs/promises";
 import { processProductImage } from "@/lib/image-processor";
+import { emitProductEvent } from "@/lib/product-events";
 import path from "path";
 
 // ─────────────────────────────────────────────
@@ -228,7 +229,7 @@ function validateVariantRow(row: ProductImportRow): string[] {
 
 const PRODUCT_BATCH_SIZE = 50; // products (not rows) per batch
 
-export async function processProductImport(jobId: string): Promise<void> {
+export async function processProductImport(jobId: string, maxProducts?: number): Promise<void> {
   try {
     const job = await prisma.importJob.findUnique({ where: { id: jobId } });
     if (!job || !job.filePath) throw new Error("Job introuvable.");
@@ -308,6 +309,15 @@ export async function processProductImport(jobId: string): Promise<void> {
         if (!grouped.has(ref)) grouped.set(ref, []);
         grouped.get(ref)!.push(row);
       }
+    }
+
+    // Apply maxProducts limit — only keep first N product groups
+    if (maxProducts && maxProducts > 0 && grouped.size > maxProducts) {
+      const keys = [...grouped.keys()];
+      for (let k = maxProducts; k < keys.length; k++) {
+        grouped.delete(keys[k]);
+      }
+      logger.info("[import/products] Limited to maxProducts", { maxProducts, totalInFile: keys.length, kept: grouped.size });
     }
 
     const totalProducts = grouped.size;
@@ -674,6 +684,9 @@ export async function processProductImport(jobId: string): Promise<void> {
 
           successCount++;
 
+          // Emit SSE event for real-time table updates
+          emitProductEvent({ type: "PRODUCT_CREATED", productId: product.id });
+
           // Capture detail for history
           createdProducts.push({
             reference: ref,
@@ -705,6 +718,20 @@ export async function processProductImport(jobId: string): Promise<void> {
           processedItems: processedCount,
           successItems: successCount,
           errorItems: errorRows.length,
+        },
+      });
+
+      // Emit progress event for real-time banner
+      emitProductEvent({
+        type: "IMPORT_PROGRESS",
+        productId: jobId,
+        importProgress: {
+          jobId,
+          processed: processedCount,
+          total: totalProducts,
+          success: successCount,
+          errors: errorRows.length,
+          status: "PROCESSING",
         },
       });
 
@@ -742,6 +769,20 @@ export async function processProductImport(jobId: string): Promise<void> {
       },
     });
 
+    // Emit final progress event
+    emitProductEvent({
+      type: "IMPORT_PROGRESS",
+      productId: jobId,
+      importProgress: {
+        jobId,
+        processed: totalProducts,
+        total: totalProducts,
+        success: successCount,
+        errors: errorRows.length,
+        status: "COMPLETED",
+      },
+    });
+
   } catch (err) {
     logger.error(`[import-processor] Product job ${jobId} failed`, { error: err instanceof Error ? err.message : String(err) });
     await prisma.importJob.update({
@@ -751,6 +792,19 @@ export async function processProductImport(jobId: string): Promise<void> {
         errorMessage: err instanceof Error ? err.message : "Erreur inconnue",
       },
     }).catch(() => {});
+
+    emitProductEvent({
+      type: "IMPORT_PROGRESS",
+      productId: jobId,
+      importProgress: {
+        jobId,
+        processed: 0,
+        total: 0,
+        success: 0,
+        errors: 0,
+        status: "FAILED",
+      },
+    });
   }
 }
 

@@ -965,27 +965,22 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
 
   const imageStats = await createProductChildren(product.id, variants, compositions, translations, imageGroups, tagNames, staged.categoryId);
 
-  // Only set final status if ALL images were downloaded
+  // Only set final status if ALL images were downloaded — never create a product with missing images
   if (imageStats.expected === 0 || imageStats.downloaded >= imageStats.expected) {
     await prisma.product.update({
       where: { id: product.id },
       data: { status: bjStatus },
     });
-  } else if (imageStats.downloaded === 0) {
-    // No images at all — delete the product
+  } else {
+    // Any missing images (partial or zero) — delete the product entirely
     await prisma.product.delete({ where: { id: product.id } });
+    const msg = `Images incomplètes pour ${staged.reference} (${imageStats.downloaded}/${imageStats.expected}). Réessayez plus tard.`;
     await prisma.pfsStagedProduct.update({
       where: { id: stagedId },
-      data: { status: "ERROR", errorMessage: `Aucune image téléchargée (0/${imageStats.expected})` },
+      data: { status: "ERROR", errorMessage: msg },
     });
-    throw new Error(`Aucune image téléchargée pour ${staged.reference} (0/${imageStats.expected}). Réessayez plus tard.`);
-  } else {
-    // Partial images — keep OFFLINE
-    await prisma.product.update({
-      where: { id: product.id },
-      data: { status: "OFFLINE" },
-    });
-    logger.warn(`[PFS Approve] ${staged.reference} — partial images: ${imageStats.downloaded}/${imageStats.expected}, set OFFLINE`);
+    logger.warn(`[PFS Approve] ${staged.reference} — ${imageStats.downloaded}/${imageStats.expected} images, produit supprimé`);
+    throw new Error(msg);
   }
 
   // Auto-translate product name/description for missing locales (ar, zh) if enabled
@@ -1034,7 +1029,7 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
   return { productId: product.id };
 }
 
-async function createProductChildren(
+export async function createProductChildren(
   productId: string,
   variants: StagedVariantData[],
   compositions: StagedComposition[],
@@ -1144,9 +1139,14 @@ async function createProductChildren(
   }
 
   // Download PFS images + create DB records
-  let imgExpected = 0;
+  // Fail fast: stop on first image failure (product will be deleted by caller)
+  const imgExpected = imageGroups.reduce((sum, g) => sum + g.paths.length, 0);
   let imgDownloaded = 0;
+  let imgFailed = false;
+
   for (const group of imageGroups) {
+    if (imgFailed) break;
+
     // Match by colorId (database ID), then colorRef exact, then case-insensitive.
     // PFS API can use different casing for image keys vs variant references (e.g. "SILVER" vs "Silver")
     // and BJ uses name.toUpperCase (e.g. "DORÉ") while PFS uses API ref (e.g. "DORE").
@@ -1156,22 +1156,25 @@ async function createProductChildren(
       ?? createdVariants.find((v) => v.colorId === group.colorRef);
     if (!matchingVariant) {
       logger.warn(`[CREATE_CHILDREN] No matching variant for image group colorRef=${group.colorRef} colorId=${group.colorId}`, { available: createdVariants.map(v => `${v.colorRef}(${v.colorId})`).join(", ") });
-      continue;
+      imgFailed = true;
+      break;
     }
 
     const finalPaths: { path: string; order: number }[] = [];
     for (let imgIdx = 0; imgIdx < group.paths.length; imgIdx++) {
+      if (imgFailed) break;
+
       const imgPath = group.paths[imgIdx];
       const imgOrder = group.orders?.[imgIdx] ?? imgIdx;
       if (imgPath.startsWith("http")) {
-        imgExpected++;
         // PFS CDN URL — download, process to WebP, upload to R2 final
         // SSRF protection: only allow PFS CDN domains
         try {
           const urlObj = new URL(imgPath);
           if (!["static.parisfashionshops.com", "cdn.parisfashionshops.com"].includes(urlObj.hostname)) {
             logger.warn("[CREATE_CHILDREN] Blocked download from unauthorized domain", { hostname: urlObj.hostname });
-            continue;
+            imgFailed = true;
+            break;
           }
           const buffer = await downloadImage(imgPath);
           const filename = `pfs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -1180,10 +1183,11 @@ async function createProductChildren(
           imgDownloaded++;
         } catch (err) {
           logger.warn(`[CREATE_CHILDREN] Failed to download PFS image: ${imgPath}`, { error: err });
+          imgFailed = true;
+          break;
         }
       } else {
         // Already a final path (BJ existing image kept via compare modal) — use as-is
-        imgExpected++;
         imgDownloaded++;
         finalPaths.push({ path: imgPath, order: imgOrder });
       }

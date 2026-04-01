@@ -452,9 +452,11 @@ export async function pfsRefreshProduct(
       }
       if (!colorRef) continue;
 
-      for (const img of variant.images) {
-        if (!imagesByColor.has(colorRef)) imagesByColor.set(colorRef, []);
-        imagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
+      // Skip if this colorRef already has images (avoid duplicates from UNIT+PACK sharing same color)
+      if (imagesByColor.has(colorRef) && imagesByColor.get(colorRef)!.length > 0) continue;
+
+      if (variant.images.length > 0) {
+        imagesByColor.set(colorRef, variant.images.map((img) => ({ path: img.path, order: img.order })));
       }
     }
 

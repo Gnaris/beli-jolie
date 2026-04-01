@@ -2,12 +2,21 @@
 
 import { useEffect, useRef } from "react";
 
-export type ProductEventType = "PRODUCT_ONLINE" | "PRODUCT_UPDATED" | "PRODUCT_OFFLINE" | "STOCK_CHANGED" | "BESTSELLER_CHANGED";
+export type ProductEventType = "PRODUCT_ONLINE" | "PRODUCT_UPDATED" | "PRODUCT_OFFLINE" | "STOCK_CHANGED" | "BESTSELLER_CHANGED" | "PRODUCT_CREATED" | "IMPORT_PROGRESS";
 
 export interface ProductEvent {
   type: ProductEventType;
   productId: string;
   timestamp: number;
+  /** Import progress metadata (only for IMPORT_PROGRESS events) */
+  importProgress?: {
+    jobId: string;
+    processed: number;
+    total: number;
+    success: number;
+    errors: number;
+    status: "PROCESSING" | "COMPLETED" | "FAILED";
+  };
 }
 
 /**

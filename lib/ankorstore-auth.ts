@@ -27,7 +27,10 @@ export async function getAnkorstoreToken(): Promise<string> {
 
   const res = await fetch(TOKEN_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    },
     body: new URLSearchParams({
       grant_type: "client_credentials",
       client_id: clientId,
@@ -73,6 +76,7 @@ export async function akFetch(
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     Accept: "application/vnd.api+json",
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     ...(options.headers as Record<string, string> || {}),
   };
 

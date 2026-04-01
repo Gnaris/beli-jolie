@@ -74,7 +74,7 @@ export default function EfashionValidationPanel({ jobId, analyzeResult, onValida
   const [tab, setTab] = useState<Tab>("categories");
 
   const [existingEntities] = useState<ExistingEntities>(
-    analyzeResult.existingEntities,
+    analyzeResult.existingEntities ?? { categories: [], colors: [], compositions: [] },
   );
 
   const [editCategories, setEditCategories] = useState<EditableCategory[]>(

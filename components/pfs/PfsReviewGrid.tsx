@@ -536,7 +536,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
       fetchProducts();
       const succeeded = count - totalErrors;
       if (totalErrors > 0) {
-        toast.warning(`${succeeded} créé(s), ${totalErrors} erreur(s)`);
+        toast.warning(`${succeeded} créé(s), ${totalErrors} erreur(s). Veuillez vérifier si l'image est bien présente sur Paris Fashion Shop.`);
       } else {
         toast.success(`${count} produit(s) créé(s)`);
       }

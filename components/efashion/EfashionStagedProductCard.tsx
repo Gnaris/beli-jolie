@@ -7,12 +7,15 @@ import { useCallback } from "react";
 // ─────────────────────────────────────────────
 
 export interface EfashionStagedVariant {
-  colorId: string;
+  colorId: number;
   colorName: string;
-  unitPrice: number;
+  colorNameEN: string;
+  price: number;
   saleType: "UNIT" | "PACK";
-  packQuantity: number | null;
-  size: string | null;
+  weight: number;
+  stock: number;
+  sizes: Array<{ name: string; quantity: number }>;
+  discount: number | null;
 }
 
 export interface EfashionStagedProduct {
@@ -27,7 +30,7 @@ export interface EfashionStagedProduct {
   variants: EfashionStagedVariant[] | string;
   compositions: { name: string; percentage: number }[] | string;
   imageUrls: string[] | string;
-  colorData: Record<string, { name: string; hex: string | null }> | string;
+  colorData: Array<{ efashionColorId: number; colorName: string; colorNameEN: string }> | string;
   errorMessage?: string | null;
   createdProductId?: string | null;
 }
@@ -36,9 +39,11 @@ interface EfashionStagedProductCardProps {
   product: EfashionStagedProduct;
   selected: boolean;
   approving?: boolean;
+  retrying?: boolean;
   onSelect: (id: string) => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onRetry: (id: string) => void;
 }
 
 // ─────────────────────────────────────────────
@@ -54,7 +59,7 @@ function parseJson<T>(value: T | string): T {
 
 function computePriceRange(variants: EfashionStagedVariant[]): { min: number; max: number } | null {
   if (variants.length === 0) return null;
-  const prices = variants.map((v) => v.unitPrice);
+  const prices = variants.map((v) => v.price);
   return { min: Math.min(...prices), max: Math.max(...prices) };
 }
 
@@ -77,19 +82,22 @@ export default function EfashionStagedProductCard({
   product,
   selected,
   approving,
+  retrying,
   onSelect,
   onApprove,
   onReject,
+  onRetry,
 }: EfashionStagedProductCardProps) {
   const { status } = product;
   const isReady = status === "READY";
+  const isError = status === "ERROR";
   const isDimmed = status === "APPROVED" || status === "REJECTED";
   const isPreparing = status === "PREPARING";
 
   const variants = parseJson<EfashionStagedVariant[]>(product.variants) || [];
   const compositions = parseJson<{ name: string; percentage: number }[]>(product.compositions) || [];
   const imageUrls = parseJson<string[]>(product.imageUrls) || [];
-  const colorData = parseJson<Record<string, { name: string; hex: string | null }>>(product.colorData) || {};
+  // colorData available in product.colorData if needed for detailed view
 
   const priceRange = computePriceRange(variants);
   const variantCount = variants.length;
@@ -100,7 +108,7 @@ export default function EfashionStagedProductCard({
 
   // Unique colors
   const uniqueColors = (() => {
-    const seen = new Set<string>();
+    const seen = new Set<number>();
     return variants.filter((v) => {
       if (seen.has(v.colorId)) return false;
       seen.add(v.colorId);
@@ -126,6 +134,14 @@ export default function EfashionStagedProductCard({
       onReject(product.id);
     },
     [onReject, product.id],
+  );
+
+  const handleRetry = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onRetry(product.id);
+    },
+    [onRetry, product.id],
   );
 
   return (
@@ -185,33 +201,30 @@ export default function EfashionStagedProductCard({
           {/* Colors */}
           {uniqueColors.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap">
-              {uniqueColors.slice(0, 6).map((v) => {
-                const color = colorData[v.colorId];
-                return (
-                  <div
-                    key={v.colorId}
-                    className="w-4 h-4 rounded-full border border-border"
-                    style={{ backgroundColor: color?.hex || "#ccc" }}
-                    title={color?.name || v.colorName}
-                  />
-                );
-              })}
+              {uniqueColors.slice(0, 6).map((v) => (
+                <div
+                  key={v.colorId}
+                  className="w-4 h-4 rounded-full border border-border bg-bg-secondary"
+                  title={v.colorName}
+                />
+              ))}
               {uniqueColors.length > 6 && (
                 <span className="text-[10px] text-text-muted">+{uniqueColors.length - 6}</span>
               )}
             </div>
           )}
 
-          {/* Price & variants */}
+          {/* Price, variants & stock */}
           <div className="flex items-center gap-3 text-xs text-text-secondary">
             {priceRange && (
-              <span>
+              <span className="font-medium text-text-primary">
                 {priceRange.min === priceRange.max
                   ? `${priceRange.min.toFixed(2)} €`
                   : `${priceRange.min.toFixed(2)} - ${priceRange.max.toFixed(2)} €`}
               </span>
             )}
-            <span>{variantCount} variante{variantCount > 1 ? "s" : ""}</span>
+            <span>{variantCount} couleur{variantCount > 1 ? "s" : ""}</span>
+            <span>{variants.reduce((sum, v) => sum + v.stock, 0)} en stock</span>
           </div>
 
           {/* Compositions */}
@@ -223,11 +236,32 @@ export default function EfashionStagedProductCard({
         </div>
       </div>
 
-      {/* Error message */}
+      {/* Error message + retry */}
       {product.errorMessage && (
-        <p className="text-xs text-[#EF4444] bg-[#EF4444]/5 rounded-lg px-3 py-2 truncate">
-          {product.errorMessage}
-        </p>
+        <div className="space-y-2">
+          <p className="text-xs text-[#EF4444] bg-[#EF4444]/5 rounded-lg px-3 py-2 truncate">
+            {product.errorMessage}
+          </p>
+          {isError && (
+            <button
+              onClick={handleRetry}
+              disabled={retrying}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-[#F59E0B] bg-[#F59E0B]/10 hover:bg-[#F59E0B]/20 rounded-lg transition-colors"
+            >
+              {retrying ? (
+                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                </svg>
+              )}
+              {retrying ? "Réessai en cours..." : "Réessayer"}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Action buttons */}

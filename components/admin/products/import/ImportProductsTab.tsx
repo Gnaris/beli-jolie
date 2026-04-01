@@ -86,6 +86,7 @@ export default function ImportProductsTab() {
   const [loadingImport, setLoadingImport] = useState(false);
   const [importResult, setImportResult] = useState<{ success: number; errors: number; total: number; draftId?: string; jobId?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [maxProducts, setMaxProducts] = useState<string>("");
 
   // Job polling state
   const [jobStatus, setJobStatus] = useState<"PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | null>(null);
@@ -140,6 +141,8 @@ export default function ImportProductsTab() {
     setError(null);
     const fd = new FormData();
     fd.append("file", f);
+    const limit = parseInt(maxProducts);
+    if (limit > 0) fd.append("maxProducts", String(limit));
     try {
       const res = await fetch("/api/admin/products/import/preview", { method: "POST", body: fd });
       const data = await res.json();
@@ -151,7 +154,7 @@ export default function ImportProductsTab() {
     } finally {
       setLoadingPreview(false);
     }
-  }, [file]);
+  }, [file, maxProducts]);
 
   const confirmImport = async () => {
     if (!file) return;
@@ -160,6 +163,8 @@ export default function ImportProductsTab() {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("type", "PRODUCTS");
+    const limit = parseInt(maxProducts);
+    if (limit > 0) fd.append("maxProducts", String(limit));
     try {
       const res = await fetch("/api/admin/import-jobs", { method: "POST", body: fd });
       const data = await res.json();
@@ -265,7 +270,19 @@ export default function ImportProductsTab() {
             )}
           </div>
           {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex items-center justify-end gap-3">
+            <div className="flex items-center gap-2">
+              <label htmlFor="maxProducts" className="text-sm text-[#666] whitespace-nowrap">Nb produits max</label>
+              <input
+                id="maxProducts"
+                type="number"
+                min="1"
+                placeholder="Tous"
+                value={maxProducts}
+                onChange={(e) => setMaxProducts(e.target.value)}
+                className="w-24 px-3 py-2 border border-border rounded-lg text-sm text-text-primary bg-bg-primary focus:outline-none focus:ring-2 focus:ring-bg-dark/20"
+              />
+            </div>
             <button onClick={() => analyzeFile()} disabled={!file || loadingPreview} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
               {loadingPreview ? "Analyse en cours…" : "Analyser le fichier →"}
             </button>

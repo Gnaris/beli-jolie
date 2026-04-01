@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import * as XLSX from "xlsx";
 import { logger } from "@/lib/logger";
+import { emitProductEvent } from "@/lib/product-events";
 
 // ─────────────────────────────────────────────
 // Types
@@ -144,7 +145,11 @@ function validateRow(row: ProductImportRow): string[] {
 // Import logic
 // ─────────────────────────────────────────────
 
-async function importRows(rows: ProductImportRow[], adminId: string) {
+/**
+ * Validate rows and resolve DB references (colors, categories, etc.)
+ * Returns the grouped products ready for creation + any error rows.
+ */
+async function prepareImport(rows: ProductImportRow[]) {
   const validRows: ProductImportRow[] = [];
   const errorRows: DraftProductRow[] = [];
 
@@ -205,18 +210,25 @@ async function importRows(rows: ProductImportRow[], adminId: string) {
   const compositionMap = new Map(dbCompositions.map((c) => [c.name.toLowerCase(), c]));
   const existingRefs = new Set(existingProducts.map((p) => p.reference.toUpperCase()));
 
-  let successCount = 0;
+  // Resolve each product group
+  interface ResolvedProduct {
+    ref: string;
+    firstRow: ProductImportRow;
+    resolvedColors: { row: ProductImportRow; color: (typeof dbColors)[0] }[];
+    categoryId: string | undefined;
+    tagIds: string[];
+    compPairs: { compositionId: string; percentage: number }[];
+  }
+
+  const readyProducts: ResolvedProduct[] = [];
 
   for (const [ref, colorRows] of grouped.entries()) {
-    const productErrors: string[] = [];
-
     // Check color exists in DB
     const resolvedColors: { row: ProductImportRow; color: (typeof dbColors)[0] }[] = [];
     for (const row of colorRows) {
       const dbColor = colorMap.get(row.color.toLowerCase());
       if (!dbColor) {
         errorRows.push({ ...row, errors: [`Couleur "${row.color}" introuvable en base. Créez-la d'abord dans Administration > Couleurs.`] });
-        productErrors.push("color_not_found");
         continue;
       }
       resolvedColors.push({ row, color: dbColor });
@@ -281,6 +293,24 @@ async function importRows(rows: ProductImportRow[], adminId: string) {
       continue;
     }
 
+    readyProducts.push({ ref, firstRow, resolvedColors, categoryId, tagIds, compPairs });
+  }
+
+  return { readyProducts, errorRows };
+}
+
+/**
+ * Create products in background, one by one, emitting SSE events.
+ * Updates the ImportJob progress as it goes.
+ */
+async function createProductsInBackground(
+  readyProducts: Awaited<ReturnType<typeof prepareImport>>["readyProducts"],
+  jobId: string,
+) {
+  let successCount = 0;
+  const errorRows: DraftProductRow[] = [];
+
+  for (const { ref, firstRow, resolvedColors, categoryId, tagIds, compPairs } of readyProducts) {
     try {
       const newProduct = await prisma.product.create({
         data: {
@@ -334,14 +364,58 @@ async function importRows(rows: ProductImportRow[], adminId: string) {
       }
 
       successCount++;
+
+      // Emit SSE event so the product table updates in real-time
+      emitProductEvent({ type: "PRODUCT_CREATED", productId: newProduct.id });
+
+      // Update job progress
+      await prisma.importJob.update({
+        where: { id: jobId },
+        data: {
+          processedItems: { increment: 1 },
+          successItems: { increment: 1 },
+        },
+      }).catch(() => {});
     } catch (err) {
-      for (const row of colorRows) {
+      for (const row of resolvedColors.map((rc) => rc.row)) {
         errorRows.push({ ...row, errors: [`Erreur création: ${err instanceof Error ? err.message : "inconnue"}`] });
       }
+      await prisma.importJob.update({
+        where: { id: jobId },
+        data: {
+          processedItems: { increment: 1 },
+          errorItems: { increment: 1 },
+        },
+      }).catch(() => {});
     }
   }
 
-  return { successCount, errorRows };
+  // Finalize the job
+  let draftId: string | undefined;
+  if (errorRows.length > 0) {
+    const draft = await prisma.importDraft.create({
+      data: {
+        type: "PRODUCTS",
+        filename: "import-background",
+        totalRows: readyProducts.length,
+        successRows: successCount,
+        errorRows: errorRows.length,
+        rows: errorRows as unknown as import("@prisma/client").Prisma.JsonArray,
+        adminId: (await prisma.importJob.findUnique({ where: { id: jobId }, select: { adminId: true } }))?.adminId ?? "",
+      },
+    });
+    draftId = draft.id;
+  }
+
+  await prisma.importJob.update({
+    where: { id: jobId },
+    data: {
+      status: "COMPLETED",
+      errorDraftId: draftId ?? null,
+    },
+  }).catch(() => {});
+
+  logger.info("[import/products] Background import completed", { jobId, success: successCount, errors: errorRows.length });
 }
 
 // ─────────────────────────────────────────────
@@ -381,8 +455,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Fichier vide ou format incorrect." }, { status: 400 });
     }
 
-    const { successCount, errorRows } = await importRows(rows, session.user.id);
+    // Phase 1: Validate & resolve references (fast, synchronous)
+    const { readyProducts, errorRows } = await prepareImport(rows);
 
+    // Create draft for validation errors immediately
     let draftId: string | undefined;
     if (errorRows.length > 0) {
       const draft = await prisma.importDraft.create({
@@ -390,7 +466,7 @@ export async function POST(req: NextRequest) {
           type: "PRODUCTS",
           filename: file.name,
           totalRows: rows.length,
-          successRows: successCount,
+          successRows: 0,
           errorRows: errorRows.length,
           rows: errorRows as unknown as import("@prisma/client").Prisma.JsonArray,
           adminId: session.user.id,
@@ -399,11 +475,46 @@ export async function POST(req: NextRequest) {
       draftId = draft.id;
     }
 
+    if (readyProducts.length === 0) {
+      // Nothing to create — all rows had errors
+      return NextResponse.json({
+        success: 0,
+        errors: errorRows.length,
+        total: rows.length,
+        draftId,
+      });
+    }
+
+    // Phase 2: Create an ImportJob and start background creation
+    const job = await prisma.importJob.create({
+      data: {
+        type: "PRODUCTS",
+        status: "PROCESSING",
+        totalItems: readyProducts.length,
+        processedItems: 0,
+        successItems: 0,
+        errorItems: 0,
+        filePath: file.name,
+        adminId: session.user.id,
+        errorDraftId: draftId ?? null,
+      },
+    });
+
+    // Fire-and-forget: create products in background
+    createProductsInBackground(readyProducts, job.id).catch((err) => {
+      logger.error("[import/products] Background import failed", { jobId: job.id, error: err instanceof Error ? err.message : String(err) });
+      prisma.importJob.update({ where: { id: job.id }, data: { status: "FAILED", errorMessage: err instanceof Error ? err.message : "Unknown error" } }).catch(() => {});
+    });
+
+    // Return immediately — products will be created in background
     return NextResponse.json({
-      success: successCount,
+      success: 0, // Will increase as background processing runs
       errors: errorRows.length,
       total: rows.length,
       draftId,
+      jobId: job.id,
+      productsToCreate: readyProducts.length,
+      background: true,
     });
   } catch (err) {
     logger.error("[import/products]", { error: err instanceof Error ? err.message : String(err) });

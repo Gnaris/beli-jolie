@@ -13,6 +13,8 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { usePfsRefresh } from "@/components/admin/pfs/PfsRefreshContext";
+import { useProductStream } from "@/hooks/useProductStream";
+import ImportProgressBanner from "@/components/admin/products/ImportProgressBanner";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -355,6 +357,7 @@ function ProductRow({
   onToggleVariant,
   onToggleAllVariants,
   hasPfsConfig = false,
+  isNew = false,
 }: {
   product: AdminProduct;
   selected: boolean;
@@ -365,6 +368,7 @@ function ProductRow({
   onToggleVariant: (id: string) => void;
   onToggleAllVariants: (ids: string[], select: boolean) => void;
   hasPfsConfig?: boolean;
+  isNew?: boolean;
 }) {
   const [refreshing, startRefresh] = useTransition();
   const { confirm } = useConfirm();
@@ -400,7 +404,7 @@ function ProductRow({
   return (
     <>
       <tr
-        className={`table-row transition-colors ${selected ? "bg-blue-50/40" : ""} ${expanded ? "border-b-0" : ""}`}
+        className={`table-row transition-colors ${selected ? "bg-blue-50/40" : ""} ${expanded ? "border-b-0" : ""} ${isNew ? "animate-product-pop" : ""}`}
       >
         {/* Checkbox */}
         <td className="px-3 py-3 w-10" onClick={(e) => e.stopPropagation()}>
@@ -1078,7 +1082,7 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, hasPfsConfig = false,
+  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, hasPfsConfig = false, newProductIds,
 }: {
   products: AdminProduct[];
   selectedIds: Set<string>;
@@ -1091,6 +1095,7 @@ function TableWithTopScroll({
   toggleVariant: (id: string) => void;
   toggleAllVariants: (ids: string[], select: boolean) => void;
   hasPfsConfig?: boolean;
+  newProductIds: Set<string>;
 }) {
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -1189,6 +1194,7 @@ function TableWithTopScroll({
                 onToggleVariant={toggleVariant}
                 onToggleAllVariants={toggleAllVariants}
                 hasPfsConfig={hasPfsConfig}
+                isNew={newProductIds.has(product.id)}
               />
             ))}
           </tbody>
@@ -1211,7 +1217,55 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
   const [confirmRefresh, setConfirmRefresh] = useState(false);
   const pfsRefresh = usePfsRefresh();
 
-  const allPageIds = products.map((p) => p.id);
+  // ─── Real-time new products via SSE ──
+  const [liveProducts, setLiveProducts] = useState<AdminProduct[]>([]);
+  const [newProductIds, setNewProductIds] = useState<Set<string>>(new Set());
+  const existingIdsRef = useRef<Set<string>>(new Set(products.map((p) => p.id)));
+
+  // Keep existingIds in sync with server-rendered products
+  useEffect(() => {
+    existingIdsRef.current = new Set(products.map((p) => p.id));
+    // Clean up live products that are already in the server list (after navigation/revalidation)
+    setLiveProducts((prev) => prev.filter((p) => !existingIdsRef.current.has(p.id)));
+  }, [products]);
+
+  // Clear "new" animation after 4 seconds
+  useEffect(() => {
+    if (newProductIds.size === 0) return;
+    const timer = setTimeout(() => {
+      setNewProductIds(new Set());
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [newProductIds]);
+
+  useProductStream(useCallback((event) => {
+    if (event.type !== "PRODUCT_CREATED") return;
+    const productId = event.productId;
+
+    // Skip if already in the list
+    if (existingIdsRef.current.has(productId)) return;
+
+    // Fetch the product data and add it to the table
+    fetch(`/api/admin/products/${productId}`)
+      .then((res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((product: AdminProduct | null) => {
+        if (!product) return;
+        // Avoid duplicates
+        if (existingIdsRef.current.has(product.id)) return;
+        existingIdsRef.current.add(product.id);
+        setLiveProducts((prev) => [product, ...prev]);
+        setNewProductIds((prev) => new Set(prev).add(product.id));
+      })
+      .catch(() => {});
+  }, []));
+
+  // Merge live products (prepended) with server products
+  const allProducts = [...liveProducts, ...products.filter((p) => !liveProducts.some((lp) => lp.id === p.id))];
+
+  const allPageIds = allProducts.map((p) => p.id);
   const allSelected = allPageIds.length > 0 && allPageIds.every((id) => selectedIds.has(id));
   const someSelected = selectedIds.size > 0;
   const variantCount = selectedVariantIds.size;
@@ -1329,7 +1383,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
 
   const handleBulkPfsRefresh = useCallback(() => {
     if (!pfsRefresh) return;
-    const items = products
+    const items = allProducts
       .filter((p) => selectedIds.has(p.id))
       .map((p) => ({ productId: p.id, productName: p.name, reference: p.reference }));
     // Also refresh createdAt locally
@@ -1342,7 +1396,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
     setSelectedIds(new Set());
     setConfirmRefresh(false);
     setBulkMessage({ type: "success", text: `${items.length} produit${items.length > 1 ? "s" : ""} en cours de rafraîchissement PFS` });
-  }, [selectedIds, products, pfsRefresh, startTransition]);
+  }, [selectedIds, allProducts, pfsRefresh, startTransition]);
 
   // ─── Bulk variant actions ──
   const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {
@@ -1360,7 +1414,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
           let updated = 0;
           for (const variantId of ids) {
             try {
-              const product = products.find((p) => p.colors.some((c) => c.id === variantId));
+              const product = allProducts.find((p) => p.colors.some((c) => c.id === variantId));
               const variant = product?.colors.find((c) => c.id === variantId);
               if (!variant) continue;
 
@@ -1388,9 +1442,9 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
         hideLoading();
       }
     });
-  }, [selectedVariantIds, products, startTransition, showLoading, hideLoading]);
+  }, [selectedVariantIds, allProducts, startTransition, showLoading, hideLoading]);
 
-  if (products.length === 0) {
+  if (allProducts.length === 0) {
     return (
       <div className="card p-12 text-center">
         <div className="w-12 h-12 bg-bg-tertiary rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1406,6 +1460,9 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
 
   return (
     <div className="space-y-3">
+      {/* Bannière de progression d'import */}
+      <ImportProgressBanner />
+
       {/* Barre d'actions en masse (produits) */}
       {someSelected && (
         <div className="flex items-center gap-3 bg-bg-dark text-text-inverse rounded-xl px-4 py-3 animate-fadeIn">
@@ -1546,7 +1603,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={products} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} hasPfsConfig={hasPfsConfig} />
+      <TableWithTopScroll products={allProducts} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} hasPfsConfig={hasPfsConfig} newProductIds={newProductIds} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

@@ -150,17 +150,21 @@ export async function POST(req: NextRequest) {
     if (jobId) {
       const job = await prisma.efashionPrepareJob.findUnique({
         where: { id: jobId },
-        select: { status: true },
+        select: { status: true, analyzeResult: true },
       });
 
       if (job && job.status === PfsSyncStatus.NEEDS_VALIDATION) {
+        // Recover limit from analyzeResult (set during analyze phase)
+        const analyzeResult = job.analyzeResult as Record<string, unknown> | null;
+        const savedLimit = typeof analyzeResult?.limit === "number" ? analyzeResult.limit : 0;
+
         await prisma.efashionPrepareJob.update({
           where: { id: jobId },
           data: { status: PfsSyncStatus.RUNNING },
         });
 
-        // Fire-and-forget prepare
-        runEfashionPrepare(jobId).catch((err) =>
+        // Fire-and-forget prepare — propagate original limit
+        runEfashionPrepare(jobId, savedLimit > 0 ? { limit: savedLimit } : undefined).catch((err) =>
           logger.error("[eFashion Import] Prepare failed after entity creation", {
             error: err instanceof Error ? err.message : String(err),
           }),

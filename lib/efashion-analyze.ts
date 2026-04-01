@@ -98,7 +98,7 @@ export async function runEfashionAnalyze(
         select: { id: true, name: true, efashionCategoryId: true },
       }),
       prisma.color.findMany({
-        select: { id: true, name: true, efashionColorId: true },
+        select: { id: true, name: true, efashionColorId: true, hex: true, patternImage: true },
       }),
       prisma.composition.findMany({ select: { id: true, name: true } }),
       prisma.efashionMapping.findMany({
@@ -259,6 +259,12 @@ export async function runEfashionAnalyze(
             totalNewProducts: 0,
             totalExistingSkipped,
             missingEntities: { categories: [], colors: [], compositions: [] },
+            existingMappings: efashionMappings.length,
+            existingEntities: {
+              categories: dbCategories.map((c) => ({ id: c.id, name: c.name })),
+              colors: dbColors.map((c) => ({ id: c.id, name: c.name, hex: c.hex ?? null, patternImage: c.patternImage ?? null })),
+              compositions: dbCompositions.map((c) => ({ id: c.id, name: c.name })),
+            },
           },
           logs: { analyzeLogs },
         },
@@ -316,6 +322,12 @@ export async function runEfashionAnalyze(
         colors: [...missingColors.values()],
         compositions: [...missingCompositions.values()],
       },
+      existingMappings: efashionMappings.length,
+      existingEntities: {
+        categories: dbCategories.map((c) => ({ id: c.id, name: c.name })),
+        colors: dbColors.map((c) => ({ id: c.id, name: c.name, hex: c.hex ?? null, patternImage: c.patternImage ?? null })),
+        compositions: dbCompositions.map((c) => ({ id: c.id, name: c.name })),
+      },
       limit: maxProducts > 0 ? maxProducts : undefined,
     };
 
@@ -352,7 +364,7 @@ export async function runEfashionAnalyze(
       });
     }
   } catch (err) {
-    logger.error("[eFashion Analyze] Fatal error:", err);
+    logger.error("[eFashion Analyze] Fatal error:", { error: err instanceof Error ? err.message : String(err) });
     await prisma.efashionPrepareJob
       .update({
         where: { id: jobId },

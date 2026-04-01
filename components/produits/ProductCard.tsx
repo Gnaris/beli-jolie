@@ -216,13 +216,13 @@ export default function ProductCard({
     <article className="group card card-hover overflow-hidden flex flex-col animate-zoom-fade p-2.5">
       {/* Image */}
       <Link href={`/produits/${id}`} className="block">
-        <div className="bg-bg-secondary relative overflow-hidden aspect-square rounded-[14px] shadow-[inset_3px_3px_8px_rgba(0,0,0,0.06),inset_-2px_-2px_6px_rgba(255,255,255,0.8)]">
+        <div className="bg-bg-secondary relative overflow-hidden aspect-[5/6] sm:aspect-[4/5] md:aspect-[3/4] rounded-[14px] shadow-[inset_3px_3px_8px_rgba(0,0,0,0.06),inset_-2px_-2px_6px_rgba(255,255,255,0.8)]">
           {image ? (
             <Image
               src={image}
               alt={tp(name)}
               fill
-              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 33vw, 25vw"
               className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
               loading="lazy"
             />

@@ -646,6 +646,13 @@ export async function GET(
   }
 
   if (differences.length > 0) {
+    logger.info("[LIVE_CHECK] Differences found", {
+      productId,
+      reference: product.reference,
+      count: differences.length,
+      fields: differences.map(d => d.field),
+      details: differences,
+    });
   }
 
   return NextResponse.json({

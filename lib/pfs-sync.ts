@@ -104,7 +104,9 @@ export function extractColorImages(
   for (const [colorRef, urls] of Object.entries(images)) {
     if (colorRef === "DEFAULT") continue;
     const arr = Array.isArray(urls) ? urls : [urls];
-    map.set(colorRef, arr.map(fullSizeImageUrl));
+    // Deduplicate URLs after stripping query params (PFS can return same image with different processing params)
+    const unique = [...new Set(arr.map(fullSizeImageUrl))];
+    map.set(colorRef, unique);
   }
   return map;
 }
@@ -210,7 +212,7 @@ export async function closePlaywright(): Promise<void> {
 async function downloadImagePlaywright(url: string): Promise<Buffer> {
   const { page } = await getPlaywrightPage();
   try {
-    const response = await page.goto(url, { waitUntil: "load", timeout: 20000 });
+    const response = await page.goto(url, { waitUntil: "load", timeout: 30000 });
     if (!response || !response.ok()) {
       throw new Error(`Playwright HTTP ${response?.status()}`);
     }
@@ -225,7 +227,7 @@ async function downloadImagePlaywright(url: string): Promise<Buffer> {
 }
 
 /** Download an image from URL via Playwright with retries. */
-export async function downloadImage(url: string, maxRetries = 3): Promise<Buffer> {
+export async function downloadImage(url: string, maxRetries = 5): Promise<Buffer> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -1710,23 +1712,14 @@ export async function runPfsSync(jobId: string, options?: PfsSyncOptions): Promi
                 const imgStats = await result.imageTask!();
                 if (!pid) return;
 
-                if (imgStats.downloaded === 0) {
-                  // No images at all — delete the product entirely
+                if (imgStats.downloaded < imgStats.expected) {
+                  // Any missing images — delete the product entirely (never create with incomplete images)
                   await prisma.product.delete({ where: { id: pid } }).catch(() => {});
                   created = Math.max(0, created - 1);
                   errored++;
-                  imageFailures.push({ reference: ref, reason: "Aucune image téléchargée", downloaded: 0, expected: imgStats.expected });
-                  addImageLog(`🗑️ ${ref} — 0/${imgStats.expected} images, produit supprimé`);
-                  logger.warn(`[PFS Images] ${ref} — product ${pid} DELETED: 0/${imgStats.expected} images`);
-                } else if (imgStats.downloaded < imgStats.expected) {
-                  // Partial images — keep OFFLINE (user wants ALL images before showing)
-                  await prisma.product.update({
-                    where: { id: pid },
-                    data: { status: "OFFLINE" },
-                  });
-                  imageFailures.push({ reference: ref, reason: "Images incomplètes", downloaded: imgStats.downloaded, expected: imgStats.expected });
-                  addImageLog(`⚠️ ${ref} — images incomplètes (${imgStats.downloaded}/${imgStats.expected}), produit mis OFFLINE`);
-                  logger.warn(`[PFS Images] ${ref} — product ${pid} set OFFLINE: only ${imgStats.downloaded}/${imgStats.expected} images downloaded`);
+                  imageFailures.push({ reference: ref, reason: `Images incomplètes (${imgStats.downloaded}/${imgStats.expected})`, downloaded: imgStats.downloaded, expected: imgStats.expected });
+                  addImageLog(`🗑️ ${ref} — ${imgStats.downloaded}/${imgStats.expected} images, produit supprimé`);
+                  logger.warn(`[PFS Images] ${ref} — product ${pid} DELETED: ${imgStats.downloaded}/${imgStats.expected} images`);
                 } else {
                   // All images downloaded — set final status
                   await prisma.product.update({

@@ -81,6 +81,7 @@ export default function EfashionReviewGrid({ jobId }: EfashionReviewGridProps) {
   });
   const [bulkLoading, setBulkLoading] = useState(false);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
+  const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
 
   // ── Job status ──
   const [job, setJob] = useState<JobData | null>(null);
@@ -246,6 +247,33 @@ export default function EfashionReviewGrid({ jobId }: EfashionReviewGridProps) {
       }
     } catch {
       toast.error("Erreur réseau");
+    }
+  };
+
+  // ── Retry (ERROR → re-approve) ──
+  const handleRetry = async (id: string) => {
+    setRetryingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch(`/api/admin/efashion-sync/staged/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry" }),
+      });
+      if (res.ok) {
+        toast.success("Produit réessayé avec succès");
+        fetchProducts();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Erreur lors du réessai");
+      }
+    } catch {
+      toast.error("Erreur réseau");
+    } finally {
+      setRetryingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -485,9 +513,11 @@ export default function EfashionReviewGrid({ jobId }: EfashionReviewGridProps) {
               product={product}
               selected={selectedIds.has(product.id)}
               approving={approvingIds.has(product.id)}
+              retrying={retryingIds.has(product.id)}
               onSelect={toggleSelect}
               onApprove={handleApprove}
               onReject={handleReject}
+              onRetry={handleRetry}
             />
           ))}
         </div>

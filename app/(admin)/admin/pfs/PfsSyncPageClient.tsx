@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { retryAllMissingImages } from "@/app/actions/admin/products";
 
 // ─────────────────────────────────────────────
 // Types
@@ -47,9 +46,6 @@ export default function PfsSyncPageClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  const [retryingImages, setRetryingImages] = useState(false);
-  const [retryResult, setRetryResult] = useState<{ total: number; downloaded: number; failed: number } | null>(null);
-  const [missingImagesCount, setMissingImagesCount] = useState<number | null>(null);
 
   // ── Fetch PFS + BJ product counts ──
   useEffect(() => {
@@ -58,7 +54,6 @@ export default function PfsSyncPageClient() {
       .then((d) => {
         if (typeof d.pfsCount === "number") setPfsCount(d.pfsCount);
         if (typeof d.bjCount === "number") setBjCount(d.bjCount);
-        if (typeof d.missingImagesCount === "number") setMissingImagesCount(d.missingImagesCount);
       })
       .catch(() => {});
   }, []);
@@ -258,65 +253,6 @@ export default function PfsSyncPageClient() {
               Les {pfsCount!.toLocaleString("fr-FR")} produits PFS sont synchronisés avec la boutique.
             </p>
           </div>
-        </div>
-      )}
-
-      {/* Missing images retry banner */}
-      {!loading && !isActive && missingImagesCount !== null && missingImagesCount > 0 && (
-        <div className="card p-4 flex items-center gap-4 border-[#F59E0B]/30 bg-[#F59E0B]/5">
-          <div className="w-10 h-10 rounded-xl bg-[#F59E0B]/10 flex items-center justify-center shrink-0">
-            <svg className="w-5 h-5 text-[#F59E0B]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-            </svg>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-text-primary">
-              {missingImagesCount} produit(s) avec images manquantes
-            </p>
-            <p className="text-xs text-text-secondary mt-0.5">
-              Ces produits PFS ont des variantes sans images. Cliquez pour retenter le téléchargement.
-            </p>
-            {retryResult && (
-              <p className={`text-xs mt-1 ${retryResult.failed > 0 ? "text-[#EF4444]" : "text-[#22C55E]"}`}>
-                Résultat : {retryResult.downloaded} image(s) téléchargée(s){retryResult.failed > 0 ? `, ${retryResult.failed} produit(s) échoué(s)` : ""}
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={async () => {
-              setRetryingImages(true);
-              setRetryResult(null);
-              try {
-                const result = await retryAllMissingImages();
-                setRetryResult(result);
-                // Refresh counts
-                fetch("/api/admin/pfs-sync/count")
-                  .then((r) => r.json())
-                  .then((d) => {
-                    if (typeof d.missingImagesCount === "number") setMissingImagesCount(d.missingImagesCount);
-                    if (typeof d.bjCount === "number") setBjCount(d.bjCount);
-                  })
-                  .catch(() => {});
-              } catch {
-                // silent
-              } finally {
-                setRetryingImages(false);
-              }
-            }}
-            disabled={retryingImages}
-            className="btn-primary text-sm shrink-0"
-          >
-            {retryingImages ? (
-              <>
-                <svg className="animate-spin w-4 h-4 mr-2 inline" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                En cours...
-              </>
-            ) : "Retenter"}
-          </button>
         </div>
       )}
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import EfashionValidationPanel from "@/components/efashion/EfashionValidationPanel";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 // ─────────────────────────────────────────────
 // Types
@@ -52,7 +53,9 @@ interface AnalyzeResult {
 
 export default function EfashionSyncPageClient() {
   const router = useRouter();
+  const { confirm } = useConfirm();
   const [customLimit, setCustomLimit] = useState("");
+  const [stopping, setStopping] = useState(false);
   const [efashionCount, setEfashionCount] = useState<number | null>(null);
   const [bjCount, setBjCount] = useState<number | null>(null);
   const [job, setJob] = useState<EfashionPrepareJob | null>(null);
@@ -104,7 +107,22 @@ export default function EfashionSyncPageClient() {
     setError(null);
 
     try {
-      const limit = parseInt(customLimit, 10);
+      const limit = parseInt(customLimit, 10) || 0;
+
+      // Confirm if no limit set (will scan all products)
+      if (limit <= 0) {
+        const ok = await confirm({
+          title: "Importer tous les produits ?",
+          message: `Aucune limite définie — l'analyse va scanner les ${efashionCount ?? "8 000+"} produits eFashion. Voulez-vous continuer ?`,
+          confirmLabel: "Tout analyser",
+          variant: "warning",
+        });
+        if (!ok) {
+          setStarting(false);
+          return;
+        }
+      }
+
       const res = await fetch("/api/admin/efashion-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -130,6 +148,29 @@ export default function EfashionSyncPageClient() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur réseau");
       setStarting(false);
+    }
+  };
+
+  // ── Stop job ──
+  const stopJob = async () => {
+    if (!job) return;
+    const ok = await confirm({
+      title: "Arrêter l'importation",
+      message: "Les produits déjà préparés seront conservés. Voulez-vous arrêter ?",
+      confirmLabel: "Arrêter",
+      cancelLabel: "Continuer",
+      type: "danger",
+    });
+    if (!ok) return;
+
+    setStopping(true);
+    try {
+      await fetch(`/api/admin/efashion-sync?id=${job.id}`, { method: "DELETE" });
+      await fetchJob();
+    } catch {
+      // silent
+    } finally {
+      setStopping(false);
     }
   };
 
@@ -359,12 +400,36 @@ export default function EfashionSyncPageClient() {
             </div>
           )}
 
-          <Link
-            href={`/admin/efashion/historique/${job.id}`}
-            className="btn-primary inline-block"
-          >
-            Voir la progression
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href={`/admin/efashion/historique/${job.id}`}
+              className="btn-primary inline-block"
+            >
+              Voir la progression
+            </Link>
+            <button
+              onClick={stopJob}
+              disabled={stopping}
+              className="btn-secondary text-[#EF4444] border-[#EF4444]/30 hover:bg-[#EF4444]/5"
+            >
+              {stopping ? (
+                <>
+                  <svg className="animate-spin w-4 h-4 mr-2 inline" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Arrêt...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
+                  </svg>
+                  Tout arrêter
+                </>
+              )}
+            </button>
+          </div>
         </div>
       )}
 
