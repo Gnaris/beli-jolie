@@ -15,6 +15,11 @@ interface ConfirmCheckbox {
   onChange?: (checked: boolean) => void;
 }
 
+interface ConfirmSecondaryAction {
+  label: string;
+  style?: "danger" | "neutral";
+}
+
 interface ConfirmOptions {
   type?: ConfirmType;
   title: string;
@@ -22,10 +27,13 @@ interface ConfirmOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   checkbox?: ConfirmCheckbox;
+  secondaryAction?: ConfirmSecondaryAction;
 }
 
+export type ConfirmResult = boolean | "secondary";
+
 interface ConfirmContextValue {
-  confirm: (opts: ConfirmOptions) => Promise<boolean>;
+  confirm: (opts: ConfirmOptions) => Promise<ConfirmResult>;
 }
 
 // ─────────────────────────────────────────────
@@ -45,21 +53,21 @@ export function useConfirm(): ConfirmContextValue {
 // ─────────────────────────────────────────────
 
 const CONFIG: Record<ConfirmType, {
-  iconBg: string; iconColor: string; icon: string;
+  iconBgClass: string; iconColor: string; icon: string;
   btnBg: string; btnHover: string; btnText: string;
 }> = {
   danger: {
-    iconBg: "#FEE2E2", iconColor: "#DC2626",
+    iconBgClass: "bg-[#FEE2E2]", iconColor: "#DC2626",
     icon: "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16",
     btnBg: "#EF4444", btnHover: "#DC2626", btnText: "#FFFFFF",
   },
   warning: {
-    iconBg: "#FEF3C7", iconColor: "#D97706",
+    iconBgClass: "bg-[#FEF3C7]", iconColor: "#D97706",
     icon: "M12 9v2m0 4h.01M12 3l9.66 16.5H2.34L12 3z",
     btnBg: "#F59E0B", btnHover: "#D97706", btnText: "#FFFFFF",
   },
   info: {
-    iconBg: "#DBEAFE", iconColor: "#2563EB",
+    iconBgClass: "bg-[#DBEAFE]", iconColor: "#2563EB",
     icon: "M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z",
     btnBg: "#1A1A1A", btnHover: "#000000", btnText: "#FFFFFF",
   },
@@ -74,7 +82,7 @@ function ConfirmModal({
   onResult,
 }: {
   opts: ConfirmOptions;
-  onResult: (confirmed: boolean) => void;
+  onResult: (result: ConfirmResult) => void;
 }) {
   const [closing, setClosing] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -85,9 +93,9 @@ function ConfirmModal({
   useEffect(() => { setMounted(true); }, []);
   const c = CONFIG[opts.type ?? "danger"];
 
-  function resolve(confirmed: boolean) {
+  function resolve(result: ConfirmResult) {
     setClosing(true);
-    setTimeout(() => onResult(confirmed), 200);
+    setTimeout(() => onResult(result), 200);
   }
 
   // Escape key
@@ -115,7 +123,7 @@ function ConfirmModal({
       <div
         aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
-        className={`bg-bg-primary rounded-3xl shadow-[10px_10px_30px_rgba(26,86,219,0.12),-8px_-8px_24px_rgba(255,255,255,0.85)] border border-white/60 w-full max-w-md overflow-hidden transition-all duration-200 ${
+        className={`bg-bg-primary rounded-3xl shadow-[10px_10px_30px_rgba(26,86,219,0.12),-8px_-8px_24px_rgba(255,255,255,0.85)] border border-white/60 dark-modal-border w-full max-w-md overflow-hidden transition-all duration-200 ${
           closing ? "opacity-0 scale-95 translate-y-2" : "opacity-100 scale-100 translate-y-0"
         }`}
         style={{ animation: closing ? undefined : "confirmSlideUp 0.25s cubic-bezier(0.16,1,0.3,1)" }}
@@ -124,8 +132,7 @@ function ConfirmModal({
         <div className="px-6 pt-6 pb-4 flex gap-4">
           {/* Icon */}
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-            style={{ backgroundColor: c.iconBg }}
+            className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${c.iconBgClass}`}
           >
             <svg className="w-5 h-5" fill="none" stroke={c.iconColor} viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d={c.icon} />
@@ -181,6 +188,19 @@ function ConfirmModal({
           >
             {opts.cancelLabel ?? "Annuler"}
           </button>
+          {opts.secondaryAction && (
+            <button
+              type="button"
+              onClick={() => resolve("secondary")}
+              className={`px-4 py-2.5 text-sm font-medium font-body rounded-lg border transition-all duration-150 active:scale-[0.98] ${
+                opts.secondaryAction.style === "danger"
+                  ? "text-red-600 border-red-200 bg-red-50 hover:bg-red-100 hover:border-red-300"
+                  : "text-text-secondary border-border bg-bg-secondary hover:bg-[#E5E5E5] hover:text-text-primary"
+              }`}
+            >
+              {opts.secondaryAction.label}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => resolve(true)}
@@ -210,16 +230,16 @@ function ConfirmModal({
 // ─────────────────────────────────────────────
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
-  const [current, setCurrent] = useState<{ opts: ConfirmOptions; resolve: (v: boolean) => void } | null>(null);
+  const [current, setCurrent] = useState<{ opts: ConfirmOptions; resolve: (v: ConfirmResult) => void } | null>(null);
 
-  const confirmFn = useCallback((opts: ConfirmOptions): Promise<boolean> => {
-    return new Promise<boolean>((resolve) => {
+  const confirmFn = useCallback((opts: ConfirmOptions): Promise<ConfirmResult> => {
+    return new Promise<ConfirmResult>((resolve) => {
       setCurrent({ opts, resolve });
     });
   }, []);
 
-  function handleResult(confirmed: boolean) {
-    current?.resolve(confirmed);
+  function handleResult(result: ConfirmResult) {
+    current?.resolve(result);
     setCurrent(null);
   }
 

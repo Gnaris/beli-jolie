@@ -293,6 +293,17 @@ export default function ImportProductsTab() {
       {/* ── Step: Preview ── */}
       {step === "preview" && preview && (
         <div className="space-y-4">
+          {/* Loading overlay during re-analysis */}
+          {loadingPreview && (
+            <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] flex items-center justify-center gap-3">
+              <svg className="w-5 h-5 text-text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <span className="text-sm text-text-primary font-medium">Ré-analyse du fichier en cours...</span>
+            </div>
+          )}
+
           {/* Summary stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard label="Produits détectés" value={preview.totalProducts} color="neutral" />
@@ -497,6 +508,7 @@ const ENTITY_LABELS: Record<MissingEntity["type"], { label: string; plural: stri
 function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: MissingEntity[]; onEntitiesCreated: () => void }) {
   const [creating, setCreating] = useState<Set<string>>(new Set());
   const [created, setCreated] = useState<Set<string>>(new Set());
+  const [autoReanalyzed, setAutoReanalyzed] = useState(false);
   const [creatingAll, setCreatingAll] = useState(false);
   const [colorHexes, setColorHexes] = useState<Record<string, string>>({});
   // Pattern image state per color name
@@ -511,6 +523,14 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   }, {});
 
   const remaining = entities.filter((e) => !created.has(`${e.type}:${e.name}`));
+
+  // Auto re-analyze when all entities have been created (individual or batch)
+  useEffect(() => {
+    if (entities.length > 0 && remaining.length === 0 && created.size > 0 && !autoReanalyzed) {
+      setAutoReanalyzed(true);
+      onEntitiesCreated();
+    }
+  }, [entities.length, remaining.length, created.size, autoReanalyzed, onEntitiesCreated]);
 
   const handlePatternUpload = async (colorName: string, file: File) => {
     if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
@@ -602,7 +622,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
       await createEntity(entity, colorHexes[entity.name]);
     }
     setCreatingAll(false);
-    onEntitiesCreated();
+    // Auto re-analysis is handled by the useEffect when remaining.length === 0
   };
 
   const handleCreateSingle = async (entity: MissingEntity) => {

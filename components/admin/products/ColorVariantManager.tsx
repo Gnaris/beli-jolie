@@ -92,6 +92,7 @@ interface Props {
   onChange: (variants: VariantState[]) => void;
   onChangeImages: (images: ColorImageState[]) => void;
   onQuickCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
+  onColorAdded?: (color: AvailableColor) => void;
   categoryId?: string;
   allCategories?: { id: string; name: string }[];
   onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
@@ -445,7 +446,7 @@ function PfsColorDropdown({
 // MultiColorSelect — modal-based multi-select (first = main, rest = sub-colors)
 // With drag & drop reordering + remove in the selection zone
 // ─────────────────────────────────────────────
-function MultiColorSelect({ selected, options, onChange, existingVariants, editingGroupKey, pfsColorRef, pfsColorRefLabel, onPfsColorRefChange, usedPfsColorRefs, onCreateColor }: {
+function MultiColorSelect({ selected, options, onChange, existingVariants, editingGroupKey, pfsColorRef, pfsColorRefLabel, onPfsColorRefChange, usedPfsColorRefs, onCreateColor, onColorAdded }: {
   selected: { colorId: string; colorName: string; colorHex: string }[];
   options: AvailableColor[];
   onChange: (colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) => void;
@@ -460,6 +461,8 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
   /** PFS color refs already used by other variants in this product */
   usedPfsColorRefs?: Map<string, string>; // pfsRef → variantLabel
   onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
+  /** Notify parent that a color was created inline (so it can update its own list) */
+  onColorAdded?: (color: AvailableColor) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -646,9 +649,11 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
     setDragOverIdx(null);
   }
 
-  function handleQuickColorCreated(item: { id: string; name: string; hex?: string | null }) {
+  function handleQuickColorCreated(item: { id: string; name: string; hex?: string | null; patternImage?: string | null; pfsColorRef?: string | null }) {
     setDraft((prev) => [...prev, { colorId: item.id, colorName: item.name, colorHex: item.hex ?? "#9CA3AF" }]);
-    setLocalCreatedColors((prev) => [...prev, { id: item.id, name: item.name, hex: item.hex ?? null }]);
+    const newColor: AvailableColor = { id: item.id, name: item.name, hex: item.hex ?? null, patternImage: item.patternImage ?? null, pfsColorRef: item.pfsColorRef ?? null };
+    setLocalCreatedColors((prev) => [...prev, newColor]);
+    onColorAdded?.(newColor);
     setShowQuickCreate(false);
   }
 
@@ -1754,6 +1759,7 @@ interface QuickAddModalProps {
   availableSizes: AvailableSize[];
   categoryId?: string;
   onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
+  onColorAdded?: (color: AvailableColor) => void;
   onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
   allCategories?: { id: string; name: string }[];
   onConfirm: (variants: VariantState[]) => void;
@@ -1761,7 +1767,7 @@ interface QuickAddModalProps {
 
 function QuickAddModal({
   open, onClose, existingVariants, availableColors, availableSizes,
-  categoryId, onCreateColor, onQuickCreateSize, allCategories, onConfirm,
+  categoryId, onCreateColor, onColorAdded, onQuickCreateSize, allCategories, onConfirm,
 }: QuickAddModalProps) {
   const backdrop = useBackdropClose(onClose);
 
@@ -2022,6 +2028,7 @@ function QuickAddModal({
                     onChange={(colors, pfsRef) => updateColorLine(line.id, colors, pfsRef)}
                     existingVariants={existingVariants}
                     onCreateColor={onCreateColor}
+                    onColorAdded={onColorAdded}
                     pfsColorRef={line.pfsColorRef}
                     pfsColorRefLabel={line.pfsColorRef ? (pfsColorLabels.get(line.pfsColorRef) ?? undefined) : undefined}
                   />
@@ -2309,6 +2316,7 @@ export default function ColorVariantManager({
   onChange,
   onChangeImages,
   onQuickCreateColor,
+  onColorAdded,
   categoryId,
   allCategories,
   onQuickCreateSize,
@@ -2683,6 +2691,7 @@ export default function ColorVariantManager({
                       }}
                       usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                       onCreateColor={onQuickCreateColor}
+                      onColorAdded={onColorAdded}
                     />
                   ) : (
                     <MultiColorSelect
@@ -2696,6 +2705,7 @@ export default function ColorVariantManager({
                       }}
                       usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                       onCreateColor={onQuickCreateColor}
+                      onColorAdded={onColorAdded}
                     />
                   )}
 
@@ -2952,6 +2962,7 @@ export default function ColorVariantManager({
                               }}
                               usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                               onCreateColor={onQuickCreateColor}
+                              onColorAdded={onColorAdded}
                             />
                           ) : (
                             <MultiColorSelect
@@ -2971,6 +2982,7 @@ export default function ColorVariantManager({
                               }}
                               usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                               onCreateColor={onQuickCreateColor}
+                              onColorAdded={onColorAdded}
                             />
                           )}
                         </td>
@@ -3170,6 +3182,7 @@ export default function ColorVariantManager({
         availableSizes={availableSizes}
         categoryId={categoryId}
         onCreateColor={onQuickCreateColor}
+        onColorAdded={onColorAdded}
         onQuickCreateSize={onQuickCreateSize}
         allCategories={allCategories}
         onConfirm={handleQuickAddConfirm}

@@ -15,6 +15,7 @@ import AdminEmailWrapper from "@/components/admin/email/AdminEmailWrapper";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
 import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
+import AdminDarkModeSync from "@/components/admin/AdminDarkModeSync";
 import { getCachedSiteConfig, getCachedPfsEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
@@ -65,6 +66,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
     <PfsWrapper>
     <AdminEmailWrapper>
+    <AdminDarkModeSync isDark={isDarkMode} />
     <div id="admin-theme-wrapper" suppressHydrationWarning className={`min-h-screen bg-bg-secondary flex${isDarkMode ? " admin-dark" : ""}`}>
 
       {/* ===== SIDEBAR - fixed left (desktop) ===== */}

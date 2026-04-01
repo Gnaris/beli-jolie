@@ -363,10 +363,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
 
-  // Fire-and-forget sync to PFS and eFashion
+  // Fire-and-forget sync to PFS (eFashion & Ankorstore disabled until fully operational)
   triggerPfsSync(product.id);
-  triggerEfashionSync(product.id);
-  triggerAnkorstoreSync(product.id);
 
   return { id: product.id };
 }

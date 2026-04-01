@@ -980,11 +980,13 @@ h1, h2, h3, h4, h5, h6 {
 .admin-dark .hover\:text-\[\#1A1A1A\]:hover { color: #E2E8F0 !important; }
 .admin-dark .hover\:bg-\[\#EFEFEF\]:hover { background-color: #1E2235 !important; }
 .admin-dark .hover\:bg-\[\#F7F7F8\]:hover { background-color: #1E2235 !important; }
+.admin-dark .bg-\[\#E5E5E5\] { background-color: #333B52 !important; }
 .admin-dark .hover\:bg-\[\#E5E5E5\]:hover { background-color: #333333 !important; }
 .admin-dark .hover\:bg-\[\#FEF2F2\]:hover { background-color: rgba(239,68,68,0.1) !important; }
 .admin-dark .hover\:bg-\[\#F0FDF4\]:hover { background-color: rgba(34,197,94,0.1) !important; }
 .admin-dark .hover\:border-\[\#FCA5A5\]:hover { border-color: rgba(252,165,165,0.4) !important; }
 .admin-dark .hover\:border-\[\#9CA3AF\]:hover { border-color: #4A4A4A !important; }
+.admin-dark .hover\:bg-\[\#9CA3AF\]:hover { background-color: #4A4A4A !important; }
 .admin-dark .hover\:text-\[\#EF4444\]:hover { color: #FCA5A5 !important; }
 .admin-dark .group:hover .group-hover\:text-\[\#22C55E\] { color: #86EFAC !important; }
 .admin-dark .group:hover .group-hover\:bg-\[\#F0FDF4\] { background-color: rgba(34,197,94,0.1) !important; }
@@ -1000,6 +1002,12 @@ h1, h2, h3, h4, h5, h6 {
 .admin-dark .bg-\[\#F7F7F7\] { background-color: #1E2235 !important; }
 .admin-dark .hover\:bg-\[\#FAFAFA\]:hover { background-color: #1E2235 !important; }
 .admin-dark .bg-red-50\/20 { background-color: rgba(239,68,68,0.08) !important; }
+.admin-dark .bg-red-50 { background-color: rgba(239,68,68,0.1) !important; }
+.admin-dark .hover\:bg-red-100:hover { background-color: rgba(239,68,68,0.15) !important; }
+.admin-dark .border-red-200 { border-color: rgba(239,68,68,0.25) !important; }
+.admin-dark .hover\:border-red-300:hover { border-color: rgba(239,68,68,0.35) !important; }
+.admin-dark .bg-emerald-50 { background-color: rgba(16,185,129,0.1) !important; }
+.admin-dark .border-emerald-200 { border-color: rgba(16,185,129,0.25) !important; }
 .admin-dark .bg-\[\#EEEEF0\] { background-color: #181B25 !important; }
 .admin-dark .bg-\[\#F0FDF4\] { background-color: rgba(34,197,94,0.1) !important; }
 .admin-dark .bg-\[\#FEF2F2\] { background-color: rgba(239,68,68,0.1) !important; }
@@ -1054,6 +1062,9 @@ h1, h2, h3, h4, h5, h6 {
 .admin-dark .border-gray-300   { border-color: #333B52 !important; }
 .admin-dark .divide-gray-200 > * + * { border-color: #252A3A !important; }
 .admin-dark .divide-\[\#E5E5E5\] > * + * { border-color: #252A3A !important; }
+.admin-dark .border-\[\#D5D5D5\] { border-color: #333B52 !important; }
+.admin-dark .border-\[\#86EFAC\] { border-color: rgba(134,239,172,0.3) !important; }
+.admin-dark .border-\[\#D1D5DB\] { border-color: #333B52 !important; }
 
 /* Admin dark: ring overrides */
 .admin-dark .ring-\[\#1A1A1A\]\/20 { --tw-ring-color: rgba(63,131,248,0.2) !important; }
@@ -1064,6 +1075,13 @@ h1, h2, h3, h4, h5, h6 {
 .admin-dark .shadow-\[0_1px_4px_rgba\(0\2c 0\2c 0\2c 0\.06\)\] {
   box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
 }
+
+/* Admin dark: modal overrides (ConfirmDialog, QuickCreateModal) */
+.admin-dark .dark-modal-border {
+  border-color: #252A3A !important;
+  box-shadow: 10px 10px 30px rgba(0,0,0,0.4), -8px -8px 24px rgba(30,40,60,0.2) !important;
+}
+.admin-dark .border-white\/60 { border-color: #252A3A !important; }
 
 /* Admin dark: sidebar active */
 .admin-dark .sidebar-active {

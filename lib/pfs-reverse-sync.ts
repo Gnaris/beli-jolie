@@ -20,7 +20,6 @@ import {
   pfsPatchVariants,
   pfsDeleteVariant,
   pfsUploadImage,
-  pfsDeleteImage,
   pfsUpdateStatus,
   pfsTranslate,
   type PfsProductCreateData,
@@ -940,54 +939,24 @@ async function syncImages(
 
   const hasAnyMappedVariant = bjImagesByColor.size > 0 || skippedNoRef < product.colors.length;
 
-  // Collect all upload/delete tasks
+  // Collect upload tasks only (no DELETE — PFS API blocks image deletion)
   const uploadTasks: { colorRef: string; slot: number; imgPath: string }[] = [];
-  const deleteTasks: { colorRef: string; slot: number }[] = [];
 
   for (const [colorRef, images] of bjImagesByColor) {
     const sorted = images.sort((a, b) => a.order - b.order);
     const pfsUrls = pfsImagesByColor.get(colorRef) ?? [];
 
-    // Compare: only upload if slot count differs or image changed
-    // We use file modification time as a heuristic for change detection
+    // Upload new slots or re-upload changed images (replaces in-place)
     for (let i = 0; i < sorted.length; i++) {
       const needsUpload = i >= pfsUrls.length || await imageChanged(sorted[i].path);
       if (needsUpload) {
         uploadTasks.push({ colorRef, slot: i + 1, imgPath: sorted[i].path });
       }
     }
-
-    // Delete extra PFS slots
-    for (let slot = sorted.length + 1; slot <= pfsUrls.length; slot++) {
-      deleteTasks.push({ colorRef, slot });
-    }
-    pfsImagesByColor.delete(colorRef);
   }
 
-  // Delete orphaned PFS color images (colors removed from BJ)
-  if (pfsImagesByColor.size > 0 && hasAnyMappedVariant) {
-    for (const [colorRef, urls] of pfsImagesByColor) {
-      for (let slot = 1; slot <= urls.length; slot++) {
-        deleteTasks.push({ colorRef, slot });
-      }
-    }
-  }
-
-  if (uploadTasks.length === 0 && deleteTasks.length === 0) {
+  if (uploadTasks.length === 0) {
     return apiCalls;
-  }
-
-  // Execute deletes sequentially, highest slot first (PFS shifts slots on delete)
-  deleteTasks.sort((a, b) => b.slot - a.slot);
-  for (const task of deleteTasks) {
-    try {
-      await pfsDeleteImage(pfsProductId, task.slot, task.colorRef);
-      apiCalls++;
-      const delay = 1000 + Math.floor(Math.random() * 2000);
-      await new Promise(r => setTimeout(r, delay));
-    } catch (err) {
-      logger.warn(`[PFS Images] DELETE ${task.colorRef} slot ${task.slot} failed`, { error: err instanceof Error ? err.message : String(err) });
-    }
   }
 
   // Execute uploads in parallel (pool of 3)

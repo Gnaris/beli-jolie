@@ -714,10 +714,36 @@ export async function approveEfashionStagedProduct(
   } else {
     const mapping = await prisma.efashionMapping.findFirst({
       where: { type: "category", efashionId: efCatId },
-      select: { bjEntityId: true },
+      select: { id: true, bjEntityId: true, bjName: true },
     });
     if (mapping) {
-      localCategoryId = mapping.bjEntityId;
+      // Verify the mapped category still exists in DB
+      const catExists = await prisma.category.findUnique({
+        where: { id: mapping.bjEntityId },
+        select: { id: true },
+      });
+      if (catExists) {
+        localCategoryId = mapping.bjEntityId;
+      } else {
+        // Mapping is stale — the category was deleted. Re-create or find it.
+        logger.warn(`[eFashion Approve] Stale category mapping: ${mapping.bjEntityId} (${mapping.bjName}) no longer exists. Re-creating.`);
+        const catName = mapping.bjName || staged.categoryName || "Sans catégorie";
+        const slug = catName
+          .toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        // Use upsert to handle concurrent re-creation (race condition with bulk approve)
+        const newCat = await prisma.category.upsert({
+          where: { name: catName },
+          create: { name: catName, slug },
+          update: {},
+        });
+        // Update the stale mapping
+        await prisma.efashionMapping.update({
+          where: { id: mapping.id },
+          data: { bjEntityId: newCat.id },
+        });
+        localCategoryId = newCat.id;
+      }
     }
   }
 
@@ -742,14 +768,19 @@ export async function approveEfashionStagedProduct(
       continue;
     }
 
-    // Try EfashionMapping
+    // Try EfashionMapping (verify entity still exists)
     const mapping = await prisma.efashionMapping.findFirst({
       where: { type: "color", efashionId: cd.efashionColorId },
-      select: { bjEntityId: true },
+      select: { id: true, bjEntityId: true },
     });
     if (mapping) {
-      colorIdMap.set(cd.efashionColorId, mapping.bjEntityId);
-      continue;
+      const colorExists = await prisma.color.findUnique({ where: { id: mapping.bjEntityId }, select: { id: true } });
+      if (colorExists) {
+        colorIdMap.set(cd.efashionColorId, mapping.bjEntityId);
+        continue;
+      }
+      // Stale mapping — will fall through to name match or create
+      logger.warn(`[eFashion Approve] Stale color mapping: ${mapping.bjEntityId} no longer exists`);
     }
 
     // Try matching by name (MySQL is case-insensitive by default with utf8mb4 collation)
@@ -786,13 +817,18 @@ export async function approveEfashionStagedProduct(
     });
 
     if (!dbComp) {
-      // Try EfashionMapping
+      // Try EfashionMapping (verify entity still exists)
       const mapping = await prisma.efashionMapping.findFirst({
         where: { type: "composition", efashionId: comp.efashionId },
         select: { bjEntityId: true },
       });
       if (mapping) {
-        dbComp = { id: mapping.bjEntityId };
+        const compExists = await prisma.composition.findUnique({ where: { id: mapping.bjEntityId }, select: { id: true } });
+        if (compExists) {
+          dbComp = { id: mapping.bjEntityId };
+        } else {
+          logger.warn(`[eFashion Approve] Stale composition mapping: ${mapping.bjEntityId} no longer exists`);
+        }
       }
     }
 

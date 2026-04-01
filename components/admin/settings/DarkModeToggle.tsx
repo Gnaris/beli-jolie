@@ -16,14 +16,16 @@ export default function DarkModeToggle({ currentTheme }: Props) {
   const handleToggle = useCallback(() => {
     const newTheme = isDark ? "light" : "dark";
 
-    // Immediate visual feedback: toggle the class on the wrapper
+    // Immediate visual feedback: toggle the class on the wrapper + documentElement (for portals)
     const wrapper = document.getElementById("admin-theme-wrapper");
     if (wrapper) {
       wrapper.classList.add("admin-dark-transition");
       if (newTheme === "dark") {
         wrapper.classList.add("admin-dark");
+        document.documentElement.classList.add("admin-dark");
       } else {
         wrapper.classList.remove("admin-dark");
+        document.documentElement.classList.remove("admin-dark");
       }
       // Remove transition class after animation
       setTimeout(() => wrapper.classList.remove("admin-dark-transition"), 300);
@@ -37,8 +39,13 @@ export default function DarkModeToggle({ currentTheme }: Props) {
         // Revert on error
         setIsDark(isDark);
         if (wrapper) {
-          if (isDark) wrapper.classList.add("admin-dark");
-          else wrapper.classList.remove("admin-dark");
+          if (isDark) {
+            wrapper.classList.add("admin-dark");
+            document.documentElement.classList.add("admin-dark");
+          } else {
+            wrapper.classList.remove("admin-dark");
+            document.documentElement.classList.remove("admin-dark");
+          }
         }
         toast.error("Erreur", result.error ?? "Impossible de changer le thème.");
       }

@@ -420,7 +420,7 @@ export default function QuickCreateModal({
           {/* ── Separator + RIGHT: Mapping ── */}
           {hasMappableType && (
             <>
-              <div className="w-px bg-[#E5E5E5] shrink-0" />
+              <div className="w-px bg-border shrink-0" />
 
               <div className="w-[300px] shrink-0 p-6 overflow-y-auto">
                 <p className="text-[11px] text-text-muted font-body uppercase tracking-wide mb-4">

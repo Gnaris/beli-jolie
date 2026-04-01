@@ -415,17 +415,39 @@ export default function ProductForm({
 
   const navigateWithGuard = useCallback(async (href: string) => {
     if (!isDirty.current) { router.push(href); return; }
-    const ok = await confirmDialog({
-      title: "Modifications non enregistrées",
-      message: "Vous avez des modifications non enregistrées. Voulez-vous vraiment quitter cette page ? Vos changements seront perdus.",
-      confirmLabel: "Quitter",
-      type: "danger" as const,
-    });
-    if (ok) {
-      isDirty.current = false;
-      router.push(href);
+
+    if (mode === "create") {
+      const result = await confirmDialog({
+        title: "Modifications non enregistrées",
+        message: "Vous avez des modifications non enregistrées. Voulez-vous enregistrer en brouillon avant de quitter ?",
+        confirmLabel: "Enregistrer en brouillon",
+        cancelLabel: "Annuler",
+        type: "warning" as const,
+        secondaryAction: { label: "Quitter sans enregistrer", style: "danger" },
+      });
+      if (result === true) {
+        // Save as draft then navigate
+        handleSaveDraft(href);
+      } else if (result === "secondary") {
+        // Discard and navigate
+        isDirty.current = false;
+        router.push(href);
+      }
+      // false = cancel, stay on page
+    } else {
+      const ok = await confirmDialog({
+        title: "Modifications non enregistrées",
+        message: "Vous avez des modifications non enregistrées. Voulez-vous vraiment quitter cette page ? Vos changements seront perdus.",
+        confirmLabel: "Quitter",
+        type: "danger" as const,
+      });
+      if (ok) {
+        isDirty.current = false;
+        router.push(href);
+      }
     }
-  }, [router, confirmDialog]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, confirmDialog, mode]);
 
   // Intercept ALL client-side link clicks inside the page
   useEffect(() => {
@@ -818,7 +840,7 @@ export default function ProductForm({
       // Every variant must have at least one image (deduplicate by groupKey)
       const checkedGroupKeys = new Set<string>();
       for (const v of variants) {
-        const gk = variantGroupKeyFromState(v);
+        const gk = imageGroupKeyFromVariant(v);
         if (checkedGroupKeys.has(gk)) continue;
         checkedGroupKeys.add(gk);
         const ci = colorImages.find((c) => c.groupKey === gk);
@@ -881,6 +903,134 @@ export default function ProductForm({
       const w = parseFloat(v.weight);
       const stockNotSet = v.stock === "" || v.stock === undefined || v.stock === null;
       return (isNaN(price) || price <= 0) || (isNaN(w) || w <= 0) || stockNotSet || v.sizeEntries.length === 0;
+    });
+  }
+
+  // ── Save as draft (minimal validation) ───────────────────────────────
+  async function handleSaveDraft(navigateTo?: string) {
+    setError("");
+    setOnlineErrors([]);
+
+    // Images still uploading — block
+    if (colorImages.some((ci) => ci.uploading))
+      return setError("Des images sont encore en cours d'upload. Veuillez patienter.");
+
+    // Auto-generate reference if empty
+    const draftRef = reference.trim()
+      ? reference.trim().toUpperCase()
+      : `BRN-${Date.now().toString(36).toUpperCase()}`;
+    const draftName = name.trim() || "Brouillon sans nom";
+
+    // Category is required by DB — if not set, ask user
+    if (!categoryId) {
+      return setError("Veuillez sélectionner une catégorie avant d'enregistrer en brouillon.");
+    }
+
+    // Build set of known valid color/size IDs to validate FK references
+    const validColorIds = new Set(localColors.map((c) => c.id));
+    const validSizeIds = new Set(localSizes.map((s) => s.id));
+
+    // Filter variants: only include those with valid FK references
+    const draftVariants = variants.filter((v) => {
+      if (v.saleType === "UNIT") {
+        return !!v.colorId && validColorIds.has(v.colorId);
+      }
+      // PACK: must have at least one color line with valid colors
+      return v.packColorLines.length > 0
+        && v.packColorLines[0]?.colors.length > 0
+        && v.packColorLines[0].colors.every((c) => validColorIds.has(c.colorId));
+    });
+
+    const payload = {
+      reference:     draftRef,
+      name:          draftName,
+      description:   description.trim(),
+      categoryId,
+      subCategoryIds,
+      colors: draftVariants.map((v) => ({
+          dbId:          v.dbId,
+          colorId:       v.colorId || null,
+          subColorIds:   v.subColors.filter((sc) => validColorIds.has(sc.colorId)).map((sc) => sc.colorId),
+          unitPrice:     v.saleType === "PACK" ? (computeTotalPrice(v) ?? 0) : (parseFloat(v.unitPrice) || 0),
+          weight:        parseFloat(v.weight) || 0,
+          stock:         parseInt(v.stock) || 0,
+          isPrimary:     v.isPrimary,
+          saleType:      v.saleType,
+          packQuantity:  v.saleType === "PACK"
+            ? (v.sizeEntries.length > 1 ? v.sizeEntries.length : (parseInt(v.packQuantity) || 1))
+            : null,
+          sizeEntries:   v.sizeEntries
+            .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
+            .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
+          packColorLines: v.saleType === "PACK"
+            ? v.packColorLines.map((pcl, pos) => ({
+                colorIds: pcl.colors.filter((c) => validColorIds.has(c.colorId)).map((c) => c.colorId),
+                position: pos,
+              }))
+            : [],
+          discountType:  v.discountType || null,
+          discountValue: v.discountValue ? parseFloat(v.discountValue) : null,
+          pfsColorRef:   v.pfsColorRef || null,
+        })),
+      imagePaths: colorImages.flatMap((ci) => {
+        if (ci.uploadedPaths.length === 0) return [];
+        // Only match against valid draft variants
+        const matching = draftVariants
+          .map((vr) => ({ vr, idx: variants.indexOf(vr) }))
+          .filter(({ vr }) => imageGroupKeyFromVariant(vr) === ci.groupKey);
+        if (matching.length === 0) return [];
+        // Ensure the image colorId is valid
+        if (!ci.colorId || !validColorIds.has(ci.colorId)) return [];
+        return matching.map(({ vr, idx }) => ({
+          colorId: ci.colorId,
+          subColorIds: vr.saleType === "PACK" ? [] : vr.subColors.filter((sc) => validColorIds.has(sc.colorId)).map((sc) => sc.colorId),
+          variantDbId: vr.dbId ?? undefined,
+          variantIndex: idx,
+          paths: ci.uploadedPaths,
+          orders: ci.orders,
+        }));
+      }),
+      compositions: compositions.map((c) => ({
+        compositionId: c.compositionId,
+        percentage:    parseFloat(c.percentage) || 0,
+      })),
+      similarProductIds,
+      bundleChildIds,
+      tagNames,
+      isBestSeller,
+      status: "OFFLINE" as const,
+      isIncomplete: true,
+      dimensionLength:        dimLength        ? parseFloat(dimLength)        : null,
+      dimensionWidth:         dimWidth         ? parseFloat(dimWidth)         : null,
+      dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
+      dimensionDiameter:      dimDiameter      ? parseFloat(dimDiameter)      : null,
+      dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
+      manufacturingCountryId: manufacturingCountryId || null,
+      seasonId: seasonId || null,
+      translations: Object.entries(translations)
+        .filter(([, t]) => t.name.trim() || t.description.trim())
+        .map(([locale, t]) => ({ locale, name: t.name, description: t.description })),
+    };
+
+    showLoading();
+    startTransition(async () => {
+      try {
+        if (mode === "edit" && productId) {
+          await updateProduct(productId, payload);
+        } else {
+          await createProduct(payload);
+        }
+        isDirty.current = false;
+        if (navigateTo) {
+          router.push(navigateTo);
+        } else {
+          router.push("/admin/produits");
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Une erreur est survenue lors de l'enregistrement du brouillon.");
+      } finally {
+        hideLoading();
+      }
     });
   }
 
@@ -1455,6 +1605,7 @@ export default function ProductForm({
             onChange={setVariants}
             onChangeImages={setColorImages}
             onQuickCreateColor={handleQuickCreateColor}
+            onColorAdded={(color) => setLocalColors((prev) => prev.some((c) => c.id === color.id) ? prev : [...prev, color])}
             categoryId={categoryId}
             allCategories={categories.map((c) => ({ id: c.id, name: c.name }))}
             onQuickCreateSize={handleQuickCreateSize}
@@ -1584,6 +1735,21 @@ export default function ProductForm({
                   {isPending
                     ? mode === "edit" ? "Enregistrement…" : "Création en cours…"
                     : mode === "edit" ? "Enregistrer les modifications" : "Créer le produit"}
+                </button>
+              )}
+
+              {/* Enregistrer en brouillon (create mode only) */}
+              {mode === "create" && (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => handleSaveDraft()}
+                  className="flex items-center gap-2 px-6 py-3.5 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                  </svg>
+                  Enregistrer en brouillon
                 </button>
               )}
 
