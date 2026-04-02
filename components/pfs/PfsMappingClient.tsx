@@ -345,7 +345,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
     return (
       <div className="card p-12 text-center">
         <div className="animate-spin h-8 w-8 border-2 border-text-primary border-t-transparent rounded-full mx-auto mb-3" />
-        <p className="text-text-secondary">Chargement des attributs PFS...</p>
+        <p className="text-text-secondary">Chargement des attributs Paris Fashion Shop...</p>
       </div>
     );
   }
@@ -353,7 +353,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
   if (error) {
     return (
       <div className="card p-8 text-center">
-        <p className="text-red-500 mb-2">Erreur de connexion PFS</p>
+        <p className="text-red-500 mb-2">Erreur de connexion Paris Fashion Shop</p>
         <p className="text-text-secondary text-sm">{error}</p>
       </div>
     );
@@ -400,7 +400,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
               <tr className="table-header">
                 <th className="text-left p-3">Couleur Boutique</th>
                 <th className="text-left p-3">Aperçu</th>
-                <th className="text-left p-3">Couleur PFS</th>
+                <th className="text-left p-3">Couleur Paris Fashion Shop</th>
                 <th className="text-left p-3 w-20">Statut</th>
               </tr>
             </thead>
@@ -425,7 +425,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                       size="sm"
                       searchable
                       className="max-w-[280px]"
-                      aria-label={`Couleur PFS pour ${color.name}`}
+                      aria-label={`Couleur Paris Fashion Shop pour ${color.name}`}
                       options={[
                         { value: "", label: "— Non lié —" },
                         ...pfsColors.map((pc) => {
@@ -462,9 +462,9 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
             <thead>
               <tr className="table-header">
                 <th className="text-left p-3">Catégorie Boutique</th>
-                <th className="text-left p-3">Genre PFS</th>
-                <th className="text-left p-3">Famille PFS</th>
-                <th className="text-left p-3">Catégorie PFS</th>
+                <th className="text-left p-3">Genre Paris Fashion Shop</th>
+                <th className="text-left p-3">Famille Paris Fashion Shop</th>
+                <th className="text-left p-3">Catégorie Paris Fashion Shop</th>
                 <th className="text-left p-3 w-20">Statut</th>
               </tr>
             </thead>
@@ -528,7 +528,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                         ]}
                       />
                     </td>
-                    {/* Catégorie PFS dropdown — filtered */}
+                    {/* Catégorie Paris Fashion Shop dropdown — filtered */}
                     <td className="p-3">
                       <CustomSelect
                         value={cat.pfsCategoryId ?? ""}
@@ -537,7 +537,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                         size="sm"
                         searchable
                         className="w-full min-w-[220px]"
-                        aria-label={`Catégorie PFS pour ${cat.name}`}
+                        aria-label={`Catégorie Paris Fashion Shop pour ${cat.name}`}
                         options={[
                           { value: "", label: "— Catégorie —" },
                           ...availableCategoriesForRow.map((pc) => {
@@ -575,7 +575,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
             <thead>
               <tr className="table-header">
                 <th className="text-left p-3">Composition Boutique</th>
-                <th className="text-left p-3">Composition PFS</th>
+                <th className="text-left p-3">Composition Paris Fashion Shop</th>
                 <th className="text-left p-3 w-20">Statut</th>
               </tr>
             </thead>
@@ -591,7 +591,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                       size="sm"
                       searchable
                       className="max-w-[350px]"
-                      aria-label={`Composition PFS pour ${comp.name}`}
+                      aria-label={`Composition Paris Fashion Shop pour ${comp.name}`}
                       options={[
                         { value: "", label: "— Non liée —" },
                         ...pfsCompositions.map((pc) => {
@@ -629,7 +629,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
               <tr className="table-header">
                 <th className="text-left p-3">Pays Boutique</th>
                 <th className="text-left p-3">Code ISO</th>
-                <th className="text-left p-3">Pays PFS</th>
+                <th className="text-left p-3">Pays Paris Fashion Shop</th>
                 <th className="text-left p-3 w-20">Statut</th>
               </tr>
             </thead>
@@ -652,7 +652,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                       size="sm"
                       searchable
                       className="max-w-[350px]"
-                      aria-label={`Pays PFS pour ${country.name}`}
+                      aria-label={`Pays Paris Fashion Shop pour ${country.name}`}
                       options={[
                         { value: "", label: "— Non lié —" },
                         ...pfsCountries.map((pc) => {
@@ -689,7 +689,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
             <thead>
               <tr className="table-header">
                 <th className="text-left p-3">Saison Boutique</th>
-                <th className="text-left p-3">Collection PFS</th>
+                <th className="text-left p-3">Collection Paris Fashion Shop</th>
                 <th className="text-left p-3 w-20">Statut</th>
               </tr>
             </thead>
@@ -705,7 +705,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                       size="sm"
                       searchable
                       className="max-w-[280px]"
-                      aria-label={`Collection PFS pour ${season.name}`}
+                      aria-label={`Collection Paris Fashion Shop pour ${season.name}`}
                       options={[
                         { value: "", label: "— Non liée —" },
                         ...pfsCollections.map((pc) => {
@@ -743,7 +743,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
               <tr className="table-header">
                 <th className="text-left p-3">Taille Boutique</th>
                 <th className="text-left p-3">Catégories Boutique</th>
-                <th className="text-left p-3">Tailles PFS liées</th>
+                <th className="text-left p-3">Tailles Paris Fashion Shop liées</th>
                 <th className="text-left p-3 w-24">Statut</th>
               </tr>
             </thead>
@@ -781,7 +781,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                       {isSaving ? (
                         <span className="text-text-secondary text-xs">...</span>
                       ) : mappedRefs.size > 0 ? (
-                        <span className="badge badge-success">{mappedRefs.size} PFS</span>
+                        <span className="badge badge-success">{mappedRefs.size} liée{mappedRefs.size > 1 ? "s" : ""}</span>
                       ) : (
                         <span className="badge badge-neutral">Non liée</span>
                       )}
@@ -798,8 +798,8 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
       {tab === "combinations" && (
         <div className="space-y-3">
           <p className="text-sm text-text-secondary">
-            Les variantes avec plusieurs couleurs doivent être liées à une couleur PFS unique pour la synchronisation.
-            Ce mapping est prioritaire sur le mapping individuel de chaque couleur.
+            Les variantes avec plusieurs couleurs doivent être liées à une couleur Paris Fashion Shop unique pour la synchronisation.
+            Cette correspondance est prioritaire sur la correspondance individuelle de chaque couleur.
           </p>
           <div className="card overflow-x-auto">
             <table className="w-full">
@@ -807,7 +807,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                 <tr className="table-header">
                   <th className="text-left p-3">Produit</th>
                   <th className="text-left p-3">Combinaison</th>
-                  <th className="text-left p-3">Couleur PFS</th>
+                  <th className="text-left p-3">Couleur Paris Fashion Shop</th>
                   <th className="text-left p-3 w-20">Statut</th>
                 </tr>
               </thead>
@@ -856,7 +856,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
                           size="sm"
                           searchable
                           className="max-w-[280px]"
-                          aria-label={`Couleur PFS pour ${comboLabel}`}
+                          aria-label={`Couleur Paris Fashion Shop pour ${comboLabel}`}
                           options={[
                             { value: "", label: effectiveRef ? `— Hérité : ${effectiveRef} —` : "— Non lié —" },
                             ...pfsColors.map((pc) => ({

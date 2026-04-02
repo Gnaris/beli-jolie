@@ -129,6 +129,9 @@ export default async function ModifierProduitPage({
 
   if (!product) notFound();
 
+  // Draft detection: incomplete + OFFLINE → show creation UI with pre-filled data
+  const isDraft = product.isIncomplete && product.status === "OFFLINE";
+
   // Fetch first image for all related products (similar, bundle children, bundle parents)
   const relatedIds = [
     ...product.similarProducts.map((sp) => sp.similar.id),
@@ -287,6 +290,21 @@ export default async function ModifierProduitPage({
     const _seenSizeIds = new Set<string>();
     for (const variant of product.colors) {
       const hasOverride = !!variant.pfsColorRef;
+      const isMultiColor = variant.subColors.length > 0;
+      // PACK is truly multi-color only when it has multiple distinct colors across all lines
+      const packDistinctColors = variant.saleType === "PACK"
+        ? new Set(variant.packColorLines.flatMap((l) => l.colors.map((c) => c.colorId)))
+        : new Set<string>();
+      const isPackMultiColor = packDistinctColors.size > 1;
+
+      // Multi-color variants (UNIT with sub-colors or PACK with multiple distinct colors) need an override
+      if (!hasOverride && (isMultiColor || isPackMultiColor)) {
+        const colorNames = isMultiColor
+          ? [variant.color?.name, ...variant.subColors.map((sc) => sc.color.name)].filter(Boolean).join(" + ")
+          : variant.packColorLines.flatMap((l) => l.colors.map((c) => c.color.name)).join(" + ");
+        mappingIssues.push(`Variante multi-couleur "${colorNames}" sans correspondance Paris Fashion Shop (sélectionner une couleur Paris Fashion Shop dans la variante)`);
+      }
+
       if (!hasOverride && variant.colorId && variant.color && !_seenColorIds.has(variant.colorId)) {
         _seenColorIds.add(variant.colorId);
         if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" non mappée`);
@@ -347,6 +365,93 @@ export default async function ModifierProduitPage({
     stockState: initialStockState,
   };
 
+  // ── Draft: simple layout like create page ──────────────────────────────────
+  if (isDraft) {
+    return (
+      <div className="max-w-[1600px] mx-auto space-y-8">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-2">
+            <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
+            <span>/</span>
+            <span className="text-text-secondary truncate max-w-xs">{product.name || "Brouillon"}</span>
+            <span>/</span>
+            <span className="text-text-secondary">Continuer</span>
+          </div>
+          <h1 className="page-title">Continuer le brouillon</h1>
+          {product.reference && (
+            <p className="text-base text-text-muted font-body mt-1">
+              Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
+            </p>
+          )}
+        </div>
+
+        <ProductForm
+          categories={categories}
+          availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage, pfsColorRef: c.pfsColorRef }))}
+          availableSizes={sizes.map((s) => ({ id: s.id, name: s.name, categoryIds: s.categories.map((c) => c.categoryId) }))}
+          availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
+          availableCountries={manufacturingCountries}
+          availableSeasons={seasons}
+          availableTags={tags}
+          mode="create"
+          productId={product.id}
+          hasPfsConfig={hasPfsConfig}
+          initialData={{
+            reference:         product.reference,
+            name:              product.name,
+            description:       product.description,
+            categoryId:        product.categoryId,
+            subCategoryIds:    product.subCategories.map((sc) => sc.id),
+            variants:          initialVariants,
+            colorImages:       initialColorImages,
+            compositions:      product.compositions.map((c) => ({
+              compositionId: c.compositionId,
+              percentage:    String(c.percentage),
+            })),
+            similarProductIds: product.similarProducts.map((sp) => sp.similar.id),
+            similarProducts: product.similarProducts.map((sp) => ({
+              id: sp.similar.id,
+              name: sp.similar.name,
+              reference: sp.similar.reference,
+              category: sp.similar.category.name,
+              image: relatedImageMap.get(sp.similar.id) ?? null,
+              maxPrice: sp.similar.colors.length > 0 ? Math.max(...sp.similar.colors.map((c) => Number(c.unitPrice))) : 0,
+            })),
+            bundleChildIds: product.bundleChildren.map((b) => b.child.id),
+            bundleChildren: product.bundleChildren.map((b) => ({
+              id: b.child.id,
+              name: b.child.name,
+              reference: b.child.reference,
+              category: b.child.category.name,
+              image: relatedImageMap.get(b.child.id) ?? null,
+              maxPrice: b.child.colors.length > 0 ? Math.max(...b.child.colors.map((c) => Number(c.unitPrice))) : 0,
+            })),
+            bundleParents: product.bundleParents.map((b) => ({
+              id: b.parent.id,
+              name: b.parent.name,
+              reference: b.parent.reference,
+              category: b.parent.category.name,
+              image: relatedImageMap.get(b.parent.id) ?? null,
+              maxPrice: b.parent.colors.length > 0 ? Math.max(...b.parent.colors.map((c) => Number(c.unitPrice))) : 0,
+            })),
+            tagNames:          product.tags.map((t) => t.tag.name),
+            isBestSeller:      product.isBestSeller,
+            status:            product.status,
+            translations:      existingTranslations,
+            dimLength:        product.dimensionLength != null ? String(product.dimensionLength) : "",
+            dimWidth:         product.dimensionWidth != null ? String(product.dimensionWidth) : "",
+            dimHeight:        product.dimensionHeight != null ? String(product.dimensionHeight) : "",
+            dimDiameter:      product.dimensionDiameter != null ? String(product.dimensionDiameter) : "",
+            dimCircumference: product.dimensionCircumference != null ? String(product.dimensionCircumference) : "",
+            manufacturingCountryId: product.manufacturingCountryId ?? "",
+            seasonId: product.seasonId ?? "",
+          }}
+        />
+      </div>
+    );
+  }
+
+  // ── Normal edit mode ──────────────────────────────────────────────────────
   return (
     <ProductEditWrapper
       initial={initialHeaderState}

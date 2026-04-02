@@ -214,10 +214,10 @@ export default function QuickCreateModal({
       // Create mode — enforce PFS mapping for mappable types (only when PFS is enabled)
       if (pfsEnabled && MAPPABLE_TYPES.has(type)) {
         if (type === "category" && !pfsCategoryId) {
-          setError("La correspondance PFS est requise."); setLoading(false); return;
+          setError("La correspondance Paris Fashion Shop est requise."); setLoading(false); return;
         }
         if (type !== "category" && !pfsRef) {
-          setError("La correspondance PFS est requise."); setLoading(false); return;
+          setError("La correspondance Paris Fashion Shop est requise."); setLoading(false); return;
         }
       }
 

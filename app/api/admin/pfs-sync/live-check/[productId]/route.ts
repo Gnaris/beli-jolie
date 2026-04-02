@@ -53,7 +53,7 @@ export async function GET(
             },
             orderBy: { position: "asc" },
           },
-          variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
+          variantSizes: { select: { size: { select: { name: true, pfsMappings: { select: { pfsSizeRef: true }, take: 1 } } }, quantity: true } },
           packColorLines: {
             include: {
               colors: {
@@ -486,6 +486,7 @@ export async function GET(
         saleType: pc.saleType,
         packQuantity: pc.packQuantity,
         sizeName: pc.variantSizes?.[0]?.size.name ?? null,
+        pfsSizeRef: pc.variantSizes?.[0]?.size.pfsMappings?.[0]?.pfsSizeRef ?? null,
         isPrimary: pc.isPrimary,
         discountType: pc.discountType,
         discountValue: pc.discountValue != null ? Number(pc.discountValue) : null,
@@ -625,11 +626,45 @@ export async function GET(
     differences.push({ field: "compositions", pfsValue: pfsFormatted.compositions, bjValue: bjFormatted.compositions });
   }
 
-  // Compare variants by color name + saleType
+  // Compare season — name-based fallback when IDs can't be resolved
+  if (pfsFormatted.seasonName) {
+    const seasonDiff = bjFormatted.seasonId && pfsFormatted.seasonId
+      ? bjFormatted.seasonId !== pfsFormatted.seasonId
+      : bjFormatted.seasonName && pfsFormatted.seasonName
+        ? bjFormatted.seasonName.trim().toLowerCase() !== pfsFormatted.seasonName.trim().toLowerCase()
+        : !!bjFormatted.seasonId !== !!pfsFormatted.seasonName;
+    if (seasonDiff) {
+      differences.push({ field: "season", pfsValue: pfsFormatted.seasonName, bjValue: bjFormatted.seasonName });
+    }
+  }
+
+  // Compare country — name-based fallback when IDs can't be resolved
+  if (pfsFormatted.manufacturingCountryName) {
+    const countryDiff = bjFormatted.manufacturingCountryId && pfsFormatted.manufacturingCountryId
+      ? bjFormatted.manufacturingCountryId !== pfsFormatted.manufacturingCountryId
+      : bjFormatted.manufacturingCountryName && pfsFormatted.manufacturingCountryName
+        ? bjFormatted.manufacturingCountryName.trim().toLowerCase() !== pfsFormatted.manufacturingCountryName.trim().toLowerCase()
+        : !!bjFormatted.manufacturingCountryId !== !!pfsFormatted.manufacturingCountryName;
+    if (countryDiff) {
+      differences.push({ field: "manufacturingCountry", pfsValue: pfsFormatted.manufacturingCountryName, bjValue: bjFormatted.manufacturingCountryName });
+    }
+  }
+
+  // Compare variants — match by pfsColorRef first (like modal), then by colorId
+  const usedBjIndices = new Set<number>();
   for (const pfsV of pfsVariants) {
-    const bjV = bjFormatted.variants.find(
-      (v) => v.colorId === pfsV.colorId && v.saleType === pfsV.saleType
-    );
+    // Step 1: match by pfsColorRef (most reliable for multi-color / remapped variants)
+    let bjV = pfsV.pfsColorRef
+      ? bjFormatted.variants.find((v, i) => !usedBjIndices.has(i) && v.pfsColorRef === pfsV.pfsColorRef && v.saleType === pfsV.saleType)
+      : undefined;
+    if (bjV) usedBjIndices.add(bjFormatted.variants.indexOf(bjV));
+
+    // Step 2: fallback to colorId match
+    if (!bjV) {
+      bjV = bjFormatted.variants.find((v, i) => !usedBjIndices.has(i) && v.colorId === pfsV.colorId && v.saleType === pfsV.saleType);
+      if (bjV) usedBjIndices.add(bjFormatted.variants.indexOf(bjV));
+    }
+
     if (!bjV) {
       differences.push({ field: `variant_new_${pfsV.colorName}_${pfsV.saleType}`, pfsValue: pfsV, bjValue: null });
     } else {
@@ -641,6 +676,12 @@ export async function GET(
       }
       if (Math.abs(bjV.weight - pfsV.weight) > 0.01) {
         differences.push({ field: `weight_${pfsV.colorName}_${pfsV.saleType}`, pfsValue: pfsV.weight, bjValue: bjV.weight });
+      }
+      // Compare sizes using PFS mapping ref when available
+      const bjSizeEffective = bjV.pfsSizeRef ?? bjV.sizeName;
+      const pfsSizeEffective = pfsV.sizeName;
+      if (bjSizeEffective && pfsSizeEffective && bjSizeEffective !== pfsSizeEffective) {
+        differences.push({ field: `size_${pfsV.colorName}_${pfsV.saleType}`, pfsValue: pfsSizeEffective, bjValue: bjV.sizeName });
       }
     }
   }

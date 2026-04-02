@@ -7,6 +7,7 @@ import AdminProductsTable from "@/components/admin/products/AdminProductsTable";
 import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
+import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
 import { getCachedAdminWarnings, getCachedPfsEnabled } from "@/lib/cached-data";
 
 // Attribute managers
@@ -146,7 +147,15 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   }
 
   if (cat) where.categoryId = cat;
-  if (statusFilter === "ONLINE" || statusFilter === "OFFLINE" || statusFilter === "ARCHIVED" || statusFilter === "SYNCING") where.status = statusFilter;
+  if (statusFilter === "DRAFT") {
+    where.status = "OFFLINE";
+    where.isIncomplete = true;
+  } else if (statusFilter === "OFFLINE") {
+    where.status = "OFFLINE";
+    where.isIncomplete = false;
+  } else if (statusFilter === "ONLINE" || statusFilter === "ARCHIVED" || statusFilter === "SYNCING") {
+    where.status = statusFilter;
+  }
 
   if (minPrice !== null || maxPrice !== null) {
     where.colors = {
@@ -171,7 +180,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     where.colors = { ...where.colors, some: { ...where.colors?.some, stock: { lte: stockBelow } } };
   }
 
-  const [products, totalCount, categories, hasPfsConfig] = await Promise.all([
+  const [products, totalCount, categories, hasPfsConfig, sectionCounts] = await Promise.all([
     prisma.product.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -203,6 +212,14 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     prisma.product.count({ where }),
     prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     getCachedPfsEnabled(),
+    // Section counts for tabs (lightweight parallel queries)
+    Promise.all([
+      prisma.product.count(),
+      prisma.product.count({ where: { status: "ONLINE" } }),
+      prisma.product.count({ where: { status: "OFFLINE", isIncomplete: false } }),
+      prisma.product.count({ where: { status: "OFFLINE", isIncomplete: true } }),
+      prisma.product.count({ where: { status: "ARCHIVED" } }),
+    ]).then(([all, online, offline, draft, archived]) => ({ all, online, offline, draft, archived })),
   ]);
 
   const productIds = products.map((p) => p.id);
@@ -277,8 +294,13 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
 
       <div className="mt-6" />
 
+      {/* Onglets de section */}
+      <Suspense>
+        <ProductStatusTabs counts={sectionCounts} />
+      </Suspense>
+
       {/* Filtres */}
-      <div className="bg-bg-primary rounded-2xl px-6 py-5">
+      <div className="bg-bg-primary rounded-2xl px-6 py-5 mt-4">
         <Suspense>
           <AdminProductsFilters totalCount={totalCount} categories={categories} />
         </Suspense>

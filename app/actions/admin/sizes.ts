@@ -166,6 +166,22 @@ export async function toggleSizePfsMapping(sizeId: string, pfsSizeRef: string) {
   return mappings.map((m) => m.pfsSizeRef);
 }
 
+/** Assign an existing size to a category (creates SizeCategoryLink if not exists) */
+export async function assignSizeToCategory(sizeId: string, categoryId: string) {
+  await requireAdmin();
+
+  const existing = await prisma.sizeCategoryLink.findUnique({
+    where: { sizeId_categoryId: { sizeId, categoryId } },
+  });
+  if (existing) return; // Already linked
+
+  await prisma.sizeCategoryLink.create({
+    data: { sizeId, categoryId },
+  });
+
+  revalidateTag("sizes", "default");
+}
+
 /** Reorder sizes by providing an ordered array of ids */
 export async function reorderSizes(orderedIds: string[]) {
   await requireAdmin();

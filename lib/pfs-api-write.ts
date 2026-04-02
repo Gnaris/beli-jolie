@@ -279,7 +279,23 @@ export async function pfsPatchVariants(
 }
 
 // ─────────────────────────────────────────────
-// 5. Delete variant
+// 5a. Soft-delete product (rename ref → DEL-xxx, status → DELETED)
+// PFS has no hard-delete endpoint, so we rename + archive
+// ─────────────────────────────────────────────
+
+export async function pfsDeleteProduct(pfsProductId: string): Promise<void> {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  const deleteRef = `DEL-${ts}-${rand}`;
+
+  // Rename reference so the original ref becomes available again
+  await pfsUpdateProduct(pfsProductId, { reference_code: deleteRef });
+  // Set status to DELETED (soft-delete)
+  await pfsUpdateStatus([{ id: pfsProductId, status: "DELETED" }]);
+}
+
+// ─────────────────────────────────────────────
+// 5b. Delete variant
 // ─────────────────────────────────────────────
 
 export async function pfsDeleteVariant(pfsVariantId: string): Promise<void> {

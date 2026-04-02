@@ -305,6 +305,16 @@ h1, h2, h3, h4, h5, h6 {
 .admin-dark .badge-info     { background-color: rgba(59,130,246,0.15); color: #93C5FD; border-color: rgba(59,130,246,0.3); }
 .admin-dark .badge-purple   { background-color: rgba(139,92,246,0.15); color: #C4B5FD; border-color: rgba(139,92,246,0.3); }
 
+/* ─── PFS Tooltips ───────────────────────── */
+.pfs-tooltip-warning       { background-color: rgba(255,251,235,0.95); color: #78350F; border-color: rgba(253,230,138,0.6); }
+.pfs-tooltip-error         { background-color: rgba(254,242,242,0.95); color: #7F1D1D; border-color: rgba(254,202,202,0.6); }
+.pfs-tooltip-arrow-warning { background-color: rgba(255,251,235,0.95); border-color: rgba(253,230,138,0.6); }
+.pfs-tooltip-arrow-error   { background-color: rgba(254,242,242,0.95); border-color: rgba(254,202,202,0.6); }
+.admin-dark .pfs-tooltip-warning       { background-color: rgba(120,53,15,0.9);  color: #FDE68A; border-color: rgba(245,158,11,0.3); }
+.admin-dark .pfs-tooltip-error         { background-color: rgba(127,29,29,0.9);  color: #FCA5A5; border-color: rgba(239,68,68,0.3); }
+.admin-dark .pfs-tooltip-arrow-warning { background-color: rgba(120,53,15,0.9);  border-color: rgba(245,158,11,0.3); }
+.admin-dark .pfs-tooltip-arrow-error   { background-color: rgba(127,29,29,0.9);  border-color: rgba(239,68,68,0.3); }
+
 /* ─── Stat cards ─────────────────────────── */
 .stat-card {
   background-color: var(--color-bg-primary);

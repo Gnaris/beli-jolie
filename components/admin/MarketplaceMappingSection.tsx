@@ -307,7 +307,7 @@ function PfsMapping({
         size="sm"
         searchable
         className="w-full"
-        aria-label="Couleur PFS"
+        aria-label="Couleur Paris Fashion Shop"
         options={[
           { value: "", label: "— Sélectionner —" },
           ...pfsData.colors.map((pc) => ({
@@ -335,7 +335,7 @@ function PfsMapping({
         size="sm"
         searchable
         className="w-full"
-        aria-label="Composition PFS"
+        aria-label="Composition Paris Fashion Shop"
         options={[
           { value: "", label: "— Sélectionner —" },
           ...pfsData.compositions.map((pc) => ({
@@ -357,7 +357,7 @@ function PfsMapping({
         size="sm"
         searchable
         className="w-full"
-        aria-label="Pays PFS"
+        aria-label="Pays Paris Fashion Shop"
         options={[
           { value: "", label: "— Sélectionner —" },
           ...pfsData.countries.map((pc) => ({
@@ -379,7 +379,7 @@ function PfsMapping({
         size="sm"
         searchable
         className="w-full"
-        aria-label="Collection PFS"
+        aria-label="Collection Paris Fashion Shop"
         options={[
           { value: "", label: "— Sélectionner —" },
           ...pfsData.collections.map((pc) => ({
@@ -453,7 +453,7 @@ function PfsCategoryMapping({
         size="sm"
         searchable
         className="w-full"
-        aria-label="Genre PFS"
+        aria-label="Genre Paris Fashion Shop"
         options={[
           { value: "", label: "— Genre —" },
           ...availableGenders.map((g) => ({ value: g, label: getGenderLabel(g) })),
@@ -470,7 +470,7 @@ function PfsCategoryMapping({
         size="sm"
         searchable
         className="w-full"
-        aria-label="Famille PFS"
+        aria-label="Famille Paris Fashion Shop"
         options={[
           { value: "", label: "— Famille (toutes) —" },
           ...availableFamilies.map((f) => ({ value: f.id, label: f.labels?.fr ?? f.id })),
@@ -491,9 +491,9 @@ function PfsCategoryMapping({
         size="sm"
         searchable
         className="w-full"
-        aria-label="Catégorie PFS"
+        aria-label="Catégorie Paris Fashion Shop"
         options={[
-          { value: "", label: "— Catégorie PFS —" },
+          { value: "", label: "— Catégorie Paris Fashion Shop —" },
           ...availableCategories.map((pc) => ({
             value: pc.id,
             label: pc.labels?.fr ?? pc.id,

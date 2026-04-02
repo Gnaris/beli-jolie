@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 /**
  * POST /api/heartbeat
  * Upserts the user's activity record with the current timestamp and page.
- * Called every 30 seconds by the HeartbeatTracker client component.
+ * Called every 60 seconds by the HeartbeatTracker client component.
  *
  * Body: { page?: string, isNewSession?: boolean }
  * When isNewSession is true, resets connectedAt and session counters.
@@ -24,17 +25,7 @@ export async function POST(req: NextRequest) {
 
     const now = new Date();
 
-    // Verify user still exists (JWT may outlive deleted users)
-    const userExists = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { id: true },
-    });
-    if (!userExists) {
-      return NextResponse.json({ ok: false }, { status: 401 });
-    }
-
     if (isNewSession) {
-      // New session: reset connectedAt and counters
       await prisma.userActivity.upsert({
         where: { userId: session.user.id },
         update: {
@@ -54,7 +45,6 @@ export async function POST(req: NextRequest) {
         },
       });
     } else {
-      // Regular heartbeat: update lastSeenAt + currentPage only
       await prisma.userActivity.upsert({
         where: { userId: session.user.id },
         update: {
@@ -71,7 +61,14 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    // FK constraint error = user was deleted, JWT is stale → 401
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2003"
+    ) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
     return NextResponse.json({ ok: false }, { status: 500 });
   }
 }

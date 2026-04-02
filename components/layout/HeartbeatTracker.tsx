@@ -4,13 +4,14 @@ import { useEffect, useRef } from "react";
 import { signOut, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 
-const HEARTBEAT_INTERVAL = 30_000; // 30 seconds
+const HEARTBEAT_INTERVAL = 60_000; // 60 seconds
+const FORCE_INTERVAL = 5 * 60_000; // 5 minutes — send even if page unchanged
 const SESSION_KEY = "bj_heartbeat_session";
 
 /**
- * Sends a heartbeat to /api/heartbeat every 30 seconds while the user is
- * authenticated. Tracks session start, cart/fav counts (server-side), and
- * current page. On browser/tab close, sends a disconnect signal via
+ * Sends a heartbeat to /api/heartbeat every 60 seconds while the user is
+ * authenticated. Skips redundant calls if the page hasn't changed (forces
+ * every 5 min). On browser/tab close, sends a disconnect signal via
  * navigator.sendBeacon so the admin dashboard immediately sees the user
  * as offline.
  */
@@ -18,6 +19,8 @@ export default function HeartbeatTracker() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
+  const lastSentPageRef = useRef<string | null>(null);
+  const lastSentAtRef = useRef(0);
 
   // Keep pathname ref up-to-date without re-triggering the effect
   useEffect(() => {
@@ -34,42 +37,51 @@ export default function HeartbeatTracker() {
       sessionStorage.setItem(SESSION_KEY, Date.now().toString());
     }
 
-    const sendHeartbeat = async (newSession = false) => {
+    const sendHeartbeat = async (newSession = false, force = false) => {
+      const page = pathnameRef.current;
+      const now = Date.now();
+
+      // Skip if page unchanged and last sent recently (unless forced)
+      if (
+        !force &&
+        !newSession &&
+        page === lastSentPageRef.current &&
+        now - lastSentAtRef.current < FORCE_INTERVAL
+      ) {
+        return;
+      }
+
       try {
         const res = await fetch("/api/heartbeat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            page: pathnameRef.current,
-            isNewSession: newSession,
-          }),
+          body: JSON.stringify({ page, isNewSession: newSession }),
         });
         if (res.status === 401) {
-          // User no longer exists in DB — clear session and redirect
           signOut({ callbackUrl: "/connexion" });
+          return;
         }
+        lastSentPageRef.current = page;
+        lastSentAtRef.current = now;
       } catch {
         // Silently ignore network failures
       }
     };
 
     const sendDisconnect = () => {
-      // sendBeacon is reliable even during page unload
       navigator.sendBeacon("/api/heartbeat/disconnect");
     };
 
     // First heartbeat: flag as new session if applicable
-    sendHeartbeat(isNewSession);
+    sendHeartbeat(isNewSession, true);
 
     const interval = setInterval(() => sendHeartbeat(false), HEARTBEAT_INTERVAL);
 
-    // Signal disconnect when the browser/tab is closed
     window.addEventListener("beforeunload", sendDisconnect);
 
-    // Re-send heartbeat when tab becomes visible again
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        sendHeartbeat(false);
+        sendHeartbeat(false, true);
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);

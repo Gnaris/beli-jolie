@@ -56,7 +56,7 @@ export default function PfsRefreshWidget() {
           />
         </svg>
         <span className="text-sm font-medium text-text-primary flex-1">
-          Rafraîchissement PFS
+          Rafraîchissement Paris Fashion Shop
         </span>
         <span className="text-xs text-text-muted">
           {allDone ? `${completed + errors}/${total}` : `${completed}/${total}`}

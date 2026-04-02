@@ -4,6 +4,79 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import PfsLiveCompareModal from "./PfsLiveCompareModal";
 import { forcePfsSync } from "@/app/actions/admin/pfs-reverse-sync";
 
+// ── Styled Tooltip ──────────────────────────────────────────────────────────
+
+function PfsTooltip({
+  children,
+  items,
+  title,
+  variant = "warning",
+}: {
+  children: React.ReactNode;
+  items?: string[];
+  title?: string;
+  variant?: "warning" | "error";
+}) {
+  const [open, setOpen] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const show = () => { timeoutRef.current && clearTimeout(timeoutRef.current); setOpen(true); };
+  const hide = () => { timeoutRef.current = setTimeout(() => setOpen(false), 150); };
+
+  const isWarning = variant === "warning";
+
+  return (
+    <span className="relative inline-flex" onMouseEnter={show} onMouseLeave={hide}>
+      {children}
+      {open && (
+        <span
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 z-50 animate-fadeIn"
+          onMouseEnter={show}
+          onMouseLeave={hide}
+        >
+          <span
+            className={`block rounded-xl px-4 py-3 text-[11px] leading-relaxed shadow-lg backdrop-blur-sm min-w-[260px] max-w-[340px] border ${
+              isWarning ? "pfs-tooltip-warning" : "pfs-tooltip-error"
+            }`}
+          >
+            {title && (
+              <span className="flex items-center gap-1.5 font-semibold text-[11.5px] mb-1.5">
+                {isWarning ? (
+                  <svg className="h-3.5 w-3.5 text-[#F59E0B] shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg className="h-3.5 w-3.5 text-[#EF4444] shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+                  </svg>
+                )}
+                {title}
+              </span>
+            )}
+            {items && items.length > 0 && (
+              <span className="block space-y-0.5">
+                {items.map((item, i) => (
+                  <span key={i} className="flex items-start gap-1.5">
+                    <span className={`mt-[5px] h-1.5 w-1.5 rounded-full shrink-0 ${isWarning ? "bg-[#F59E0B]" : "bg-[#EF4444]"}`} />
+                    <span>{item}</span>
+                  </span>
+                ))}
+              </span>
+            )}
+            {!items && !title && null}
+          </span>
+          {/* Arrow */}
+          <span
+            className={`absolute left-1/2 -translate-x-1/2 -bottom-[5px] h-2.5 w-2.5 rotate-45 border-r border-b ${
+              isWarning ? "pfs-tooltip-arrow-warning" : "pfs-tooltip-arrow-error"
+            }`}
+          />
+        </span>
+      )}
+    </span>
+  );
+}
+
 interface PfsSyncButtonProps {
   productId: string;
   pfsProductId: string | null;
@@ -96,7 +169,7 @@ export default function PfsSyncButton({
       } else {
         setSyncStatus("failed");
         setSyncError(result.error ?? "Erreur inconnue");
-        setError(result.error ?? "Erreur lors de la création sur PFS");
+        setError(result.error ?? "Erreur lors de la création sur Paris Fashion Shop");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -125,14 +198,15 @@ export default function PfsSyncButton({
 
   // ── Mappings PFS absents — synchronisation bloquée ──
   if (mappingIssues && mappingIssues.length > 0) {
-    const tooltip = `Synchronisation PFS impossible.\n\nEntité(s) sans mapping :\n${mappingIssues.map((i) => `• ${i}`).join("\n")}`;
     return (
-      <span className="inline-flex items-center gap-1.5 animate-fadeIn" title={tooltip}>
-        <span className="badge badge-warning text-[11px]">Sync PFS impossible</span>
-        <span className="text-[10px] text-text-muted cursor-help">
-          — {mappingIssues.length} entité{mappingIssues.length > 1 ? "s" : ""} non mappée{mappingIssues.length > 1 ? "s" : ""}
+      <PfsTooltip title="Synchronisation Paris Fashion Shop impossible" items={mappingIssues} variant="warning">
+        <span className="inline-flex items-center gap-1.5 animate-fadeIn cursor-help">
+          <span className="badge badge-warning text-[11px]">Sync Paris Fashion Shop impossible</span>
+          <span className="text-[10px] text-text-muted">
+            — {mappingIssues.length} entité{mappingIssues.length > 1 ? "s" : ""} non mappée{mappingIssues.length > 1 ? "s" : ""}
+          </span>
         </span>
-      </span>
+      </PfsTooltip>
     );
   }
 
@@ -140,7 +214,7 @@ export default function PfsSyncButton({
   if (notOnPfs) {
     return (
       <span className="inline-flex items-center gap-2 animate-fadeIn">
-        <span className="badge badge-neutral text-[11px]">Absent de PFS</span>
+        <span className="badge badge-neutral text-[11px]">Absent de Paris Fashion Shop</span>
         <button
           onClick={handleCreateOnPfs}
           disabled={creating}
@@ -151,7 +225,7 @@ export default function PfsSyncButton({
           ) : (
             <PlusIcon className="h-3 w-3" />
           )}
-          {creating ? "Création..." : "Créer sur PFS"}
+          {creating ? "Création..." : "Créer sur Paris Fashion Shop"}
         </button>
         <button
           onClick={() => { setNotOnPfs(false); setError(null); }}
@@ -172,7 +246,7 @@ export default function PfsSyncButton({
       <span className="inline-flex items-center gap-2 animate-fadeIn">
         <span className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-medium bg-bg-secondary text-text-muted border border-border min-h-[36px]">
           <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-text-muted/30 border-t-text-muted" />
-          Vérification PFS…
+          Vérification Paris Fashion Shop…
         </span>
       </span>
     );
@@ -187,7 +261,7 @@ export default function PfsSyncButton({
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22C55E] opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22C55E]" />
           </span>
-          PFS synchronisé
+          Paris Fashion Shop synchronisé
         </span>
         <button
           onClick={() => { setNoDiffs(false); setAutoChecked(false); handleSync().then(() => setAutoChecked(true)); }}
@@ -242,10 +316,12 @@ export default function PfsSyncButton({
   if (error) {
     return (
       <span className="inline-flex items-center gap-2 animate-fadeIn">
-        <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-medium bg-red-500/10 text-red-600 border border-red-500/30 min-h-[36px]" title={error}>
-          <XIcon className="h-3 w-3" />
-          Erreur PFS
-        </span>
+        <PfsTooltip title="Erreur Paris Fashion Shop" items={[error]} variant="error">
+          <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-medium bg-red-500/10 text-red-600 border border-red-500/30 min-h-[36px] cursor-help">
+            <XIcon className="h-3 w-3" />
+            Erreur Paris Fashion Shop
+          </span>
+        </PfsTooltip>
         <button
           onClick={() => { setError(null); setAutoChecked(false); handleSync().then(() => setAutoChecked(true)); }}
           className="p-1 text-text-muted hover:text-text-primary transition-colors rounded"
@@ -262,9 +338,11 @@ export default function PfsSyncButton({
   if (syncStatus === "failed" && syncError) {
     return (
       <span className="inline-flex items-center gap-2 animate-fadeIn">
-        <span className="badge badge-error text-[11px] cursor-help" title={syncError}>
-          PFS erreur
-        </span>
+        <PfsTooltip title="Dernière synchronisation Paris Fashion Shop échouée" items={[syncError]} variant="error">
+          <span className="badge badge-error text-[11px] cursor-help">
+            Paris Fashion Shop erreur
+          </span>
+        </PfsTooltip>
         <button
           onClick={() => { setAutoChecked(false); handleSync().then(() => setAutoChecked(true)); }}
           className="p-1 text-text-muted hover:text-text-primary transition-colors rounded"
@@ -282,7 +360,7 @@ export default function PfsSyncButton({
       <span className="inline-flex items-center gap-2 animate-fadeIn">
         <span className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-medium bg-bg-secondary text-text-muted border border-border min-h-[36px]">
           <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-text-muted/30 border-t-text-muted" />
-          Vérification PFS…
+          Vérification Paris Fashion Shop…
         </span>
       </span>
     );
@@ -292,17 +370,17 @@ export default function PfsSyncButton({
   return (
     <span className="inline-flex items-center gap-1.5">
       {syncStatus === "synced" && !pfsProductId && (
-        <span className="badge badge-success text-[11px]">PFS sync</span>
+        <span className="badge badge-success text-[11px]">Paris Fashion Shop sync</span>
       )}
       <button
         onClick={() => { setAutoChecked(false); handleSync().then(() => setAutoChecked(true)); }}
         disabled={checking}
         className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-medium border border-border bg-bg-secondary text-text-secondary hover:bg-border hover:text-text-primary transition-all disabled:opacity-50 min-h-[36px]"
-        title="Comparer avec PFS et synchroniser"
-        aria-label="Synchroniser avec PFS"
+        title="Comparer avec Paris Fashion Shop et synchroniser"
+        aria-label="Synchroniser avec Paris Fashion Shop"
       >
         <SyncIcon className="h-3.5 w-3.5" />
-        Sync PFS
+        Sync Paris Fashion Shop
       </button>
     </span>
   );

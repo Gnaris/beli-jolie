@@ -513,23 +513,24 @@ function ProductRow({
         {/* Statut */}
         <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
           <div className="flex items-center gap-1.5 flex-nowrap">
-            <span className={`badge text-[11px] ${
-              product.status === "ONLINE"
-                ? "badge-success"
-                : product.status === "SYNCING"
-                ? "badge-info"
-                : product.status === "ARCHIVED"
-                ? "badge-warning"
-                : "badge-neutral"
-            }`}>
-              {product.status === "ONLINE" ? "En ligne" : product.status === "SYNCING" ? "Sync en cours" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
-            </span>
-            {product.isIncomplete && product.status !== "ONLINE" && (
+            {product.isIncomplete && product.status !== "ONLINE" ? (
               <span
-                className="badge badge-warning text-[10px]"
-                title="Produit incomplet — manque des informations pour être mis en ligne"
+                className="badge badge-purple text-[11px]"
+                title="Brouillon — produit en cours de création"
               >
-                Incomplet
+                Brouillon
+              </span>
+            ) : (
+              <span className={`badge text-[11px] ${
+                product.status === "ONLINE"
+                  ? "badge-success"
+                  : product.status === "SYNCING"
+                  ? "badge-info"
+                  : product.status === "ARCHIVED"
+                  ? "badge-warning"
+                  : "badge-neutral"
+              }`}>
+                {product.status === "ONLINE" ? "En ligne" : product.status === "SYNCING" ? "Sync en cours" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
               </span>
             )}
             {isFullyOutOfStock && (
@@ -551,7 +552,7 @@ function ProductRow({
             {hasPfsConfig && product.pfsSyncStatus === "failed" && (
               <span
                 className="badge badge-error text-[10px]"
-                title="Synchronisation PFS échouée"
+                title="Synchronisation Paris Fashion Shop échouée"
               >
                 PFS
               </span>
@@ -559,7 +560,7 @@ function ProductRow({
             {hasPfsConfig && product.pfsSyncStatus === "pending" && (
               <span
                 className="badge badge-info text-[10px]"
-                title="Synchronisation PFS en cours"
+                title="Synchronisation Paris Fashion Shop en cours"
               >
                 PFS
               </span>
@@ -604,7 +605,7 @@ function ProductRow({
               type="button"
               onClick={async () => {
                 const msg = hasPfsConfig
-                  ? "Le produit sera remis en \"Nouveauté\" avec la date du jour.\nSur PFS, le produit sera recréé comme nouveau."
+                  ? "Le produit sera remis en \"Nouveauté\" avec la date du jour.\nSur Paris Fashion Shop, le produit sera recréé comme nouveau."
                   : "Le produit sera remis en \"Nouveauté\" avec la date du jour.";
                 const ok = await confirm({
                   type: "warning",
@@ -1212,8 +1213,8 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
+  const { confirm } = useConfirm();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRefresh, setConfirmRefresh] = useState(false);
   const pfsRefresh = usePfsRefresh();
 
@@ -1351,16 +1352,38 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
     });
   }, [selectedIds, startTransition, showLoading, hideLoading]);
 
+  const deleteFromPfsRef = useRef(true);
+
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
+    const count = ids.length;
+    deleteFromPfsRef.current = true;
+
+    const confirmed = await confirm({
+      type: "danger",
+      title: `Supprimer ${count} produit${count > 1 ? "s" : ""} ?`,
+      message: `Cette action est irréversible. Les produits sans commandes seront définitivement supprimés.`,
+      confirmLabel: "Supprimer",
+      cancelLabel: "Annuler",
+      checkbox: hasPfsConfig ? {
+        label: "Supprimer également sur Paris Fashion Shop",
+        defaultChecked: true,
+        onChange: (checked: boolean) => { deleteFromPfsRef.current = checked; },
+      } : undefined,
+    });
+    if (!confirmed) return;
+
     setBulkMessage(null);
     showLoading();
     startTransition(async () => {
       try {
-        const result = await bulkDeleteProducts(ids);
+        const result = await bulkDeleteProducts(ids, deleteFromPfsRef.current);
         const msgs: string[] = [];
         if (result.deleted > 0) {
           msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""}`);
+        }
+        if (result.pfsDeleted > 0) {
+          msgs.push(`${result.pfsDeleted} supprimé${result.pfsDeleted > 1 ? "s" : ""} de PFS`);
         }
         if (result.protected.length > 0) {
           const refs = result.protected.map((p) => p.reference).join(", ");
@@ -1371,15 +1394,14 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
           text: msgs.join(" — "),
         });
         setSelectedIds(new Set());
-        setConfirmDelete(false);
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
-        setConfirmDelete(false);
       } finally {
         hideLoading();
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds, startTransition, showLoading, hideLoading, hasPfsConfig]);
 
   const handleBulkPfsRefresh = useCallback(() => {
     if (!pfsRefresh) return;
@@ -1395,7 +1417,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
     pfsRefresh.enqueueBulk(items);
     setSelectedIds(new Set());
     setConfirmRefresh(false);
-    setBulkMessage({ type: "success", text: `${items.length} produit${items.length > 1 ? "s" : ""} en cours de rafraîchissement PFS` });
+    setBulkMessage({ type: "success", text: `${items.length} produit${items.length > 1 ? "s" : ""} en cours de rafraîchissement Paris Fashion Shop` });
   }, [selectedIds, allProducts, pfsRefresh, startTransition]);
 
   // ─── Bulk variant actions ──
@@ -1517,11 +1539,11 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
                   </svg>
-                  Rafraîchir PFS
+                  Rafraîchir Paris Fashion Shop
                 </button>
               ) : (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-blue-300 font-body">Rafraîchir {selectedIds.size} produit{selectedIds.size > 1 ? "s" : ""} sur PFS ?</span>
+                  <span className="text-xs text-blue-300 font-body">Rafraîchir {selectedIds.size} produit{selectedIds.size > 1 ? "s" : ""} sur Paris Fashion Shop ?</span>
                   <button
                     type="button"
                     onClick={handleBulkPfsRefresh}
@@ -1542,41 +1564,20 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
             </>
           )}
           <div className="h-4 w-px bg-bg-primary/20" />
-          {!confirmDelete ? (
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-              disabled={isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/80 text-white text-xs font-medium rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors font-body"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-              </svg>
-              Supprimer
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-red-300 font-body">Confirmer ?</span>
-              <button
-                type="button"
-                onClick={handleBulkDelete}
-                disabled={isPending}
-                className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors font-body"
-              >
-                Oui, supprimer {selectedIds.size}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(false)}
-                className="px-3 py-1.5 bg-bg-primary/10 text-text-inverse text-xs rounded-lg hover:bg-bg-primary/20 transition-colors font-body"
-              >
-                Annuler
-              </button>
-            </div>
-          )}
           <button
             type="button"
-            onClick={() => { setSelectedIds(new Set()); setConfirmDelete(false); setConfirmRefresh(false); }}
+            onClick={handleBulkDelete}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/80 text-white text-xs font-medium rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors font-body"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+            </svg>
+            Supprimer
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSelectedIds(new Set()); setConfirmRefresh(false); }}
             className="ml-auto text-xs text-text-inverse/50 hover:text-text-inverse transition-colors font-body"
           >
             Désélectionner

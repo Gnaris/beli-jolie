@@ -140,7 +140,7 @@ export default function PfsSizeMultiSelect({
 
   // Trigger label
   const selectedArr = [...selected];
-  let triggerLabel = "Choisir des tailles PFS…";
+  let triggerLabel = "Choisir des tailles Paris Fashion Shop…";
   if (selectedArr.length === 1) triggerLabel = selectedArr[0];
   else if (selectedArr.length === 2) triggerLabel = selectedArr.join(", ");
   else if (selectedArr.length > 2) triggerLabel = `${selectedArr.slice(0, 2).join(", ")} +${selectedArr.length - 2}`;
@@ -267,7 +267,7 @@ export default function PfsSizeMultiSelect({
         onClick={() => !disabled && setOpen(!open)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label="Sélectionner des tailles PFS"
+        aria-label="Sélectionner des tailles Paris Fashion Shop"
         className={`flex items-center gap-2 w-full text-left font-body transition-all duration-150 cursor-pointer rounded-lg border px-2.5 py-1.5 text-[11px] font-medium text-text-primary bg-bg-primary border-border hover:border-bg-dark disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${className}`}
       >
         <span className={`flex-1 truncate ${selected.size === 0 ? "opacity-50" : ""}`}>

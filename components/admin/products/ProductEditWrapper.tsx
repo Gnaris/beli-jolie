@@ -12,14 +12,14 @@ function HeaderBadges() {
           : "bg-bg-secondary text-text-secondary border border-border"
       }`}>
         <span className={`w-1.5 h-1.5 rounded-full ${productStatus === "ONLINE" ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
-        {productStatus === "ONLINE" ? "En ligne" : "Hors ligne"}
+        {productStatus === "ONLINE" ? "En ligne" : isIncomplete ? "Brouillon" : "Hors ligne"}
       </span>
       {productStatus !== "ONLINE" && isIncomplete && (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-body bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-body bg-[#F3E8FF] text-[#7C3AED] border border-[#DDD6FE]">
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
           </svg>
-          Incomplet
+          Brouillon
         </span>
       )}
       {stockState === "all_out" && (

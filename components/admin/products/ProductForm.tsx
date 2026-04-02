@@ -3,8 +3,9 @@
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, packDisplayName, packDisplayHex, computeTotalPrice } from "./ColorVariantManager";
+import CompletenessChecklist from "./CompletenessChecklist";
 import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller } from "@/app/actions/admin/products";
-import { createSize, toggleSizePfsMapping } from "@/app/actions/admin/sizes";
+import { createSize, toggleSizePfsMapping, assignSizeToCategory } from "@/app/actions/admin/sizes";
 import { forcePfsSync } from "@/app/actions/admin/pfs-reverse-sync";
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
@@ -355,6 +356,19 @@ export default function ProductForm({
     initialData?.status === "SYNCING" ? "OFFLINE" : (initialData?.status ?? "OFFLINE")
   );
 
+  // ── Touched fields for real-time validation ──────────────────────────
+  const [touchedFields, setTouchedFields] = useState<Set<string>>(
+    initialData ? new Set(["reference", "name", "description", "category"]) : new Set()
+  );
+  const markTouched = useCallback((field: string) => {
+    setTouchedFields((prev) => {
+      if (prev.has(field)) return prev;
+      const next = new Set(prev);
+      next.add(field);
+      return next;
+    });
+  }, []);
+
   // ── Sync header badges via context ────────────────────────────────────
   const { updateHeader } = useProductFormHeader();
   const headerStockState = useMemo((): "ok" | "partial_out" | "all_out" => {
@@ -672,13 +686,6 @@ export default function ProductForm({
 
   // Filter sizes to only those linked to the selected category
   // If a size has no categoryIds (old data) or no category set, show all
-  const filteredSizes = useMemo(() => {
-    if (!categoryId) return localSizes;
-    return localSizes.filter((s) =>
-      !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId)
-    );
-  }, [localSizes, categoryId]);
-
   // Per-variant field errors for red highlighting (price/weight/stock/sizes)
   const variantErrors = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -695,6 +702,17 @@ export default function ProductForm({
     return map;
   }, [variants]);
 
+  // ── Completeness checklist input ───────────────────────────────────────
+  const checklistInput = useMemo(() => ({
+    reference,
+    name,
+    description,
+    categoryId,
+    compositions,
+    variants,
+    colorImages,
+  }), [reference, name, description, categoryId, compositions, variants, colorImages]);
+
   // Locales that have at least a name filled (green dot)
   const filledLocales = new Set<string>(
     VALID_LOCALES.filter((l) =>
@@ -703,7 +721,7 @@ export default function ProductForm({
   );
 
   // Locales that have NO saved DB translation — only relevant in edit mode
-  const missingDbLocales = mode === "edit"
+  const missingDbLocales = initialData?.translations
     ? new Set<string>(
         VALID_LOCALES.filter((l) => {
           if (l === "fr") return false; // FR is always in product.name
@@ -760,6 +778,18 @@ export default function ProductForm({
     const newSize: AvailableSize = { id: created.id, name: created.name, categoryIds };
     setLocalSizes((prev) => [...prev, newSize]);
     return newSize;
+  }
+
+  // ── Assign existing size to category ─────────────────────────────────
+  async function handleAssignSizeToCategory(sizeId: string, categoryId: string) {
+    await assignSizeToCategory(sizeId, categoryId);
+    setLocalSizes((prev) =>
+      prev.map((s) =>
+        s.id === sizeId
+          ? { ...s, categoryIds: [...(s.categoryIds ?? []), categoryId] }
+          : s
+      )
+    );
   }
 
   // ── Quick-create modal handlers ──────────────────────────────────────
@@ -1015,7 +1045,7 @@ export default function ProductForm({
     showLoading();
     startTransition(async () => {
       try {
-        if (mode === "edit" && productId) {
+        if (productId) {
           await updateProduct(productId, payload);
         } else {
           await createProduct(payload);
@@ -1046,10 +1076,12 @@ export default function ProductForm({
 
     // Warn: saving an ONLINE product with errors → auto downgrade to OFFLINE
     const shouldSyncPfs = { current: hasPfsConfig };
-    const showPfsCheckbox = hasPfsConfig && mode === "edit" && productId && !hasVariantsWithMissingPriceWeightOrStock();
+    const showPfsCheckbox = hasPfsConfig && !isIncomplete && !hasVariantsWithMissingPriceWeightOrStock();
     const pfsCheckboxOption = showPfsCheckbox ? {
       checkbox: {
-        label: "Synchroniser également les marketplaces (PFS)",
+        label: mode === "edit"
+          ? "Synchroniser également les marketplaces (Paris Fashion Shop)"
+          : "Créer également sur Paris Fashion Shop",
         defaultChecked: true,
         onChange: (v: boolean) => { shouldSyncPfs.current = v; },
       },
@@ -1059,9 +1091,9 @@ export default function ProductForm({
     if (productStatus === "ONLINE" && isIncomplete) {
       const okDowngrade = await confirmDialog({
         type: "warning",
-        title: "Produit incomplet",
-        message: "Ce produit est actuellement en ligne mais il est incomplet ou comporte des erreurs. Si vous confirmez l'enregistrement, le produit sera automatiquement mis hors ligne.",
-        confirmLabel: "Enregistrer et mettre hors ligne",
+        title: "Passage en brouillon",
+        message: "Ce produit est actuellement en ligne mais certaines informations sont manquantes. Si vous confirmez, le produit sera mis hors ligne et passera en brouillon.",
+        confirmLabel: "Enregistrer en brouillon",
         cancelLabel: "Annuler",
         ...pfsCheckboxOption,
       });
@@ -1095,7 +1127,7 @@ export default function ProductForm({
       return setError("Des images sont encore en cours d'upload. Veuillez patienter.");
 
     // ── Integrity check (edit mode): detect corrupted state before sending ──
-    if (mode === "edit" && initialData) {
+    if (productId && initialData) {
       const issues: string[] = [];
       if (initialData.variants.length > 0 && variants.length === 0) {
         issues.push("Toutes les variantes ont disparu");
@@ -1119,7 +1151,7 @@ export default function ProductForm({
         type: "info",
         title: "Enregistrer les modifications",
         message: isIncomplete
-          ? "Ce produit est incomplet. Il sera enregistré en tant que brouillon (Hors ligne — Incomplet). Voulez-vous continuer ?"
+          ? "Des informations sont manquantes. Le produit sera enregistré en tant que brouillon. Voulez-vous continuer ?"
           : "Voulez-vous enregistrer toutes les modifications ?",
         confirmLabel: "Enregistrer",
         cancelLabel: "Annuler",
@@ -1188,6 +1220,7 @@ export default function ProductForm({
       isBestSeller,
       status: finalStatus,
       isIncomplete,
+      skipPfsSync: !shouldSyncPfs.current,
       dimensionLength:        dimLength        ? parseFloat(dimLength)        : null,
       dimensionWidth:         dimWidth         ? parseFloat(dimWidth)         : null,
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
@@ -1203,10 +1236,20 @@ export default function ProductForm({
     showLoading();
     startTransition(async () => {
       try {
-        if (mode === "edit" && productId) {
+        if (productId) {
           await updateProduct(productId, payload);
+          // Draft continuation: redirect to product page after finalizing
+          if (mode === "create") {
+            isDirty.current = false;
+            router.push(`/admin/produits/${productId}/modifier`);
+            return;
+          }
         } else {
-          await createProduct(payload);
+          const result = await createProduct(payload);
+          if (result?.id) {
+            router.push(`/admin/produits/${result.id}/modifier`);
+            return;
+          }
         }
         setProductStatus(finalStatus);
         // Reset dirty flag after successful save
@@ -1218,10 +1261,10 @@ export default function ProductForm({
           try {
             const result = await forcePfsSync(productId);
             if (!result.success) {
-              setError(`Erreur de synchronisation PFS : ${result.error}`);
+              setError(`Erreur de synchronisation Paris Fashion Shop : ${result.error}`);
             }
           } catch {
-            setError("Erreur lors de la synchronisation PFS.");
+            setError("Erreur lors de la synchronisation Paris Fashion Shop.");
           }
         }
       } catch (err: unknown) {
@@ -1235,6 +1278,9 @@ export default function ProductForm({
   return (
     <>
       <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-8">
+
+        {/* ── Indicateur de complétude ── */}
+        <CompletenessChecklist input={checklistInput} />
 
         {/* ── Informations du produit ── */}
         <div className="space-y-4">
@@ -1291,8 +1337,13 @@ export default function ProductForm({
 
               {/* Référence (always FR, not locale-dependent) */}
               <Field label="Référence produit *" hint="Ex: BJ-COL-001">
-                <input type="text" value={reference} onChange={(e) => setReference(e.target.value.toUpperCase())}
-                  placeholder="BJ-COL-001" className={`field-input${!reference.trim() ? " field-error" : ""}`} required />
+                <input type="text" value={reference}
+                  onChange={(e) => setReference(e.target.value.toUpperCase())}
+                  onBlur={() => markTouched("reference")}
+                  placeholder="BJ-COL-001" className={`field-input${touchedFields.has("reference") && !reference.trim() ? " field-error" : ""}`} required />
+                {touchedFields.has("reference") && !reference.trim() && (
+                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">La référence est requise.</p>
+                )}
               </Field>
 
               {/* Non-FR hint + missing translation warning */}
@@ -1326,10 +1377,14 @@ export default function ProductForm({
                   type="text"
                   value={activeName}
                   onChange={(e) => setActiveName(e.target.value)}
+                  onBlur={() => { if (activeLocale === "fr") markTouched("name"); }}
                   placeholder={activeLocale === "fr" ? "Collier sautoir doré" : `Nom en ${LOCALE_LABELS[activeLocale]}…`}
-                  className={`field-input${activeLocale === "fr" && !name.trim() ? " field-error" : ""}`}
+                  className={`field-input${activeLocale === "fr" && touchedFields.has("name") && !name.trim() ? " field-error" : ""}`}
                   required={activeLocale === "fr"}
                 />
+                {activeLocale === "fr" && touchedFields.has("name") && !name.trim() && (
+                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">Le nom du produit est requis.</p>
+                )}
               </div>
 
               {/* Catégorie + sous-catégories (always FR) */}
@@ -1446,11 +1501,15 @@ export default function ProductForm({
                 <textarea
                   value={activeDescription}
                   onChange={(e) => setActiveDescription(e.target.value)}
+                  onBlur={() => { if (activeLocale === "fr") markTouched("description"); }}
                   rows={4}
                   placeholder={activeLocale === "fr" ? "Description commerciale du produit…" : `Description en ${LOCALE_LABELS[activeLocale]}…`}
-                  className={`field-input resize-none${activeLocale === "fr" && !description.trim() ? " field-error" : ""}`}
+                  className={`field-input resize-none${activeLocale === "fr" && touchedFields.has("description") && !description.trim() ? " field-error" : ""}`}
                   required={activeLocale === "fr"}
                 />
+                {activeLocale === "fr" && touchedFields.has("description") && !description.trim() && (
+                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">La description est requise pour la mise en ligne.</p>
+                )}
               </div>
             </div>
 
@@ -1601,7 +1660,7 @@ export default function ProductForm({
             variants={variants}
             colorImages={colorImages}
             availableColors={localColors}
-            availableSizes={filteredSizes}
+            availableSizes={localSizes}
             onChange={setVariants}
             onChangeImages={setColorImages}
             onQuickCreateColor={handleQuickCreateColor}
@@ -1609,6 +1668,7 @@ export default function ProductForm({
             categoryId={categoryId}
             allCategories={categories.map((c) => ({ id: c.id, name: c.name }))}
             onQuickCreateSize={handleQuickCreateSize}
+            onAssignSizeToCategory={handleAssignSizeToCategory}
             variantErrors={variantErrors}
           />
         </section>
@@ -1694,7 +1754,7 @@ export default function ProductForm({
                     const errors = getCompletenessErrors();
                     if (errors.length > 0) {
                       setOnlineErrors(errors);
-                      setError("Ce produit est incomplet et ne peut pas être mis en ligne. Corrigez les erreurs ci-dessus.");
+                      setError("Ce produit ne peut pas être mis en ligne. Corrigez les erreurs ci-dessus.");
                       return;
                     }
                     if (isOutOfStock()) {
@@ -1733,8 +1793,8 @@ export default function ProductForm({
                   className="btn-primary px-10 py-3.5 text-base disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isPending
-                    ? mode === "edit" ? "Enregistrement…" : "Création en cours…"
-                    : mode === "edit" ? "Enregistrer les modifications" : "Créer le produit"}
+                    ? mode === "edit" ? "Enregistrement…" : productId ? "Enregistrement…" : "Création en cours…"
+                    : mode === "edit" ? "Enregistrer les modifications" : productId ? "Finaliser le produit" : "Créer le produit"}
                 </button>
               )}
 

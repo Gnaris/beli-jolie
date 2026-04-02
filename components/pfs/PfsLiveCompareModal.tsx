@@ -38,6 +38,7 @@ interface VariantData {
   isActive?: boolean;
   discountType: "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
+  pfsSizeRef?: string | null;
   pfsColorRef?: string | null;
   pfsColorRefLabel?: string | null;
   pfsVariantId?: string | null;
@@ -129,6 +130,28 @@ function getSubSegs(v: VariantData) {
     hex: sc.hex ?? null,
     patternImage: sc.patternImage ?? null,
   }));
+}
+
+/** Check if season/country actually differ — fall back to name comparison when IDs can't be resolved */
+function isSeasonDiff(existing: ProductData, pfs: ProductData): boolean {
+  if (!pfs.seasonName) return false;
+  if (existing.seasonId && pfs.seasonId) return existing.seasonId !== pfs.seasonId;
+  // ID-based comparison failed (PFS season not resolved) → compare by name
+  if (existing.seasonName && pfs.seasonName) {
+    return existing.seasonName.trim().toLowerCase() !== pfs.seasonName.trim().toLowerCase();
+  }
+  // One side has no season at all
+  return !!existing.seasonId !== !!pfs.seasonName;
+}
+
+function isCountryDiff(existing: ProductData, pfs: ProductData): boolean {
+  if (!pfs.manufacturingCountryName) return false;
+  if (existing.manufacturingCountryId && pfs.manufacturingCountryId) return existing.manufacturingCountryId !== pfs.manufacturingCountryId;
+  // ID-based comparison failed → compare by name
+  if (existing.manufacturingCountryName && pfs.manufacturingCountryName) {
+    return existing.manufacturingCountryName.trim().toLowerCase() !== pfs.manufacturingCountryName.trim().toLowerCase();
+  }
+  return !!existing.manufacturingCountryId !== !!pfs.manufacturingCountryName;
 }
 
 /** Normalize compositions for comparison: strip pfsRef which only exists on PFS side */
@@ -319,7 +342,7 @@ function CompareField({
         }`}>
           <div className="flex items-center gap-1.5 mb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#F59E0B] bg-[#F59E0B]/10 rounded px-1.5 py-0.5">
-              PFS (actuel)
+              Paris Fashion Shop (actuel)
             </span>
           </div>
           {isDifferent && (
@@ -350,7 +373,7 @@ function VariantCard({
   compact?: boolean;
 }) {
   const color = side === "bj" ? "#3B82F6" : "#F59E0B";
-  const label = side === "bj" ? "Boutique" : "PFS";
+  const label = side === "bj" ? "Boutique" : "Paris Fashion Shop";
 
   return (
     <div
@@ -411,12 +434,17 @@ interface VariantMatch {
 }
 
 function variantIsDiff(bj: VariantData, pfs: VariantData): boolean {
+  // Size comparison: use PFS size ref mapping when available for accurate matching
+  const bjSizeEffective = bj.pfsSizeRef ?? bj.sizeName ?? bj.size;
+  const pfsSizeEffective = pfs.sizeName ?? pfs.size;
+  const sizeDiff = bjSizeEffective !== pfsSizeEffective;
+
   return Math.abs(bj.unitPrice - pfs.unitPrice) > 0.01
     || bj.stock !== pfs.stock
     || Math.abs(bj.weight - pfs.weight) > 0.01
     || bj.discountType !== pfs.discountType
     || bj.discountValue !== pfs.discountValue
-    || (bj.sizeName ?? bj.size) !== (pfs.sizeName ?? pfs.size);
+    || sizeDiff;
 }
 
 function matchVariants(bjVariants: VariantData[], pfsVariants: VariantData[]): VariantMatch[] {
@@ -769,8 +797,8 @@ export default function PfsLiveCompareModal({
     if (existing.description !== pfs.description) count++;
     if (existing.categoryId !== pfs.categoryId) count++;
     if (normalizeComps(existing.compositions) !== normalizeComps(pfs.compositions)) count++;
-    if (existing.seasonId !== pfs.seasonId && !!pfs.seasonName) count++;
-    if (existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName) count++;
+    if (isSeasonDiff(existing, pfs)) count++;
+    if (isCountryDiff(existing, pfs)) count++;
     for (const [, val] of Object.entries(selections.variants)) {
       if (val === "pfs" || val === "add") count++;
     }
@@ -817,8 +845,8 @@ export default function PfsLiveCompareModal({
     + (existing && pfs && existing.description !== pfs.description ? 1 : 0)
     + (existing && pfs && existing.categoryId !== pfs.categoryId ? 1 : 0)
     + (existing && pfs && normalizeComps(existing.compositions) !== normalizeComps(pfs.compositions) ? 1 : 0)
-    + (existing && pfs && existing.seasonId !== pfs.seasonId && !!pfs.seasonName ? 1 : 0)
-    + (existing && pfs && existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName ? 1 : 0);
+    + (existing && pfs && isSeasonDiff(existing, pfs) ? 1 : 0)
+    + (existing && pfs && isCountryDiff(existing, pfs) ? 1 : 0);
   return (
     <>
       {/* ── Main overlay ── */}
@@ -836,7 +864,7 @@ export default function PfsLiveCompareModal({
               <div className="flex items-center gap-2 mb-1">
                 <SyncIcon className="h-5 w-5 text-[#F59E0B]" />
                 <h2 className="text-lg font-semibold text-text-primary font-heading truncate">
-                  Synchronisation PFS en direct
+                  Synchronisation Paris Fashion Shop en direct
                 </h2>
                 {existing && (
                   <span className="badge badge-neutral text-xs shrink-0">{existing.reference}</span>
@@ -849,7 +877,7 @@ export default function PfsLiveCompareModal({
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-full bg-[#F59E0B]" />
-                  PFS (en direct)
+                  Paris Fashion Shop (en direct)
                 </span>
                 {totalDiffs > 0 && (
                   <span className="badge badge-warning text-[10px]">
@@ -877,7 +905,7 @@ export default function PfsLiveCompareModal({
           {loading && (
             <div className="flex flex-col items-center justify-center p-16 gap-3">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-[#F59E0B]" />
-              <p className="text-sm text-text-secondary">Connexion à PFS en cours...</p>
+              <p className="text-sm text-text-secondary">Connexion à Paris Fashion Shop en cours...</p>
             </div>
           )}
 
@@ -1010,7 +1038,7 @@ export default function PfsLiveCompareModal({
               )}
 
               {/* ─── Saison (only if different) ─── */}
-              {existing.seasonId !== pfs.seasonId && !!pfs.seasonName && (
+              {isSeasonDiff(existing, pfs) && (
               <CompareField
                 label="Saison"
                 bjValue={existing.seasonName}
@@ -1039,7 +1067,7 @@ export default function PfsLiveCompareModal({
               )}
 
               {/* ─── Pays de fabrication (only if different) ─── */}
-              {existing.manufacturingCountryId !== pfs.manufacturingCountryId && !!pfs.manufacturingCountryName && (
+              {isCountryDiff(existing, pfs) && (
               <CompareField
                 label="Pays de fabrication"
                 bjValue={existing.manufacturingCountryName}
@@ -1121,17 +1149,17 @@ export default function PfsLiveCompareModal({
                             </span>
                             {bjV?.pfsColorRef && (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600 animate-pulse">
-                                PFS : {bjV.pfsColorRefLabel ?? bjV.pfsColorRef}
+                                Paris Fashion Shop : {bjV.pfsColorRefLabel ?? bjV.pfsColorRef}
                               </span>
                             )}
                             {match.onlyIn === "pfs" && (
-                              <span className="badge badge-success text-[10px]">Nouveau (PFS)</span>
+                              <span className="badge badge-success text-[10px]">Nouveau (Paris Fashion Shop)</span>
                             )}
                             {match.onlyIn === "bj" && (
-                              <span className="badge badge-error text-[10px]">Absent de PFS</span>
+                              <span className="badge badge-error text-[10px]">Absent de Paris Fashion Shop</span>
                             )}
                             {match.onlyIn === "both" && match.pfsDisabled && (
-                              <span className="badge badge-warning text-[10px]">Désactivé sur PFS</span>
+                              <span className="badge badge-warning text-[10px]">Désactivé sur Paris Fashion Shop</span>
                             )}
                             {match.onlyIn === "both" && !match.pfsDisabled && match.isDifferent && (
                               <span className="badge badge-warning text-[10px]">Différent</span>
@@ -1228,7 +1256,7 @@ export default function PfsLiveCompareModal({
                                   }`}
                                 >
                                   <TrashIcon className="h-3.5 w-3.5" />
-                                  Supprimer de PFS
+                                  Supprimer de Paris Fashion Shop
                                 </button>
                                 </div>
                               </div>
@@ -1245,7 +1273,7 @@ export default function PfsLiveCompareModal({
                                   }`}
                                 >
                                   <SyncIcon className="h-3.5 w-3.5" />
-                                  Envoyer vers PFS
+                                  Envoyer vers Paris Fashion Shop
                                 </button>
                                 <button
                                   onClick={() => updateVariantSelection(match.key, "pfs")}
@@ -1288,7 +1316,7 @@ export default function PfsLiveCompareModal({
                             }`}>
                               <div className="flex items-center justify-between mb-2">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-[#F59E0B] bg-[#F59E0B]/10 rounded px-1.5 py-0.5">
-                                  PFS
+                                  Paris Fashion Shop
                                 </span>
                                 <SelectButton
                                   selected={sel === "pfs"}
@@ -1339,7 +1367,7 @@ export default function PfsLiveCompareModal({
                   <div className="text-sm text-text-secondary">
                     {changesCount > 0 ? (
                       <span>
-                        <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} — les choix Boutique seront poussés vers PFS
+                        <span className="font-medium text-[#F59E0B]">{changesCount}</span> modification{changesCount > 1 ? "s" : ""} — les choix Boutique seront poussés vers Paris Fashion Shop
                       </span>
                     ) : (
                       <span>Aucune modification sélectionnée</span>

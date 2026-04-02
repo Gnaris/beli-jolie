@@ -9,7 +9,7 @@ import { logger } from "@/lib/logger";
 import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
-import { pfsUpdateStatus, type PfsStatus } from "@/lib/pfs-api-write";
+import { pfsUpdateStatus, pfsDeleteProduct, type PfsStatus } from "@/lib/pfs-api-write";
 import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
 import { triggerEfashionSync } from "@/lib/efashion-reverse-sync";
 import { triggerAnkorstoreSync } from "@/lib/ankorstore-reverse-sync";
@@ -89,6 +89,7 @@ export interface ProductInput {
   seasonId?: string | null;
   translations?: TranslationInput[];
   isIncomplete?: boolean;
+  skipPfsSync?: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -363,8 +364,10 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
 
-  // Fire-and-forget sync to PFS (eFashion & Ankorstore disabled until fully operational)
-  triggerPfsSync(product.id);
+  // Fire-and-forget sync to PFS (skip drafts and explicitly skipped)
+  if (!input.isIncomplete && !input.skipPfsSync) {
+    triggerPfsSync(product.id);
+  }
 
   return { id: product.id };
 }
@@ -762,10 +765,12 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     });
   }
 
-  // Fire-and-forget sync to PFS and eFashion
-  triggerPfsSync(id);
-  triggerEfashionSync(id);
-  triggerAnkorstoreSync(id);
+  // Fire-and-forget sync to PFS and eFashion (skip drafts and explicitly skipped)
+  if (!input.isIncomplete && !input.skipPfsSync) {
+    triggerPfsSync(id);
+    triggerEfashionSync(id);
+    triggerAnkorstoreSync(id);
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -804,11 +809,11 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
 // Supprimer un produit (bloqué si commandes existent)
 // ─────────────────────────────────────────────
 
-export async function deleteProduct(id: string) {
+export async function deleteProduct(id: string, deleteFromPfs = false) {
   await requireAdmin();
 
   // Check if product has any order items (legal: 10 years retention in France)
-  const product = await prisma.product.findUnique({ where: { id }, select: { reference: true } });
+  const product = await prisma.product.findUnique({ where: { id }, select: { reference: true, pfsProductId: true } });
   if (!product) throw new Error("Produit introuvable.");
 
   const orderCount = await prisma.orderItem.count({ where: { productRef: product.reference } });
@@ -816,6 +821,16 @@ export async function deleteProduct(id: string) {
     throw new Error(
       `Ce produit apparaît dans ${orderCount} commande(s). Il ne peut pas être supprimé (obligation légale 10 ans). Utilisez l'archivage à la place.`
     );
+  }
+
+  // Delete from PFS if requested and product is synced
+  if (deleteFromPfs && product.pfsProductId) {
+    try {
+      await pfsDeleteProduct(product.pfsProductId);
+      logger.info(`[PFS] Product ${id} deleted from PFS (${product.pfsProductId})`);
+    } catch (err) {
+      logger.error(`[PFS] Failed to delete product ${id} from PFS`, { error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   await prisma.product.delete({ where: { id } });
@@ -910,7 +925,7 @@ export async function bulkUpdateProductStatus(
   for (const product of products) {
     if (status === "ONLINE") {
       const reasons: string[] = [];
-      if (product.isIncomplete) reasons.push("produit incomplet");
+      if (product.isIncomplete) reasons.push("produit en brouillon");
       if (product.colors.length === 0) reasons.push("aucune variante");
       if (product.colors.length > 0 && product.colors.every(c => c.stock === 0)) reasons.push("aucun stock");
       const missingImgVariants = variantsWithoutImages.get(product.id);
@@ -973,15 +988,16 @@ export async function bulkUpdateProductStatus(
 }
 
 export async function bulkDeleteProducts(
-  productIds: string[]
-): Promise<{ deleted: number; protected: { id: string; reference: string; orderCount: number }[] }> {
+  productIds: string[],
+  deleteFromPfs = false,
+): Promise<{ deleted: number; protected: { id: string; reference: string; orderCount: number }[]; pfsDeleted: number }> {
   await requireAdmin();
   if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
 
   // Find products with orders — cannot be deleted
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
-    select: { id: true, reference: true },
+    select: { id: true, reference: true, pfsProductId: true },
   });
 
   const refToId = new Map(products.map((p) => [p.reference, p.id]));
@@ -1005,6 +1021,21 @@ export async function bulkDeleteProducts(
     return prod && !protectedRefs.has(prod.reference);
   });
 
+  // Delete from PFS if requested
+  let pfsDeleted = 0;
+  if (deleteFromPfs && deletableIds.length > 0) {
+    const pfsProducts = products.filter((p) => deletableIds.includes(p.id) && p.pfsProductId);
+    for (const p of pfsProducts) {
+      try {
+        await pfsDeleteProduct(p.pfsProductId!);
+        pfsDeleted++;
+        logger.info(`[PFS] Product ${p.id} deleted from PFS (${p.pfsProductId})`);
+      } catch (err) {
+        logger.error(`[PFS] Failed to delete product ${p.id} from PFS`, { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  }
+
   let deleted = 0;
   if (deletableIds.length > 0) {
     const result = await prisma.product.deleteMany({
@@ -1016,7 +1047,7 @@ export async function bulkDeleteProducts(
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
-  return { deleted, protected: protectedProducts };
+  return { deleted, protected: protectedProducts, pfsDeleted };
 }
 
 // ─────────────────────────────────────────────

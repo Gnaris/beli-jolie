@@ -727,7 +727,7 @@ function CompactSizeCard({ size, availableCategories, onChange }: {
           </div>
           <div className="mt-1 space-y-0.5">
             {size.pfsSizeRefs.length > 0 && (
-              <p className="text-[10px] text-text-secondary">PFS : <span className="font-mono">{size.pfsSizeRefs.join(", ")}</span></p>
+              <p className="text-[10px] text-text-secondary">Paris Fashion Shop : <span className="font-mono">{size.pfsSizeRefs.join(", ")}</span></p>
             )}
             {size.bjCategoryIds.length > 0 && (
               <p className="text-[10px] text-text-secondary">{size.bjCategoryIds.length} catégorie{size.bjCategoryIds.length > 1 ? "s" : ""}</p>
@@ -777,7 +777,7 @@ function CreateSizeModal({ size, availableCategories, onSave, onClose }: {
             <div>
               <h2 className="font-heading font-semibold text-text-primary">Créer une taille</h2>
               <p className="text-xs text-text-secondary mt-0.5">
-                Réf. PFS : <span className="font-mono font-semibold">{size.name}</span>
+                Réf. Paris Fashion Shop : <span className="font-mono font-semibold">{size.name}</span>
                 {size.usedBy > 0 && <span> — {size.usedBy} produit{size.usedBy > 1 ? "s" : ""}</span>}
               </p>
             </div>
@@ -794,7 +794,7 @@ function CreateSizeModal({ size, availableCategories, onSave, onClose }: {
           </div>
 
           <div className="space-y-2">
-            <label className="field-label">Références PFS liées</label>
+            <label className="field-label">Références Paris Fashion Shop liées</label>
             <div className="flex gap-2">
               <input type="text" className="field-input flex-1" value={newPfsRef} onChange={(e) => setNewPfsRef(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPfsRef(); } }}

@@ -23,7 +23,7 @@ export default function RefreshButton({ href, productId, productName, productRef
 
   async function handleClick() {
     const message = hasPfsConfig
-      ? "Le produit sera remis en \"Nouveauté\" avec la date du jour.\nSur PFS, le produit sera recréé comme nouveau."
+      ? "Le produit sera remis en \"Nouveauté\" avec la date du jour.\nSur Paris Fashion Shop, le produit sera recréé comme nouveau."
       : "Le produit sera remis en \"Nouveauté\" avec la date du jour.";
 
     const ok = await confirm({

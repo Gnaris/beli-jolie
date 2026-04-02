@@ -183,7 +183,7 @@ export async function syncProductToPfs(productId: string): Promise<void> {
 // Full Product type (loaded from DB)
 // ─────────────────────────────────────────────
 
-interface FullProduct {
+export interface FullProduct {
   id: string;
   reference: string;
   pfsProductId: string | null;
@@ -427,7 +427,7 @@ async function diffAndUpdateMetadata(
   const dimensionsChanged = buildDimensionsSuffix(product) !== (pfsDescFr.match(DIMENSIONS_REGEX)?.[0] ?? "");
   const descChanged = descTextChanged || dimensionsChanged;
   const categoryChanged = bjCategoryId !== pfsCategoryId;
-  const countryChanged = bjCountry !== pfsCountry;
+  const countryChanged = bjCountry.toUpperCase() !== pfsCountry.toUpperCase();
   const seasonChanged = !seasonMatched;
   const compositionsChanged = bjComps !== pfsComps;
 
@@ -1037,7 +1037,7 @@ async function syncStatus(
 // Validation des mappings PFS
 // ─────────────────────────────────────────────
 
-function validatePfsMappings(product: FullProduct): void {
+export function validatePfsMappings(product: FullProduct): void {
   const issues: string[] = [];
 
   // Catégorie
@@ -1057,6 +1057,19 @@ function validatePfsMappings(product: FullProduct): void {
   const seenSizeIds = new Set<string>();
   for (const variant of product.colors) {
     const hasOverride = !!variant.pfsColorRef;
+    const isMultiColor = variant.subColors.length > 0;
+    // PACK is truly multi-color only when it has multiple distinct colors across all lines
+    const packDistinctColors = variant.saleType === "PACK"
+      ? new Set(variant.packColorLines.flatMap((l) => l.colors.map((c) => c.color.id)))
+      : new Set<string>();
+    const isPackMultiColor = packDistinctColors.size > 1;
+
+    if (!hasOverride && (isMultiColor || isPackMultiColor)) {
+      const colorNames = isMultiColor
+        ? [variant.color?.name, ...variant.subColors.map((sc) => sc.color.name)].filter(Boolean).join(" + ")
+        : variant.packColorLines.flatMap((l) => l.colors.map((c) => c.color.name)).join(" + ");
+      issues.push(`Variante multi-couleur "${colorNames}" sans correspondance Paris Fashion Shop (sélectionner une couleur Paris Fashion Shop dans la variante)`);
+    }
 
     if (!hasOverride && variant.color?.id && !seenColorIds.has(variant.color.id)) {
       seenColorIds.add(variant.color.id);

@@ -96,6 +96,7 @@ interface Props {
   categoryId?: string;
   allCategories?: { id: string; name: string }[];
   onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
+  onAssignSizeToCategory?: (sizeId: string, categoryId: string) => Promise<void>;
   variantErrors?: Map<string, Set<string>>;
 }
 
@@ -792,7 +793,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                     <div className="flex items-center gap-3 pt-1">
                       <div className="flex items-center gap-1.5 shrink-0">
                         <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
-                        <span className="text-[11px] font-semibold text-text-secondary font-body">Couleur PFS</span>
+                        <span className="text-[11px] font-semibold text-text-secondary font-body">Couleur Paris Fashion Shop</span>
                       </div>
                       {!pfsData && !pfsLoading ? (
                         <button type="button" onClick={loadPfsData} className="text-[11px] text-text-secondary hover:text-text-primary underline font-body">
@@ -834,7 +835,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                   {/* PFS conflict warning */}
                   {draft.length > 1 && draftPfsColorRef && usedPfsColorRefs?.has(draftPfsColorRef) && (
                     <p className="text-[10px] text-[#EF4444] font-body">
-                      Couleur PFS déjà utilisée par « {usedPfsColorRefs.get(draftPfsColorRef)} »
+                      Couleur Paris Fashion Shop déjà utilisée par « {usedPfsColorRefs.get(draftPfsColorRef)} »
                     </p>
                   )}
 
@@ -847,7 +848,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                       <div className="flex items-center gap-1.5 pt-0.5">
                         <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
                         <span className="text-[10px] text-[#22C55E] font-body">
-                          PFS : {autoRef}
+                          Paris Fashion Shop : {autoRef}
                         </span>
                       </div>
                     );
@@ -982,7 +983,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
             <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
               {multiColorMissingPfs ? (
                 <span className="text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] px-3 py-1 rounded-lg font-body">
-                  Synchronisation PFS impossible sans correspondance couleur
+                  Synchronisation Paris Fashion Shop impossible sans correspondance couleur
                 </span>
               ) : matchingCombo ? (
                 <span className="text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] px-3 py-1 rounded-lg font-body">
@@ -1457,9 +1458,10 @@ interface SizeModalProps {
   allCategories?: { id: string; name: string }[];
   onSave: (entries: SizeEntryState[]) => void;
   onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
+  onAssignSizeToCategory?: (sizeId: string, categoryId: string) => Promise<void>;
 }
 
-function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCategories, onSave, onQuickCreateSize }: SizeModalProps) {
+function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCategories, onSave, onQuickCreateSize, onAssignSizeToCategory }: SizeModalProps) {
   const backdrop = useBackdropClose(onClose);
   const [draft, setDraft] = useState<SizeEntryState[]>(variant.sizeEntries);
   const [showCreate, setShowCreate] = useState(false);
@@ -1468,6 +1470,7 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
   const [createSaving, setCreateSaving] = useState(false);
   const [createError, setCreateError] = useState("");
   const [newPfsSizeRefs, setNewPfsSizeRefs] = useState<Set<string>>(new Set());
+  const [assigningId, setAssigningId] = useState<string | null>(null);
   const { data: pfsData, loading: pfsLoading } = usePfsAttributes();
 
   // Reset draft when variant changes
@@ -1491,6 +1494,11 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
     ? availableSizes.filter((s) => !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId))
     : availableSizes;
   const remainingSizes = filteredSizes.filter((s) => !usedSizeIds.has(s.id));
+
+  // Sizes that exist but are NOT linked to the current category
+  const unlinkedSizes = categoryId
+    ? availableSizes.filter((s) => s.categoryIds && s.categoryIds.length > 0 && !s.categoryIds.includes(categoryId))
+    : [];
 
   function toggleSize(size: AvailableSize) {
     if (usedSizeIds.has(size.id)) {
@@ -1517,7 +1525,7 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
   async function handleCreateSize() {
     if (!newSizeName.trim() || !onQuickCreateSize) return;
     if (newPfsSizeRefs.size === 0) {
-      setCreateError("Au moins un mapping PFS est requis.");
+      setCreateError("Au moins une correspondance Paris Fashion Shop est requise.");
       return;
     }
     setCreateSaving(true);
@@ -1535,6 +1543,22 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
       setCreateError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setCreateSaving(false);
+    }
+  }
+
+  async function handleAssignAndSelect(size: AvailableSize) {
+    if (!onAssignSizeToCategory || !categoryId) return;
+    setAssigningId(size.id);
+    try {
+      await onAssignSizeToCategory(size.id, categoryId);
+      // Auto-add to draft
+      if (!(isUnit && draft.length >= 1)) {
+        setDraft((prev) => [...prev, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      } else {
+        setDraft([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      }
+    } finally {
+      setAssigningId(null);
     }
   }
 
@@ -1632,6 +1656,41 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
             )}
           </div>
 
+          {/* Unlinked sizes — existing sizes from other categories */}
+          {onAssignSizeToCategory && categoryId && unlinkedSizes.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
+                Autres tailles existantes
+              </p>
+              <p className="text-[11px] text-text-muted font-body">
+                Ces tailles ne sont pas encore liées à cette catégorie. Cliquez pour les ajouter.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {unlinkedSizes.map((size) => {
+                  const isSelected = usedSizeIds.has(size.id);
+                  const isAssigning = assigningId === size.id;
+                  return (
+                    <button
+                      key={size.id}
+                      type="button"
+                      disabled={isAssigning}
+                      onClick={() => isSelected ? toggleSize(size) : handleAssignAndSelect(size)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed transition-colors font-body ${
+                        isAssigning
+                          ? "opacity-50 cursor-wait border-border text-text-muted"
+                          : isSelected
+                            ? "bg-bg-dark text-text-inverse border-[#1A1A1A] border-solid"
+                            : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark hover:text-text-primary"
+                      }`}
+                    >
+                      {isAssigning ? "..." : size.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Quick create size */}
           {onQuickCreateSize && (
             <div className="border-t border-border pt-4">
@@ -1683,10 +1742,10 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
                   {/* PFS size mapping (mandatory) */}
                   <div>
                     <p className="text-[11px] text-text-secondary font-body mb-1.5">
-                      Mapping PFS <span className="text-[#EF4444]">*</span>
+                      Correspondance Paris Fashion Shop <span className="text-[#EF4444]">*</span>
                     </p>
                     {pfsLoading ? (
-                      <p className="text-xs text-text-muted">Chargement des tailles PFS…</p>
+                      <p className="text-xs text-text-muted">Chargement des tailles Paris Fashion Shop…</p>
                     ) : pfsData?.sizes ? (
                       <PfsSizeMultiSelect
                         pfsSizes={pfsData.sizes}
@@ -1700,7 +1759,7 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
                         className="w-full"
                       />
                     ) : (
-                      <p className="text-xs text-text-muted">Tailles PFS non disponibles</p>
+                      <p className="text-xs text-text-muted">Tailles Paris Fashion Shop non disponibles</p>
                     )}
                   </div>
                   {createError && <p className="text-xs text-[#EF4444] font-body">{createError}</p>}
@@ -1761,13 +1820,14 @@ interface QuickAddModalProps {
   onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
   onColorAdded?: (color: AvailableColor) => void;
   onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
+  onAssignSizeToCategory?: (sizeId: string, categoryId: string) => Promise<void>;
   allCategories?: { id: string; name: string }[];
   onConfirm: (variants: VariantState[]) => void;
 }
 
 function QuickAddModal({
   open, onClose, existingVariants, availableColors, availableSizes,
-  categoryId, onCreateColor, onColorAdded, onQuickCreateSize, allCategories, onConfirm,
+  categoryId, onCreateColor, onColorAdded, onQuickCreateSize, onAssignSizeToCategory, allCategories, onConfirm,
 }: QuickAddModalProps) {
   const backdrop = useBackdropClose(onClose);
 
@@ -1858,11 +1918,31 @@ function QuickAddModal({
     return combos;
   }, [existingVariants]);
 
+  const [assigningId2, setAssigningId2] = useState<string | null>(null);
+
   // Filtered sizes by category
   const filteredSizes = categoryId
     ? availableSizes.filter((s) => !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId))
     : availableSizes;
   const usedSizeIds = new Set(sizeEntries.map((s) => s.sizeId));
+  const unlinkedSizes2 = categoryId
+    ? availableSizes.filter((s) => s.categoryIds && s.categoryIds.length > 0 && !s.categoryIds.includes(categoryId))
+    : [];
+
+  async function handleAssignAndSelect2(size: AvailableSize) {
+    if (!onAssignSizeToCategory || !categoryId) return;
+    setAssigningId2(size.id);
+    try {
+      await onAssignSizeToCategory(size.id, categoryId);
+      if (!(saleType === "UNIT" && sizeEntries.length >= 1)) {
+        setSizeEntries((prev) => [...prev, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      } else {
+        setSizeEntries([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      }
+    } finally {
+      setAssigningId2(null);
+    }
+  }
 
   function addColorLine() {
     setColorLines((prev) => [...prev, { id: uid(), colors: [] }]);
@@ -1923,7 +2003,7 @@ function QuickAddModal({
   async function handleCreateSize() {
     if (!newSizeName.trim() || !onQuickCreateSize) return;
     if (newPfsSizeRefs2.size === 0) {
-      setSizeCreateError("Au moins un mapping PFS est requis.");
+      setSizeCreateError("Au moins une correspondance Paris Fashion Shop est requise.");
       return;
     }
     setSizeCreateSaving(true);
@@ -2199,6 +2279,30 @@ function QuickAddModal({
                     )}
                   </div>
 
+                  {/* Unlinked sizes from other categories */}
+                  {onAssignSizeToCategory && categoryId && unlinkedSizes2.length > 0 && (
+                    <div>
+                      <p className="text-[11px] text-text-muted font-body mb-1">Autres tailles existantes :</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {unlinkedSizes2.map((size) => {
+                          const isSelected = usedSizeIds.has(size.id);
+                          const isAssigning = assigningId2 === size.id;
+                          return (
+                            <button key={size.id} type="button" disabled={isAssigning}
+                              onClick={() => isSelected ? toggleSize(size) : handleAssignAndSelect2(size)}
+                              className={`px-2.5 py-1 text-xs font-medium rounded-md border border-dashed transition-colors font-body ${
+                                isAssigning ? "opacity-50 cursor-wait border-border text-text-muted"
+                                  : isSelected ? "bg-bg-dark text-text-inverse border-[#1A1A1A] border-solid"
+                                  : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
+                              }`}>
+                              {isAssigning ? "..." : size.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* PACK: quantity per size */}
                   {saleType === "PACK" && sizeEntries.length > 0 && (
                     <div className="space-y-1.5">
@@ -2245,7 +2349,7 @@ function QuickAddModal({
                         {/* PFS size mapping (mandatory) */}
                         <div>
                           <p className="text-[11px] text-text-secondary font-body mb-1">
-                            Mapping PFS <span className="text-[#EF4444]">*</span>
+                            Correspondance Paris Fashion Shop <span className="text-[#EF4444]">*</span>
                           </p>
                           {pfsAttrData?.sizes ? (
                             <PfsSizeMultiSelect
@@ -2320,6 +2424,7 @@ export default function ColorVariantManager({
   categoryId,
   allCategories,
   onQuickCreateSize,
+  onAssignSizeToCategory,
   variantErrors,
 }: Props) {
   const { confirm: confirmDialog } = useConfirm();
@@ -2636,10 +2741,17 @@ export default function ColorVariantManager({
               const isDuplicate = duplicateTempIds.has(v.tempId);
               const isUnit = v.saleType === "UNIT";
               const vErrs = variantErrors?.get(v.tempId);
+              const isMultiColor = isUnit
+                ? v.subColors.length > 0
+                : (v.packColorLines[0]?.colors.length ?? 0) > 1;
+              const pfsMissing = !!pfsAttrData && isMultiColor && !v.pfsColorRef;
+              const imgGk = imageGroupKeyFromVariant(v);
+              const imgEntry = colorImages.find((c) => c.groupKey === imgGk);
+              const imgCount = imgEntry?.uploadedPaths.length ?? 0;
 
               return (
-                <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
-                  {/* Row 1: checkbox + type + delete */}
+                <div key={v.tempId} className={`p-3 space-y-2.5 ${pfsMissing ? "ring-2 ring-[#EF4444]/50 rounded-lg bg-[#FEF2F2]/40" : isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
+                  {/* Row 1: checkbox + type + image badge + delete */}
                   <div className="flex items-center gap-2">
                     <input type="checkbox" checked={isSelected}
                       onChange={(e) => {
@@ -2666,6 +2778,20 @@ export default function ColorVariantManager({
                       options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
                       size="sm" className="w-[75px]" />
                     <div className="flex-1" />
+                    {/* Image count badge */}
+                    <span
+                      title={imgCount === 0 ? "Aucune image" : `${imgCount} image${imgCount > 1 ? "s" : ""}`}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-body ${
+                        imgCount === 0
+                          ? "bg-[#FEE2E2] text-[#DC2626]"
+                          : "bg-bg-secondary text-text-muted"
+                      }`}
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
+                      </svg>
+                      {imgCount}/5
+                    </span>
                     {variants.length > 1 && (
                       <button type="button" onClick={() => removeVariant(v.tempId)} title="Supprimer"
                         className="p-1 text-text-muted hover:text-[#EF4444] transition-colors">
@@ -2707,6 +2833,14 @@ export default function ColorVariantManager({
                       onCreateColor={onQuickCreateColor}
                       onColorAdded={onColorAdded}
                     />
+                  )}
+                  {pfsMissing && (
+                    <span className="flex items-center gap-1 text-[10px] text-[#DC2626] font-medium">
+                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                      </svg>
+                      Correspondance Paris Fashion Shop manquante
+                    </span>
                   )}
 
                   {/* Row 3: prix / stock / poids */}
@@ -2873,12 +3007,19 @@ export default function ColorVariantManager({
                     const colorDisplayName = isUnit
                       ? ([v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ") || "Sans couleur")
                       : (v.packColorLines[0]?.colors?.map((c) => c.colorName).join(" + ") || "Aucune couleur");
+                    const isMultiColorD = isUnit
+                      ? v.subColors.length > 0
+                      : (v.packColorLines[0]?.colors.length ?? 0) > 1;
+                    const pfsMissingD = !!pfsAttrData && isMultiColorD && !v.pfsColorRef;
+                    const imgGkD = imageGroupKeyFromVariant(v);
+                    const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
+                    const imgCountD = imgEntryD?.uploadedPaths.length ?? 0;
 
                     return (
                       <tr
                         key={v.tempId}
                         className={`border-b border-border-light last:border-b-0 transition-colors ${
-                          isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "hover:bg-[#FAFAFA]"
+                          pfsMissingD ? "bg-[#FEF2F2]/60 outline outline-2 outline-[#EF4444]/40" : isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "hover:bg-[#FAFAFA]"
                         }`}
                       >
                         {/* Checkbox */}
@@ -2985,6 +3126,14 @@ export default function ColorVariantManager({
                               onColorAdded={onColorAdded}
                             />
                           )}
+                          {pfsMissingD && (
+                            <span className="flex items-center gap-1 mt-1 text-[10px] text-[#DC2626] font-medium">
+                              <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                              </svg>
+                              Correspondance Paris Fashion Shop manquante
+                            </span>
+                          )}
                         </td>
 
                         {/* Unit Price */}
@@ -3063,14 +3212,29 @@ export default function ColorVariantManager({
 
                         {/* Actions */}
                         <td className="px-2 py-2 text-center">
-                          {variants.length > 1 && (
-                            <button type="button" onClick={() => removeVariant(v.tempId)}
-                              title="Supprimer" className="p-1 text-text-muted hover:text-[#EF4444] transition-colors">
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          <div className="flex items-center justify-center gap-1">
+                            <span
+                              title={imgCountD === 0 ? "Aucune image" : `${imgCountD} image${imgCountD > 1 ? "s" : ""}`}
+                              className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold font-body ${
+                                imgCountD === 0
+                                  ? "bg-[#FEE2E2] text-[#DC2626]"
+                                  : "text-text-muted"
+                              }`}
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
                               </svg>
-                            </button>
-                          )}
+                              {imgCountD}
+                            </span>
+                            {variants.length > 1 && (
+                              <button type="button" onClick={() => removeVariant(v.tempId)}
+                                title="Supprimer" className="p-1 text-text-muted hover:text-[#EF4444] transition-colors">
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -3170,6 +3334,7 @@ export default function ColorVariantManager({
           allCategories={allCategories}
           onSave={(entries) => handleSizeSave(sizeModalVariant.tempId, entries)}
           onQuickCreateSize={onQuickCreateSize}
+          onAssignSizeToCategory={onAssignSizeToCategory}
         />
       )}
 
@@ -3184,6 +3349,7 @@ export default function ColorVariantManager({
         onCreateColor={onQuickCreateColor}
         onColorAdded={onColorAdded}
         onQuickCreateSize={onQuickCreateSize}
+        onAssignSizeToCategory={onAssignSizeToCategory}
         allCategories={allCategories}
         onConfirm={handleQuickAddConfirm}
       />

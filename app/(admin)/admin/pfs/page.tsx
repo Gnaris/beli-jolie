@@ -23,7 +23,7 @@ export default async function PfsSyncPage() {
             Paris Fashion Shop non configuré
           </h1>
           <p className="text-sm text-text-muted font-body text-center max-w-md mb-6">
-            Pour utiliser la synchronisation PFS, configurez vos identifiants Paris Fashion Shop dans les paramètres Marketplaces.
+            Pour utiliser la synchronisation Paris Fashion Shop, configurez vos identifiants Paris Fashion Shop dans les paramètres Marketplaces.
           </p>
           <Link
             href="/admin/parametres?tab=marketplaces"

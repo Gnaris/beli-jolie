@@ -626,10 +626,10 @@ export async function findOrCreateSeason(
     return existingByRef.id;
   }
 
-  // Check by name (FR label)
+  // Check by name (FR label or normalized reference)
   const frName = labels?.fr || normalized;
   const existingByName = await prisma.season.findFirst({
-    where: { name: frName },
+    where: { OR: [{ name: frName }, { name: normalized }] },
     select: { id: true, pfsRef: true },
   });
   if (existingByName) {

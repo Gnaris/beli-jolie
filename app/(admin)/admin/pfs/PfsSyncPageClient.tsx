@@ -139,7 +139,7 @@ export default function PfsSyncPageClient() {
             </svg>
           </div>
           <div>
-            <p className="text-xs text-text-secondary font-body">Produits PFS</p>
+            <p className="text-xs text-text-secondary font-body">Produits Paris Fashion Shop</p>
             <p className="text-lg font-semibold text-text-primary font-heading">
               {pfsCount !== null ? pfsCount.toLocaleString("fr-FR") : (
                 <span className="inline-block w-12 h-5 bg-bg-secondary rounded animate-pulse" />
@@ -177,7 +177,7 @@ export default function PfsSyncPageClient() {
             <>
               <span className="badge badge-success">Synchronisé</span>
               <span className="text-xs text-text-secondary font-body">
-                Les {pfsCount!.toLocaleString("fr-FR")} produits PFS sont tous importés
+                Les {pfsCount!.toLocaleString("fr-FR")} produits Paris Fashion Shop sont tous importés
               </span>
             </>
           ) : (
@@ -185,7 +185,7 @@ export default function PfsSyncPageClient() {
               <span className="badge badge-error">Désynchronisé</span>
               <span className="text-xs text-text-secondary font-body">
                 {pfsCount! > bjCount!
-                  ? `${(pfsCount! - bjCount!).toLocaleString("fr-FR")} produit(s) PFS non importé(s)`
+                  ? `${(pfsCount! - bjCount!).toLocaleString("fr-FR")} produit(s) Paris Fashion Shop non importé(s)`
                   : `${(bjCount! - pfsCount!).toLocaleString("fr-FR")} produit(s) BJ en excès`}
               </span>
             </>
@@ -250,7 +250,7 @@ export default function PfsSyncPageClient() {
               Tous les produits sont déjà importés
             </p>
             <p className="text-xs text-text-secondary mt-0.5">
-              Les {pfsCount!.toLocaleString("fr-FR")} produits PFS sont synchronisés avec la boutique.
+              Les {pfsCount!.toLocaleString("fr-FR")} produits Paris Fashion Shop sont synchronisés avec la boutique.
             </p>
           </div>
         </div>
@@ -310,7 +310,7 @@ export default function PfsSyncPageClient() {
                       d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"
                     />
                   </svg>
-                  Importer les produits inexistants depuis PFS
+                  Importer les produits inexistants depuis Paris Fashion Shop
                 </>
               )}
             </button>
