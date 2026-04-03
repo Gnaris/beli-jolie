@@ -33,6 +33,42 @@ export function normalizeColorName(name: string): string {
 }
 
 // ─────────────────────────────────────────────
+// Size parsing — "S:2,M:3,L:1" format
+// ─────────────────────────────────────────────
+
+export interface ParsedSizeEntry {
+  name: string;
+  quantity: number;
+}
+
+/**
+ * Parse size field from import file.
+ * - UNIT: "M" or "42" → [{ name: "M", quantity: 1 }]
+ * - PACK: "S:2,M:3,L:1" → [{ name: "S", quantity: 2 }, { name: "M", quantity: 3 }, { name: "L", quantity: 1 }]
+ * - PACK: "M" (no qty) → [{ name: "M", quantity: 1 }]
+ */
+export function parseSizeField(sizeStr: string | undefined, saleType: "UNIT" | "PACK"): ParsedSizeEntry[] {
+  if (!sizeStr || !sizeStr.trim()) return [];
+  const raw = sizeStr.trim();
+
+  if (saleType === "UNIT") {
+    // UNIT: single size, quantity always 1
+    return [{ name: raw, quantity: 1 }];
+  }
+
+  // PACK: "S:2,M:3,L:1" or just "M" (defaults to qty 1)
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  const entries: ParsedSizeEntry[] = [];
+  for (const part of parts) {
+    const [name, qtyStr] = part.split(":").map((s) => s.trim());
+    if (!name) continue;
+    const qty = qtyStr ? parseInt(qtyStr) : 1;
+    entries.push({ name, quantity: isNaN(qty) || qty < 1 ? 1 : qty });
+  }
+  return entries;
+}
+
+// ─────────────────────────────────────────────
 // Types (mirrored from import route)
 // ─────────────────────────────────────────────
 
@@ -215,12 +251,23 @@ function validateVariantRow(row: ProductImportRow): string[] {
   if (!row.reference) errors.push("Référence manquante.");
   if (!row.color) errors.push("Couleur manquante.");
   if (!["UNIT", "PACK"].includes(row.saleType)) errors.push("Type de vente invalide (UNIT ou PACK).");
-  if (row.saleType === "PACK" && (!row.packQuantity || row.packQuantity < 1))
-    errors.push("Quantité de pack requise pour le type PACK.");
+  if (!row.size) errors.push("Taille obligatoire.");
   if (!row.unitPrice || row.unitPrice <= 0) errors.push("Prix unitaire invalide.");
   if (row.stock == null || row.stock < 0) errors.push("Stock invalide.");
   if (row.discountType && !["PERCENT", "AMOUNT"].includes(row.discountType))
     errors.push("Type de remise invalide (PERCENT ou AMOUNT).");
+
+  // Validate size format for PACK
+  if (row.saleType === "PACK" && row.size) {
+    const parsed = parseSizeField(row.size, "PACK");
+    if (parsed.length === 0) errors.push("Format de taille invalide pour PACK (ex: S:2,M:3,L:1).");
+    const totalQty = parsed.reduce((sum, e) => sum + e.quantity, 0);
+    if (totalQty < 1) errors.push("La quantité totale du pack doit être ≥ 1.");
+    // packQuantity is auto-computed from sizes, no longer required in file
+  } else if (row.saleType === "PACK" && !row.size) {
+    // Already caught by "Taille obligatoire" above
+  }
+
   return errors;
 }
 
@@ -598,12 +645,24 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                       // PACK variants: colorId is null, colors go into PackColorLine
                       // UNIT variants: colorId = main color, sub-colors go into subColors
                       colorId: isPack ? null : mainColor.id,
-                      unitPrice: row.unitPrice,
+                      unitPrice: (() => {
+                        if (!isPack) return row.unitPrice;
+                        // PACK: unitPrice in file = per-piece price, DB stores total
+                        const sizeEntries = parseSizeField(row.size, "PACK");
+                        const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
+                        return totalQty > 0 ? Math.round(row.unitPrice * totalQty * 100) / 100 : row.unitPrice;
+                      })(),
                       weight: row.weight ? row.weight / 1000 : 0.1,
                       stock: row.stock,
                       isPrimary: hasExplicitPrimary ? (row.isPrimary === true) : ci === 0,
                       saleType: row.saleType,
-                      packQuantity: isPack ? (row.packQuantity ?? null) : null,
+                      packQuantity: isPack
+                        ? (() => {
+                            const sizeEntries = parseSizeField(row.size, "PACK");
+                            const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
+                            return totalQty > 0 ? totalQty : (row.packQuantity ?? null);
+                          })()
+                        : null,
                       discountType: row.discountType ?? null,
                       discountValue: row.discountValue ?? null,
                       // UNIT: sub-colors for multi-color variants (e.g. "Bleu/Rose/Vert")
@@ -626,11 +685,23 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           const productCategoryId = categoryId ?? product.categoryId;
           for (const { row, mainColor } of resolvedColors) {
             if (row.size) {
-              const sizeName = row.size.trim();
-              if (sizeName) {
+              const sizeEntries = parseSizeField(row.size, row.saleType);
+              if (sizeEntries.length === 0) continue;
+
+              // Find the matching ProductColor
+              // For PACK: compute expected total price to match
+              const expectedPrice = row.saleType === "PACK"
+                ? Math.round(row.unitPrice * sizeEntries.reduce((s, e) => s + e.quantity, 0) * 100) / 100
+                : row.unitPrice;
+              const pc = row.saleType === "PACK"
+                ? product.colors.find((c) => c.saleType === "PACK" && c.colorId === null && c.unitPrice.toString() === expectedPrice.toString())
+                : product.colors.find((c) => c.colorId === mainColor.id && c.saleType === row.saleType);
+              if (!pc) continue;
+
+              for (const entry of sizeEntries) {
                 const sizeEntity = await prisma.size.upsert({
-                  where: { name: sizeName },
-                  create: { name: sizeName },
+                  where: { name: entry.name },
+                  create: { name: entry.name },
                   update: {},
                 });
                 // Link size to product's category if not already linked
@@ -641,19 +712,13 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                     update: {},
                   });
                 }
-                // For PACK variants colorId is null, match by saleType + index position
-                const pc = row.saleType === "PACK"
-                  ? product.colors.find((c) => c.saleType === "PACK" && c.colorId === null && c.unitPrice.toString() === row.unitPrice.toString())
-                  : product.colors.find((c) => c.colorId === mainColor.id && c.saleType === row.saleType);
-                if (pc) {
-                  await prisma.variantSize.create({
-                    data: {
-                      productColorId: pc.id,
-                      sizeId: sizeEntity.id,
-                      quantity: 1,
-                    },
-                  });
-                }
+                await prisma.variantSize.create({
+                  data: {
+                    productColorId: pc.id,
+                    sizeId: sizeEntity.id,
+                    quantity: entry.quantity,
+                  },
+                });
               }
             }
           }

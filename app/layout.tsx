@@ -91,7 +91,7 @@ export default async function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{if(document.cookie.match(/(?:^|;)\\s*bj_admin_theme=dark/)){document.documentElement.classList.add("admin-dark")}}catch(e){}})()`,
+            __html: `(function(){try{if(document.cookie.match(/(?:^|;)\\s*bj_admin_theme=dark/)){document.documentElement.classList.add("admin-dark");document.documentElement.style.colorScheme="dark";document.documentElement.style.backgroundColor="#181B25";document.documentElement.style.color="#F5F5F5"}}catch(e){}})()`,
           }}
         />
       </head>

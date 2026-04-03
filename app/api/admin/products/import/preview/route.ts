@@ -356,8 +356,15 @@ export async function POST(req: NextRequest) {
         }
         if (!row.unitPrice || row.unitPrice <= 0) errors.push("Prix invalide.");
         if (row.stock == null || row.stock < 0) errors.push("Stock invalide.");
-        if (row.saleType === "PACK" && (!row.packQuantity || row.packQuantity < 1))
-          errors.push("Quantité de pack requise.");
+        if (!row.size) errors.push("Taille obligatoire.");
+        if (row.saleType === "PACK" && row.size) {
+          const parts = row.size.split(",").map((p: string) => p.trim()).filter(Boolean);
+          const totalQty = parts.reduce((sum: number, part: string) => {
+            const [, qtyStr] = part.split(":").map((s: string) => s.trim());
+            return sum + (qtyStr ? parseInt(qtyStr) || 1 : 1);
+          }, 0);
+          if (totalQty < 1) errors.push("Quantité totale du pack invalide.");
+        }
 
         return {
           color: row.color,
@@ -365,7 +372,7 @@ export async function POST(req: NextRequest) {
           unitPrice: row.unitPrice,
           stock: row.stock,
           packQuantity: row.packQuantity,
-          size: undefined,
+          size: row.size,
           colorFound,
           errors,
         };

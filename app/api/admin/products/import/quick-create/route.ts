@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
     pfsGender?: string;
     pfsFamilyId?: string;
     pfsCompositionRef?: string;
+    pfsCountryRef?: string;
+    pfsRef?: string; // PFS collection reference for seasons
   } = await req.json();
 
   try {
@@ -142,7 +144,12 @@ export async function POST(req: NextRequest) {
       const existing = await prisma.manufacturingCountry.findFirst({ where: { name } });
       if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
 
-      const country = await prisma.manufacturingCountry.create({ data: { name } });
+      const country = await prisma.manufacturingCountry.create({
+        data: {
+          name,
+          ...(body.pfsCountryRef ? { pfsCountryRef: body.pfsCountryRef } : {}),
+        },
+      });
       revalidateTag("manufacturing-countries", "default");
       // Fire-and-forget auto-translation
       autoTranslateManufacturingCountry(country.id, name);
@@ -153,7 +160,12 @@ export async function POST(req: NextRequest) {
       const existing = await prisma.season.findFirst({ where: { name } });
       if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
 
-      const season = await prisma.season.create({ data: { name } });
+      const season = await prisma.season.create({
+        data: {
+          name,
+          ...(body.pfsRef ? { pfsRef: body.pfsRef } : {}),
+        },
+      });
       revalidateTag("seasons", "default");
       // Fire-and-forget auto-translation
       autoTranslateSeason(season.id, name);

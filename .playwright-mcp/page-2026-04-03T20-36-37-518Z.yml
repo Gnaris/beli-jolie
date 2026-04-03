@@ -1,0 +1,516 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - link "Beli & Jolie" [ref=e5] [cursor=pointer]:
+          - /url: /
+        - paragraph [ref=e6]: Administration
+      - navigation "Navigation admin" [ref=e7]:
+        - generic [ref=e8]:
+          - paragraph [ref=e9]: Principal
+          - link "Tableau de bord" [ref=e11] [cursor=pointer]:
+            - /url: /admin
+            - img [ref=e13]
+            - generic [ref=e15]: Tableau de bord
+        - generic [ref=e16]:
+          - paragraph [ref=e17]: Catalogue
+          - generic [ref=e18]:
+            - link "Produits ⚠ 109" [ref=e19] [cursor=pointer]:
+              - /url: /admin/produits
+              - img [ref=e21]
+              - generic [ref=e23]: Produits
+              - generic [ref=e25]: ⚠ 109
+            - link "Collections" [ref=e26] [cursor=pointer]:
+              - /url: /admin/collections
+              - img [ref=e28]
+              - generic [ref=e30]: Collections
+            - link "Catalogues" [ref=e31] [cursor=pointer]:
+              - /url: /admin/catalogues
+              - img [ref=e33]
+              - generic [ref=e35]: Catalogues
+        - generic [ref=e36]:
+          - paragraph [ref=e37]: Ventes
+          - generic [ref=e38]:
+            - link "Commandes 5" [ref=e39] [cursor=pointer]:
+              - /url: /admin/commandes
+              - img [ref=e41]
+              - generic [ref=e43]: Commandes
+              - generic [ref=e45]: "5"
+            - link "Clients" [ref=e46] [cursor=pointer]:
+              - /url: /admin/utilisateurs
+              - img [ref=e48]
+              - generic [ref=e50]: Clients
+        - generic [ref=e51]:
+          - paragraph [ref=e52]: Accès
+          - link "Codes d'accès" [ref=e54] [cursor=pointer]:
+            - /url: /admin/codes-acces
+            - img [ref=e56]
+            - generic [ref=e58]: Codes d'accès
+        - generic [ref=e59]:
+          - paragraph [ref=e60]: Système
+          - generic [ref=e61]:
+            - link "Documents légaux" [ref=e62] [cursor=pointer]:
+              - /url: /admin/documents-legaux
+              - img [ref=e64]
+              - generic [ref=e66]: Documents légaux
+            - link "Paramètres" [ref=e67] [cursor=pointer]:
+              - /url: /admin/parametres
+              - img [ref=e69]
+              - generic [ref=e71]: Paramètres
+        - button "Mode client" [ref=e73]:
+          - img [ref=e74]
+          - text: Mode client
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - generic [ref=e80]: AB
+          - generic [ref=e81]:
+            - paragraph [ref=e82]: Admin Beli & Jolie
+            - paragraph [ref=e83]: Administrateur
+        - button "Deconnexion" [ref=e84]:
+          - img [ref=e85]
+          - text: Deconnexion
+    - main [ref=e88]:
+      - generic [ref=e89]:
+        - generic [ref=e90]:
+          - link "← Retour aux produits" [ref=e91] [cursor=pointer]:
+            - /url: /admin/produits
+          - link "Historique des imports" [ref=e92] [cursor=pointer]:
+            - /url: /admin/produits/importer/historique
+            - img [ref=e93]
+            - text: Historique des imports
+        - generic [ref=e95]:
+          - heading "Importation en masse" [level=1] [ref=e96]
+          - paragraph [ref=e97]: Importez vos produits via JSON ou Excel, puis associez les images
+        - generic [ref=e99]:
+          - button "📦Données produits" [ref=e100]
+          - button "🖼️Images produits" [ref=e101]
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - heading "Format d'importation" [level=3] [ref=e105]
+            - generic [ref=e106]:
+              - list [ref=e107]:
+                - listitem [ref=e108]:
+                  - text: "*"
+                  - code [ref=e109]: reference
+                  - text: — Référence unique
+                - listitem [ref=e110]:
+                  - text: "*"
+                  - code [ref=e111]: name
+                  - text: — Nom (FR)
+                - listitem [ref=e112]:
+                  - text: "*"
+                  - code [ref=e113]: color
+                  - text: "— Couleur (ex: Doré, Doré/Rouge/Noir pour multi-couleur)"
+                - listitem [ref=e114]:
+                  - text: "*"
+                  - code [ref=e115]: sale_type
+                  - text: — UNIT ou PACK
+                - listitem [ref=e116]:
+                  - text: "*"
+                  - code [ref=e117]: unit_price
+                  - text: — Prix HT (€)
+                - listitem [ref=e118]:
+                  - text: "*"
+                  - code [ref=e119]: stock
+                  - text: — Stock
+                - listitem [ref=e120]:
+                  - code [ref=e121]: pack_qty
+                  - text: ·
+                  - code [ref=e122]: category
+                  - text: ·
+                  - code [ref=e123]: tags
+                - listitem [ref=e124]:
+                  - code [ref=e125]: sub_categories
+                  - text: ·
+                  - code [ref=e126]: composition
+                - listitem [ref=e127]:
+                  - code [ref=e128]: similar_refs
+                  - text: "— Réf. produits similaires (ex: BJ-002,BJ-003)"
+              - generic [ref=e129]:
+                - paragraph [ref=e130]: Règles
+                - list [ref=e131]:
+                  - listitem [ref=e132]:
+                    - text: "• Excel :"
+                    - strong [ref=e133]: une ligne = une variante couleur
+                    - text: — même référence = même produit
+                  - listitem [ref=e134]: • Les couleurs et catégories doivent exister en base
+                  - listitem [ref=e135]:
+                    - text: • Produits créés en statut
+                    - strong [ref=e136]: Hors ligne
+                  - listitem [ref=e137]:
+                    - text: •
+                    - strong [ref=e138]: Produits similaires
+                    - text: ": si la référence n'existe pas encore, le lien sera créé automatiquement quand le produit sera importé plus tard"
+                  - listitem [ref=e139]:
+                    - text: •
+                    - strong [ref=e140]: Traitement en arrière-plan
+                    - text: ": vous pouvez fermer la page après confirmation"
+                - generic [ref=e141]:
+                  - button "↓ Template JSON" [ref=e142]
+                  - button "↓ Template Excel" [ref=e143]
+          - generic [ref=e144]:
+            - generic [ref=e146]:
+              - generic [ref=e147]: ✓
+              - text: Fichier
+            - generic [ref=e150]:
+              - generic [ref=e151]: "2"
+              - text: Résumé
+            - generic [ref=e154]:
+              - generic [ref=e155]: "3"
+              - text: Importé
+          - generic [ref=e189]:
+            - generic [ref=e190]:
+              - generic [ref=e191]:
+                - paragraph [ref=e192]: "20"
+                - paragraph [ref=e193]: Produits détectés
+              - generic [ref=e194]:
+                - paragraph [ref=e195]: "41"
+                - paragraph [ref=e196]: Variantes totales
+              - generic [ref=e197]:
+                - paragraph [ref=e198]: "20"
+                - paragraph [ref=e199]: Prêts à importer
+              - generic [ref=e200]:
+                - paragraph [ref=e201]: "0"
+                - paragraph [ref=e202]: Avec erreurs
+            - generic [ref=e203]:
+              - generic [ref=e204]:
+                - generic [ref=e205]: Statut
+                - generic [ref=e206]: Référence
+                - generic [ref=e207]: Nom / Catégorie
+                - generic [ref=e208]: Variantes couleurs
+                - generic [ref=e209]: Erreurs
+              - generic [ref=e210]:
+                - generic [ref=e211] [cursor=pointer]:
+                  - generic [ref=e212]: ✓
+                  - paragraph [ref=e214]: TSH-001
+                  - generic [ref=e215]:
+                    - paragraph [ref=e216]: T-shirt Essentiel
+                    - paragraph [ref=e217]: T-shirts
+                  - generic [ref=e219]:
+                    - text: Blanc
+                    - generic [ref=e220]: 14.9€
+                  - generic [ref=e221]:
+                    - text: OK
+                    - generic [ref=e222]: ▼
+                - generic [ref=e223] [cursor=pointer]:
+                  - generic [ref=e224]: ✓
+                  - paragraph [ref=e226]: TSH-002
+                  - generic [ref=e227]:
+                    - paragraph [ref=e228]: T-shirt Oversize Urban
+                    - paragraph [ref=e229]: T-shirts
+                  - generic [ref=e230]:
+                    - generic [ref=e231]:
+                      - text: Noir
+                      - generic [ref=e232]: 24.9€
+                    - generic [ref=e233]:
+                      - text: Noir
+                      - generic [ref=e234]: ×6
+                    - generic [ref=e235]:
+                      - text: Kaki
+                      - generic [ref=e236]: 24.9€
+                    - generic [ref=e237]:
+                      - text: Beige
+                      - generic [ref=e238]: 24.9€
+                  - generic [ref=e239]:
+                    - text: OK
+                    - generic [ref=e240]: ▼
+                - generic [ref=e241] [cursor=pointer]:
+                  - generic [ref=e242]: ✓
+                  - paragraph [ref=e244]: COL-001
+                  - generic [ref=e245]:
+                    - paragraph [ref=e246]: Collier Lune Dorée
+                    - paragraph [ref=e247]: Bijoux
+                  - generic [ref=e249]:
+                    - text: Doré
+                    - generic [ref=e250]: 29.9€
+                  - generic [ref=e251]:
+                    - text: OK
+                    - generic [ref=e252]: ▼
+                - generic [ref=e253] [cursor=pointer]:
+                  - generic [ref=e254]: ✓
+                  - paragraph [ref=e256]: COL-002
+                  - generic [ref=e257]:
+                    - paragraph [ref=e258]: Collier Triple Chaîne
+                    - paragraph [ref=e259]: Bijoux
+                  - generic [ref=e260]:
+                    - generic [ref=e261]:
+                      - text: Doré/Argenté/Or Rose
+                      - generic [ref=e262]: 34.5€
+                    - generic [ref=e263]:
+                      - text: Doré/Argenté/Or Rose
+                      - generic [ref=e264]: ×6
+                  - generic [ref=e265]:
+                    - text: OK
+                    - generic [ref=e266]: ▼
+                - generic [ref=e267] [cursor=pointer]:
+                  - generic [ref=e268]: ✓
+                  - paragraph [ref=e270]: BRC-001
+                  - generic [ref=e271]:
+                    - paragraph [ref=e272]: Bracelet Jonc Torsadé
+                    - paragraph [ref=e273]: Bijoux
+                  - generic [ref=e274]:
+                    - generic [ref=e275]:
+                      - text: Doré
+                      - generic [ref=e276]: 18.9€
+                    - generic [ref=e277]:
+                      - text: Argenté
+                      - generic [ref=e278]: 18.9€
+                  - generic [ref=e279]:
+                    - text: OK
+                    - generic [ref=e280]: ▼
+                - generic [ref=e281] [cursor=pointer]:
+                  - generic [ref=e282]: ✓
+                  - paragraph [ref=e284]: PNT-001
+                  - generic [ref=e285]:
+                    - paragraph [ref=e286]: Chino Classique Slim
+                    - paragraph [ref=e287]: Pantalons
+                  - generic [ref=e288]:
+                    - generic [ref=e289]:
+                      - text: Beige
+                      - generic [ref=e290]: 39.9€
+                    - generic [ref=e291]:
+                      - text: Marine
+                      - generic [ref=e292]: 39.9€
+                  - generic [ref=e293]:
+                    - text: OK
+                    - generic [ref=e294]: ▼
+                - generic [ref=e295] [cursor=pointer]:
+                  - generic [ref=e296]: ✓
+                  - paragraph [ref=e298]: PNT-002
+                  - generic [ref=e299]:
+                    - paragraph [ref=e300]: Cargo Wide Leg
+                    - paragraph [ref=e301]: Pantalons
+                  - generic [ref=e302]:
+                    - generic [ref=e303]:
+                      - text: Kaki
+                      - generic [ref=e304]: 49.9€
+                    - generic [ref=e305]:
+                      - text: Kaki
+                      - generic [ref=e306]: ×4
+                    - generic [ref=e307]:
+                      - text: Noir
+                      - generic [ref=e308]: 49.9€
+                  - generic [ref=e309]:
+                    - text: OK
+                    - generic [ref=e310]: ▼
+                - generic [ref=e311] [cursor=pointer]:
+                  - generic [ref=e312]: ✓
+                  - paragraph [ref=e314]: JNS-001
+                  - generic [ref=e315]:
+                    - paragraph [ref=e316]: Jean Slim Stretch
+                    - paragraph [ref=e317]: Jeans
+                  - generic [ref=e319]:
+                    - text: Bleu Moyen
+                    - generic [ref=e320]: 44.9€
+                  - generic [ref=e321]:
+                    - text: OK
+                    - generic [ref=e322]: ▼
+                - generic [ref=e323] [cursor=pointer]:
+                  - generic [ref=e324]: ✓
+                  - paragraph [ref=e326]: JNS-002
+                  - generic [ref=e327]:
+                    - paragraph [ref=e328]: Jean Wide Vintage
+                    - paragraph [ref=e329]: Jeans
+                  - generic [ref=e330]:
+                    - generic [ref=e331]:
+                      - text: Bleu Clair
+                      - generic [ref=e332]: 52€
+                    - generic [ref=e333]:
+                      - text: Noir Brut
+                      - generic [ref=e334]: 52€
+                  - generic [ref=e335]:
+                    - text: OK
+                    - generic [ref=e336]: ▼
+                - generic [ref=e337] [cursor=pointer]:
+                  - generic [ref=e338]: ✓
+                  - paragraph [ref=e340]: MOC-001
+                  - generic [ref=e341]:
+                    - paragraph [ref=e342]: Mocassin Cambridge
+                    - paragraph [ref=e343]: Chaussures
+                  - generic [ref=e344]:
+                    - generic [ref=e345]:
+                      - text: Marron
+                      - generic [ref=e346]: 89.9€
+                    - generic [ref=e347]:
+                      - text: Noir
+                      - generic [ref=e348]: 89.9€
+                  - generic [ref=e349]:
+                    - text: OK
+                    - generic [ref=e350]: ▼
+                - generic [ref=e351] [cursor=pointer]:
+                  - generic [ref=e352]: ✓
+                  - paragraph [ref=e354]: MOC-002
+                  - generic [ref=e355]:
+                    - paragraph [ref=e356]: Mocassin Souple Daim
+                    - paragraph [ref=e357]: Chaussures
+                  - generic [ref=e358]:
+                    - generic [ref=e359]:
+                      - text: Taupe
+                      - generic [ref=e360]: 69.9€
+                    - generic [ref=e361]:
+                      - text: Taupe
+                      - generic [ref=e362]: ×4
+                  - generic [ref=e363]:
+                    - text: OK
+                    - generic [ref=e364]: ▼
+                - generic [ref=e365] [cursor=pointer]:
+                  - generic [ref=e366]: ✓
+                  - paragraph [ref=e368]: CHS-001
+                  - generic [ref=e369]:
+                    - paragraph [ref=e370]: Sneaker Runner Pro
+                    - paragraph [ref=e371]: Chaussures
+                  - generic [ref=e372]:
+                    - generic [ref=e373]:
+                      - text: Blanc/Noir
+                      - generic [ref=e374]: 79.9€
+                    - generic [ref=e375]:
+                      - text: Noir/Rouge
+                      - generic [ref=e376]: 79.9€
+                  - generic [ref=e377]:
+                    - text: OK
+                    - generic [ref=e378]: ▼
+                - generic [ref=e379] [cursor=pointer]:
+                  - generic [ref=e380]: ✓
+                  - paragraph [ref=e382]: CHS-002
+                  - generic [ref=e383]:
+                    - paragraph [ref=e384]: Bottine Chelsea Cuir
+                    - paragraph [ref=e385]: Chaussures
+                  - generic [ref=e387]:
+                    - text: Noir
+                    - generic [ref=e388]: 109€
+                  - generic [ref=e389]:
+                    - text: OK
+                    - generic [ref=e390]: ▼
+                - generic [ref=e391] [cursor=pointer]:
+                  - generic [ref=e392]: ✓
+                  - paragraph [ref=e394]: SAC-001
+                  - generic [ref=e395]:
+                    - paragraph [ref=e396]: Sac Cabas Parisien
+                    - paragraph [ref=e397]: Sacs
+                  - generic [ref=e398]:
+                    - generic [ref=e399]:
+                      - text: Noir
+                      - generic [ref=e400]: 64.9€
+                    - generic [ref=e401]:
+                      - text: Camel
+                      - generic [ref=e402]: 64.9€
+                    - generic [ref=e403]:
+                      - text: Noir
+                      - generic [ref=e404]: ×3
+                  - generic [ref=e405]:
+                    - text: OK
+                    - generic [ref=e406]: ▼
+                - generic [ref=e407] [cursor=pointer]:
+                  - generic [ref=e408]: ✓
+                  - paragraph [ref=e410]: SAC-002
+                  - generic [ref=e411]:
+                    - paragraph [ref=e412]: Pochette Bandoulière Mini
+                    - paragraph [ref=e413]: Sacs
+                  - generic [ref=e415]:
+                    - text: Rose Poudré
+                    - generic [ref=e416]: 42.5€
+                  - generic [ref=e417]:
+                    - text: OK
+                    - generic [ref=e418]: ▼
+                - generic [ref=e419] [cursor=pointer]:
+                  - generic [ref=e420]: ✓
+                  - paragraph [ref=e422]: SAC-003
+                  - generic [ref=e423]:
+                    - paragraph [ref=e424]: Sac à Dos Canvas
+                    - paragraph [ref=e425]: Sacs
+                  - generic [ref=e426]:
+                    - generic [ref=e427]:
+                      - text: Gris/Marron
+                      - generic [ref=e428]: 54.9€
+                    - generic [ref=e429]:
+                      - text: Marine/Camel
+                      - generic [ref=e430]: 54.9€
+                  - generic [ref=e431]:
+                    - text: OK
+                    - generic [ref=e432]: ▼
+                - generic [ref=e433] [cursor=pointer]:
+                  - generic [ref=e434]: ✓
+                  - paragraph [ref=e436]: CHP-001
+                  - generic [ref=e437]:
+                    - paragraph [ref=e438]: Fedora Laine Premium
+                    - paragraph [ref=e439]: Chapeaux
+                  - generic [ref=e440]:
+                    - generic [ref=e441]:
+                      - text: Camel
+                      - generic [ref=e442]: 35€
+                    - generic [ref=e443]:
+                      - text: Noir
+                      - generic [ref=e444]: 35€
+                    - generic [ref=e445]:
+                      - text: Camel
+                      - generic [ref=e446]: ×6
+                  - generic [ref=e447]:
+                    - text: OK
+                    - generic [ref=e448]: ▼
+                - generic [ref=e449] [cursor=pointer]:
+                  - generic [ref=e450]: ✓
+                  - paragraph [ref=e452]: CHP-002
+                  - generic [ref=e453]:
+                    - paragraph [ref=e454]: Bonnet Côtelé Chaud
+                    - paragraph [ref=e455]: Chapeaux
+                  - generic [ref=e457]:
+                    - text: Gris Chiné
+                    - generic [ref=e458]: 19.9€
+                  - generic [ref=e459]:
+                    - text: OK
+                    - generic [ref=e460]: ▼
+                - generic [ref=e461] [cursor=pointer]:
+                  - generic [ref=e462]: ✓
+                  - paragraph [ref=e464]: GNT-001
+                  - generic [ref=e465]:
+                    - paragraph [ref=e466]: Gants Cuir Doublés
+                    - paragraph [ref=e467]: Accessoires
+                  - generic [ref=e468]:
+                    - generic [ref=e469]:
+                      - text: Noir
+                      - generic [ref=e470]: 49.9€
+                    - generic [ref=e471]:
+                      - text: Marron/Beige
+                      - generic [ref=e472]: 52.9€
+                    - generic [ref=e473]:
+                      - text: Noir
+                      - generic [ref=e474]: ×6
+                  - generic [ref=e475]:
+                    - text: OK
+                    - generic [ref=e476]: ▼
+                - generic [ref=e477] [cursor=pointer]:
+                  - generic [ref=e478]: ✓
+                  - paragraph [ref=e480]: TSH-003
+                  - generic [ref=e481]:
+                    - paragraph [ref=e482]: T-shirt Uni Lot Pro
+                    - paragraph [ref=e483]: T-shirts
+                  - generic [ref=e484]:
+                    - generic [ref=e485]:
+                      - text: Blanc
+                      - generic [ref=e486]: ×12
+                    - generic [ref=e487]:
+                      - text: Noir
+                      - generic [ref=e488]: ×12
+                    - generic [ref=e489]:
+                      - text: Gris Chiné
+                      - generic [ref=e490]: ×12
+                  - generic [ref=e491]:
+                    - text: OK
+                    - generic [ref=e492]: ▼
+            - generic [ref=e493]:
+              - button "← Changer de fichier" [ref=e494] [cursor=pointer]
+              - generic [ref=e495]:
+                - paragraph [ref=e496]: 20 produit(s) prêts.
+                - button "Confirmer l'importation (20)" [ref=e497] [cursor=pointer]
+        - generic [ref=e168]:
+          - heading "Importer des produits" [level=2] [ref=e169]
+          - paragraph [ref=e170]: Importez vos produits depuis les plateformes externes
+          - link "Paris Fashion Shop Importé depuis PFS" [ref=e172] [cursor=pointer]:
+            - /url: /admin/pfs
+            - generic [ref=e173]:
+              - img [ref=e175]
+              - generic [ref=e177]: Paris Fashion Shop
+            - paragraph [ref=e178]: Importé depuis PFS
+  - button "Open Next.js Dev Tools" [ref=e184] [cursor=pointer]:
+    - img [ref=e185]
+  - alert [ref=e188]

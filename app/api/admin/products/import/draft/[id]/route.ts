@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { normalizeColorName } from "@/lib/import-processor";
+import { normalizeColorName, parseSizeField } from "@/lib/import-processor";
 import { processProductImage } from "@/lib/image-processor";
 import { mkdir } from "fs/promises";
 import path from "path";
@@ -157,12 +157,25 @@ async function handleProductRowFix(
         colors: {
           create: [{
             colorId: color.id,
-            unitPrice: Number(row.unitPrice),
+            unitPrice: (() => {
+              const isPack = row.saleType === "PACK";
+              const price = Number(row.unitPrice);
+              if (!isPack) return price;
+              const sizeEntries = parseSizeField(row.size ? String(row.size) : undefined, "PACK");
+              const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
+              return totalQty > 0 ? Math.round(price * totalQty * 100) / 100 : price;
+            })(),
             weight: row.weight ? Number(row.weight) / 1000 : 0.1,
             stock: Number(row.stock),
             isPrimary: true,
             saleType: row.saleType === "PACK" ? "PACK" : "UNIT",
-            packQuantity: row.saleType === "PACK" ? (Number(row.packQuantity) || null) : null,
+            packQuantity: row.saleType === "PACK"
+              ? (() => {
+                  const sizeEntries = parseSizeField(row.size ? String(row.size) : undefined, "PACK");
+                  const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
+                  return totalQty > 0 ? totalQty : (Number(row.packQuantity) || null);
+                })()
+              : null,
             discountType: row.discountType ? String(row.discountType) as "PERCENT" | "AMOUNT" : null,
             discountValue: row.discountValue ? Number(row.discountValue) : null,
           }],
@@ -171,22 +184,23 @@ async function handleProductRowFix(
       include: { colors: true },
     });
 
-    // Create VariantSize if size is provided
+    // Create VariantSize records (supports multi-size for PACK)
     if (row.size) {
-      const sizeName = String(row.size).trim();
-      if (sizeName) {
-        const sizeEntity = await prisma.size.upsert({
-          where: { name: sizeName },
-          create: { name: sizeName },
-          update: {},
-        });
-        const pc = newProduct.colors[0];
-        if (pc) {
+      const saleType = row.saleType === "PACK" ? "PACK" as const : "UNIT" as const;
+      const sizeEntries = parseSizeField(String(row.size), saleType);
+      const pc = newProduct.colors[0];
+      if (pc && sizeEntries.length > 0) {
+        for (const entry of sizeEntries) {
+          const sizeEntity = await prisma.size.upsert({
+            where: { name: entry.name },
+            create: { name: entry.name },
+            update: {},
+          });
           await prisma.variantSize.create({
             data: {
               productColorId: pc.id,
               sizeId: sizeEntity.id,
-              quantity: 1,
+              quantity: entry.quantity,
             },
           });
         }

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import * as XLSX from "xlsx";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
+import { parseSizeField } from "@/lib/import-processor";
 
 // ─────────────────────────────────────────────
 // Types
@@ -72,7 +73,7 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     isPrimary: String(raw["is_primary"] ?? raw["primaire"] ?? "").toLowerCase() === "true" || String(raw["is_primary"] ?? "1") === "1",
     discountType: (str(raw["discount_type"] ?? raw["remise_type"]).toUpperCase() as "PERCENT" | "AMOUNT") || undefined,
     discountValue: num(raw["discount_value"] ?? raw["remise_valeur"]),
-    size: str(raw["size"] ?? raw["taille"]) || undefined,
+    size: str(raw["size"] ?? raw["taille"] ?? raw["Taille"]) || undefined,
     tags: str(raw["tags"]) || undefined,
     composition: str(raw["composition"]) || undefined,
   };
@@ -131,12 +132,15 @@ function validateVariantRow(row: ProductImportRow): string[] {
   const errors: string[] = [];
   if (!row.color) errors.push("Couleur manquante.");
   if (!["UNIT", "PACK"].includes(row.saleType)) errors.push("Type de vente invalide (UNIT ou PACK).");
-  if (row.saleType === "PACK" && (!row.packQuantity || row.packQuantity < 1))
-    errors.push("Quantité de pack requise pour le type PACK.");
+  if (!row.size) errors.push("Taille obligatoire.");
   if (!row.unitPrice || row.unitPrice <= 0) errors.push("Prix unitaire invalide.");
   if (row.stock == null || row.stock < 0) errors.push("Stock invalide.");
   if (row.discountType && !["PERCENT", "AMOUNT"].includes(row.discountType))
     errors.push("Type de remise invalide (PERCENT ou AMOUNT).");
+  if (row.saleType === "PACK" && row.size) {
+    const parsed = parseSizeField(row.size, "PACK");
+    if (parsed.length === 0) errors.push("Format de taille invalide pour PACK (ex: S:2,M:3,L:1).");
+  }
   return errors;
 }
 
@@ -352,17 +356,26 @@ async function createProductsInBackground(
           tags: tagIds.length > 0 ? { create: tagIds.map((id) => ({ tagId: id })) } : undefined,
           compositions: compPairs.length > 0 ? { create: compPairs } : undefined,
           colors: {
-            create: resolvedColors.map(({ row, color }, i) => ({
-              colorId: color.id,
-              unitPrice: row.unitPrice,
-              weight: row.weight ? row.weight / 1000 : 0.1, // g → kg
-              stock: row.stock,
-              isPrimary: row.isPrimary || i === 0,
-              saleType: row.saleType,
-              packQuantity: row.saleType === "PACK" ? (row.packQuantity ?? null) : null,
-              discountType: row.discountType ?? null,
-              discountValue: row.discountValue ?? null,
-            })),
+            create: resolvedColors.map(({ row, color }, i) => {
+              const isPack = row.saleType === "PACK";
+              const sizeEntries = isPack ? parseSizeField(row.size, "PACK") : [];
+              const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
+              return {
+                colorId: isPack ? null : color.id,
+                unitPrice: isPack && totalQty > 0
+                  ? Math.round(row.unitPrice * totalQty * 100) / 100
+                  : row.unitPrice,
+                weight: row.weight ? row.weight / 1000 : 0.1, // g → kg
+                stock: row.stock,
+                isPrimary: row.isPrimary || i === 0,
+                saleType: row.saleType,
+                packQuantity: isPack
+                  ? (totalQty > 0 ? totalQty : (row.packQuantity ?? null))
+                  : null,
+                discountType: row.discountType ?? null,
+                discountValue: row.discountValue ?? null,
+              };
+            }),
           },
         },
         include: { colors: true },
@@ -371,23 +384,31 @@ async function createProductsInBackground(
       // Create VariantSize records for variants with a size value
       for (const { row, color } of resolvedColors) {
         if (row.size) {
-          const sizeName = row.size.trim();
-          if (sizeName) {
+          const sizeEntries = parseSizeField(row.size, row.saleType);
+          if (sizeEntries.length === 0) continue;
+
+          const isPack = row.saleType === "PACK";
+          const expectedPrice = isPack
+            ? Math.round(row.unitPrice * sizeEntries.reduce((s, e) => s + e.quantity, 0) * 100) / 100
+            : row.unitPrice;
+          const pc = isPack
+            ? newProduct.colors.find((c) => c.saleType === "PACK" && c.colorId === null && c.unitPrice.toString() === expectedPrice.toString())
+            : newProduct.colors.find((c) => c.colorId === color.id && c.saleType === row.saleType);
+          if (!pc) continue;
+
+          for (const entry of sizeEntries) {
             const sizeEntity = await prisma.size.upsert({
-              where: { name: sizeName },
-              create: { name: sizeName },
+              where: { name: entry.name },
+              create: { name: entry.name },
               update: {},
             });
-            const pc = newProduct.colors.find((c) => c.colorId === color.id);
-            if (pc) {
-              await prisma.variantSize.create({
-                data: {
-                  productColorId: pc.id,
-                  sizeId: sizeEntity.id,
-                  quantity: 1,
-                },
-              });
-            }
+            await prisma.variantSize.create({
+              data: {
+                productColorId: pc.id,
+                sizeId: sizeEntity.id,
+                quantity: entry.quantity,
+              },
+            });
           }
         }
       }

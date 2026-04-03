@@ -7,30 +7,82 @@ import CustomSelect from "@/components/ui/CustomSelect";
 import { revalidateAfterImport } from "@/app/actions/admin/products";
 import type { PreviewResult, PreviewProduct, MissingEntity } from "@/app/api/admin/products/import/preview/route";
 
-// PFS attribute types for mapping dropdowns
+// PFS attribute types for correspondance dropdowns
 interface PfsColor { reference: string; value: string; image: string | null; labels: Record<string, string> }
 interface PfsCategory { id: string; family: { id: string }; labels: Record<string, string>; gender: string }
 interface PfsComposition { id: string; reference: string; labels: Record<string, string> }
 interface PfsFamily { id: string; labels: Record<string, string>; gender: string }
 interface PfsGender { reference: string; labels: Record<string, string> }
+interface PfsCountry { reference: string; labels: Record<string, string>; preview: string | null }
+interface PfsCollection { id: string; reference: string; labels: Record<string, string> }
 interface PfsAttributes {
   colors: PfsColor[];
   categories: PfsCategory[];
   compositions: PfsComposition[];
+  countries: PfsCountry[];
+  collections: PfsCollection[];
   families: PfsFamily[];
   genders: PfsGender[];
   pfsDisabled?: boolean;
 }
 
+// ─── Fuzzy matching for PFS auto-suggestion ───────────────────────
+/** Normalize a string for fuzzy comparison: lowercase, strip diacritics, trim */
+function normalizePfs(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+/** Build singular/plural variants of a normalized string */
+function buildVariants(norm: string): string[] {
+  const variants = [norm];
+  // French plural rules: -s, -x, -aux
+  if (norm.endsWith("s")) variants.push(norm.slice(0, -1));
+  else variants.push(norm + "s");
+  if (norm.endsWith("x")) variants.push(norm.slice(0, -1));
+  else if (!norm.endsWith("s")) variants.push(norm + "x");
+  if (norm.endsWith("aux")) variants.push(norm.slice(0, -3) + "al"); // bijoux→bijou not needed but nationaux→national
+  if (norm.endsWith("al")) variants.push(norm.slice(0, -2) + "aux");
+  return [...new Set(variants)];
+}
+
+/** Try to find the best PFS match for a local entity name among PFS items.
+ *  Returns the value (reference/id) of the best match, or "" if no match found.
+ *  STRICT matching only: exact label/reference match, or singular↔plural. No fuzzy/contains. */
+function findBestPfsMatch(
+  localName: string,
+  items: { value: string; labels: Record<string, string>; reference?: string }[],
+): string {
+  const norm = normalizePfs(localName);
+  if (!norm) return "";
+
+  const variants = buildVariants(norm);
+
+  for (const item of items) {
+    const candidates = Object.values(item.labels).map(normalizePfs);
+    if (item.reference) candidates.push(normalizePfs(item.reference));
+    // Expand candidates with their own singular/plural variants
+    const expandedCandidates = new Set(candidates.flatMap(buildVariants));
+    for (const v of variants) {
+      if (expandedCandidates.has(v)) return item.value;
+    }
+  }
+
+  return "";
+}
+
+// Catégories = nom spécifique (T-shirt, Collier, Bracelet, Mocassin…)
+// Sous-catégories = descriptif (Manche courte, Sautoir, Jonc, Slim…)
+// Taille obligatoire : UNIT = nom simple, PACK = "taille:qté,taille:qté"
+// Prix PACK = prix à la pièce (le total est auto-calculé)
 const TEMPLATE_JSON = JSON.stringify(
   [
-    // ─── 1. T-shirt basique : 1 couleur, UNIT, simple ───
+    // ─── 1. T-shirt basique : 1 couleur, UNIT ───
     {
       reference: "TSH-001",
       name: "T-shirt Essentiel",
       description: "T-shirt col rond en coton bio, coupe droite",
-      category: "T-shirts",
-      sub_categories: ["Basiques"],
+      category: "T-shirt",
+      sub_categories: ["Manche courte", "Basique"],
       tags: ["basique", "coton", "essentiel"],
       compositions: [{ material: "Coton", percentage: 100 }],
       season: "Été 2026",
@@ -40,12 +92,12 @@ const TEMPLATE_JSON = JSON.stringify(
         { color: "Blanc", saleType: "UNIT", unitPrice: 14.90, stock: 500, weight: 180, isPrimary: true, size: "M" },
       ],
     },
-    // ─── 2. T-shirt premium : 3 couleurs, UNIT + PACK, remise sur 1 couleur ───
+    // ─── 2. T-shirt premium : 3 couleurs, UNIT + PACK multi-tailles ───
     {
       reference: "TSH-002",
       name: "T-shirt Oversize Urban",
       description: "T-shirt oversize à épaules tombantes, toucher doux",
-      category: "T-shirts",
+      category: "T-shirt",
       sub_categories: ["Oversize", "Streetwear"],
       tags: ["oversize", "streetwear", "urban"],
       compositions: [
@@ -57,7 +109,7 @@ const TEMPLATE_JSON = JSON.stringify(
       similar_refs: ["TSH-001"],
       colors: [
         { color: "Noir", saleType: "UNIT", unitPrice: 24.90, stock: 300, weight: 220, isPrimary: true, size: "L" },
-        { color: "Noir", saleType: "PACK", unitPrice: 19.90, stock: 50, weight: 220, packQuantity: 6 },
+        { color: "Noir", saleType: "PACK", unitPrice: 3.30, stock: 50, weight: 220, size: "S:1,M:2,L:2,XL:1" },
         { color: "Kaki", saleType: "UNIT", unitPrice: 24.90, stock: 200, weight: 220, size: "M" },
         { color: "Beige", saleType: "UNIT", unitPrice: 24.90, stock: 250, weight: 220, size: "S", discountType: "PERCENT", discountValue: 10 },
       ],
@@ -67,8 +119,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "COL-001",
       name: "Collier Lune Dorée",
       description: "Collier fin avec pendentif croissant de lune, plaqué or 18k",
-      category: "Bijoux",
-      sub_categories: ["Colliers", "Pendentifs"],
+      category: "Collier",
+      sub_categories: ["Sautoir", "Pendentif"],
       tags: ["lune", "pendentif", "plaqué or", "élégant"],
       compositions: [
         { material: "Laiton", percentage: 85 },
@@ -77,24 +129,24 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "France",
       similar_refs: ["COL-002", "BRC-001"],
       colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 29.90, stock: 150, weight: 12, isPrimary: true, discountType: "PERCENT", discountValue: 15 },
+        { color: "Doré", saleType: "UNIT", unitPrice: 29.90, stock: 150, weight: 12, isPrimary: true, size: "45cm", discountType: "PERCENT", discountValue: 15 },
       ],
     },
-    // ─── 4. Collier multi-rang : multi-couleurs, UNIT + PACK avec remise ───
+    // ─── 4. Collier multi-rang : multi-couleurs, UNIT + PACK ───
     {
       reference: "COL-002",
       name: "Collier Triple Chaîne",
       description: "Collier trois rangs superposables, maille fine",
-      category: "Bijoux",
-      sub_categories: ["Colliers"],
+      category: "Collier",
+      sub_categories: ["Multi-rang"],
       tags: ["multi-rang", "superposable", "chaîne"],
       compositions: [{ material: "Acier inoxydable", percentage: 100 }],
       season: "Printemps 2026",
       manufacturing_country: "Italie",
       similar_refs: ["COL-001"],
       colors: [
-        { color: "Doré/Argenté/Or Rose", saleType: "UNIT", unitPrice: 34.50, stock: 80, weight: 18, isPrimary: true },
-        { color: "Doré/Argenté/Or Rose", saleType: "PACK", unitPrice: 28.00, stock: 20, weight: 18, packQuantity: 6, discountType: "PERCENT", discountValue: 20 },
+        { color: "Doré/Argenté/Or Rose", saleType: "UNIT", unitPrice: 34.50, stock: 80, weight: 18, isPrimary: true, size: "42cm" },
+        { color: "Doré/Argenté/Or Rose", saleType: "PACK", unitPrice: 4.70, stock: 20, weight: 18, size: "40cm:2,45cm:3,50cm:1", discountType: "PERCENT", discountValue: 20 },
       ],
     },
     // ─── 5. Bracelet jonc : 2 couleurs, remise AMOUNT ───
@@ -102,8 +154,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "BRC-001",
       name: "Bracelet Jonc Torsadé",
       description: "Bracelet jonc fin torsadé, ajustable",
-      category: "Bijoux",
-      sub_categories: ["Bracelets"],
+      category: "Bracelet",
+      sub_categories: ["Jonc"],
       tags: ["jonc", "torsadé", "ajustable"],
       compositions: [
         { material: "Laiton", percentage: 90 },
@@ -112,8 +164,8 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "France",
       similar_refs: ["COL-001", "COL-002"],
       colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 18.90, stock: 300, weight: 25, isPrimary: true, discountType: "AMOUNT", discountValue: 3 },
-        { color: "Argenté", saleType: "UNIT", unitPrice: 18.90, stock: 200, weight: 25, discountType: "AMOUNT", discountValue: 3 },
+        { color: "Doré", saleType: "UNIT", unitPrice: 18.90, stock: 300, weight: 25, isPrimary: true, size: "Unique", discountType: "AMOUNT", discountValue: 3 },
+        { color: "Argenté", saleType: "UNIT", unitPrice: 18.90, stock: 200, weight: 25, size: "Unique", discountType: "AMOUNT", discountValue: 3 },
       ],
     },
     // ─── 6. Pantalon chino : 2 couleurs, UNIT ───
@@ -121,8 +173,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "PNT-001",
       name: "Chino Classique Slim",
       description: "Pantalon chino coupe slim, taille mi-haute",
-      category: "Pantalons",
-      sub_categories: ["Chinos"],
+      category: "Pantalon",
+      sub_categories: ["Chino", "Slim"],
       tags: ["chino", "slim", "classique"],
       compositions: [
         { material: "Coton", percentage: 98 },
@@ -136,13 +188,13 @@ const TEMPLATE_JSON = JSON.stringify(
         { color: "Marine", saleType: "UNIT", unitPrice: 39.90, stock: 150, weight: 450, size: "40" },
       ],
     },
-    // ─── 7. Pantalon cargo : UNIT + PACK, remise PERCENT sur PACK ───
+    // ─── 7. Pantalon cargo : UNIT + PACK multi-tailles ───
     {
       reference: "PNT-002",
       name: "Cargo Wide Leg",
       description: "Pantalon cargo coupe large avec poches latérales",
-      category: "Pantalons",
-      sub_categories: ["Cargo", "Streetwear"],
+      category: "Pantalon",
+      sub_categories: ["Cargo", "Wide"],
       tags: ["cargo", "wide", "streetwear", "poches"],
       compositions: [{ material: "Coton", percentage: 100 }],
       season: "Automne 2026",
@@ -150,7 +202,7 @@ const TEMPLATE_JSON = JSON.stringify(
       similar_refs: ["PNT-001"],
       colors: [
         { color: "Kaki", saleType: "UNIT", unitPrice: 49.90, stock: 120, weight: 520, isPrimary: true, size: "44" },
-        { color: "Kaki", saleType: "PACK", unitPrice: 42.00, stock: 30, weight: 520, packQuantity: 4, discountType: "PERCENT", discountValue: 10 },
+        { color: "Kaki", saleType: "PACK", unitPrice: 10.50, stock: 30, weight: 520, size: "40:1,42:1,44:1,46:1", discountType: "PERCENT", discountValue: 10 },
         { color: "Noir", saleType: "UNIT", unitPrice: 49.90, stock: 100, weight: 520, size: "42" },
       ],
     },
@@ -159,8 +211,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "JNS-001",
       name: "Jean Slim Stretch",
       description: "Jean slim confortable avec stretch, délavage moyen",
-      category: "Jeans",
-      sub_categories: ["Slim"],
+      category: "Jean",
+      sub_categories: ["Slim", "Stretch"],
       tags: ["slim", "stretch", "délavé"],
       compositions: [
         { material: "Coton", percentage: 92 },
@@ -178,7 +230,7 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "JNS-002",
       name: "Jean Wide Vintage",
       description: "Jean coupe large inspiration 90s, taille haute",
-      category: "Jeans",
+      category: "Jean",
       sub_categories: ["Wide", "Vintage"],
       tags: ["wide", "vintage", "90s", "taille haute"],
       compositions: [{ material: "Coton", percentage: 100 }],
@@ -195,8 +247,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "MOC-001",
       name: "Mocassin Cambridge",
       description: "Mocassin en cuir pleine fleur, semelle cousue Blake",
-      category: "Chaussures",
-      sub_categories: ["Mocassins"],
+      category: "Mocassin",
+      sub_categories: ["Cuir", "Classique"],
       tags: ["cuir", "élégant", "blake", "classique"],
       compositions: [{ material: "Cuir", percentage: 100 }],
       manufacturing_country: "Italie",
@@ -206,13 +258,13 @@ const TEMPLATE_JSON = JSON.stringify(
         { color: "Noir", saleType: "UNIT", unitPrice: 89.90, stock: 60, weight: 380, size: "42" },
       ],
     },
-    // ─── 11. Mocassin daim : UNIT + PACK, remise PERCENT ───
+    // ─── 11. Mocassin daim : UNIT + PACK multi-tailles ───
     {
       reference: "MOC-002",
       name: "Mocassin Souple Daim",
       description: "Mocassin en daim souple, intérieur cuir, semelle gomme",
-      category: "Chaussures",
-      sub_categories: ["Mocassins"],
+      category: "Mocassin",
+      sub_categories: ["Daim", "Décontracté"],
       tags: ["daim", "souple", "décontracté"],
       compositions: [
         { material: "Daim", percentage: 80 },
@@ -223,7 +275,7 @@ const TEMPLATE_JSON = JSON.stringify(
       similar_refs: ["MOC-001"],
       colors: [
         { color: "Taupe", saleType: "UNIT", unitPrice: 69.90, stock: 100, weight: 320, isPrimary: true, size: "41", discountType: "PERCENT", discountValue: 20 },
-        { color: "Taupe", saleType: "PACK", unitPrice: 59.90, stock: 15, weight: 320, packQuantity: 4, discountType: "PERCENT", discountValue: 25 },
+        { color: "Taupe", saleType: "PACK", unitPrice: 14.90, stock: 15, weight: 320, size: "40:1,41:1,42:1,43:1", discountType: "PERCENT", discountValue: 25 },
       ],
     },
     // ─── 12. Basket running : multi-couleurs, UNIT ───
@@ -231,8 +283,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "CHS-001",
       name: "Sneaker Runner Pro",
       description: "Basket de running légère, semelle amorti mousse",
-      category: "Chaussures",
-      sub_categories: ["Baskets", "Running"],
+      category: "Basket",
+      sub_categories: ["Running", "Sport"],
       tags: ["running", "léger", "amorti", "sport"],
       compositions: [
         { material: "Synthétique", percentage: 70 },
@@ -245,13 +297,13 @@ const TEMPLATE_JSON = JSON.stringify(
         { color: "Noir/Rouge", saleType: "UNIT", unitPrice: 79.90, stock: 150, weight: 290, size: "42" },
       ],
     },
-    // ─── 13. Bottine chelsea : UNIT simple ───
+    // ─── 13. Bottine chelsea : UNIT ───
     {
       reference: "CHS-002",
       name: "Bottine Chelsea Cuir",
       description: "Bottine chelsea en cuir lisse, élastique latéral, bout arrondi",
-      category: "Chaussures",
-      sub_categories: ["Bottines"],
+      category: "Bottine",
+      sub_categories: ["Chelsea", "Cuir"],
       tags: ["chelsea", "bottine", "cuir", "classique"],
       compositions: [
         { material: "Cuir", percentage: 90 },
@@ -269,8 +321,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "SAC-001",
       name: "Sac Cabas Parisien",
       description: "Sac cabas structuré en cuir grainé, double anse, poche intérieure zippée",
-      category: "Sacs",
-      sub_categories: ["Cabas", "Sacs à main"],
+      category: "Sac",
+      sub_categories: ["Cabas", "Cuir"],
       tags: ["cabas", "cuir", "parisien", "élégant"],
       compositions: [
         { material: "Cuir", percentage: 85 },
@@ -280,9 +332,9 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "France",
       similar_refs: ["SAC-002", "SAC-003"],
       colors: [
-        { color: "Noir", saleType: "UNIT", unitPrice: 64.90, stock: 90, weight: 650, isPrimary: true },
-        { color: "Camel", saleType: "UNIT", unitPrice: 64.90, stock: 70, weight: 650 },
-        { color: "Noir", saleType: "PACK", unitPrice: 55.00, stock: 20, weight: 650, packQuantity: 3 },
+        { color: "Noir", saleType: "UNIT", unitPrice: 64.90, stock: 90, weight: 650, isPrimary: true, size: "Unique" },
+        { color: "Camel", saleType: "UNIT", unitPrice: 64.90, stock: 70, weight: 650, size: "Unique" },
+        { color: "Noir", saleType: "PACK", unitPrice: 18.30, stock: 20, weight: 650, size: "Unique:3" },
       ],
     },
     // ─── 15. Pochette bandoulière : UNIT, remise PERCENT ───
@@ -290,8 +342,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "SAC-002",
       name: "Pochette Bandoulière Mini",
       description: "Mini sac bandoulière en cuir souple, bandoulière amovible chaîne dorée",
-      category: "Sacs",
-      sub_categories: ["Bandoulière", "Pochettes"],
+      category: "Pochette",
+      sub_categories: ["Bandoulière", "Mini"],
       tags: ["pochette", "mini", "bandoulière", "chaîne"],
       compositions: [
         { material: "Cuir", percentage: 90 },
@@ -301,7 +353,7 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "Italie",
       similar_refs: ["SAC-001"],
       colors: [
-        { color: "Rose Poudré", saleType: "UNIT", unitPrice: 42.50, stock: 120, weight: 280, isPrimary: true, discountType: "PERCENT", discountValue: 15 },
+        { color: "Rose Poudré", saleType: "UNIT", unitPrice: 42.50, stock: 120, weight: 280, isPrimary: true, size: "Unique", discountType: "PERCENT", discountValue: 15 },
       ],
     },
     // ─── 16. Sac à dos : multi-couleurs, UNIT ───
@@ -309,8 +361,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "SAC-003",
       name: "Sac à Dos Canvas",
       description: "Sac à dos en toile épaisse avec empiècements cuir, compartiment laptop 15 pouces",
-      category: "Sacs",
-      sub_categories: ["Sacs à dos"],
+      category: "Sac à dos",
+      sub_categories: ["Toile", "Laptop"],
       tags: ["sac à dos", "canvas", "laptop", "voyage"],
       compositions: [
         { material: "Toile", percentage: 75 },
@@ -319,17 +371,17 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "Inde",
       similar_refs: ["SAC-001"],
       colors: [
-        { color: "Gris/Marron", saleType: "UNIT", unitPrice: 54.90, stock: 90, weight: 750, isPrimary: true },
-        { color: "Marine/Camel", saleType: "UNIT", unitPrice: 54.90, stock: 60, weight: 750 },
+        { color: "Gris/Marron", saleType: "UNIT", unitPrice: 54.90, stock: 90, weight: 750, isPrimary: true, size: "Unique" },
+        { color: "Marine/Camel", saleType: "UNIT", unitPrice: 54.90, stock: 60, weight: 750, size: "Unique" },
       ],
     },
-    // ─── 17. Chapeau fedora : 2 couleurs, UNIT + PACK avec remise ───
+    // ─── 17. Chapeau fedora : UNIT + PACK multi-tailles ───
     {
       reference: "CHP-001",
       name: "Fedora Laine Premium",
       description: "Chapeau fedora en feutre de laine, ruban gros-grain contrasté",
-      category: "Chapeaux",
-      sub_categories: ["Fedora"],
+      category: "Chapeau",
+      sub_categories: ["Fedora", "Laine"],
       tags: ["fedora", "laine", "élégant", "ruban"],
       compositions: [{ material: "Laine", percentage: 100 }],
       season: "Automne 2026",
@@ -338,7 +390,7 @@ const TEMPLATE_JSON = JSON.stringify(
       colors: [
         { color: "Camel", saleType: "UNIT", unitPrice: 35.00, stock: 80, weight: 150, isPrimary: true, size: "58" },
         { color: "Noir", saleType: "UNIT", unitPrice: 35.00, stock: 60, weight: 150, size: "56" },
-        { color: "Camel", saleType: "PACK", unitPrice: 28.00, stock: 15, weight: 150, packQuantity: 6, discountType: "PERCENT", discountValue: 15 },
+        { color: "Camel", saleType: "PACK", unitPrice: 4.70, stock: 15, weight: 150, size: "56:2,58:3,60:1", discountType: "PERCENT", discountValue: 15 },
       ],
     },
     // ─── 18. Bonnet : UNIT, remise PERCENT ───
@@ -346,8 +398,8 @@ const TEMPLATE_JSON = JSON.stringify(
       reference: "CHP-002",
       name: "Bonnet Côtelé Chaud",
       description: "Bonnet en maille côtelée, doublure polaire, revers ajustable",
-      category: "Chapeaux",
-      sub_categories: ["Bonnets"],
+      category: "Bonnet",
+      sub_categories: ["Côtelé", "Polaire"],
       tags: ["bonnet", "chaud", "côtelé", "polaire"],
       compositions: [
         { material: "Laine", percentage: 50 },
@@ -357,16 +409,16 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "Écosse",
       similar_refs: ["CHP-001", "GNT-001"],
       colors: [
-        { color: "Gris Chiné", saleType: "UNIT", unitPrice: 19.90, stock: 350, weight: 90, isPrimary: true, discountType: "PERCENT", discountValue: 25 },
+        { color: "Gris Chiné", saleType: "UNIT", unitPrice: 19.90, stock: 350, weight: 90, isPrimary: true, size: "Unique", discountType: "PERCENT", discountValue: 25 },
       ],
     },
-    // ─── 19. Gants cuir : multi-couleurs, UNIT + PACK, remise AMOUNT ───
+    // ─── 19. Gant cuir : multi-couleurs, UNIT + PACK multi-tailles ───
     {
       reference: "GNT-001",
       name: "Gants Cuir Doublés",
       description: "Gants en cuir d'agneau doublés cachemire, coutures sellier",
-      category: "Accessoires",
-      sub_categories: ["Gants"],
+      category: "Gant",
+      sub_categories: ["Cuir", "Cachemire"],
       tags: ["gants", "cuir", "cachemire", "hiver"],
       compositions: [
         { material: "Cuir", percentage: 70 },
@@ -378,24 +430,24 @@ const TEMPLATE_JSON = JSON.stringify(
       colors: [
         { color: "Noir", saleType: "UNIT", unitPrice: 49.90, stock: 100, weight: 120, isPrimary: true, size: "M" },
         { color: "Marron/Beige", saleType: "UNIT", unitPrice: 52.90, stock: 70, weight: 120, size: "L" },
-        { color: "Noir", saleType: "PACK", unitPrice: 42.00, stock: 20, weight: 120, packQuantity: 6, discountType: "AMOUNT", discountValue: 5 },
+        { color: "Noir", saleType: "PACK", unitPrice: 7.00, stock: 20, weight: 120, size: "S:1,M:2,L:2,XL:1", discountType: "AMOUNT", discountValue: 5 },
       ],
     },
-    // ─── 20. T-shirt lot pro : PACK only, remise AMOUNT ───
+    // ─── 20. T-shirt lot pro : PACK only, multi-tailles ───
     {
       reference: "TSH-003",
       name: "T-shirt Uni Lot Pro",
       description: "T-shirt uni basique vendu en lot, idéal revendeurs et événements",
-      category: "T-shirts",
-      sub_categories: ["Basiques", "Lots"],
+      category: "T-shirt",
+      sub_categories: ["Basique", "Lot"],
       tags: ["lot", "pro", "revendeur", "basique"],
       compositions: [{ material: "Coton", percentage: 100 }],
       manufacturing_country: "Bangladesh",
       similar_refs: ["TSH-001", "TSH-002"],
       colors: [
-        { color: "Blanc", saleType: "PACK", unitPrice: 8.90, stock: 100, weight: 170, isPrimary: true, packQuantity: 12, discountType: "AMOUNT", discountValue: 1 },
-        { color: "Noir", saleType: "PACK", unitPrice: 8.90, stock: 80, weight: 170, packQuantity: 12, discountType: "AMOUNT", discountValue: 1 },
-        { color: "Gris Chiné", saleType: "PACK", unitPrice: 9.50, stock: 60, weight: 170, packQuantity: 12 },
+        { color: "Blanc", saleType: "PACK", unitPrice: 0.75, stock: 100, weight: 170, isPrimary: true, size: "S:2,M:3,L:4,XL:3", discountType: "AMOUNT", discountValue: 1 },
+        { color: "Noir", saleType: "PACK", unitPrice: 0.75, stock: 80, weight: 170, size: "S:2,M:3,L:4,XL:3", discountType: "AMOUNT", discountValue: 1 },
+        { color: "Gris Chiné", saleType: "PACK", unitPrice: 0.80, stock: 60, weight: 170, size: "S:2,M:4,L:4,XL:2" },
       ],
     },
   ],
@@ -855,24 +907,167 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   const [uploadingPattern, setUploadingPattern] = useState<Set<string>>(new Set());
   const patternInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // PFS mapping state
+  // PFS correspondance state
   const [pfsAttrs, setPfsAttrs] = useState<PfsAttributes | null>(null);
   const [pfsLoading, setPfsLoading] = useState(false);
   const [pfsColorRefs, setPfsColorRefs] = useState<Record<string, string>>({});
   const [pfsCategoryIds, setPfsCategoryIds] = useState<Record<string, string>>({});
   const [pfsCompositionRefs, setPfsCompositionRefs] = useState<Record<string, string>>({});
-  const [showPfsMapping, setShowPfsMapping] = useState(false);
+  const [pfsCountryRefs, setPfsCountryRefs] = useState<Record<string, string>>({});
+  const [pfsSeasonRefs, setPfsSeasonRefs] = useState<Record<string, string>>({});
+  const [pfsNoMatch, setPfsNoMatch] = useState<Set<string>>(new Set()); // entities with no PFS match found
+  // PFS refs already used by existing DB attributes: { type → { ref → existing attribute name } }
+  const [usedPfsRefs, setUsedPfsRefs] = useState<Record<string, Record<string, string>>>({});
 
-  // Fetch PFS attributes when mapping is toggled on
+  // Fetch PFS attributes + used refs on mount
   useEffect(() => {
-    if (!showPfsMapping || pfsAttrs) return;
+    if (pfsAttrs) return;
     setPfsLoading(true);
-    fetch("/api/admin/pfs-sync/attributes")
-      .then((res) => res.ok ? res.json() : null)
-      .then((data) => { if (data) setPfsAttrs(data); })
+    Promise.all([
+      fetch("/api/admin/pfs-sync/attributes").then((res) => res.ok ? res.json() : null),
+      fetch("/api/admin/products/import/used-pfs-refs").then((res) => res.ok ? res.json() : null),
+    ])
+      .then(([attrs, usedRefs]) => {
+        if (attrs && !attrs.pfsDisabled) {
+          setPfsAttrs(attrs);
+        }
+        if (usedRefs) {
+          // Convert array format { type: [{ ref, name }] } to lookup { type: { ref: name } }
+          const lookup: Record<string, Record<string, string>> = {};
+          for (const type of ["color", "category", "composition", "country", "season"]) {
+            const items: { ref: string; name: string }[] = usedRefs[type] ?? [];
+            lookup[type] = {};
+            for (const item of items) lookup[type][item.ref] = item.name;
+          }
+          setUsedPfsRefs(lookup);
+        }
+      })
       .catch(() => {})
       .finally(() => setPfsLoading(false));
-  }, [showPfsMapping, pfsAttrs]);
+  }, [pfsAttrs]);
+
+  // Helper: check if a PFS ref is already used by an existing DB attribute
+  const isRefUsedInDb = (type: string, ref: string): string | null => {
+    return usedPfsRefs[type]?.[ref] ?? null;
+  };
+
+  // Helper: check if a PFS ref is already selected by another missing entity in this batch
+  const isRefUsedByOther = (type: string, entityName: string, ref: string): string | null => {
+    if (!ref) return null;
+    const refsMap: Record<string, Record<string, string>> = {
+      color: pfsColorRefs,
+      category: pfsCategoryIds,
+      composition: pfsCompositionRefs,
+      country: pfsCountryRefs,
+      season: pfsSeasonRefs,
+    };
+    const currentRefs = refsMap[type];
+    if (!currentRefs) return null;
+    for (const [name, r] of Object.entries(currentRefs)) {
+      if (name !== entityName && r === ref) return name;
+    }
+    return null;
+  };
+
+  // Auto-fill PFS mappings when attributes are loaded
+  useEffect(() => {
+    if (!pfsAttrs || pfsAttrs.pfsDisabled) return;
+
+    const colorSuggestions: Record<string, string> = {};
+    const colorHexSuggestions: Record<string, string> = {};
+    const categorySuggestions: Record<string, string> = {};
+    const compositionSuggestions: Record<string, string> = {};
+    const countrySuggestions: Record<string, string> = {};
+    const seasonSuggestions: Record<string, string> = {};
+    const noMatchKeys = new Set<string>();
+
+    // Track refs already assigned in this batch to avoid duplicates
+    const batchUsed: Record<string, Set<string>> = {
+      color: new Set(), category: new Set(), composition: new Set(), country: new Set(), season: new Set(),
+    };
+
+    const mappableTypes = new Set(["color", "category", "composition", "country", "season"]);
+
+    // Helper: filter out PFS items whose ref is already used in DB or this batch
+    const filterAvailable = <T extends { value: string }>(items: T[], type: string): T[] => {
+      const dbUsed = usedPfsRefs[type] ?? {};
+      return items.filter((item) => !dbUsed[item.value] && !batchUsed[type].has(item.value));
+    };
+
+    for (const entity of entities) {
+      if (created.has(`${entity.type}:${entity.name}`)) continue;
+      if (!mappableTypes.has(entity.type)) continue;
+
+      const key = `${entity.type}:${entity.name}`;
+      let match = "";
+
+      if (entity.type === "color" && !pfsColorRefs[entity.name]) {
+        match = findBestPfsMatch(
+          entity.name,
+          filterAvailable(
+            pfsAttrs.colors.map((c) => ({ value: c.reference, labels: c.labels, reference: c.reference })),
+            "color",
+          ),
+        );
+        if (match) {
+          colorSuggestions[entity.name] = match;
+          batchUsed.color.add(match);
+          // Also auto-fill the hex color from PFS
+          const pfsColor = pfsAttrs.colors.find((c) => c.reference === match);
+          if (pfsColor?.value) colorHexSuggestions[entity.name] = pfsColor.value;
+        }
+      } else if (entity.type === "category" && !pfsCategoryIds[entity.name]) {
+        match = findBestPfsMatch(
+          entity.name,
+          filterAvailable(
+            pfsAttrs.categories.map((c) => ({ value: c.id, labels: c.labels })),
+            "category",
+          ),
+        );
+        if (match) { categorySuggestions[entity.name] = match; batchUsed.category.add(match); }
+      } else if (entity.type === "composition" && !pfsCompositionRefs[entity.name]) {
+        match = findBestPfsMatch(
+          entity.name,
+          filterAvailable(
+            pfsAttrs.compositions.map((c) => ({ value: c.reference, labels: c.labels, reference: c.reference })),
+            "composition",
+          ),
+        );
+        if (match) { compositionSuggestions[entity.name] = match; batchUsed.composition.add(match); }
+      } else if (entity.type === "country" && !pfsCountryRefs[entity.name]) {
+        match = findBestPfsMatch(
+          entity.name,
+          filterAvailable(
+            (pfsAttrs.countries ?? []).map((c) => ({ value: c.reference, labels: c.labels, reference: c.reference })),
+            "country",
+          ),
+        );
+        if (match) { countrySuggestions[entity.name] = match; batchUsed.country.add(match); }
+      } else if (entity.type === "season" && !pfsSeasonRefs[entity.name]) {
+        match = findBestPfsMatch(
+          entity.name,
+          filterAvailable(
+            (pfsAttrs.collections ?? []).map((c) => ({ value: c.reference, labels: c.labels, reference: c.reference })),
+            "season",
+          ),
+        );
+        if (match) { seasonSuggestions[entity.name] = match; batchUsed.season.add(match); }
+      } else {
+        continue; // already has a user-selected value
+      }
+
+      if (!match) noMatchKeys.add(key);
+    }
+
+    if (Object.keys(colorSuggestions).length) setPfsColorRefs((prev) => ({ ...colorSuggestions, ...prev }));
+    if (Object.keys(colorHexSuggestions).length) setColorHexes((prev) => ({ ...colorHexSuggestions, ...prev }));
+    if (Object.keys(categorySuggestions).length) setPfsCategoryIds((prev) => ({ ...categorySuggestions, ...prev }));
+    if (Object.keys(compositionSuggestions).length) setPfsCompositionRefs((prev) => ({ ...compositionSuggestions, ...prev }));
+    if (Object.keys(countrySuggestions).length) setPfsCountryRefs((prev) => ({ ...countrySuggestions, ...prev }));
+    if (Object.keys(seasonSuggestions).length) setPfsSeasonRefs((prev) => ({ ...seasonSuggestions, ...prev }));
+    if (noMatchKeys.size) setPfsNoMatch(noMatchKeys);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pfsAttrs, entities]);
 
   const grouped = entities.reduce<Record<string, MissingEntity[]>>((acc, e) => {
     (acc[e.type] ??= []).push(e);
@@ -880,6 +1075,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   }, {});
 
   const remaining = entities.filter((e) => !created.has(`${e.type}:${e.name}`));
+  const pfsEnabled = !!(pfsAttrs && !pfsAttrs.pfsDisabled);
 
   // Auto re-analyze when all entities have been created (individual or batch)
   useEffect(() => {
@@ -950,6 +1146,12 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
     if (entity.type === "composition" && pfsCompositionRefs[entity.name]) {
       fields.pfsCompositionRef = pfsCompositionRefs[entity.name];
     }
+    if (entity.type === "country" && pfsCountryRefs[entity.name]) {
+      fields.pfsCountryRef = pfsCountryRefs[entity.name];
+    }
+    if (entity.type === "season" && pfsSeasonRefs[entity.name]) {
+      fields.pfsRef = pfsSeasonRefs[entity.name];
+    }
     return fields;
   };
 
@@ -999,6 +1201,14 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
       return (order[a.type] ?? 9) - (order[b.type] ?? 9);
     });
     for (const entity of sorted) {
+      // Skip entities with PFS ref conflicts
+      const ref =
+        (entity.type === "color" ? pfsColorRefs[entity.name] :
+         entity.type === "category" ? pfsCategoryIds[entity.name] :
+         entity.type === "composition" ? pfsCompositionRefs[entity.name] :
+         entity.type === "country" ? pfsCountryRefs[entity.name] :
+         entity.type === "season" ? pfsSeasonRefs[entity.name] : "") ?? "";
+      if (ref && (isRefUsedInDb(entity.type, ref) || isRefUsedByOther(entity.type, entity.name, ref))) continue;
       await createEntity(entity, colorHexes[entity.name]);
     }
     setCreatingAll(false);
@@ -1025,7 +1235,19 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
     label: c.labels?.fr || c.reference,
   })) ?? [];
 
-  const hasPfsMappableEntities = entities.some((e) => e.type === "color" || e.type === "category" || e.type === "composition");
+  const pfsCountryOptions = (pfsAttrs?.countries ?? []).map((c) => ({
+    value: c.reference,
+    label: c.labels?.fr || c.reference,
+  }));
+
+  const pfsCollectionOptions = (pfsAttrs?.collections ?? []).map((c) => ({
+    value: c.reference,
+    label: `${c.labels?.fr || c.reference} (${c.reference})`,
+  }));
+
+  const hasPfsMappableEntities = entities.some((e) =>
+    e.type === "color" || e.type === "category" || e.type === "composition" || e.type === "country" || e.type === "season"
+  );
 
   return (
     <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
@@ -1048,21 +1270,6 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {hasPfsMappableEntities && remaining.length > 0 && (
-              <button
-                onClick={() => setShowPfsMapping(!showPfsMapping)}
-                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 ${
-                  showPfsMapping
-                    ? "bg-bg-dark text-text-inverse border-bg-dark"
-                    : "bg-bg-primary border-border text-text-primary hover:border-bg-dark"
-                }`}
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-                </svg>
-                {showPfsMapping ? "Masquer PFS" : "Mapper PFS"}
-              </button>
-            )}
             {remaining.length > 0 && (
               <button
                 onClick={createAll}
@@ -1087,15 +1294,15 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
       </div>
 
       {/* PFS loading / disabled notice */}
-      {showPfsMapping && pfsLoading && (
+      {pfsEnabled && pfsLoading && (
         <div className="px-6 py-3 border-b border-border bg-bg-secondary flex items-center gap-2 text-xs text-[#666]">
           <span className="inline-block w-3 h-3 border-2 border-[#999] border-t-transparent rounded-full animate-spin" />
           Chargement des attributs Paris Fashion Shop…
         </div>
       )}
-      {showPfsMapping && pfsAttrs?.pfsDisabled && (
+      {!pfsEnabled && !pfsLoading && (
         <div className="px-6 py-3 border-b border-border bg-bg-secondary text-xs text-[#666]">
-          PFS non configuré — les correspondances ne seront pas enregistrées.
+          PFS non configuré — les correspondances PFS ne seront pas disponibles.
         </div>
       )}
 
@@ -1123,7 +1330,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
               </div>
 
               {/* Entity rows */}
-              <div className={`gap-2 ${type === "color" ? "grid grid-cols-1 md:grid-cols-2" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4"}`}>
+              <div className={`gap-2 ${type === "color" ? "grid grid-cols-1 md:grid-cols-2" : pfsEnabled ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4"}`}>
                 {items.map((entity) => {
                   const key = `${entity.type}:${entity.name}`;
                   const isCreated = created.has(key);
@@ -1131,176 +1338,257 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                   const mode = colorModes[entity.name] ?? "hex";
                   const patternPath = colorPatterns[entity.name];
                   const isUploading = uploadingPattern.has(entity.name);
-                  const showPfsDropdown = showPfsMapping && !isCreated && pfsAttrs && !pfsAttrs.pfsDisabled &&
-                    (type === "color" || type === "category" || type === "composition");
+                  const showPfsDropdown = pfsEnabled && !isCreated &&
+                    (type === "color" || type === "category" || type === "composition" || type === "country" || type === "season");
+
+                  // Determine if this entity has no PFS match
+                  const isNoMatch = pfsNoMatch.has(key);
+                  // Get the currently selected PFS ref for this entity
+                  const currentPfsRef =
+                    (type === "color" ? pfsColorRefs[entity.name] :
+                     type === "category" ? pfsCategoryIds[entity.name] :
+                     type === "composition" ? pfsCompositionRefs[entity.name] :
+                     type === "country" ? pfsCountryRefs[entity.name] :
+                     type === "season" ? pfsSeasonRefs[entity.name] : "") ?? "";
+                  const hasUserSelection = !!currentPfsRef;
+                  const showNoMatchWarning = showPfsDropdown && isNoMatch && !hasUserSelection;
+
+                  // Check for PFS ref conflicts
+                  const dbConflict = currentPfsRef ? isRefUsedInDb(type, currentPfsRef) : null;
+                  const batchConflict = currentPfsRef ? isRefUsedByOther(type, entity.name, currentPfsRef) : null;
+                  const hasConflict = !!(dbConflict || batchConflict);
 
                   return (
                     <div
                       key={key}
-                      className={`flex items-center gap-3 rounded-xl px-4 py-2.5 transition-colors ${
+                      className={`rounded-xl px-4 py-2.5 transition-colors ${
                         isCreated
                           ? "bg-green-50/60 border border-green-200"
                           : "bg-bg-secondary border border-transparent hover:border-border"
                       }`}
                     >
-                      {/* Status indicator */}
-                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                        isCreated ? "bg-green-100" : isCreating ? "bg-amber-100" : "bg-bg-primary border border-border"
-                      }`}>
-                        {isCreated ? (
-                          <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                          </svg>
-                        ) : isCreating ? (
-                          <span className="inline-block w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <span className="text-xs text-[#999]">{ENTITY_LABELS[type].icon}</span>
+                      {/* Row 1: Entity info + color picker + create button */}
+                      <div className="flex items-center gap-3">
+                        {/* Status indicator */}
+                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                          isCreated ? "bg-green-100" : isCreating ? "bg-amber-100" : "bg-bg-primary border border-border"
+                        }`}>
+                          {isCreated ? (
+                            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          ) : isCreating ? (
+                            <span className="inline-block w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <span className="text-xs text-[#999]">{ENTITY_LABELS[type].icon}</span>
+                          )}
+                        </div>
+
+                        {/* Entity name */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-medium ${isCreated ? "text-green-700" : "text-text-primary"}`}>
+                              {entity.name}
+                            </span>
+                            {entity.parentCategoryName && (
+                              <span className="text-[11px] text-[#888] font-body">
+                                dans {entity.parentCategoryName}
+                              </span>
+                            )}
+                            <span className="text-[10px] text-[#999] font-body shrink-0">
+                              {entity.usedBy} produit{entity.usedBy > 1 ? "s" : ""}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Color picker (for color type only) */}
+                        {type === "color" && !isCreated && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setColorModes((prev) => ({ ...prev, [entity.name]: mode === "hex" ? "pattern" : "hex" }))}
+                              className="w-7 h-7 rounded-lg border border-border flex items-center justify-center cursor-pointer hover:border-bg-dark hover:bg-bg-primary transition-colors"
+                              title={mode === "hex" ? "Passer en mode motif" : "Passer en mode couleur"}
+                            >
+                              <span className="text-xs">{mode === "hex" ? "🎨" : "🖼️"}</span>
+                            </button>
+
+                            {mode === "hex" ? (
+                              <input
+                                type="color"
+                                value={colorHexes[entity.name] ?? "#9CA3AF"}
+                                onChange={(e) => setColorHexes((prev) => ({ ...prev, [entity.name]: e.target.value }))}
+                                className="w-7 h-7 rounded-lg border border-border cursor-pointer p-0.5"
+                                title="Choisir la couleur"
+                              />
+                            ) : patternPath ? (
+                              <div className="relative w-7 h-7 rounded-lg border border-border overflow-hidden group cursor-pointer">
+                                <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); removePattern(entity.name); }}
+                                  className="absolute inset-0 bg-black/50 text-text-inverse text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <label className={`w-7 h-7 rounded-lg border border-dashed border-[#BBB] flex items-center justify-center cursor-pointer hover:border-bg-dark transition-colors ${isUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                                {isUploading ? (
+                                  <span className="inline-block w-3 h-3 border-2 border-[#999] border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <svg className="w-3.5 h-3.5 text-[#999]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                                  </svg>
+                                )}
+                                <input
+                                  ref={(el) => { patternInputRefs.current[entity.name] = el; }}
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) handlePatternUpload(entity.name, f);
+                                  }}
+                                />
+                              </label>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Color swatch when created */}
+                        {type === "color" && isCreated && (
+                          <div className="shrink-0">
+                            {patternPath ? (
+                              <div className="w-7 h-7 rounded-lg border border-green-200 overflow-hidden">
+                                <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div
+                                className="w-7 h-7 rounded-lg border border-green-200"
+                                style={{ backgroundColor: colorHexes[entity.name] ?? "#9CA3AF" }}
+                              />
+                            )}
+                          </div>
+                        )}
+
+                        {/* Create button */}
+                        {!isCreated && (
+                          <button
+                            onClick={() => handleCreateSingle(entity)}
+                            disabled={isCreating || hasConflict || (type === "color" && mode === "pattern" && !patternPath && !colorHexes[entity.name])}
+                            className="shrink-0 text-xs px-3.5 py-1.5 rounded-lg font-medium transition-colors bg-bg-dark text-text-inverse hover:bg-bg-dark/80 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            {isCreating ? (
+                              <span className="flex items-center gap-1.5">
+                                <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                Cr...
+                              </span>
+                            ) : "Créer"}
+                          </button>
+                        )}
+                        {isCreated && (
+                          <span className="shrink-0 text-xs text-green-600 font-medium px-3.5 py-1.5">
+                            Créé
+                          </span>
                         )}
                       </div>
 
-                      {/* Entity name */}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-sm font-medium ${isCreated ? "text-green-700" : "text-text-primary"}`}>
-                            {entity.name}
-                          </span>
-                          {entity.parentCategoryName && (
-                            <span className="text-[11px] text-[#888] font-body">
-                              dans {entity.parentCategoryName}
-                            </span>
-                          )}
-                          <span className="text-[10px] text-[#999] font-body shrink-0">
-                            {entity.usedBy} produit{entity.usedBy > 1 ? "s" : ""}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Color picker (for color type only) */}
-                      {type === "color" && !isCreated && (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => setColorModes((prev) => ({ ...prev, [entity.name]: mode === "hex" ? "pattern" : "hex" }))}
-                            className="w-7 h-7 rounded-lg border border-border flex items-center justify-center cursor-pointer hover:border-bg-dark hover:bg-bg-primary transition-colors"
-                            title={mode === "hex" ? "Passer en mode motif" : "Passer en mode couleur"}
-                          >
-                            <span className="text-xs">{mode === "hex" ? "🎨" : "🖼️"}</span>
-                          </button>
-
-                          {mode === "hex" ? (
-                            <input
-                              type="color"
-                              value={colorHexes[entity.name] ?? "#9CA3AF"}
-                              onChange={(e) => setColorHexes((prev) => ({ ...prev, [entity.name]: e.target.value }))}
-                              className="w-7 h-7 rounded-lg border border-border cursor-pointer p-0.5"
-                              title="Choisir la couleur"
-                            />
-                          ) : patternPath ? (
-                            <div className="relative w-7 h-7 rounded-lg border border-border overflow-hidden group cursor-pointer">
-                              <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); removePattern(entity.name); }}
-                                className="absolute inset-0 bg-black/50 text-text-inverse text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <label className={`w-7 h-7 rounded-lg border border-dashed border-[#BBB] flex items-center justify-center cursor-pointer hover:border-bg-dark transition-colors ${isUploading ? "opacity-50 pointer-events-none" : ""}`}>
-                              {isUploading ? (
-                                <span className="inline-block w-3 h-3 border-2 border-[#999] border-t-transparent rounded-full animate-spin" />
-                              ) : (
-                                <svg className="w-3.5 h-3.5 text-[#999]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                                </svg>
-                              )}
-                              <input
-                                ref={(el) => { patternInputRefs.current[entity.name] = el; }}
-                                type="file"
-                                accept="image/png,image/jpeg,image/webp"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const f = e.target.files?.[0];
-                                  if (f) handlePatternUpload(entity.name, f);
-                                }}
-                              />
-                            </label>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Color swatch when created */}
-                      {type === "color" && isCreated && (
-                        <div className="shrink-0">
-                          {patternPath ? (
-                            <div className="w-7 h-7 rounded-lg border border-green-200 overflow-hidden">
-                              <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
-                            </div>
-                          ) : (
-                            <div
-                              className="w-7 h-7 rounded-lg border border-green-200"
-                              style={{ backgroundColor: colorHexes[entity.name] ?? "#9CA3AF" }}
-                            />
-                          )}
-                        </div>
-                      )}
-
-                      {/* PFS mapping dropdown */}
+                      {/* Row 2: PFS mapping (below, full width) */}
                       {showPfsDropdown && (
-                        <div className="w-52 shrink-0">
-                          {type === "color" && (
-                            <CustomSelect
-                              value={pfsColorRefs[entity.name] ?? ""}
-                              onChange={(v) => setPfsColorRefs((prev) => ({ ...prev, [entity.name]: v }))}
-                              options={[{ value: "", label: "— Couleur PFS —" }, ...pfsColorOptions]}
-                              size="sm"
-                              searchable
-                              placeholder="Couleur PFS"
-                            />
+                        <div className={`mt-2 pt-2 border-t ${hasConflict ? "border-red-300" : showNoMatchWarning ? "border-amber-300" : "border-border/50"}`}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-[#888] font-body uppercase tracking-wide shrink-0 w-8">PFS</span>
+                            <div className="flex-1 min-w-0">
+                              {showNoMatchWarning && (
+                                <div className="flex items-center gap-2 px-3 py-1.5 mb-1.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-700">
+                                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                  </svg>
+                                  <span className="text-[11px] font-medium">Aucune correspondance trouvée — sélectionnez manuellement ou laissez vide</span>
+                                </div>
+                              )}
+                              {type === "color" && (
+                                <CustomSelect
+                                  value={pfsColorRefs[entity.name] ?? ""}
+                                  onChange={(v) => {
+                                    setPfsColorRefs((prev) => ({ ...prev, [entity.name]: v }));
+                                    if (v) {
+                                      setPfsNoMatch((prev) => { const s = new Set(prev); s.delete(key); return s; });
+                                      const pfsColor = pfsAttrs?.colors.find((c) => c.reference === v);
+                                      if (pfsColor?.value) setColorHexes((prev) => ({ ...prev, [entity.name]: pfsColor.value }));
+                                    }
+                                  }}
+                                  options={[{ value: "", label: "— Couleur PFS —" }, ...pfsColorOptions]}
+                                  size="sm"
+                                  searchable
+                                  placeholder="Couleur PFS"
+                                />
+                              )}
+                              {type === "category" && (
+                                <CustomSelect
+                                  value={pfsCategoryIds[entity.name] ?? ""}
+                                  onChange={(v) => { setPfsCategoryIds((prev) => ({ ...prev, [entity.name]: v })); if (v) setPfsNoMatch((prev) => { const s = new Set(prev); s.delete(key); return s; }); }}
+                                  options={[{ value: "", label: "— Catégorie PFS —" }, ...pfsCategoryOptions]}
+                                  size="sm"
+                                  searchable
+                                  placeholder="Catégorie PFS"
+                                />
+                              )}
+                              {type === "composition" && (
+                                <CustomSelect
+                                  value={pfsCompositionRefs[entity.name] ?? ""}
+                                  onChange={(v) => { setPfsCompositionRefs((prev) => ({ ...prev, [entity.name]: v })); if (v) setPfsNoMatch((prev) => { const s = new Set(prev); s.delete(key); return s; }); }}
+                                  options={[{ value: "", label: "— Composition PFS —" }, ...pfsCompositionOptions]}
+                                  size="sm"
+                                  searchable
+                                  placeholder="Composition PFS"
+                                />
+                              )}
+                              {type === "country" && pfsCountryOptions.length > 0 && (
+                                <CustomSelect
+                                  value={pfsCountryRefs[entity.name] ?? ""}
+                                  onChange={(v) => { setPfsCountryRefs((prev) => ({ ...prev, [entity.name]: v })); if (v) setPfsNoMatch((prev) => { const s = new Set(prev); s.delete(key); return s; }); }}
+                                  options={[{ value: "", label: "— Pays PFS —" }, ...pfsCountryOptions]}
+                                  size="sm"
+                                  searchable
+                                  placeholder="Pays PFS"
+                                />
+                              )}
+                              {type === "season" && pfsCollectionOptions.length > 0 && (
+                                <CustomSelect
+                                  value={pfsSeasonRefs[entity.name] ?? ""}
+                                  onChange={(v) => { setPfsSeasonRefs((prev) => ({ ...prev, [entity.name]: v })); if (v) setPfsNoMatch((prev) => { const s = new Set(prev); s.delete(key); return s; }); }}
+                                  options={[{ value: "", label: "— Collection PFS —" }, ...pfsCollectionOptions]}
+                                  size="sm"
+                                  searchable
+                                  placeholder="Collection PFS"
+                                />
+                              )}
+                            </div>
+                          </div>
+                          {/* Conflict warnings */}
+                          {dbConflict && (
+                            <div className="flex items-center gap-2 mt-1.5 ml-10 px-3 py-1.5 rounded-lg bg-red-50 border border-red-300 text-red-700">
+                              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                              </svg>
+                              <span className="text-[11px] font-medium">
+                                Déjà utilisé par « {dbConflict} » — choisissez une autre correspondance
+                              </span>
+                            </div>
                           )}
-                          {type === "category" && (
-                            <CustomSelect
-                              value={pfsCategoryIds[entity.name] ?? ""}
-                              onChange={(v) => setPfsCategoryIds((prev) => ({ ...prev, [entity.name]: v }))}
-                              options={[{ value: "", label: "— Catégorie PFS —" }, ...pfsCategoryOptions]}
-                              size="sm"
-                              searchable
-                              placeholder="Catégorie PFS"
-                            />
-                          )}
-                          {type === "composition" && (
-                            <CustomSelect
-                              value={pfsCompositionRefs[entity.name] ?? ""}
-                              onChange={(v) => setPfsCompositionRefs((prev) => ({ ...prev, [entity.name]: v }))}
-                              options={[{ value: "", label: "— Composition PFS —" }, ...pfsCompositionOptions]}
-                              size="sm"
-                              searchable
-                              placeholder="Composition PFS"
-                            />
+                          {batchConflict && !dbConflict && (
+                            <div className="flex items-center gap-2 mt-1.5 ml-10 px-3 py-1.5 rounded-lg bg-red-50 border border-red-300 text-red-700">
+                              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                              </svg>
+                              <span className="text-[11px] font-medium">
+                                Même correspondance que « {batchConflict} » — chaque attribut doit avoir une correspondance unique
+                              </span>
+                            </div>
                           )}
                         </div>
-                      )}
-
-                      {/* Create button */}
-                      {!isCreated && (
-                        <button
-                          onClick={() => handleCreateSingle(entity)}
-                          disabled={isCreating || (type === "color" && mode === "pattern" && !patternPath && !colorHexes[entity.name])}
-                          className="shrink-0 text-xs px-3.5 py-1.5 rounded-lg font-medium transition-colors bg-bg-dark text-text-inverse hover:bg-bg-dark/80 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          {isCreating ? (
-                            <span className="flex items-center gap-1.5">
-                              <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                              Création…
-                            </span>
-                          ) : "Créer"}
-                        </button>
-                      )}
-                      {isCreated && (
-                        <span className="shrink-0 text-xs text-green-600 font-medium px-3.5 py-1.5">
-                          Créé
-                        </span>
                       )}
                     </div>
                   );
@@ -1360,6 +1648,7 @@ function ProductPreviewRow({ product: p }: { product: PreviewProduct }) {
             >
               {!v.colorFound && <span>⚠️</span>}
               {v.color || "?"}
+              {v.size && <span className="text-[10px] opacity-80 font-medium">{v.size}</span>}
               <span className="text-[10px] opacity-60">{v.saleType === "PACK" ? `×${v.packQuantity ?? "?"}` : `${v.unitPrice}€`}</span>
             </span>
           ))}
@@ -1383,7 +1672,7 @@ function ProductPreviewRow({ product: p }: { product: PreviewProduct }) {
             {p.variants.map((v, i) => (
               <div key={i} className={`flex items-start gap-3 p-2 rounded-lg text-sm ${v.errors.length > 0 ? "bg-red-50" : "bg-bg-primary"}`}>
                 <div className="w-1/4 font-medium text-text-primary">{v.color || "—"}</div>
-                <div className="text-[#666]">{v.saleType}{v.saleType === "PACK" ? ` × ${v.packQuantity}` : ""} · {v.unitPrice}€ · stock: {v.stock}</div>
+                <div className="text-[#666]">{v.saleType}{v.saleType === "PACK" ? ` × ${v.packQuantity}` : ""} · {v.unitPrice}€ · stock: {v.stock}{v.size ? ` · taille: ${v.size}` : ""}</div>
                 {v.errors.length > 0 && (
                   <div className="ml-auto text-red-600 text-xs">{v.errors.join(" · ")}</div>
                 )}
