@@ -1437,3 +1437,91 @@ export async function revalidateAfterImport() {
   revalidateTag("seasons", "default");
   revalidateTag("sizes", "default");
 }
+
+/**
+ * Get detailed product statistics for the admin product stats tab.
+ */
+export async function getProductStats(productId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") return null;
+
+  const product = await prisma.product.findUnique({ where: { id: productId }, select: { reference: true } });
+  if (!product) return null;
+
+  const [items, cartItems, views, priceHistory] = await Promise.all([
+    prisma.orderItem.findMany({
+      where: { productRef: product.reference },
+      include: {
+        order: {
+          select: { createdAt: true, userId: true, status: true, user: { select: { company: true } } },
+        },
+      },
+    }),
+    prisma.cartItem.count({ where: { variant: { productId } } }),
+    prisma.productView.count({ where: { productId } }),
+    prisma.priceHistory.findMany({
+      where: { productColor: { productId } },
+      include: { changedBy: { select: { firstName: true, lastName: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+  ]);
+
+  const totalRevenue = items.reduce((sum, i) => sum + Number(i.lineTotal), 0);
+  const totalQuantitySold = items.reduce((sum, i) => sum + i.quantity, 0);
+  const orderIds = new Set(items.map((i) => i.orderId));
+
+  // Monthly sales (last 12 months)
+  const monthlySales: Record<string, { revenue: number; quantity: number }> = {};
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    monthlySales[key] = { revenue: 0, quantity: 0 };
+  }
+  for (const item of items) {
+    const d = item.order.createdAt;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (monthlySales[key]) {
+      monthlySales[key].revenue += Number(item.lineTotal);
+      monthlySales[key].quantity += item.quantity;
+    }
+  }
+
+  // Sales by color
+  const colorMap: Record<string, { quantity: number; revenue: number }> = {};
+  for (const item of items) {
+    const color = item.colorName || "N/A";
+    if (!colorMap[color]) colorMap[color] = { quantity: 0, revenue: 0 };
+    colorMap[color].quantity += item.quantity;
+    colorMap[color].revenue += Number(item.lineTotal);
+  }
+
+  // Top clients
+  const clientMap: Record<string, { company: string; quantity: number; revenue: number }> = {};
+  for (const item of items) {
+    const uid = item.order.userId;
+    if (!clientMap[uid]) clientMap[uid] = { company: item.order.user.company || "N/A", quantity: 0, revenue: 0 };
+    clientMap[uid].quantity += item.quantity;
+    clientMap[uid].revenue += Number(item.lineTotal);
+  }
+
+  return {
+    totalRevenue,
+    totalQuantitySold,
+    totalOrders: orderIds.size,
+    inCartsCount: cartItems,
+    viewCount: views,
+    claimCount: 0,
+    monthlySales: Object.entries(monthlySales).map(([month, data]) => ({ month, ...data })),
+    salesByColor: Object.entries(colorMap).map(([colorName, data]) => ({ colorName, ...data })),
+    topClients: Object.values(clientMap).sort((a, b) => b.revenue - a.revenue).slice(0, 10),
+    priceHistory: priceHistory.map((ph) => ({
+      date: ph.createdAt.toISOString(),
+      field: ph.field,
+      oldPrice: Number(ph.oldPrice),
+      newPrice: Number(ph.newPrice),
+      admin: `${ph.changedBy.firstName} ${ph.changedBy.lastName}`,
+    })),
+  };
+}

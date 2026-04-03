@@ -361,3 +361,27 @@ export const getCachedLowStockCount = unstable_cache(
   ["low-stock-count"],
   { revalidate: 300, tags: ["products"] }
 );
+
+export const getCachedActiveClaimsCount = unstable_cache(
+  async () => prisma.claim.count({
+    where: { status: { in: ["OPEN", "IN_REVIEW", "ACCEPTED", "RETURN_PENDING", "RETURN_SHIPPED", "RETURN_RECEIVED", "RESOLUTION_PENDING"] } },
+  }),
+  ["active-claims-count"],
+  { revalidate: 300, tags: ["claims"] }
+);
+
+export const getCachedActivePromotions = unstable_cache(
+  async () => {
+    const now = new Date();
+    return prisma.promotion.findMany({
+      where: {
+        isActive: true,
+        startsAt: { lte: now },
+        OR: [{ endsAt: null }, { endsAt: { gte: now } }],
+      },
+      select: { id: true, name: true, type: true, code: true, discountKind: true, discountValue: true, currentUses: true, maxUses: true },
+    });
+  },
+  ["active-promotions"],
+  { revalidate: 300, tags: ["promotions"] }
+);
