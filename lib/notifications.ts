@@ -423,3 +423,213 @@ export async function notifyOrderStatusChange(
     logger.error("[order-status-email] Erreur envoi email", { detail: err instanceof Error ? err.message : String(err) });
   }
 }
+
+/**
+ * Notify admin of a new message from a client.
+ */
+export async function notifyAdminNewMessage(params: {
+  clientName: string;
+  clientCompany: string;
+  subject: string;
+  messagePreview: string;
+  conversationId: string;
+}) {
+  const { clientName, clientCompany, subject, messagePreview, conversationId } = params;
+  const [shopName, gmailCfg, companyInfo] = await Promise.all([
+    getCachedShopName(), getCachedGmailConfig(), getCachedCompanyInfo(),
+  ]);
+
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+  if (!GMAIL_USER || !GMAIL_PASSWORD) return;
+
+  const notifyEmail = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
+  if (!notifyEmail) return;
+
+  const ref = `CONV-${conversationId.slice(-8).toUpperCase()}`;
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
+  });
+
+  await transporter.sendMail({
+    from: `"${shopName || 'Boutique'}" <${GMAIL_USER}>`,
+    to: notifyEmail,
+    subject: `[${ref}] Nouveau message de ${clientCompany} — ${subject}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+        <h2 style="color:#1A1A1A;">Nouveau message</h2>
+        <p><strong>${escapeHtml(clientName)}</strong> (${escapeHtml(clientCompany)}) vous a envoye un message :</p>
+        <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
+          <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
+        </div>
+        <a href="${baseUrl}/admin/messages/${conversationId}"
+           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
+          Voir la conversation
+        </a>
+      </div>
+    `,
+  });
+
+  logger.info(`[Notifications] Admin notified of new message [${ref}]`);
+}
+
+/**
+ * Notify client of a new reply from admin.
+ */
+export async function notifyClientNewReply(params: {
+  clientEmail: string;
+  clientName: string;
+  subject: string;
+  messagePreview: string;
+  conversationId: string;
+}) {
+  const { clientEmail, clientName, subject, messagePreview, conversationId } = params;
+  const [shopName, gmailCfg] = await Promise.all([
+    getCachedShopName(), getCachedGmailConfig(),
+  ]);
+
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+  if (!GMAIL_USER || !GMAIL_PASSWORD) return;
+
+  const ref = `CONV-${conversationId.slice(-8).toUpperCase()}`;
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
+  });
+
+  await transporter.sendMail({
+    from: `"${shopName || 'Boutique'}" <${GMAIL_USER}>`,
+    to: clientEmail,
+    subject: `[${ref}] Reponse a votre message — ${subject}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+        <h2 style="color:#1A1A1A;">Bonjour ${escapeHtml(clientName)},</h2>
+        <p>Vous avez recu une reponse a votre message :</p>
+        <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
+          <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
+        </div>
+        <a href="${baseUrl}/espace-pro/messages/${conversationId}"
+           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
+          Voir la conversation
+        </a>
+      </div>
+    `,
+  });
+
+  logger.info(`[Notifications] Client ${clientEmail} notified of reply [${ref}]`);
+}
+
+/**
+ * Notify admin of a new claim.
+ */
+export async function notifyAdminNewClaim(params: {
+  clientName: string;
+  clientCompany: string;
+  claimReference: string;
+  claimType: string;
+  description: string;
+  claimId: string;
+}) {
+  const { clientName, clientCompany, claimReference, claimType, description, claimId } = params;
+  const [shopName, gmailCfg, companyInfo] = await Promise.all([
+    getCachedShopName(), getCachedGmailConfig(), getCachedCompanyInfo(),
+  ]);
+
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+  if (!GMAIL_USER || !GMAIL_PASSWORD) return;
+
+  const notifyEmail = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
+  if (!notifyEmail) return;
+
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
+  });
+
+  await transporter.sendMail({
+    from: `"${shopName || 'Boutique'}" <${GMAIL_USER}>`,
+    to: notifyEmail,
+    subject: `Nouvelle reclamation ${claimReference} — ${clientCompany}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+        <h2 style="color:#1A1A1A;">Nouvelle reclamation</h2>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+          <tr><td style="padding:8px;font-weight:bold;">Reference</td><td style="padding:8px;">${escapeHtml(claimReference)}</td></tr>
+          <tr><td style="padding:8px;font-weight:bold;">Client</td><td style="padding:8px;">${escapeHtml(clientName)} (${escapeHtml(clientCompany)})</td></tr>
+          <tr><td style="padding:8px;font-weight:bold;">Type</td><td style="padding:8px;">${claimType === 'ORDER_CLAIM' ? 'Liee a une commande' : 'Generale'}</td></tr>
+        </table>
+        <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
+          <p style="margin:0;color:#333;">${escapeHtml(description).substring(0, 500)}</p>
+        </div>
+        <a href="${baseUrl}/admin/reclamations/${claimId}"
+           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
+          Examiner la reclamation
+        </a>
+      </div>
+    `,
+  });
+
+  logger.info(`[Notifications] Admin notified of new claim ${claimReference}`);
+}
+
+/**
+ * Notify client of claim status update.
+ */
+export async function notifyClientClaimUpdate(params: {
+  clientEmail: string;
+  clientName: string;
+  claimReference: string;
+  newStatus: string;
+  message?: string;
+  claimId: string;
+}) {
+  const { clientEmail, clientName, claimReference, newStatus, message, claimId } = params;
+  const [shopName, gmailCfg] = await Promise.all([
+    getCachedShopName(), getCachedGmailConfig(),
+  ]);
+
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+  if (!GMAIL_USER || !GMAIL_PASSWORD) return;
+
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const statusLabels: Record<string, string> = {
+    IN_REVIEW: "en cours d'examen",
+    ACCEPTED: "acceptee",
+    REJECTED: "refusee",
+    RETURN_PENDING: "en attente de retour",
+    RESOLVED: "resolue",
+    CLOSED: "cloturee",
+  };
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
+  });
+
+  await transporter.sendMail({
+    from: `"${shopName || 'Boutique'}" <${GMAIL_USER}>`,
+    to: clientEmail,
+    subject: `Reclamation ${claimReference} — ${statusLabels[newStatus] || newStatus}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+        <h2 style="color:#1A1A1A;">Bonjour ${escapeHtml(clientName)},</h2>
+        <p>Votre reclamation <strong>${escapeHtml(claimReference)}</strong> est maintenant <strong>${statusLabels[newStatus] || newStatus}</strong>.</p>
+        ${message ? `<div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;"><p style="margin:0;">${escapeHtml(message)}</p></div>` : ''}
+        <a href="${baseUrl}/espace-pro/reclamations/${claimId}"
+           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
+          Voir la reclamation
+        </a>
+      </div>
+    `,
+  });
+}
