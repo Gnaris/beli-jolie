@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getCachedDashboardStats } from "@/lib/cached-data";
+import { getCachedDashboardStats, getCachedLowStockCount } from "@/lib/cached-data";
 import DashboardParticlesLoader from "@/components/admin/dashboard/DashboardParticlesLoader";
 import DashboardChartsLoader from "@/components/admin/dashboard/DashboardChartsLoader";
 import type { MonthlyPoint, StatusPoint, TopProduct } from "@/components/admin/dashboard/DashboardCharts";
@@ -28,6 +28,7 @@ export default async function AdminDashboardPage() {
     onlineCount,
     onlineUsers,
     latestPending,
+    lowStockCount,
   ] = await Promise.all([
     getCachedDashboardStats(),
     prisma.user.count({ where: { status: "PENDING" } }),
@@ -53,6 +54,7 @@ export default async function AdminDashboardPage() {
         email: true, siret: true, createdAt: true,
       },
     }),
+    getCachedLowStockCount(),
   ]);
 
   const {
@@ -125,7 +127,7 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* ── STAT CARDS ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-4">
         {/* Revenu total */}
         <div className="stat-card flex flex-col gap-1">
           <div className="w-9 h-9 rounded-xl bg-bg-secondary flex items-center justify-center mb-1">
@@ -208,6 +210,24 @@ export default async function AdminDashboardPage() {
             </span>
           )}
         </div>
+
+        {/* Stock bas */}
+        <Link href="/admin/produits?stock=low" className={`stat-card flex flex-col gap-1 ${lowStockCount > 0 ? "ring-2 ring-[#EF4444]/30" : ""}`}>
+          <div className="w-9 h-9 rounded-xl bg-[#FEF2F2] flex items-center justify-center mb-1">
+            <svg className="w-4 h-4 text-[#EF4444]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+            </svg>
+          </div>
+          <p className={`font-heading text-2xl font-bold ${lowStockCount > 0 ? "text-[#EF4444]" : "text-text-primary"}`}>
+            {lowStockCount}
+          </p>
+          <p className="text-xs font-body text-[#6B7280]">Stock bas</p>
+          {lowStockCount > 0 && (
+            <span className="text-xs text-[#EF4444] font-medium font-body">
+              A surveiller
+            </span>
+          )}
+        </Link>
       </div>
 
       {/* ── CLIENTS EN LIGNE ── */}
