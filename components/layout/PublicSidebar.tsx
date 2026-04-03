@@ -81,6 +81,8 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     { label: t("orders"),    href: "/commandes" },
     { label: t("favorites"), href: "/favoris" },
     { label: t("messages"),  href: "/espace-pro/messages" },
+    { label: t("claims"),    href: "/espace-pro/reclamations" },
+    { label: t("credits"),   href: "/espace-pro/avoirs" },
   ];
 
   // Search state
