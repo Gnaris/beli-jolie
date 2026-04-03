@@ -72,11 +72,11 @@ export async function GET(
       },
       compositions: {
         include: {
-          composition: { select: { id: true, name: true } },
+          composition: { select: { id: true, name: true, pfsCompositionRef: true } },
         },
       },
       manufacturingCountry: { select: { id: true, name: true } },
-      season: { select: { id: true, name: true } },
+      season: { select: { id: true, name: true, pfsRef: true } },
     },
   });
 
@@ -567,11 +567,13 @@ export async function GET(
       compositionId: pc.composition.id,
       name: pc.composition.name,
       percentage: pc.percentage,
+      pfsRef: pc.composition.pfsCompositionRef || null,
     })),
     manufacturingCountryId: product.manufacturingCountry?.id || null,
     manufacturingCountryName: product.manufacturingCountry?.name || null,
     seasonId: product.season?.id || null,
     seasonName: product.season?.name || null,
+    pfsSeasonRef: product.season?.pfsRef || null,
   };
 
   const pfsFormatted = {
@@ -616,23 +618,50 @@ export async function GET(
   if (pfsCategoryName && (pfsCategoryId ? bjFormatted.categoryId !== pfsCategoryId : bjFormatted.categoryName.trim() !== pfsCategoryName.trim())) {
     differences.push({ field: "category", pfsValue: pfsFormatted.categoryName, bjValue: bjFormatted.categoryName });
   }
-  // Compare compositions: sort by name+percentage to avoid order-dependent false positives
-  // Compare only by name+percentage, NOT compositionId (may differ between BJ and PFS lookup)
-  const sortComps = (comps: Array<{ name: string; percentage: number }>) =>
-    [...comps].sort((a, b) => a.name.localeCompare(b.name) || a.percentage - b.percentage);
-  const bjCompsNorm = sortComps(bjFormatted.compositions.map(c => ({ name: c.name.trim().toLowerCase(), percentage: c.percentage })));
-  const pfsCompsNorm = sortComps(pfsFormatted.compositions.map(c => ({ name: c.name.trim().toLowerCase(), percentage: c.percentage })));
-  if (JSON.stringify(bjCompsNorm) !== JSON.stringify(pfsCompsNorm) && pfsFormatted.compositions.length > 0) {
-    differences.push({ field: "compositions", pfsValue: pfsFormatted.compositions, bjValue: bjFormatted.compositions });
+  // Compare compositions: prefer compositionId+percentage, fallback to pfsRef+percentage, then name+percentage
+  if (pfsFormatted.compositions.length > 0) {
+    const bjHasIds = bjFormatted.compositions.every(c => c.compositionId);
+    const pfsHasIds = pfsFormatted.compositions.every(c => c.compositionId);
+    let compositionsDiff: boolean;
+    if (bjHasIds && pfsHasIds) {
+      // Best: compare by resolved compositionId + percentage
+      const sortById = (comps: Array<{ compositionId: string; percentage: number }>) =>
+        [...comps].map(c => `${c.compositionId}:${c.percentage}`).sort().join(",");
+      compositionsDiff = sortById(bjFormatted.compositions) !== sortById(pfsFormatted.compositions);
+    } else {
+      // Fallback: compare by pfsRef+percentage if available, otherwise name+percentage
+      const bjHasRefs = bjFormatted.compositions.every(c => c.pfsRef);
+      const pfsHasRefs = pfsFormatted.compositions.every(c => c.pfsRef);
+      if (bjHasRefs && pfsHasRefs) {
+        const sortByRef = (comps: Array<{ pfsRef: string | null; percentage: number }>) =>
+          [...comps].map(c => `${c.pfsRef?.trim().toUpperCase()}:${c.percentage}`).sort().join(",");
+        compositionsDiff = sortByRef(bjFormatted.compositions) !== sortByRef(pfsFormatted.compositions);
+      } else {
+        const sortByName = (comps: Array<{ name: string; percentage: number }>) =>
+          [...comps].map(c => `${c.name.trim().toLowerCase()}:${c.percentage}`).sort().join(",");
+        compositionsDiff = sortByName(bjFormatted.compositions) !== sortByName(pfsFormatted.compositions);
+      }
+    }
+    if (compositionsDiff) {
+      differences.push({ field: "compositions", pfsValue: pfsFormatted.compositions, bjValue: bjFormatted.compositions });
+    }
   }
 
-  // Compare season — name-based fallback when IDs can't be resolved
+  // Compare season — prefer pfsRef comparison (most reliable), then ID, then name fallback
   if (pfsFormatted.seasonName) {
-    const seasonDiff = bjFormatted.seasonId && pfsFormatted.seasonId
-      ? bjFormatted.seasonId !== pfsFormatted.seasonId
-      : bjFormatted.seasonName && pfsFormatted.seasonName
-        ? bjFormatted.seasonName.trim().toLowerCase() !== pfsFormatted.seasonName.trim().toLowerCase()
-        : !!bjFormatted.seasonId !== !!pfsFormatted.seasonName;
+    let seasonDiff: boolean;
+    const bjRef = bjFormatted.pfsSeasonRef?.trim().toUpperCase();
+    const pfsRefVal = pfsFormatted.pfsSeasonRef?.trim().toUpperCase();
+    if (bjRef && pfsRefVal) {
+      // Best: compare PFS references directly
+      seasonDiff = bjRef !== pfsRefVal;
+    } else if (bjFormatted.seasonId && pfsFormatted.seasonId) {
+      seasonDiff = bjFormatted.seasonId !== pfsFormatted.seasonId;
+    } else if (bjFormatted.seasonName && pfsFormatted.seasonName) {
+      seasonDiff = bjFormatted.seasonName.trim().toLowerCase() !== pfsFormatted.seasonName.trim().toLowerCase();
+    } else {
+      seasonDiff = !!bjFormatted.seasonId !== !!pfsFormatted.seasonName;
+    }
     if (seasonDiff) {
       differences.push({ field: "season", pfsValue: pfsFormatted.seasonName, bjValue: bjFormatted.seasonName });
     }

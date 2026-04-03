@@ -59,51 +59,53 @@ interface ColumnDef {
 }
 
 const COLUMNS: ColumnDef[] = [
-  { key: "reference", header: "reference", width: 14, required: true, description: "Référence unique du produit", example: "PRD-001" },
-  { key: "name", header: "name", width: 28, required: true, description: "Nom du produit (en français)", example: "Produit Étoile" },
-  { key: "description", header: "description", width: 38, required: false, description: "Description du produit", example: "Produit fin avec motif étoile" },
-  { key: "category", header: "category", width: 20, required: false, description: "Catégorie (doit exister dans la base)", example: "Accessoires" },
-  { key: "sub_categories", header: "sub_categories", width: 22, required: false, description: "Sous-catégories séparées par des virgules", example: "Sautoir,Fin" },
-  { key: "color", header: "color", width: 24, required: true, description: "Couleur (multi-couleurs séparées par /)", example: "Doré" },
-  { key: "sale_type", header: "sale_type", width: 13, required: true, description: "UNIT ou PACK", example: "UNIT" },
-  { key: "unit_price", header: "unit_price", width: 14, required: true, description: "Prix unitaire HT en euros", example: "12.50" },
-  { key: "pack_qty", header: "pack_qty", width: 12, required: false, description: "Quantité par pack (requis si PACK)", example: "" },
-  { key: "stock", header: "stock", width: 10, required: true, description: "Quantité en stock", example: "200" },
-  { key: "weight_g", header: "weight_g", width: 12, required: false, description: "Poids en grammes", example: "30" },
-  { key: "is_primary", header: "is_primary", width: 12, required: false, description: "true = variante principale (1 par produit)", example: "true" },
-  { key: "discount_type", header: "discount_type", width: 15, required: false, description: "PERCENT ou AMOUNT", example: "" },
-  { key: "discount_value", header: "discount_value", width: 15, required: false, description: "Valeur de la remise", example: "" },
-  { key: "size", header: "size", width: 10, required: false, description: "Taille (ex: 17, 18)", example: "" },
-  { key: "tags", header: "tags", width: 26, required: false, description: "Mots-clés séparés par des virgules", example: "étoile,fin,tendance" },
-  { key: "composition", header: "composition", width: 32, required: false, description: "Matière:pourcentage (ex: Coton:85,Polyester:15)", example: "Coton:100" },
-  { key: "similar_refs", header: "similar_refs", width: 22, required: false, description: "Références produits similaires (virgules)", example: "PRD-002,PRD-003" },
-  { key: "dimension_length", header: "dimension_length", width: 16, required: false, description: "Longueur en cm", example: "45" },
-  { key: "dimension_width", header: "dimension_width", width: 16, required: false, description: "Largeur en cm", example: "2" },
-  { key: "dimension_height", header: "dimension_height", width: 16, required: false, description: "Hauteur en cm", example: "" },
-  { key: "dimension_diameter", header: "dimension_diameter", width: 16, required: false, description: "Diamètre en cm", example: "6.5" },
-  { key: "dimension_circumference", header: "dimension_circumference", width: 20, required: false, description: "Circonférence en cm", example: "" },
+  { key: "reference", header: "Référence *", width: 14, required: true, description: "Référence unique du produit", example: "PRD-001" },
+  { key: "name", header: "Nom *", width: 28, required: true, description: "Nom du produit (en français)", example: "Produit Étoile" },
+  { key: "description", header: "Description", width: 38, required: false, description: "Description du produit", example: "Produit fin avec motif étoile" },
+  { key: "category", header: "Catégorie", width: 20, required: false, description: "Doit exister dans la base", example: "Accessoires" },
+  { key: "sub_categories", header: "Sous-catégories", width: 22, required: false, description: "Séparées par des virgules", example: "Sautoir,Fin" },
+  { key: "color", header: "Couleur *", width: 24, required: true, description: "Multi-couleurs séparées par /", example: "Doré" },
+  { key: "sale_type", header: "Type de vente *", width: 15, required: true, description: "UNIT ou PACK", example: "UNIT" },
+  { key: "unit_price", header: "Prix unitaire *", width: 15, required: true, description: "Prix HT en euros", example: "12.50" },
+  { key: "pack_qty", header: "Qté pack", width: 12, required: false, description: "Requis si PACK", example: "" },
+  { key: "stock", header: "Stock *", width: 10, required: true, description: "Quantité en stock", example: "200" },
+  { key: "weight_g", header: "Poids (g)", width: 12, required: false, description: "Poids en grammes", example: "30" },
+  { key: "is_primary", header: "Primaire", width: 12, required: false, description: "true = variante principale", example: "true" },
+  { key: "discount_type", header: "Type remise", width: 15, required: false, description: "PERCENT ou AMOUNT", example: "" },
+  { key: "discount_value", header: "Valeur remise", width: 15, required: false, description: "Valeur de la remise", example: "" },
+  { key: "size", header: "Taille", width: 10, required: false, description: "Ex: 17, 18", example: "" },
+  { key: "tags", header: "Tags", width: 26, required: false, description: "Mots-clés séparés par des virgules", example: "étoile,fin,tendance" },
+  { key: "composition", header: "Composition", width: 32, required: false, description: "Matière:% (ex: Coton:85,Polyester:15)", example: "Coton:100" },
+  { key: "similar_refs", header: "Réf. similaires", width: 22, required: false, description: "Références produits similaires (virgules)", example: "PRD-002,PRD-003" },
+  { key: "pays_fabrication", header: "Pays fabrication", width: 18, required: false, description: "Doit exister dans la base", example: "France" },
+  { key: "saison", header: "Saison", width: 16, required: false, description: "Doit exister dans la base", example: "Été 2026" },
+  { key: "dimension_length", header: "Longueur (cm)", width: 16, required: false, description: "Longueur en cm", example: "45" },
+  { key: "dimension_width", header: "Largeur (cm)", width: 16, required: false, description: "Largeur en cm", example: "2" },
+  { key: "dimension_height", header: "Hauteur (cm)", width: 16, required: false, description: "Hauteur en cm", example: "" },
+  { key: "dimension_diameter", header: "Diamètre (cm)", width: 16, required: false, description: "Diamètre en cm", example: "6.5" },
+  { key: "dimension_circumference", header: "Circonférence (cm)", width: 20, required: false, description: "Circonférence en cm", example: "" },
 ];
 
 // ── Sample data ──
 const SAMPLE_DATA = [
   // Produit simple : 1 couleur, UNIT
-  { reference: "PRD-001", name: "Produit Étoile", description: "Produit fin avec motif étoile", category: "Accessoires", sub_categories: "Petits accessoires", color: "Doré", sale_type: "UNIT", unit_price: 12.50, pack_qty: "", stock: 200, weight_g: 30, is_primary: "true", discount_type: "", discount_value: "", size: "", tags: "étoile,fin,tendance", composition: "Coton:100", similar_refs: "PRD-002,PRD-003", dimension_length: 45, dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
+  { reference: "PRD-001", name: "Produit Étoile", description: "Produit fin avec motif étoile", category: "Accessoires", sub_categories: "Petits accessoires", color: "Doré", sale_type: "UNIT", unit_price: 12.50, pack_qty: "", stock: 200, weight_g: 30, is_primary: "true", discount_type: "", discount_value: "", size: "", tags: "étoile,fin,tendance", composition: "Coton:100", similar_refs: "PRD-002,PRD-003", pays_fabrication: "France", saison: "Été 2026", dimension_length: 45, dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Multi-variantes : Doré UNIT
-  { reference: "PRD-002", name: "Produit Classique", description: "Produit ajustable, finition soignée", category: "Textiles", sub_categories: "T-shirts,Basiques", color: "Doré", sale_type: "UNIT", unit_price: 8.99, pack_qty: "", stock: 500, weight_g: 45, is_primary: "true", discount_type: "", discount_value: "", size: "", tags: "jonc,classique", composition: "Coton:85,Or:15", similar_refs: "PRD-001", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: 6.5, dimension_circumference: "" },
+  { reference: "PRD-002", name: "Produit Classique", description: "Produit ajustable, finition soignée", category: "Textiles", sub_categories: "T-shirts,Basiques", color: "Doré", sale_type: "UNIT", unit_price: 8.99, pack_qty: "", stock: 500, weight_g: 45, is_primary: "true", discount_type: "", discount_value: "", size: "", tags: "jonc,classique", composition: "Coton:85,Or:15", similar_refs: "PRD-001", pays_fabrication: "Italie", saison: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: 6.5, dimension_circumference: "" },
   // Même produit : Doré PACK
-  { reference: "PRD-002", name: "", description: "", category: "", sub_categories: "", color: "Doré", sale_type: "PACK", unit_price: 7.50, pack_qty: 12, stock: 100, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
+  { reference: "PRD-002", name: "", description: "", category: "", sub_categories: "", color: "Doré", sale_type: "PACK", unit_price: 7.50, pack_qty: 12, stock: 100, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", pays_fabrication: "", saison: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Même produit : Argenté UNIT
-  { reference: "PRD-002", name: "", description: "", category: "", sub_categories: "", color: "Argenté", sale_type: "UNIT", unit_price: 8.99, pack_qty: "", stock: 300, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
+  { reference: "PRD-002", name: "", description: "", category: "", sub_categories: "", color: "Argenté", sale_type: "UNIT", unit_price: 8.99, pack_qty: "", stock: 300, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", pays_fabrication: "", saison: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Même produit : Argenté PACK
-  { reference: "PRD-002", name: "", description: "", category: "", sub_categories: "", color: "Argenté", sale_type: "PACK", unit_price: 7.50, pack_qty: 12, stock: 80, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
+  { reference: "PRD-002", name: "", description: "", category: "", sub_categories: "", color: "Argenté", sale_type: "PACK", unit_price: 7.50, pack_qty: 12, stock: 80, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", pays_fabrication: "", saison: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Même produit : Or Rose UNIT
-  { reference: "PRD-002", name: "", description: "", category: "", sub_categories: "", color: "Or Rose", sale_type: "UNIT", unit_price: 9.99, pack_qty: "", stock: 200, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
+  { reference: "PRD-002", name: "", description: "", category: "", sub_categories: "", color: "Or Rose", sale_type: "UNIT", unit_price: 9.99, pack_qty: "", stock: 200, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", pays_fabrication: "", saison: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Multi-couleurs
-  { reference: "PRD-003", name: "Produit Trio", description: "Produit tricolore empilable", category: "Déco", sub_categories: "", color: "Doré/Argenté/Or Rose", sale_type: "UNIT", unit_price: 6.50, pack_qty: "", stock: 150, weight_g: 15, is_primary: "true", discount_type: "", discount_value: "", size: "17", tags: "trio,empilable", composition: "", similar_refs: "PRD-002", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: 17 },
+  { reference: "PRD-003", name: "Produit Trio", description: "Produit tricolore empilable", category: "Déco", sub_categories: "", color: "Doré/Argenté/Or Rose", sale_type: "UNIT", unit_price: 6.50, pack_qty: "", stock: 150, weight_g: 15, is_primary: "true", discount_type: "", discount_value: "", size: "17", tags: "trio,empilable", composition: "", similar_refs: "PRD-002", pays_fabrication: "", saison: "Hiver 2026", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: 17 },
   // Même produit : PACK multi-couleurs
-  { reference: "PRD-003", name: "", description: "", category: "", sub_categories: "", color: "Doré/Argenté/Or Rose", sale_type: "PACK", unit_price: 5.50, pack_qty: 24, stock: 40, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
+  { reference: "PRD-003", name: "", description: "", category: "", sub_categories: "", color: "Doré/Argenté/Or Rose", sale_type: "PACK", unit_price: 5.50, pack_qty: 24, stock: 40, weight_g: "", is_primary: "", discount_type: "", discount_value: "", size: "", tags: "", composition: "", similar_refs: "", pays_fabrication: "", saison: "", dimension_length: "", dimension_width: "", dimension_height: "", dimension_diameter: "", dimension_circumference: "" },
   // Produit avec remise
-  { reference: "PRD-004", name: "Produit Promo", description: "Produit doré en promotion", category: "Accessoires", sub_categories: "", color: "Doré", sale_type: "UNIT", unit_price: 5.99, pack_qty: "", stock: 800, weight_g: 20, is_primary: "true", discount_type: "PERCENT", discount_value: 10, size: "", tags: "créoles", composition: "Coton:100", similar_refs: "PRD-002,PRD-003", dimension_length: 3, dimension_width: 3, dimension_height: "", dimension_diameter: 3, dimension_circumference: "" },
+  { reference: "PRD-004", name: "Produit Promo", description: "Produit doré en promotion", category: "Accessoires", sub_categories: "", color: "Doré", sale_type: "UNIT", unit_price: 5.99, pack_qty: "", stock: 800, weight_g: 20, is_primary: "true", discount_type: "PERCENT", discount_value: 10, size: "", tags: "créoles", composition: "Coton:100", similar_refs: "PRD-002,PRD-003", pays_fabrication: "France", saison: "", dimension_length: 3, dimension_width: 3, dimension_height: "", dimension_diameter: 3, dimension_circumference: "" },
 ];
 
 // Track which reference groups for alternating colors
@@ -195,6 +197,12 @@ export async function GET() {
     "• tags : séparés par des virgules → étoile,fin,tendance",
     "• composition : format Matière:pourcentage → Coton:85,Or:15",
     "• similar_refs : références de produits similaires, séparées par des virgules.",
+  ]);
+
+  addSection("🌍  Pays & Saisons", [
+    "• pays_fabrication : nom du pays de fabrication (doit exister dans la base, sinon créable depuis l'aperçu).",
+    "• saison : nom de la saison (doit exister dans la base, sinon créable depuis l'aperçu).",
+    "• Ces champs sont au niveau produit : ne les renseignez que sur la ligne principale.",
   ]);
 
   addSection("📐  Dimensions", [
@@ -295,9 +303,9 @@ export async function GET() {
     width: col.width,
   }));
 
-  // Style header row
+  // Style header row — name in French + description as cell comment
   const headerRow = wsProduits.getRow(1);
-  headerRow.height = 30;
+  headerRow.height = 34;
   headerRow.eachCell((cell, colNumber) => {
     const colDef = COLUMNS[colNumber - 1];
     cell.font = FONT_HEADER;
@@ -313,22 +321,8 @@ export async function GET() {
       left: { style: "thin", color: { argb: COLORS.dark } },
       right: { style: "thin", color: { argb: COLORS.dark } },
     };
-  });
-
-  // Description row (row 2) — column descriptions as a helper row
-  const descRow = wsProduits.getRow(2);
-  descRow.height = 28;
-  COLUMNS.forEach((col, i) => {
-    const cell = descRow.getCell(i + 1);
-    cell.value = col.description;
-    cell.font = { name: "Calibri", size: 9, italic: true, color: { argb: COLORS.grayMed } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.surface } };
-    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    cell.border = {
-      bottom: { style: "medium", color: { argb: COLORS.border } },
-      left: { style: "thin", color: { argb: COLORS.border } },
-      right: { style: "thin", color: { argb: COLORS.border } },
-    };
+    // Add description as cell comment so the user sees it on hover
+    cell.note = `${colDef.description}${colDef.example ? `\nExemple : ${colDef.example}` : ""}`;
   });
 
   // Alternating product group colors
@@ -363,8 +357,8 @@ export async function GET() {
     });
   });
 
-  // Add data validation dropdowns
-  const dataStartRow = 3;
+  // Add data validation dropdowns (data starts at row 2 now, no description row)
+  const dataStartRow = 2;
   const dataEndRow = 100;
 
   // sale_type dropdown
@@ -411,10 +405,6 @@ export async function GET() {
     from: { row: 1, column: 1 },
     to: { row: 1, column: COLUMNS.length },
   };
-
-  // Add comment indicators on required headers
-  wsProduits.getCell(1, 1).note = "Chaque produit doit avoir une référence unique. Plusieurs lignes peuvent partager la même référence (variantes).";
-  wsProduits.getCell(1, saleTypeCol).note = "UNIT = vente à l'unité\nPACK = vente en lot (pack_qty obligatoire)";
 
   // Generate buffer
   const buffer = await wb.xlsx.writeBuffer();

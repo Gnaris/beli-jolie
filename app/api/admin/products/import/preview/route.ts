@@ -39,7 +39,7 @@ export interface PreviewProduct {
 }
 
 export interface MissingEntity {
-  type: "category" | "color" | "subcategory" | "composition";
+  type: "category" | "color" | "subcategory" | "composition" | "country" | "season";
   name: string;
   usedBy: number; // how many products reference this entity
   parentCategoryName?: string; // for subcategories: name of the category that uses it
@@ -65,27 +65,30 @@ function normalizeRow(raw: Record<string, unknown>, index: number) {
   const str = (v: unknown) => (v != null ? String(v).trim() : "");
   const num = (v: unknown) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return isNaN(n) ? undefined : n; };
   const int = (v: unknown) => { const n = parseInt(String(v ?? "")); return isNaN(n) ? undefined : n; };
-  // Support headers with asterisks from template (e.g. "reference *", "name *")
-  const saleTypeRaw = str(raw["sale_type"] ?? raw["sale_type *"] ?? raw["saleType"] ?? raw["type_vente"] ?? "UNIT").toUpperCase();
+  // Support French headers from template (e.g. "Référence *", "Nom *") + English keys
+  const saleTypeRaw = str(raw["sale_type"] ?? raw["sale_type *"] ?? raw["saleType"] ?? raw["type_vente"] ?? raw["Type de vente *"] ?? "UNIT").toUpperCase();
   return {
     _rowIndex: index + 2,
-    reference: str(raw["reference"] ?? raw["reference *"] ?? raw["ref"] ?? raw["référence"]),
-    name: str(raw["name"] ?? raw["name *"] ?? raw["nom"] ?? raw["name_fr"]),
-    description: str(raw["description"] ?? raw["description_fr"]) || undefined,
-    category: str(raw["category"] ?? raw["categorie"] ?? raw["catégorie"]) || undefined,
-    subCategories: str(raw["sub_categories"] ?? raw["sous_categories"] ?? raw["subCategories"]) || undefined,
-    color: str(raw["color"] ?? raw["color *"] ?? raw["couleur"]),
+    reference: str(raw["reference"] ?? raw["reference *"] ?? raw["ref"] ?? raw["référence"] ?? raw["Référence *"]),
+    name: str(raw["name"] ?? raw["name *"] ?? raw["nom"] ?? raw["name_fr"] ?? raw["Nom *"]),
+    description: str(raw["description"] ?? raw["description_fr"] ?? raw["Description"]) || undefined,
+    category: str(raw["category"] ?? raw["categorie"] ?? raw["catégorie"] ?? raw["Catégorie"]) || undefined,
+    subCategories: str(raw["sub_categories"] ?? raw["sous_categories"] ?? raw["subCategories"] ?? raw["Sous-catégories"]) || undefined,
+    color: str(raw["color"] ?? raw["color *"] ?? raw["couleur"] ?? raw["Couleur *"]),
     saleType: saleTypeRaw === "PACK" ? "PACK" as const : "UNIT" as const,
-    unitPrice: num(raw["unit_price"] ?? raw["unit_price *"] ?? raw["prix"] ?? raw["price"]) ?? 0,
-    packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"]),
-    stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"]) ?? 0,
-    tags: str(raw["tags"]) || undefined,
-    composition: str(raw["composition"]) || undefined,
-    dimensionLength: num(raw["dimension_length"] ?? raw["longueur"]),
-    dimensionWidth: num(raw["dimension_width"] ?? raw["largeur"]),
-    dimensionHeight: num(raw["dimension_height"] ?? raw["hauteur"]),
-    dimensionDiameter: num(raw["dimension_diameter"] ?? raw["diametre"] ?? raw["diamètre"]),
-    dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"]),
+    unitPrice: num(raw["unit_price"] ?? raw["unit_price *"] ?? raw["prix"] ?? raw["price"] ?? raw["Prix unitaire *"]) ?? 0,
+    packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"] ?? raw["Qté pack"]),
+    stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"] ?? raw["Stock *"]) ?? 0,
+    tags: str(raw["tags"] ?? raw["Tags"]) || undefined,
+    composition: str(raw["composition"] ?? raw["Composition"]) || undefined,
+    dimensionLength: num(raw["dimension_length"] ?? raw["longueur"] ?? raw["Longueur (cm)"]),
+    dimensionWidth: num(raw["dimension_width"] ?? raw["largeur"] ?? raw["Largeur (cm)"]),
+    dimensionHeight: num(raw["dimension_height"] ?? raw["hauteur"] ?? raw["Hauteur (cm)"]),
+    dimensionDiameter: num(raw["dimension_diameter"] ?? raw["diametre"] ?? raw["diamètre"] ?? raw["Diamètre (cm)"]),
+    dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"] ?? raw["Circonférence (cm)"]),
+    size: str(raw["size"] ?? raw["taille"] ?? raw["Taille"]) || undefined,
+    manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays"] ?? raw["Pays fabrication"]) || undefined,
+    season: str(raw["season"] ?? raw["saison"] ?? raw["collection"] ?? raw["Saison"]) || undefined,
   };
 }
 
@@ -120,6 +123,9 @@ function parseJSON(text: string) {
         dimensionHeight: item.dimensionHeight ?? item.dimension_height ?? undefined,
         dimensionDiameter: item.dimensionDiameter ?? item.dimension_diameter ?? undefined,
         dimensionCircumference: item.dimensionCircumference ?? item.dimension_circumference ?? undefined,
+        size: c.size ?? c.taille ?? undefined,
+        manufacturingCountry: item.manufacturingCountry ?? item.manufacturing_country ?? item.pays_fabrication ?? undefined,
+        season: item.season ?? item.saison ?? item.collection ?? undefined,
       });
       idx++;
     }
@@ -136,14 +142,14 @@ function parseExcel(buffer: ArrayBuffer) {
   // Skip the description row (row 2 in template) — detect by checking if "reference" looks like a description
   // Do NOT skip rows with empty reference — they inherit from the previous row
   const filtered = data.filter((row) => {
-    const ref = String(row["reference"] ?? row["reference *"] ?? row["ref"] ?? row["référence"] ?? "").trim();
-    // Description row has values like "Référence unique du produit" — not a valid product row
+    const ref = String(row["reference"] ?? row["reference *"] ?? row["ref"] ?? row["référence"] ?? row["Référence *"] ?? "").trim();
+    // Description row has values like "Référence unique du produit" — not a valid product row (old templates)
     if (ref.toLowerCase().startsWith("référence unique") || ref.toLowerCase().startsWith("reference unique")) return false;
     // Also skip rows where sale_type contains description text instead of UNIT/PACK
-    const saleType = String(row["sale_type"] ?? row["sale_type *"] ?? row["saleType"] ?? "").trim().toUpperCase();
+    const saleType = String(row["sale_type"] ?? row["sale_type *"] ?? row["saleType"] ?? row["Type de vente *"] ?? "").trim().toUpperCase();
     if (saleType && saleType !== "UNIT" && saleType !== "PACK" && saleType.length > 10) return false;
     // Skip completely empty rows (no ref AND no color)
-    const color = String(row["color"] ?? row["color *"] ?? row["couleur"] ?? "").trim();
+    const color = String(row["color"] ?? row["color *"] ?? row["couleur"] ?? row["Couleur *"] ?? "").trim();
     if (!ref && !color) return false;
     return true;
   });
@@ -220,18 +226,25 @@ export async function POST(req: NextRequest) {
       ),
     ];
 
-    const [dbColors, dbCategories, dbCompositions, dbSubCategories, existingProducts] = await Promise.all([
+    const countryNames = [...new Set(rows.filter((r) => r.manufacturingCountry).map((r) => r.manufacturingCountry!))];
+    const seasonNames = [...new Set(rows.filter((r) => r.season).map((r) => r.season!))];
+
+    const [dbColors, dbCategories, dbCompositions, dbSubCategories, existingProducts, dbCountries, dbSeasons] = await Promise.all([
       prisma.color.findMany({ where: { name: { in: colorNames } }, select: { name: true, id: true } }),
       prisma.category.findMany({ where: { name: { in: categoryNames } }, select: { name: true, id: true } }),
       prisma.composition.findMany({ where: { name: { in: compositionMaterials } }, select: { name: true, id: true } }),
       prisma.subCategory.findMany({ select: { name: true, id: true } }),
       prisma.product.findMany({ where: { reference: { in: references } }, select: { reference: true } }),
+      prisma.manufacturingCountry.findMany({ where: { name: { in: countryNames } }, select: { name: true, id: true } }),
+      prisma.season.findMany({ where: { name: { in: seasonNames } }, select: { name: true, id: true } }),
     ]);
 
     const colorSet = new Set(dbColors.map((c) => normalizeColorName(c.name)));
     const categorySet = new Set(dbCategories.map((c) => c.name.toLowerCase()));
     const compositionSet = new Set(dbCompositions.map((c) => c.name.toLowerCase()));
     const subCatSet = new Set(dbSubCategories.map((s) => s.name.toLowerCase()));
+    const countrySet = new Set(dbCountries.map((c) => c.name.toLowerCase()));
+    const seasonSet = new Set(dbSeasons.map((s) => s.name.toLowerCase()));
     const existingRefSet = new Set(existingProducts.map((p) => p.reference.toUpperCase()));
 
     // Track missing entities with usage counts
@@ -256,7 +269,7 @@ export async function POST(req: NextRequest) {
 
     // Inherit product-level fields from the group: find the first row that has each
     // field and propagate to all rows (field can be on any row, not just the first)
-    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference"] as const;
+    const productFields = ["name", "description", "category", "tags", "composition", "subCategories", "manufacturingCountry", "season", "dimensionLength", "dimensionWidth", "dimensionHeight", "dimensionDiameter", "dimensionCircumference"] as const;
     for (const [, groupRows] of grouped) {
       for (const field of productFields) {
         const source = groupRows.find((r) => r[field as keyof typeof r]);
@@ -311,6 +324,24 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Validate manufacturing country
+      let countryFound = true;
+      if (firstRow.manufacturingCountry) {
+        if (!countrySet.has(firstRow.manufacturingCountry.toLowerCase())) {
+          countryFound = false;
+          addMissing("country", firstRow.manufacturingCountry);
+        }
+      }
+
+      // Validate season
+      let seasonFound = true;
+      if (firstRow.season) {
+        if (!seasonSet.has(firstRow.season.toLowerCase())) {
+          seasonFound = false;
+          addMissing("season", firstRow.season);
+        }
+      }
+
       const variants: PreviewVariant[] = groupRows.map((row) => {
         const errors: string[] = [];
         // Multi-color support: "Bleu/Rose/Vert" → check each sub-color
@@ -346,6 +377,8 @@ export async function POST(req: NextRequest) {
       if (firstRow.category && !categoryFound) productErrors.push(`Catégorie "${firstRow.category}" introuvable.`);
       if (!compositionsFound) productErrors.push("Composition(s) introuvable(s).");
       if (!subCategoriesFound) productErrors.push("Sous-catégorie(s) introuvable(s).");
+      if (!countryFound) productErrors.push(`Pays "${firstRow.manufacturingCountry}" introuvable.`);
+      if (!seasonFound) productErrors.push(`Saison "${firstRow.season}" introuvable.`);
       if (referenceExists) productErrors.push(`La référence "${ref}" existe déjà.`);
 
       const variantErrors = variants.flatMap((v) => v.errors);

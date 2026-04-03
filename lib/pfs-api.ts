@@ -13,6 +13,33 @@ import { getPfsHeaders, invalidatePfsToken, PFS_BASE_URL } from "@/lib/pfs-auth"
 import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
+// Concurrency limiter — prevents PFS 429 rate-limiting
+// ─────────────────────────────────────────────
+
+const PFS_MAX_CONCURRENT = 2;
+let pfsActiveRequests = 0;
+const pfsQueue: Array<() => void> = [];
+
+export async function acquirePfsSlot(): Promise<void> {
+  if (pfsActiveRequests < PFS_MAX_CONCURRENT) {
+    pfsActiveRequests++;
+    return;
+  }
+  return new Promise<void>((resolve) => {
+    pfsQueue.push(() => {
+      pfsActiveRequests++;
+      resolve();
+    });
+  });
+}
+
+export function releasePfsSlot(): void {
+  pfsActiveRequests--;
+  const next = pfsQueue.shift();
+  if (next) next();
+}
+
+// ─────────────────────────────────────────────
 // Types — PFS API responses
 // ─────────────────────────────────────────────
 
@@ -157,6 +184,19 @@ async function fetchWithRetry(
   options: RequestInit,
   maxRetries = 5,
 ): Promise<Response> {
+  await acquirePfsSlot();
+  try {
+    return await _fetchWithRetryInner(url, options, maxRetries);
+  } finally {
+    releasePfsSlot();
+  }
+}
+
+async function _fetchWithRetryInner(
+  url: string,
+  options: RequestInit,
+  maxRetries: number,
+): Promise<Response> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -181,10 +221,11 @@ async function fetchWithRetry(
         throw new Error(`PFS API 404: ressource introuvable`);
       }
 
-      // Rate limited or server error — retry with backoff
+      // Rate limited or server error — retry with backoff + jitter
       if (res.status === 429 || res.status >= 500) {
-        const delay = Math.min(2000 * Math.pow(2, attempt), 60000);
-        logger.warn("[PFS] HTTP error, retrying", { status: res.status, attempt: attempt + 1, maxRetries, delayMs: delay });
+        const jitter = Math.random() * 1000;
+        const delay = Math.min(2000 * Math.pow(2, attempt) + jitter, 60000);
+        logger.warn("[PFS] HTTP error, retrying", { status: res.status, attempt: attempt + 1, maxRetries, delayMs: Math.round(delay) });
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
@@ -195,8 +236,9 @@ async function fetchWithRetry(
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxRetries) {
-        const delay = Math.min(2000 * Math.pow(2, attempt), 60000);
-        logger.warn("[PFS] Request failed, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries, delayMs: delay });
+        const jitter = Math.random() * 1000;
+        const delay = Math.min(2000 * Math.pow(2, attempt) + jitter, 60000);
+        logger.warn("[PFS] Request failed, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries, delayMs: Math.round(delay) });
         await new Promise((r) => setTimeout(r, delay));
       }
     }

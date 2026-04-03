@@ -71,24 +71,13 @@ export async function updateSeasonDirect(
 }
 
 /**
- * Update the single PFS ref for a season.
- * The ref must be unique across all seasons.
+ * Update the PFS ref for a season.
+ * Multiple seasons can share the same PFS ref.
  */
 export async function updateSeasonPfsRef(id: string, pfsRef: string | null) {
   await requireAdmin();
 
   const normalized = pfsRef?.trim().toUpperCase() || null;
-
-  // Check for conflicts with other seasons
-  if (normalized) {
-    const conflict = await prisma.season.findFirst({
-      where: { pfsRef: normalized, id: { not: id } },
-      select: { name: true },
-    });
-    if (conflict) {
-      throw new Error(`Correspondance « ${normalized} » déjà utilisée par « ${conflict.name} »`);
-    }
-  }
 
   await prisma.season.update({ where: { id }, data: { pfsRef: normalized } });
 

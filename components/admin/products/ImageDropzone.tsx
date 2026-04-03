@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useCallback } from "react";
 
 interface ImageDropzoneProps {
   colorIndex: number;
@@ -109,6 +109,43 @@ export default function ImageDropzone({
     setDragOverPos(null);
   }
 
+  const handleDownloadAsJpg = useCallback((src: string, pos: number) => {
+    const canvas = document.createElement("canvas");
+    const imgEl = new Image();
+    imgEl.crossOrigin = "anonymous";
+    imgEl.onload = () => {
+      canvas.width = imgEl.naturalWidth;
+      canvas.height = imgEl.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      // Fill white background (JPG has no transparency)
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(imgEl, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `image-${pos + 1}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, "image/jpeg", 0.92);
+    };
+    imgEl.onerror = () => {
+      // Fallback: direct download if canvas conversion fails (CORS)
+      const a = document.createElement("a");
+      a.href = src;
+      a.download = `image-${pos + 1}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+    imgEl.src = src;
+  }, []);
+
   return (
     <>
       <div className="grid grid-cols-5 gap-2">
@@ -157,12 +194,38 @@ export default function ImageDropzone({
                     src={img.src}
                     alt={`Image position ${pos + 1}`}
                     draggable={false}
-                    onClick={() => setZoomedSrc(img.src)}
-                    className="w-full h-full object-cover cursor-zoom-in"
+                    className="w-full h-full object-contain"
                   />
+                  {/* Hover overlay with actions */}
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3 z-20 rounded-lg">
+                    {/* Zoom button */}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setZoomedSrc(img.src); }}
+                      className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors"
+                      aria-label="Voir en grand"
+                      title="Voir en grand"
+                    >
+                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                      </svg>
+                    </button>
+                    {/* Download button */}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleDownloadAsJpg(img.src, pos); }}
+                      className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors"
+                      aria-label="Télécharger en JPG"
+                      title="Télécharger en JPG"
+                    >
+                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    </button>
+                  </div>
                   {/* Drag handle */}
-                  <span className="absolute top-0.5 left-0.5 opacity-0 group-hover:opacity-70 transition-opacity z-30">
-                    <svg className="w-3 h-3 text-white drop-shadow" fill="currentColor" viewBox="0 0 24 24">
+                  <span className="absolute top-1 left-1 bg-black/40 backdrop-blur-sm rounded p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-30 cursor-grab active:cursor-grabbing">
+                    <svg className="w-4 h-4 text-white drop-shadow" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M8 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm8-16a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
                     </svg>
                   </span>

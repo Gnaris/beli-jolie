@@ -30,7 +30,7 @@ function PfsTooltip({
       {children}
       {open && (
         <span
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 z-50 animate-fadeIn"
+          className="absolute top-full left-1/2 -translate-x-1/2 mt-2.5 z-50 animate-fadeIn"
           onMouseEnter={show}
           onMouseLeave={hide}
         >
@@ -67,7 +67,7 @@ function PfsTooltip({
           </span>
           {/* Arrow */}
           <span
-            className={`absolute left-1/2 -translate-x-1/2 -bottom-[5px] h-2.5 w-2.5 rotate-45 border-r border-b ${
+            className={`absolute left-1/2 -translate-x-1/2 -top-[5px] h-2.5 w-2.5 rotate-45 border-l border-t ${
               isWarning ? "pfs-tooltip-arrow-warning" : "pfs-tooltip-arrow-error"
             }`}
           />

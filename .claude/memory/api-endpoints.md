@@ -72,7 +72,6 @@ type: reference
 | Route | Méthode | Auth | Description |
 |-------|---------|------|-------------|
 | `/api/carriers` | POST | Session | Devis transporteurs via Easy-Express (+5€ marge), fallback hardcodé |
-| `/api/vies` | GET | Session | Validation TVA intracommunautaire (API VIES UE) |
 
 ### Paiements (Stripe)
 

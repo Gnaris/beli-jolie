@@ -5,14 +5,14 @@ import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
 import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
-import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes, getCachedPfsEnabled, getCachedEfashionEnabled } from "@/lib/cached-data";
+import { getCachedPfsEnabled } from "@/lib/cached-data";
 import PfsSyncButton from "@/components/pfs/PfsSyncButton";
 import RetryImagesButton from "@/components/pfs/RetryImagesButton";
-import EfashionSyncButton from "@/components/efashion/EfashionSyncButton";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
+export const dynamic = "force-dynamic";
 
 function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -25,7 +25,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes, hasPfsConfig, hasEfashionConfig] = await Promise.all([
+  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes, hasPfsConfig] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -108,10 +108,17 @@ export default async function ModifierProduitPage({
         tags:            { include: { tag: true } },
       },
     }),
-    getCachedCategories(),
-    getCachedColors(),
+    // Direct Prisma queries (no cache) — ensures fresh data after import
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      include: { subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } } },
+    }),
+    prisma.color.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
+    }),
     prisma.composition.findMany({ orderBy: { name: "asc" } }),
-    getCachedTags(),
+    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.productTranslation.findMany({
       where:  { productId: id },
       select: { locale: true, name: true, description: true },
@@ -120,11 +127,16 @@ export default async function ModifierProduitPage({
       where:   { productId: id },
       orderBy: { order: "asc" },
     }),
-    getCachedManufacturingCountries(),
-    getCachedSeasons(),
-    getCachedSizes(),
+    prisma.manufacturingCountry.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, isoCode: true },
+    }),
+    prisma.season.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.size.findMany({
+      orderBy: { position: "asc" },
+      select: { id: true, name: true, categories: { select: { categoryId: true } } },
+    }),
     getCachedPfsEnabled(),
-    getCachedEfashionEnabled(),
   ]);
 
   if (!product) notFound();
@@ -493,12 +505,6 @@ export default async function ModifierProduitPage({
                     pfsSyncError={product.pfsSyncError}
                     pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
                     mappingIssues={mappingIssues}
-                  />
-                )}
-                {hasEfashionConfig && (
-                  <EfashionSyncButton
-                    productId={product.id}
-                    efashionProductId={product.efashionProductId}
                   />
                 )}
                 {hasMissingImages && (

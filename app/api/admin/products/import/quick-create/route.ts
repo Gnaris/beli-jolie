@@ -10,6 +10,11 @@
  *   colorHex?: string           (for create_color, default #9CA3AF)
  *   patternImage?: string       (for create_color — if set, hex is ignored)
  *   parentCategoryId?: string   (for create_subcategory, optional)
+ *   pfsColorRef?: string        (for create_color — PFS color reference)
+ *   pfsCategoryId?: string      (for create_category — PFS category ID)
+ *   pfsGender?: string          (for create_category — PFS gender)
+ *   pfsFamilyId?: string        (for create_category — PFS family ID)
+ *   pfsCompositionRef?: string  (for create_composition — PFS composition reference)
  * }
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -18,6 +23,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
+import { autoTranslateColor, autoTranslateCategory, autoTranslateSubCategory, autoTranslateComposition, autoTranslateManufacturingCountry, autoTranslateSeason } from "@/lib/auto-translate";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -32,6 +38,11 @@ export async function POST(req: NextRequest) {
     patternImage?: string;
     parentCategoryId?: string;
     parentCategoryName?: string;
+    pfsColorRef?: string;
+    pfsCategoryId?: string;
+    pfsGender?: string;
+    pfsFamilyId?: string;
+    pfsCompositionRef?: string;
   } = await req.json();
 
   try {
@@ -51,8 +62,18 @@ export async function POST(req: NextRequest) {
       if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
 
       const slug = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-      const category = await prisma.category.create({ data: { name, slug } });
+      const category = await prisma.category.create({
+        data: {
+          name,
+          slug,
+          ...(body.pfsCategoryId ? { pfsCategoryId: body.pfsCategoryId } : {}),
+          ...(body.pfsGender ? { pfsGender: body.pfsGender } : {}),
+          ...(body.pfsFamilyId ? { pfsFamilyId: body.pfsFamilyId } : {}),
+        },
+      });
       revalidateTag("categories", "default");
+      // Fire-and-forget auto-translation
+      autoTranslateCategory(category.id, name);
       return NextResponse.json({ ok: true, entity: category });
     }
 
@@ -62,8 +83,17 @@ export async function POST(req: NextRequest) {
 
       const patternImage = body.patternImage?.trim() || null;
       const hex = patternImage ? null : (body.colorHex?.trim() || "#9CA3AF");
-      const color = await prisma.color.create({ data: { name, hex, patternImage } });
+      const color = await prisma.color.create({
+        data: {
+          name,
+          hex,
+          patternImage,
+          ...(body.pfsColorRef ? { pfsColorRef: body.pfsColorRef } : {}),
+        },
+      });
       revalidateTag("colors", "default");
+      // Fire-and-forget auto-translation
+      autoTranslateColor(color.id, name);
       return NextResponse.json({ ok: true, entity: color });
     }
 
@@ -87,6 +117,8 @@ export async function POST(req: NextRequest) {
       const slug = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
       const subCategory = await prisma.subCategory.create({ data: { name, slug, categoryId } });
       revalidateTag("categories", "default");
+      // Fire-and-forget auto-translation
+      autoTranslateSubCategory(subCategory.id, name);
       return NextResponse.json({ ok: true, entity: subCategory });
     }
 
@@ -94,9 +126,38 @@ export async function POST(req: NextRequest) {
       const existing = await prisma.composition.findFirst({ where: { name } });
       if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
 
-      const composition = await prisma.composition.create({ data: { name } });
+      const composition = await prisma.composition.create({
+        data: {
+          name,
+          ...(body.pfsCompositionRef ? { pfsCompositionRef: body.pfsCompositionRef } : {}),
+        },
+      });
       revalidateTag("compositions", "default");
+      // Fire-and-forget auto-translation
+      autoTranslateComposition(composition.id, name);
       return NextResponse.json({ ok: true, entity: composition });
+    }
+
+    if (body.action === "create_country") {
+      const existing = await prisma.manufacturingCountry.findFirst({ where: { name } });
+      if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
+
+      const country = await prisma.manufacturingCountry.create({ data: { name } });
+      revalidateTag("manufacturing-countries", "default");
+      // Fire-and-forget auto-translation
+      autoTranslateManufacturingCountry(country.id, name);
+      return NextResponse.json({ ok: true, entity: country });
+    }
+
+    if (body.action === "create_season") {
+      const existing = await prisma.season.findFirst({ where: { name } });
+      if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
+
+      const season = await prisma.season.create({ data: { name } });
+      revalidateTag("seasons", "default");
+      // Fire-and-forget auto-translation
+      autoTranslateSeason(season.id, name);
+      return NextResponse.json({ ok: true, entity: season });
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

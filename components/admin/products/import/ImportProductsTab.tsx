@@ -3,7 +3,24 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import CustomSelect from "@/components/ui/CustomSelect";
+import { revalidateAfterImport } from "@/app/actions/admin/products";
 import type { PreviewResult, PreviewProduct, MissingEntity } from "@/app/api/admin/products/import/preview/route";
+
+// PFS attribute types for mapping dropdowns
+interface PfsColor { reference: string; value: string; image: string | null; labels: Record<string, string> }
+interface PfsCategory { id: string; family: { id: string }; labels: Record<string, string>; gender: string }
+interface PfsComposition { id: string; reference: string; labels: Record<string, string> }
+interface PfsFamily { id: string; labels: Record<string, string>; gender: string }
+interface PfsGender { reference: string; labels: Record<string, string> }
+interface PfsAttributes {
+  colors: PfsColor[];
+  categories: PfsCategory[];
+  compositions: PfsComposition[];
+  families: PfsFamily[];
+  genders: PfsGender[];
+  pfsDisabled?: boolean;
+}
 
 const TEMPLATE_JSON = JSON.stringify(
   [
@@ -112,13 +129,20 @@ export default function ImportProductsTab() {
           errorDraftId: job.errorDraftId,
           errorMessage: job.errorMessage,
         });
+        // Invalidate server-side cache via server action (revalidateTag
+        // doesn't work inside fire-and-forget background jobs, so we
+        // trigger it from the client in a proper request context)
+        if (job.status === "COMPLETED" || job.status === "FAILED") {
+          revalidateAfterImport();
+          router.refresh();
+        }
       } catch {
         // Silently retry on next interval
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [step, importResult?.jobId, jobStatus]);
+  }, [step, importResult?.jobId, jobStatus, router]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFile(e.target.files?.[0] ?? null);
@@ -503,6 +527,8 @@ const ENTITY_LABELS: Record<MissingEntity["type"], { label: string; plural: stri
   color: { label: "Couleur", plural: "Couleurs", icon: "🎨", action: "create_color" },
   subcategory: { label: "Sous-catégorie", plural: "Sous-catégories", icon: "📁", action: "create_subcategory" },
   composition: { label: "Composition", plural: "Compositions", icon: "⚗️", action: "create_composition" },
+  country: { label: "Pays", plural: "Pays", icon: "🌍", action: "create_country" },
+  season: { label: "Saison", plural: "Saisons", icon: "📅", action: "create_season" },
 };
 
 function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: MissingEntity[]; onEntitiesCreated: () => void }) {
@@ -516,6 +542,25 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   const [colorPatterns, setColorPatterns] = useState<Record<string, string>>({});
   const [uploadingPattern, setUploadingPattern] = useState<Set<string>>(new Set());
   const patternInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // PFS mapping state
+  const [pfsAttrs, setPfsAttrs] = useState<PfsAttributes | null>(null);
+  const [pfsLoading, setPfsLoading] = useState(false);
+  const [pfsColorRefs, setPfsColorRefs] = useState<Record<string, string>>({});
+  const [pfsCategoryIds, setPfsCategoryIds] = useState<Record<string, string>>({});
+  const [pfsCompositionRefs, setPfsCompositionRefs] = useState<Record<string, string>>({});
+  const [showPfsMapping, setShowPfsMapping] = useState(false);
+
+  // Fetch PFS attributes when mapping is toggled on
+  useEffect(() => {
+    if (!showPfsMapping || pfsAttrs) return;
+    setPfsLoading(true);
+    fetch("/api/admin/pfs-sync/attributes")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => { if (data) setPfsAttrs(data); })
+      .catch(() => {})
+      .finally(() => setPfsLoading(false));
+  }, [showPfsMapping, pfsAttrs]);
 
   const grouped = entities.reduce<Record<string, MissingEntity[]>>((acc, e) => {
     (acc[e.type] ??= []).push(e);
@@ -574,6 +619,28 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
     if (inp) inp.value = "";
   };
 
+  // Build PFS body fields for an entity
+  const getPfsFields = (entity: MissingEntity): Record<string, string> => {
+    const fields: Record<string, string> = {};
+    if (entity.type === "color" && pfsColorRefs[entity.name]) {
+      fields.pfsColorRef = pfsColorRefs[entity.name];
+    }
+    if (entity.type === "category" && pfsCategoryIds[entity.name]) {
+      const catId = pfsCategoryIds[entity.name];
+      fields.pfsCategoryId = catId;
+      // Derive gender and family from PFS category
+      const pfsCat = pfsAttrs?.categories.find((c) => c.id === catId);
+      if (pfsCat) {
+        fields.pfsGender = pfsCat.gender;
+        fields.pfsFamilyId = pfsCat.family.id;
+      }
+    }
+    if (entity.type === "composition" && pfsCompositionRefs[entity.name]) {
+      fields.pfsCompositionRef = pfsCompositionRefs[entity.name];
+    }
+    return fields;
+  };
+
   const createEntity = async (entity: MissingEntity, hex?: string) => {
     const key = `${entity.type}:${entity.name}`;
     if (created.has(key) || creating.has(key)) return;
@@ -583,6 +650,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
       const body: Record<string, string> = {
         action: ENTITY_LABELS[entity.type].action,
         name: entity.name,
+        ...getPfsFields(entity),
       };
       if (entity.type === "color") {
         const mode = colorModes[entity.name] ?? "hex";
@@ -629,69 +697,182 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
     await createEntity(entity, colorHexes[entity.name]);
   };
 
+  // PFS select options builders
+  const pfsColorOptions = pfsAttrs?.colors.map((c) => ({
+    value: c.reference,
+    label: `${c.labels?.fr || c.reference}`,
+  })) ?? [];
+
+  const pfsCategoryOptions = pfsAttrs?.categories.map((c) => ({
+    value: c.id,
+    label: `${c.labels?.fr || c.id} (${c.gender})`,
+  })) ?? [];
+
+  const pfsCompositionOptions = pfsAttrs?.compositions.map((c) => ({
+    value: c.reference,
+    label: c.labels?.fr || c.reference,
+  })) ?? [];
+
+  const hasPfsMappableEntities = entities.some((e) => e.type === "color" || e.type === "category" || e.type === "composition");
+
   return (
-    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="font-semibold text-text-primary font-heading text-sm">
-            Éléments manquants ({remaining.length})
-          </h3>
-          <p className="text-xs text-amber-700 mt-0.5 font-body">
-            Ces éléments n'existent pas encore en base. Créez-les pour débloquer l'import.
-          </p>
+    <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-border bg-amber-50/60">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-semibold text-text-primary font-heading text-sm">
+                {remaining.length} {remaining.length > 1 ? "éléments manquants" : "élément manquant"}
+              </h3>
+              <p className="text-xs text-[#666] mt-0.5 font-body">
+                Créez-les pour débloquer l'import — les traductions seront générées automatiquement
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasPfsMappableEntities && remaining.length > 0 && (
+              <button
+                onClick={() => setShowPfsMapping(!showPfsMapping)}
+                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 ${
+                  showPfsMapping
+                    ? "bg-bg-dark text-text-inverse border-bg-dark"
+                    : "bg-bg-primary border-border text-text-primary hover:border-bg-dark"
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+                </svg>
+                {showPfsMapping ? "Masquer PFS" : "Mapper PFS"}
+              </button>
+            )}
+            {remaining.length > 0 && (
+              <button
+                onClick={createAll}
+                disabled={creatingAll}
+                className="btn-primary text-xs disabled:opacity-50"
+              >
+                {creatingAll ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Création…
+                  </span>
+                ) : `Tout créer (${remaining.length})`}
+              </button>
+            )}
+            {remaining.length === 0 && (
+              <button onClick={onEntitiesCreated} className="btn-primary text-xs">
+                Re-analyser le fichier
+              </button>
+            )}
+          </div>
         </div>
-        {remaining.length > 0 && (
-          <button
-            onClick={createAll}
-            disabled={creatingAll}
-            className="btn-primary text-xs disabled:opacity-50"
-          >
-            {creatingAll ? "Création en cours…" : `Tout créer (${remaining.length})`}
-          </button>
-        )}
-        {remaining.length === 0 && (
-          <button onClick={onEntitiesCreated} className="btn-primary text-xs">
-            Re-analyser le fichier
-          </button>
-        )}
       </div>
 
-      <div className="space-y-3">
+      {/* PFS loading / disabled notice */}
+      {showPfsMapping && pfsLoading && (
+        <div className="px-6 py-3 border-b border-border bg-bg-secondary flex items-center gap-2 text-xs text-[#666]">
+          <span className="inline-block w-3 h-3 border-2 border-[#999] border-t-transparent rounded-full animate-spin" />
+          Chargement des attributs Paris Fashion Shop…
+        </div>
+      )}
+      {showPfsMapping && pfsAttrs?.pfsDisabled && (
+        <div className="px-6 py-3 border-b border-border bg-bg-secondary text-xs text-[#666]">
+          PFS non configuré — les correspondances ne seront pas enregistrées.
+        </div>
+      )}
+
+      {/* Entity groups */}
+      <div className="divide-y divide-border">
         {(Object.keys(ENTITY_LABELS) as MissingEntity["type"][]).map((type) => {
           const items = grouped[type];
           if (!items?.length) return null;
+          const createdCount = items.filter((e) => created.has(`${e.type}:${e.name}`)).length;
 
           return (
-            <div key={type}>
-              <p className="text-xs font-medium text-[#666] mb-1.5 uppercase tracking-wide">
-                {ENTITY_LABELS[type].icon} {ENTITY_LABELS[type].plural} ({items.length})
-              </p>
-              <div className="flex flex-wrap gap-2">
+            <div key={type} className="px-6 py-4">
+              {/* Section header */}
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-base">{ENTITY_LABELS[type].icon}</span>
+                <span className="text-xs font-semibold text-text-primary font-heading uppercase tracking-wide">
+                  {ENTITY_LABELS[type].plural}
+                </span>
+                <span className="text-[10px] text-[#999] font-body">
+                  {createdCount}/{items.length}
+                </span>
+                {createdCount === items.length && (
+                  <span className="badge badge-success text-[10px] ml-1">Complet</span>
+                )}
+              </div>
+
+              {/* Entity rows */}
+              <div className="space-y-2">
                 {items.map((entity) => {
                   const key = `${entity.type}:${entity.name}`;
                   const isCreated = created.has(key);
                   const isCreating = creating.has(key);
-
                   const mode = colorModes[entity.name] ?? "hex";
                   const patternPath = colorPatterns[entity.name];
                   const isUploading = uploadingPattern.has(entity.name);
+                  const showPfsDropdown = showPfsMapping && !isCreated && pfsAttrs && !pfsAttrs.pfsDisabled &&
+                    (type === "color" || type === "category" || type === "composition");
 
                   return (
-                    <div key={key} className="flex items-center gap-1.5">
+                    <div
+                      key={key}
+                      className={`flex items-center gap-3 rounded-xl px-4 py-2.5 transition-colors ${
+                        isCreated
+                          ? "bg-green-50/60 border border-green-200"
+                          : "bg-bg-secondary border border-transparent hover:border-border"
+                      }`}
+                    >
+                      {/* Status indicator */}
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                        isCreated ? "bg-green-100" : isCreating ? "bg-amber-100" : "bg-bg-primary border border-border"
+                      }`}>
+                        {isCreated ? (
+                          <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                        ) : isCreating ? (
+                          <span className="inline-block w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <span className="text-xs text-[#999]">{ENTITY_LABELS[type].icon}</span>
+                        )}
+                      </div>
+
+                      {/* Entity name */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-medium ${isCreated ? "text-green-700" : "text-text-primary"}`}>
+                            {entity.name}
+                          </span>
+                          {entity.parentCategoryName && (
+                            <span className="text-[11px] text-[#888] font-body">
+                              dans {entity.parentCategoryName}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-[#999] font-body shrink-0">
+                            {entity.usedBy} produit{entity.usedBy > 1 ? "s" : ""}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Color picker (for color type only) */}
                       {type === "color" && !isCreated && (
-                        <>
-                          {/* Toggle hex / pattern */}
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             type="button"
                             onClick={() => setColorModes((prev) => ({ ...prev, [entity.name]: mode === "hex" ? "pattern" : "hex" }))}
-                            className="w-6 h-6 rounded border border-border flex items-center justify-center cursor-pointer hover:border-bg-dark transition-colors"
-                            title={mode === "hex" ? "Passer en mode motif/image" : "Passer en mode couleur unie"}
+                            className="w-7 h-7 rounded-lg border border-border flex items-center justify-center cursor-pointer hover:border-bg-dark hover:bg-bg-primary transition-colors"
+                            title={mode === "hex" ? "Passer en mode motif" : "Passer en mode couleur"}
                           >
-                            {mode === "hex" ? (
-                              <span className="text-[10px]">🎨</span>
-                            ) : (
-                              <span className="text-[10px]">🖼️</span>
-                            )}
+                            <span className="text-xs">{mode === "hex" ? "🎨" : "🖼️"}</span>
                           </button>
 
                           {mode === "hex" ? (
@@ -699,78 +880,116 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                               type="color"
                               value={colorHexes[entity.name] ?? "#9CA3AF"}
                               onChange={(e) => setColorHexes((prev) => ({ ...prev, [entity.name]: e.target.value }))}
-                              className="w-6 h-6 rounded border border-border cursor-pointer p-0"
-                              title="Choisir la couleur hex"
+                              className="w-7 h-7 rounded-lg border border-border cursor-pointer p-0.5"
+                              title="Choisir la couleur"
                             />
+                          ) : patternPath ? (
+                            <div className="relative w-7 h-7 rounded-lg border border-border overflow-hidden group cursor-pointer">
+                              <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); removePattern(entity.name); }}
+                                className="absolute inset-0 bg-black/50 text-text-inverse text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           ) : (
-                            <>
-                              {patternPath ? (
-                                <div className="relative w-6 h-6 rounded border border-border overflow-hidden group">
-                                  <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); removePattern(entity.name); }}
-                                    className="absolute inset-0 bg-black/50 text-text-inverse text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                                    title="Supprimer le motif"
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
+                            <label className={`w-7 h-7 rounded-lg border border-dashed border-[#BBB] flex items-center justify-center cursor-pointer hover:border-bg-dark transition-colors ${isUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                              {isUploading ? (
+                                <span className="inline-block w-3 h-3 border-2 border-[#999] border-t-transparent rounded-full animate-spin" />
                               ) : (
-                                <label
-                                  className={`w-6 h-6 rounded border border-dashed border-[#999] flex items-center justify-center cursor-pointer hover:border-bg-dark transition-colors ${isUploading ? "opacity-50 pointer-events-none" : ""}`}
-                                  title="Uploader une image motif (PNG, JPG, WebP — max 500KB)"
-                                >
-                                  {isUploading ? (
-                                    <span className="inline-block w-3 h-3 border-2 border-[#999] border-t-transparent rounded-full animate-spin" />
-                                  ) : (
-                                    <span className="text-[10px] text-[#999]">+</span>
-                                  )}
-                                  <input
-                                    ref={(el) => { patternInputRefs.current[entity.name] = el; }}
-                                    type="file"
-                                    accept="image/png,image/jpeg,image/webp"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (file) handlePatternUpload(entity.name, file);
-                                    }}
-                                  />
-                                </label>
+                                <svg className="w-3.5 h-3.5 text-[#999]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                                </svg>
                               )}
-                            </>
+                              <input
+                                ref={(el) => { patternInputRefs.current[entity.name] = el; }}
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) handlePatternUpload(entity.name, f);
+                                }}
+                              />
+                            </label>
                           )}
-                        </>
-                      )}
-                      {type === "color" && isCreated && patternPath && (
-                        <div className="w-6 h-6 rounded border border-green-200 overflow-hidden">
-                          <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
                         </div>
                       )}
-                      <button
-                        onClick={() => handleCreateSingle(entity)}
-                        disabled={isCreated || isCreating || (type === "color" && mode === "pattern" && !patternPath && !colorHexes[entity.name])}
-                        className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                          isCreated
-                            ? "bg-green-50 border-green-200 text-green-700 cursor-default"
-                            : isCreating
-                            ? "bg-bg-primary border-border text-[#999] cursor-wait"
-                            : "bg-bg-primary border-border text-text-primary hover:border-bg-dark hover:bg-bg-secondary cursor-pointer"
-                        }`}
-                      >
-                        {isCreated ? (
-                          <span className="text-green-600">✓</span>
-                        ) : isCreating ? (
-                          <span className="inline-block w-3 h-3 border-2 border-[#999] border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <span className="text-[#999]">+</span>
-                        )}
-                        <span className="font-medium">{entity.name}</span>
-                        {entity.parentCategoryName && (
-                          <span className="text-[10px] text-[#666] italic">→ {entity.parentCategoryName}</span>
-                        )}
-                        <span className="text-[10px] text-[#999]">({entity.usedBy} produit{entity.usedBy > 1 ? "s" : ""})</span>
-                      </button>
+
+                      {/* Color swatch when created */}
+                      {type === "color" && isCreated && (
+                        <div className="shrink-0">
+                          {patternPath ? (
+                            <div className="w-7 h-7 rounded-lg border border-green-200 overflow-hidden">
+                              <img src={patternPath} alt="motif" className="w-full h-full object-cover" />
+                            </div>
+                          ) : (
+                            <div
+                              className="w-7 h-7 rounded-lg border border-green-200"
+                              style={{ backgroundColor: colorHexes[entity.name] ?? "#9CA3AF" }}
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      {/* PFS mapping dropdown */}
+                      {showPfsDropdown && (
+                        <div className="w-52 shrink-0">
+                          {type === "color" && (
+                            <CustomSelect
+                              value={pfsColorRefs[entity.name] ?? ""}
+                              onChange={(v) => setPfsColorRefs((prev) => ({ ...prev, [entity.name]: v }))}
+                              options={[{ value: "", label: "— Couleur PFS —" }, ...pfsColorOptions]}
+                              size="sm"
+                              searchable
+                              placeholder="Couleur PFS"
+                            />
+                          )}
+                          {type === "category" && (
+                            <CustomSelect
+                              value={pfsCategoryIds[entity.name] ?? ""}
+                              onChange={(v) => setPfsCategoryIds((prev) => ({ ...prev, [entity.name]: v }))}
+                              options={[{ value: "", label: "— Catégorie PFS —" }, ...pfsCategoryOptions]}
+                              size="sm"
+                              searchable
+                              placeholder="Catégorie PFS"
+                            />
+                          )}
+                          {type === "composition" && (
+                            <CustomSelect
+                              value={pfsCompositionRefs[entity.name] ?? ""}
+                              onChange={(v) => setPfsCompositionRefs((prev) => ({ ...prev, [entity.name]: v }))}
+                              options={[{ value: "", label: "— Composition PFS —" }, ...pfsCompositionOptions]}
+                              size="sm"
+                              searchable
+                              placeholder="Composition PFS"
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      {/* Create button */}
+                      {!isCreated && (
+                        <button
+                          onClick={() => handleCreateSingle(entity)}
+                          disabled={isCreating || (type === "color" && mode === "pattern" && !patternPath && !colorHexes[entity.name])}
+                          className="shrink-0 text-xs px-3.5 py-1.5 rounded-lg font-medium transition-colors bg-bg-dark text-text-inverse hover:bg-bg-dark/80 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {isCreating ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                              Création…
+                            </span>
+                          ) : "Créer"}
+                        </button>
+                      )}
+                      {isCreated && (
+                        <span className="shrink-0 text-xs text-green-600 font-medium px-3.5 py-1.5">
+                          Créé
+                        </span>
+                      )}
                     </div>
                   );
                 })}

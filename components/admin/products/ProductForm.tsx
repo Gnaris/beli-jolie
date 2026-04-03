@@ -1077,15 +1077,43 @@ export default function ProductForm({
     // Warn: saving an ONLINE product with errors → auto downgrade to OFFLINE
     const shouldSyncPfs = { current: hasPfsConfig };
     const showPfsCheckbox = hasPfsConfig && !isIncomplete && !hasVariantsWithMissingPriceWeightOrStock();
-    const pfsCheckboxOption = showPfsCheckbox ? {
+
+    // ── PFS pre-check: when finalizing a draft, check if product exists on PFS ──
+    let pfsCheckResult: { existsOnPfs: boolean; canCreate: boolean; mappingIssues: string[] } | null = null;
+    if (showPfsCheckbox && mode === "create" && productId && reference.trim()) {
+      try {
+        const res = await fetch("/api/admin/pfs-sync/check-creation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reference: reference.trim().toUpperCase(), productId }),
+        });
+        if (res.ok) {
+          pfsCheckResult = await res.json();
+        }
+      } catch {
+        // Failed to check — proceed without PFS info
+      }
+    }
+
+    const pfsCreationBlocked = pfsCheckResult && !pfsCheckResult.canCreate && !pfsCheckResult.existsOnPfs;
+    const pfsLabel = pfsCheckResult?.existsOnPfs
+      ? "Synchroniser avec Paris Fashion Shop (produit existant)"
+      : "Créer également sur Paris Fashion Shop";
+
+    const pfsCheckboxOption = showPfsCheckbox && !pfsCreationBlocked ? {
       checkbox: {
         label: mode === "edit"
           ? "Synchroniser également les marketplaces (Paris Fashion Shop)"
-          : "Créer également sur Paris Fashion Shop",
+          : pfsLabel,
         defaultChecked: true,
         onChange: (v: boolean) => { shouldSyncPfs.current = v; },
       },
     } : {};
+
+    // If PFS creation is blocked due to missing mappings, disable PFS sync
+    if (pfsCreationBlocked) {
+      shouldSyncPfs.current = false;
+    }
 
     let downgradeConfirmed = false;
     if (productStatus === "ONLINE" && isIncomplete) {
@@ -1147,13 +1175,35 @@ export default function ProductForm({
 
     // ── Confirmation dialog: save? (skip if downgrade was already confirmed) ──
     if (!downgradeConfirmed) {
+      // Build confirmation message for draft finalization
+      let confirmMessage: string;
+      let confirmType: "info" | "warning" = "info";
+      let confirmTitle = "Enregistrer les modifications";
+      let confirmLabel = "Enregistrer";
+
+      if (isIncomplete) {
+        confirmMessage = "Des informations sont manquantes. Le produit sera enregistré en tant que brouillon. Voulez-vous continuer ?";
+      } else if (mode === "create" && productId) {
+        confirmTitle = "Finaliser le produit";
+        confirmLabel = "Finaliser";
+        if (pfsCheckResult?.existsOnPfs) {
+          confirmMessage = "Voulez-vous finaliser ce produit ? Il existe déjà sur Paris Fashion Shop — les modifications seront synchronisées.";
+        } else if (pfsCreationBlocked) {
+          confirmType = "warning";
+          const issueList = pfsCheckResult?.mappingIssues.join(", ") ?? "";
+          confirmMessage = `Voulez-vous finaliser ce produit ? Création Paris Fashion Shop impossible (${issueList}). Le produit sera créé localement uniquement.`;
+        } else {
+          confirmMessage = "Voulez-vous finaliser ce produit ?";
+        }
+      } else {
+        confirmMessage = "Voulez-vous enregistrer toutes les modifications ?";
+      }
+
       const okSave = await confirmDialog({
-        type: "info",
-        title: "Enregistrer les modifications",
-        message: isIncomplete
-          ? "Des informations sont manquantes. Le produit sera enregistré en tant que brouillon. Voulez-vous continuer ?"
-          : "Voulez-vous enregistrer toutes les modifications ?",
-        confirmLabel: "Enregistrer",
+        type: confirmType,
+        title: confirmTitle,
+        message: confirmMessage,
+        confirmLabel,
         cancelLabel: "Annuler",
         ...pfsCheckboxOption,
       });

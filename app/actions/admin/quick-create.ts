@@ -268,17 +268,6 @@ export async function createSeasonQuick(
 
   // Normalize: accept string or string[] (take first), trim + uppercase
   const ref = (Array.isArray(pfsSeasonRef) ? pfsSeasonRef[0] : pfsSeasonRef)?.trim().toUpperCase() || null;
-  // Check uniqueness
-  if (ref) {
-    const conflict = await prisma.season.findFirst({
-      where: { pfsRef: ref },
-      select: { name: true },
-    });
-    if (conflict) {
-      throw new Error(`Correspondance PFS « ${ref} » déjà utilisée par « ${conflict.name} »`);
-    }
-  }
-
   const season = await prisma.season.create({
     data: {
       name: frName,

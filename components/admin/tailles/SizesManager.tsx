@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   createSizesBatch,
@@ -390,7 +391,7 @@ export default function SizesManager({
       </div>
 
       {/* ═══ SIZES LIST ═══ */}
-      <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden">
+      <div className="bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
         <div className="px-6 py-4 border-b border-border">
           <h2 className="text-sm font-semibold text-text-primary font-heading">
             Tailles existantes ({sizes.length})
@@ -498,26 +499,14 @@ export default function SizesManager({
                         ))}
                         {/* Add category button */}
                         {categories.length > size.categoryIds.length && (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={() => setCatDropdownId(catDropdownId === size.id ? null : size.id)}
-                              className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-dashed border-border text-text-muted hover:border-text-primary hover:text-text-primary transition-colors"
-                              title="Ajouter une catégorie"
-                            >
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                              </svg>
-                            </button>
-                            {catDropdownId === size.id && (
-                              <InlineCategoryDropdown
-                                categories={categories}
-                                selectedIds={size.categoryIds}
-                                onToggle={(catId) => handleInlineCategoryToggle(size, catId)}
-                                onClose={() => setCatDropdownId(null)}
-                              />
-                            )}
-                          </div>
+                          <InlineCategoryTrigger
+                            isOpen={catDropdownId === size.id}
+                            onToggle={() => setCatDropdownId(catDropdownId === size.id ? null : size.id)}
+                            categories={categories}
+                            selectedIds={size.categoryIds}
+                            onCategoryToggle={(catId) => handleInlineCategoryToggle(size, catId)}
+                            onClose={() => setCatDropdownId(null)}
+                          />
                         )}
                       </div>
                     </div>
@@ -705,15 +694,60 @@ function CategoryPicker({
 }
 
 /* ─────────────────────────────────────────────
-   Inline category dropdown (per-row quick add)
+   Inline category trigger + portal dropdown
    ───────────────────────────────────────────── */
 
+function InlineCategoryTrigger({
+  isOpen,
+  onToggle,
+  categories,
+  selectedIds,
+  onCategoryToggle,
+  onClose,
+}: {
+  isOpen: boolean;
+  onToggle: () => void;
+  categories: { id: string; name: string }[];
+  selectedIds: string[];
+  onCategoryToggle: (catId: string) => void;
+  onClose: () => void;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={onToggle}
+        className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-dashed border-border text-text-muted hover:border-text-primary hover:text-text-primary transition-colors"
+        title="Ajouter une catégorie"
+      >
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+      </button>
+      {isOpen && (
+        <InlineCategoryDropdown
+          anchorRef={btnRef}
+          categories={categories}
+          selectedIds={selectedIds}
+          onToggle={onCategoryToggle}
+          onClose={onClose}
+        />
+      )}
+    </>
+  );
+}
+
 function InlineCategoryDropdown({
+  anchorRef,
   categories,
   selectedIds,
   onToggle,
   onClose,
 }: {
+  anchorRef: React.RefObject<HTMLButtonElement | null>;
   categories: { id: string; name: string }[];
   selectedIds: string[];
   onToggle: (catId: string) => void;
@@ -722,6 +756,23 @@ function InlineCategoryDropdown({
   const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Position relative to anchor
+  useEffect(() => {
+    function update() {
+      if (!anchorRef.current) return;
+      const rect = anchorRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [anchorRef]);
 
   // Auto-focus search
   useEffect(() => {
@@ -732,11 +783,12 @@ function InlineCategoryDropdown({
   // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      const target = e.target as Node;
+      if (ref.current && !ref.current.contains(target) && !anchorRef.current?.contains(target)) onClose();
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
+  }, [onClose, anchorRef]);
 
   // Close on Escape
   useEffect(() => {
@@ -752,11 +804,13 @@ function InlineCategoryDropdown({
     ? unselected.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
     : unselected;
 
-  return (
+  if (!pos) return null;
+
+  return createPortal(
     <div
       ref={ref}
-      className="absolute left-0 top-7 z-50 w-56 bg-bg-primary border border-border rounded-xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.12)]"
-      style={{ animation: "customSelectDown 0.15s ease-out" }}
+      className="fixed z-[9999] w-56 bg-bg-primary border border-border rounded-xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.12)]"
+      style={{ top: pos.top, left: pos.left, animation: "customSelectDown 0.15s ease-out" }}
     >
       <div className="px-2 pt-2 pb-1.5 border-b border-border">
         <div className="relative">
@@ -794,6 +848,7 @@ function InlineCategoryDropdown({
           ))
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

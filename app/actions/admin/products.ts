@@ -11,8 +11,6 @@ import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
 import { pfsUpdateStatus, pfsDeleteProduct, type PfsStatus } from "@/lib/pfs-api-write";
 import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
-import { triggerEfashionSync } from "@/lib/efashion-reverse-sync";
-import { triggerAnkorstoreSync } from "@/lib/ankorstore-reverse-sync";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 
 async function requireAdmin() {
@@ -765,11 +763,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     });
   }
 
-  // Fire-and-forget sync to PFS and eFashion (skip drafts and explicitly skipped)
+  // Fire-and-forget sync to PFS (skip drafts and explicitly skipped)
   if (!input.isIncomplete && !input.skipPfsSync) {
     triggerPfsSync(id);
-    triggerEfashionSync(id);
-    triggerAnkorstoreSync(id);
   }
 }
 
@@ -857,8 +853,6 @@ export async function archiveProduct(id: string) {
     });
   }
   triggerPfsSync(id);
-  triggerEfashionSync(id);
-  triggerAnkorstoreSync(id);
 }
 
 export async function unarchiveProduct(id: string) {
@@ -875,8 +869,6 @@ export async function unarchiveProduct(id: string) {
     });
   }
   triggerPfsSync(id);
-  triggerEfashionSync(id);
-  triggerAnkorstoreSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -977,11 +969,9 @@ export async function bulkUpdateProductStatus(
     }
   }
 
-  // Fire-and-forget sync to PFS and eFashion for each updated product
+  // Fire-and-forget sync to PFS for each updated product
   for (const pid of success) {
     triggerPfsSync(pid);
-    triggerEfashionSync(pid);
-    triggerAnkorstoreSync(pid);
   }
 
   return { success, errors };
@@ -1091,8 +1081,6 @@ export async function updateVariantQuick(
   emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
 
   triggerPfsSync(variant.productId);
-  triggerEfashionSync(variant.productId);
-  triggerAnkorstoreSync(variant.productId);
 }
 
 // ─────────────────────────────────────────────
@@ -1137,8 +1125,6 @@ export async function bulkUpdateVariants(
     revalidatePath(`/produits/${pid}`);
     emitProductEvent({ type: "STOCK_CHANGED", productId: pid });
     triggerPfsSync(pid);
-    triggerEfashionSync(pid);
-    triggerAnkorstoreSync(pid);
   }
 
   return { updated: variants.length };
@@ -1431,4 +1417,23 @@ export async function retryAllMissingImages(): Promise<{ success: boolean; total
     downloaded: totalDownloaded,
     failed: totalFailed,
   };
+}
+
+/**
+ * Revalidate all caches after a background import completes.
+ * Called from the client when the import job status changes to COMPLETED,
+ * because revalidateTag doesn't work inside fire-and-forget background jobs.
+ */
+export async function revalidateAfterImport() {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") return;
+
+  revalidateTag("products", "default");
+  revalidateTag("categories", "default");
+  revalidateTag("colors", "default");
+  revalidateTag("tags", "default");
+  revalidateTag("compositions", "default");
+  revalidateTag("manufacturing-countries", "default");
+  revalidateTag("seasons", "default");
+  revalidateTag("sizes", "default");
 }

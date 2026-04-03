@@ -100,8 +100,26 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     // Vérification des mappings PFS (bloque la sync si une entité n'est pas mappée)
     validatePfsMappings(product);
 
-    // 2. Create product on PFS if new — full sync required
+    // 2. If no pfsProductId, check if product already exists on PFS via reference
     let pfsProductId = product.pfsProductId;
+    if (!pfsProductId) {
+      try {
+        const refCheck = await pfsCheckReference(product.reference);
+        if (refCheck?.product?.id) {
+          // Product already exists on PFS — link it instead of creating a duplicate
+          pfsProductId = refCheck.product.id;
+          await prisma.product.update({
+            where: { id: productId },
+            data: { pfsProductId },
+          });
+          logger.info(`[PFS Reverse Sync] Product ${productId} linked to existing PFS product ${pfsProductId} via reference ${product.reference}`);
+        }
+      } catch {
+        // checkReference failed — will proceed to create
+      }
+    }
+
+    // 3. Create product on PFS if truly new — full sync required
     if (!pfsProductId) {
       pfsProductId = await createProductOnPfs(product);
       // New product → full sync (create all variants, upload all images, set status)
@@ -116,7 +134,7 @@ export async function syncProductToPfs(productId: string): Promise<void> {
       return;
     }
 
-    // 3. Existing product — fetch PFS state for diff (parallel)
+    // 4. Existing product — fetch PFS state for diff (parallel)
     const [pfsRefData, pfsVariantsResp] = await Promise.all([
       pfsCheckReference(product.reference).catch(() => null),
       pfsGetVariants(pfsProductId).catch(() => ({ data: [] as PfsVariantDetail[] })),
@@ -125,15 +143,15 @@ export async function syncProductToPfs(productId: string): Promise<void> {
 
     let apiCalls = 0;
 
-    // 4. Diff product metadata — only update if changed
+    // 5. Diff product metadata — only update if changed
     const metadataChanged = await diffAndUpdateMetadata(pfsProductId, product, pfsRefData);
     if (metadataChanged) apiCalls += metadataChanged;
 
-    // 5. Diff variants
+    // 6. Diff variants
     const variantCalls = await syncVariants(pfsProductId, product, pfsVariants);
     apiCalls += variantCalls;
 
-    // 5b. Set default_color only if needed
+    // 6b. Set default_color only if needed
     const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
     const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant) : null;
     const currentDefault = pfsRefData?.product?.default_color;
@@ -146,15 +164,15 @@ export async function syncProductToPfs(productId: string): Promise<void> {
       }
     }
 
-    // 6. Diff images
+    // 7. Diff images
     const imageCalls = await syncImages(pfsProductId, product, pfsRefData);
     apiCalls += imageCalls;
 
-    // 7. Diff status
+    // 8. Diff status
     const statusChanged = await syncStatus(pfsProductId, product.status, pfsRefData);
     if (statusChanged) apiCalls++;
 
-    // 8. Mark as synced
+    // 9. Mark as synced
     await prisma.product.update({
       where: { id: productId },
       data: {
@@ -406,9 +424,9 @@ async function diffAndUpdateMetadata(
   const pfsCategoryId = pfs.category?.id;
   const bjCountry = product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode ?? PFS_DEFAULTS.country_of_manufacture;
   const pfsCountry = pfs.country_of_manufacture ?? "";
-  const bjSeason = product.season?.pfsRef ?? PFS_DEFAULTS.season_name;
-  const pfsSeason = pfs.collection?.reference ?? "";
-  const seasonMatched = pfsSeason ? bjSeason === pfsSeason.toUpperCase() || bjSeason === pfsSeason : bjSeason === PFS_DEFAULTS.season_name;
+  const bjSeason = product.season?.pfsRef?.trim().toUpperCase() ?? PFS_DEFAULTS.season_name;
+  const pfsSeason = pfs.collection?.reference?.trim().toUpperCase() ?? "";
+  const seasonMatched = pfsSeason ? bjSeason === pfsSeason : bjSeason === PFS_DEFAULTS.season_name;
 
   // Compare compositions
   const bjComps = product.compositions

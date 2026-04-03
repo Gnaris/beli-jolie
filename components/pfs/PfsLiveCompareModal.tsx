@@ -132,15 +132,19 @@ function getSubSegs(v: VariantData) {
   }));
 }
 
-/** Check if season/country actually differ — fall back to name comparison when IDs can't be resolved */
+/** Check if season/country actually differ — prefer pfsRef comparison, then ID, then name fallback */
 function isSeasonDiff(existing: ProductData, pfs: ProductData): boolean {
   if (!pfs.seasonName) return false;
+  // Best: compare PFS references directly (avoids false diffs from name formatting)
+  const bjRef = existing.pfsSeasonRef?.trim().toUpperCase();
+  const pfsRefVal = pfs.pfsSeasonRef?.trim().toUpperCase();
+  if (bjRef && pfsRefVal) return bjRef !== pfsRefVal;
+  // Fallback: ID comparison
   if (existing.seasonId && pfs.seasonId) return existing.seasonId !== pfs.seasonId;
-  // ID-based comparison failed (PFS season not resolved) → compare by name
+  // Last resort: name comparison
   if (existing.seasonName && pfs.seasonName) {
     return existing.seasonName.trim().toLowerCase() !== pfs.seasonName.trim().toLowerCase();
   }
-  // One side has no season at all
   return !!existing.seasonId !== !!pfs.seasonName;
 }
 
@@ -156,11 +160,15 @@ function isCountryDiff(existing: ProductData, pfs: ProductData): boolean {
 
 /** Normalize compositions for comparison: strip pfsRef which only exists on PFS side */
 function normalizeComps(comps: CompositionData[]): string {
-  return JSON.stringify(
-    [...comps]
-      .map(c => ({ name: c.name.trim().toLowerCase(), percentage: c.percentage }))
-      .sort((a, b) => a.name.localeCompare(b.name) || a.percentage - b.percentage)
-  );
+  const allHaveIds = comps.every(c => c.compositionId);
+  if (allHaveIds && comps.length > 0) {
+    return [...comps].map(c => `${c.compositionId}:${c.percentage}`).sort().join(",");
+  }
+  const allHaveRefs = comps.every(c => c.pfsRef);
+  if (allHaveRefs && comps.length > 0) {
+    return [...comps].map(c => `${c.pfsRef?.trim().toUpperCase()}:${c.percentage}`).sort().join(",");
+  }
+  return [...comps].map(c => `${c.name.trim().toLowerCase()}:${c.percentage}`).sort().join(",");
 }
 
 // ─────────────────────────────────────────────

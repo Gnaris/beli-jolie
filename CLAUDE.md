@@ -6,10 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **PFS Sync** : `docs/pfs-system.md` (sync, reverse sync, mapping, prepare flow)
 > **Styling** : `docs/styling.md` (palette, CSS utilities, conventions)
 > **API PFS** : `API_DOCUMENTATION.md` (endpoints, request/response formats)
-> **Ankorstore** : `docs/ankorstore-system.md` (API, sync, mapping)
-> **API eFashion** : `EFASHION_API_DOCUMENTATION.md` (GraphQL mutations, REST upload, field names, pieges)
-> **eFashion Sync** : `docs/efashion-system.md` (import/export flow, staging, DB models)
-
 ---
 
 ## Architecture
@@ -21,7 +17,7 @@ B2B SaaS e-commerce platform — generic wholesale for any product type. Next.js
 | Group | URL pattern | Access |
 |-------|-------------|--------|
 | `(auth)` | `/connexion`, `/inscription` | Unauthenticated only |
-| `(admin)` | `/admin/*`, `/admin/efashion/*` | ADMIN role |
+| `(admin)` | `/admin/*` | ADMIN role |
 | `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*`, `/favoris` | CLIENT (APPROVED) |
 | *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public / guest (`bj_access_code` cookie) |
 
@@ -50,14 +46,6 @@ Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib
 ### PFS sync (bidirectional)
 
 `lib/pfs-reverse-sync.ts` (local→PFS push), `lib/pfs-sync.ts` (PFS→local import), `lib/pfs-api.ts` (read), `lib/pfs-api-write.ts` (write). Auth via `lib/pfs-auth.ts` (token cache).
-
-### Ankorstore sync (bidirectional)
-
-`lib/ankorstore-auth.ts` (OAuth2 token), `lib/ankorstore-api.ts` (read), `lib/ankorstore-api-write.ts` (write), `lib/ankorstore-sync.ts` (import AK→BJ), `lib/ankorstore-reverse-sync.ts` (export BJ→AK). Config: `ankorstore_client_id`, `ankorstore_client_secret`, `ankorstore_enabled` in SiteConfig.
-
-### eFashion Paris sync (bidirectional)
-
-`lib/efashion-graphql.ts` (GraphQL client), `lib/efashion-auth.ts` (cookie auth), `lib/efashion-api.ts` (read), `lib/efashion-api-write.ts` (write), `lib/efashion-sync.ts` (import), `lib/efashion-reverse-sync.ts` (push), `lib/efashion-analyze.ts` (dry-run), `lib/efashion-prepare.ts` (staging). Auth via cookie session (`lib/efashion-auth.ts`).
 
 ### Auth
 
@@ -107,7 +95,7 @@ Vitest + `__tests__/` dir. Integration tests in `__tests__/integration/` (DB-bac
 
 **Optionnelles** : `STRIPE_PLATFORM_SECRET_KEY` (Stripe Connect platform mode)
 
-**Configurables via paramètres admin** (env var = fallback, admin UI prend priorité) : `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NOTIFY_EMAIL`, `EASY_EXPRESS_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `DEEPL_API_KEY`, `PFS_EMAIL`, `PFS_PASSWORD`, `EFASHION_EMAIL`, `EFASHION_PASSWORD`
+**Configurables via paramètres admin** (env var = fallback, admin UI prend priorité) : `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NOTIFY_EMAIL`, `EASY_EXPRESS_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `DEEPL_API_KEY`, `PFS_EMAIL`, `PFS_PASSWORD`
 
 ### Stripe Connect
 
@@ -164,7 +152,7 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthro
 
 ### Encryption (secrets en BDD)
 - **`lib/encryption.ts`** : AES-256-GCM. Clé maître = `ENCRYPTION_KEY` (env var, base64 32 bytes)
-- **`SENSITIVE_KEYS`** dans encryption.ts = liste des clés SiteConfig chiffrées. Toute nouvelle clé sensible doit y être ajoutée (inclut `ankorstore_client_secret`)
+- **`SENSITIVE_KEYS`** dans encryption.ts = liste des clés SiteConfig chiffrées. Toute nouvelle clé sensible doit y être ajoutée
 - **Écriture** : `encryptIfSensitive(key, value)` avant `prisma.siteConfig.upsert()`
 - **Lecture** : `decryptIfSensitive(key, value)` après lecture BDD. Compatible migration progressive (valeurs en clair retournées telles quelles)
 - **Migration** : `npx tsx scripts/encrypt-secrets.ts` — chiffre les valeurs existantes, idempotent
@@ -184,19 +172,6 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthro
 - **SSE temps réel** : `lib/product-events.ts` via `globalThis` singleton (pas module-level). Hook client: `useProductStream()`
 - **Easy-Express** : prix en centimes (÷100), poids min 1kg, +5€ marge, transactionId expire vite
 - **PFS live image sync** : `applyLiveImageChanges()` dans `app/actions/admin/pfs-live-sync.ts`. Logs `[IMG_SYNC]` et `[DnD]` cote client
-
-### eFashion Paris sync
-- **API type** : GraphQL (`wapi.efashion-paris.com/graphql`) + REST for images
-- **Auth** : Cookie-based (`auth-token` JWT, 7 days). In-memory cache in `efashion-graphql.ts`
-- **IDs** : `Int` (not String UUID like PFS). `efashionProductId` on Product model
-- **`vendu_par`** : "couleurs" = UNIT, "assortiment" = PACK
-- **Descriptions** : `texte_fr` / `texte_uk` (not per-language array)
-- **Photos** : REST `GET /api/product-photos/{id}`. Upload via FormData POST
-- **Tailles** : Packs (p1-p12 slots) ou Déclinaisons (d1_FR-d12_FR)
-- **Pagination** : `skip` + `take` (not page/per_page). No `hasMore`, use `total`
-- **`productsPage`** returns `items` (not `products`)
-- **Categories** : `label` field (not `nom`), hierarchical tree
-- **Mapping** : `EfashionMapping` table (separate from `PfsMapping`)
 
 ### Logging
 - **Never use `console.log/warn/error`** in server-side code — use `import { logger } from "@/lib/logger"` instead

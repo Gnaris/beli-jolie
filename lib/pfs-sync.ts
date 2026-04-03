@@ -610,8 +610,8 @@ export async function findOrCreateSeason(
     await prisma.pfsMapping.deleteMany({ where: { id: mapping.id } });
   }
 
-  // Check by pfsRef on Season
-  const existingByRef = await prisma.season.findUnique({
+  // Check by pfsRef on Season (multiple seasons may share the same ref, take first match)
+  const existingByRef = await prisma.season.findFirst({
     where: { pfsRef: normalized },
     select: { id: true },
   });

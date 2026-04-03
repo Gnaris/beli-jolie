@@ -16,6 +16,7 @@ import * as XLSX from "xlsx";
 import { readFile, readdir, mkdir } from "fs/promises";
 import { processProductImage } from "@/lib/image-processor";
 import { emitProductEvent } from "@/lib/product-events";
+import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import path from "path";
 
 // ─────────────────────────────────────────────
@@ -104,36 +105,36 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     return isNaN(n) ? undefined : n;
   };
 
-  // Support headers with asterisks from template (e.g. "reference *", "name *")
-  const saleTypeRaw = str(raw["sale_type"] ?? raw["sale_type *"] ?? raw["saleType"] ?? raw["type_vente"] ?? "UNIT").toUpperCase();
+  // Support French headers from template (e.g. "Référence *", "Nom *") + English keys
+  const saleTypeRaw = str(raw["sale_type"] ?? raw["sale_type *"] ?? raw["saleType"] ?? raw["type_vente"] ?? raw["Type de vente *"] ?? "UNIT").toUpperCase();
 
   return {
     _rowIndex: index + 2,
-    reference: str(raw["reference"] ?? raw["reference *"] ?? raw["ref"] ?? raw["référence"]),
-    name: str(raw["name"] ?? raw["name *"] ?? raw["nom"] ?? raw["name_fr"]),
-    description: str(raw["description"] ?? raw["description_fr"]) || undefined,
-    category: str(raw["category"] ?? raw["categorie"] ?? raw["catégorie"]) || undefined,
-    color: str(raw["color"] ?? raw["color *"] ?? raw["couleur"]),
+    reference: str(raw["reference"] ?? raw["reference *"] ?? raw["ref"] ?? raw["référence"] ?? raw["Référence *"]),
+    name: str(raw["name"] ?? raw["name *"] ?? raw["nom"] ?? raw["name_fr"] ?? raw["Nom *"]),
+    description: str(raw["description"] ?? raw["description_fr"] ?? raw["Description"]) || undefined,
+    category: str(raw["category"] ?? raw["categorie"] ?? raw["catégorie"] ?? raw["Catégorie"]) || undefined,
+    color: str(raw["color"] ?? raw["color *"] ?? raw["couleur"] ?? raw["Couleur *"]),
     saleType: saleTypeRaw === "PACK" ? "PACK" : "UNIT",
-    unitPrice: num(raw["unit_price"] ?? raw["unit_price *"] ?? raw["prix"] ?? raw["price"]) ?? 0,
-    packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"]),
-    stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"]) ?? 0,
-    weight: num(raw["weight_g"] ?? raw["poids_g"] ?? raw["poids"]) ?? undefined,
-    isPrimary: String(raw["is_primary"] ?? raw["primaire"] ?? "").toLowerCase() === "true",
-    discountType: (str(raw["discount_type"] ?? raw["remise_type"]).toUpperCase() as "PERCENT" | "AMOUNT") || undefined,
-    discountValue: num(raw["discount_value"] ?? raw["remise_valeur"]),
-    size: str(raw["size"] ?? raw["taille"]) || undefined,
-    tags: str(raw["tags"]) || undefined,
-    composition: str(raw["composition"]) || undefined,
-    subCategories: str(raw["sub_categories"] ?? raw["sous_categories"] ?? raw["subCategories"]) || undefined,
-    similarRefs: str(raw["similar_refs"] ?? raw["produits_similaires"] ?? raw["similarRefs"]) || undefined,
-    dimensionLength: num(raw["dimension_length"] ?? raw["longueur"]),
-    dimensionWidth: num(raw["dimension_width"] ?? raw["largeur"]),
-    dimensionHeight: num(raw["dimension_height"] ?? raw["hauteur"]),
-    dimensionDiameter: num(raw["dimension_diameter"] ?? raw["diametre"] ?? raw["diamètre"]),
-    dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"]),
-    manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays"]) || undefined,
-    season: str(raw["season"] ?? raw["saison"] ?? raw["collection"]) || undefined,
+    unitPrice: num(raw["unit_price"] ?? raw["unit_price *"] ?? raw["prix"] ?? raw["price"] ?? raw["Prix unitaire *"]) ?? 0,
+    packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"] ?? raw["Qté pack"]),
+    stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"] ?? raw["Stock *"]) ?? 0,
+    weight: num(raw["weight_g"] ?? raw["poids_g"] ?? raw["poids"] ?? raw["Poids (g)"]) ?? undefined,
+    isPrimary: String(raw["is_primary"] ?? raw["primaire"] ?? raw["Primaire"] ?? "").toLowerCase() === "true",
+    discountType: (str(raw["discount_type"] ?? raw["remise_type"] ?? raw["Type remise"]).toUpperCase() as "PERCENT" | "AMOUNT") || undefined,
+    discountValue: num(raw["discount_value"] ?? raw["remise_valeur"] ?? raw["Valeur remise"]),
+    size: str(raw["size"] ?? raw["taille"] ?? raw["Taille"]) || undefined,
+    tags: str(raw["tags"] ?? raw["Tags"]) || undefined,
+    composition: str(raw["composition"] ?? raw["Composition"]) || undefined,
+    subCategories: str(raw["sub_categories"] ?? raw["sous_categories"] ?? raw["subCategories"] ?? raw["Sous-catégories"]) || undefined,
+    similarRefs: str(raw["similar_refs"] ?? raw["produits_similaires"] ?? raw["similarRefs"] ?? raw["Réf. similaires"]) || undefined,
+    dimensionLength: num(raw["dimension_length"] ?? raw["longueur"] ?? raw["Longueur (cm)"]),
+    dimensionWidth: num(raw["dimension_width"] ?? raw["largeur"] ?? raw["Largeur (cm)"]),
+    dimensionHeight: num(raw["dimension_height"] ?? raw["hauteur"] ?? raw["Hauteur (cm)"]),
+    dimensionDiameter: num(raw["dimension_diameter"] ?? raw["diametre"] ?? raw["diamètre"] ?? raw["Diamètre (cm)"]),
+    dimensionCircumference: num(raw["dimension_circumference"] ?? raw["circonference"] ?? raw["circonférence"] ?? raw["Circonférence (cm)"]),
+    manufacturingCountry: str(raw["manufacturing_country"] ?? raw["pays_fabrication"] ?? raw["pays"] ?? raw["Pays fabrication"]) || undefined,
+    season: str(raw["season"] ?? raw["saison"] ?? raw["collection"] ?? raw["Saison"]) || undefined,
   };
 }
 
@@ -194,12 +195,12 @@ function parseExcel(buffer: Buffer): ProductImportRow[] {
   // Skip the description row (row 2 in template) — detect by checking if "reference" looks like a description
   // Do NOT skip rows with empty reference — they inherit from the previous row
   const filtered = data.filter((row) => {
-    const ref = String(row["reference"] ?? row["reference *"] ?? row["ref"] ?? row["référence"] ?? "").trim();
+    const ref = String(row["reference"] ?? row["reference *"] ?? row["ref"] ?? row["référence"] ?? row["Référence *"] ?? "").trim();
     if (ref.toLowerCase().startsWith("référence unique") || ref.toLowerCase().startsWith("reference unique")) return false;
-    const saleType = String(row["sale_type"] ?? row["sale_type *"] ?? row["saleType"] ?? "").trim().toUpperCase();
+    const saleType = String(row["sale_type"] ?? row["sale_type *"] ?? row["saleType"] ?? row["Type de vente *"] ?? "").trim().toUpperCase();
     if (saleType && saleType !== "UNIT" && saleType !== "PACK" && saleType.length > 10) return false;
     // Skip completely empty rows (no ref AND no color)
-    const color = String(row["color"] ?? row["color *"] ?? row["couleur"] ?? "").trim();
+    const color = String(row["color"] ?? row["color *"] ?? row["couleur"] ?? row["Couleur *"] ?? "").trim();
     if (!ref && !color) return false;
     return true;
   });
@@ -476,6 +477,8 @@ export async function processProductImport(jobId: string, maxProducts?: number):
               create: { name: tName },
             });
             tagIds.push(newTag.id);
+            // Fire-and-forget auto-translation for new tags
+            autoTranslateTag(newTag.id, tName);
           }
         }
 
@@ -530,7 +533,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           ? firstRow.similarRefs.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
           : [];
 
-        // Manufacturing country — warn if not found
+        // Manufacturing country — error if not found
         let manufacturingCountryId: string | null = null;
         if (firstRow.manufacturingCountry) {
           const country = countryMap.get(firstRow.manufacturingCountry.toLowerCase());
@@ -547,7 +550,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           }
         }
 
-        // Season — warn if not found
+        // Season — error if not found
         let seasonId: string | null = null;
         if (firstRow.season) {
           const season = seasonMap.get(firstRow.season.toLowerCase());
@@ -610,6 +613,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           });
 
           // Create VariantSize records for variants with a size value
+          const productCategoryId = categoryId ?? product.categoryId;
           for (const { row, mainColor } of resolvedColors) {
             if (row.size) {
               const sizeName = row.size.trim();
@@ -619,6 +623,14 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                   create: { name: sizeName },
                   update: {},
                 });
+                // Link size to product's category if not already linked
+                if (productCategoryId) {
+                  await prisma.sizeCategoryLink.upsert({
+                    where: { sizeId_categoryId: { sizeId: sizeEntity.id, categoryId: productCategoryId } },
+                    create: { sizeId: sizeEntity.id, categoryId: productCategoryId },
+                    update: {},
+                  });
+                }
                 const pc = product.colors.find((c) => c.colorId === mainColor.id);
                 if (pc) {
                   await prisma.variantSize.create({
@@ -683,6 +695,9 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           }
 
           successCount++;
+
+          // Fire-and-forget auto-translation for imported product
+          autoTranslateProduct(product.id, firstRow.name, firstRow.description ?? "");
 
           // Emit SSE event for real-time table updates
           emitProductEvent({ type: "PRODUCT_CREATED", productId: product.id });
@@ -755,6 +770,10 @@ export async function processProductImport(jobId: string, maxProducts?: number):
       });
       errorDraftId = draft.id;
     }
+
+    // NOTE: revalidateTag does NOT work in fire-and-forget background jobs.
+    // Cache invalidation is handled client-side via revalidateAfterImport()
+    // server action called from ImportProductsTab when job completes.
 
     // Mark completed
     await prisma.importJob.update({

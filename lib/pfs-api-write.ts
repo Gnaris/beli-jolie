@@ -11,6 +11,7 @@
  */
 
 import { getPfsHeaders, PFS_BASE_URL, invalidatePfsToken } from "@/lib/pfs-auth";
+import { acquirePfsSlot, releasePfsSlot } from "@/lib/pfs-api";
 import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
@@ -83,6 +84,19 @@ async function fetchWithRetry(
   options: RequestInit,
   maxRetries = 3,
 ): Promise<Response> {
+  await acquirePfsSlot();
+  try {
+    return await _fetchWithRetryInner(url, options, maxRetries);
+  } finally {
+    releasePfsSlot();
+  }
+}
+
+async function _fetchWithRetryInner(
+  url: string,
+  options: RequestInit,
+  maxRetries: number,
+): Promise<Response> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -113,8 +127,9 @@ async function fetchWithRetry(
 
       if (res.status === 429 || res.status >= 500) {
         lastError = new Error(`PFS API ${res.status}: ${method} ${shortUrl} — ${errBody.slice(0, 200)}`);
-        logger.warn("[PFS] HTTP error, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries });
-        const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
+        const jitter = Math.random() * 1000;
+        const delay = Math.min(2000 * Math.pow(2, attempt) + jitter, 30000);
+        logger.warn("[PFS] HTTP error, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries, delayMs: Math.round(delay) });
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
@@ -123,9 +138,10 @@ async function fetchWithRetry(
       return res;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      logger.warn("[PFS] Request failed, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries });
+      const jitter = Math.random() * 1000;
+      const delay = Math.min(2000 * Math.pow(2, attempt) + jitter, 30000);
+      logger.warn("[PFS] Request failed, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries, delayMs: Math.round(delay) });
       if (attempt < maxRetries) {
-        const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
         await new Promise((r) => setTimeout(r, delay));
       }
     }
