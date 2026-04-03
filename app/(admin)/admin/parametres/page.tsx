@@ -316,16 +316,12 @@ async function LivraisonTab() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Marketplaces — PFS + eFashion
+   TAB : Marketplaces — PFS
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MarketplacesTab() {
-  const [pfsConfig, pfsEnabledRow, efashionConfig, efashionEnabledRow, ankorstoreConfig, ankorstoreEnabledRow] = await Promise.all([
+  const [pfsConfig, pfsEnabledRow] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findUnique({ where: { key: "pfs_enabled" }, select: { value: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "efashion_email" }, select: { key: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "efashion_enabled" }, select: { value: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "ankorstore_client_id" }, select: { key: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "ankorstore_enabled" }, select: { value: true } }),
   ]);
 
   return (
@@ -336,10 +332,6 @@ async function MarketplacesTab() {
         <MarketplaceConfig
           hasPfsConfig={!!pfsConfig}
           pfsEnabled={pfsEnabledRow?.value === "true"}
-          hasEfashionConfig={!!efashionConfig}
-          efashionEnabled={efashionEnabledRow?.value === "true"}
-          hasAnkorstoreConfig={!!ankorstoreConfig}
-          ankorstoreEnabled={ankorstoreEnabledRow?.value === "true"}
         />
       </div>
     </div>

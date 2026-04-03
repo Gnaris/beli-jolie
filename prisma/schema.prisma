@@ -61,9 +61,6 @@ model User {
   importJobs     ImportJob[]
   pfsSyncJobs         PfsSyncJob[]
   pfsPrepareJobs      PfsPrepareJob[]
-  efashionSyncJobs    EfashionSyncJob[]
-  efashionPrepareJobs EfashionPrepareJob[]
-  ankorstoreSyncJobs  AnkorstoreSyncJob[]
   accessCodes         AccessCode[]
   activity       UserActivity?
   restockAlerts  RestockAlert[]
@@ -116,7 +113,6 @@ model Category {
   pfsCategoryId      String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
   pfsGender          String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
   pfsFamilyId        String? // ID famille PFS (ex: "a035J00000185J7QAI")
-  efashionCategoryId Int?
   subCategories      SubCategory[]
   products      Product[]
   translations  CategoryTranslation[]
@@ -167,7 +163,6 @@ model Color {
   hex                 String?
   patternImage        String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
   pfsColorRef         String? // Référence couleur PFS (ex: "GOLDEN", "SILVER") — pour reverse sync
-  efashionColorId     Int?
   createdAt           DateTime               @default(now())
   productColors       ProductColor[]
   colorImages         ProductColorImage[]
@@ -213,7 +208,7 @@ model ManufacturingCountryTranslation {
 model Season {
   id           String              @id @default(cuid())
   name         String              @unique
-  pfsRef       String?             @unique // PFS collection reference: "PE2026", "AH2025" — unique across all seasons
+  pfsRef       String?             // PFS collection reference: "PE2026", "AH2025" — multiple seasons can share the same ref
   createdAt    DateTime            @default(now())
   products     Product[]
   translations SeasonTranslation[]
@@ -300,16 +295,6 @@ model Product {
   pfsSyncStatus          String? // null=jamais sync, "synced"=OK, "pending"=en cours, "failed"=échec
   pfsSyncError           String?               @db.Text // Dernier message d'erreur de sync PFS
   pfsSyncedAt            DateTime? // Dernière sync réussie vers PFS
-  // ── eFashion Paris sync ──
-  efashionProductId      Int?                  @unique
-  efashionSyncStatus     String? // null | "pending" | "synced" | "failed"
-  efashionSyncError      String?               @db.Text
-  efashionSyncedAt       DateTime?
-  // ── Ankorstore sync ──
-  akProductId            String?               @unique
-  akSyncStatus           String? // null | "pending" | "synced" | "failed"
-  akSyncError            String?               @db.Text
-  akSyncedAt             DateTime?
   name                   String
   description            String                @db.Text
   categoryId             String
@@ -437,8 +422,6 @@ model ProductColor {
   restockAlerts       RestockAlert[]
   pfsColorRef         String? // Override couleur PFS pour variantes multi-couleur
   pfsVariantId        String? // ID variant sur PFS — pour reverse sync
-  efashionColorId     Int?
-  akVariantId         String?               @unique // Ankorstore variant UUID
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
@@ -1265,139 +1248,4 @@ model StripeWebhookEvent {
   @@index([createdAt])
 }
 
-// ─────────────────────────────────────────────
-// eFashion Paris Sync
-// ─────────────────────────────────────────────
 
-// eFashion name → BJ entity mapping (remembered across syncs)
-model EfashionMapping {
-  id           String   @id @default(cuid())
-  type         String // "category" | "color" | "composition" | "pack" | "declinaison"
-  efashionName String
-  efashionId   Int?
-  bjEntityId   String
-  bjName       String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@unique([type, efashionName])
-  @@index([type])
-}
-
-model EfashionSyncJob {
-  id                String        @id @default(cuid())
-  status            PfsSyncStatus @default(PENDING)
-  totalProducts     Int           @default(0)
-  processedProducts Int           @default(0)
-  createdProducts   Int           @default(0)
-  updatedProducts   Int           @default(0)
-  skippedProducts   Int           @default(0)
-  errorProducts     Int           @default(0)
-  lastSkip          Int           @default(0)
-  errorMessage      String?       @db.Text
-  errorDetails      Json?
-  failedReferences  Json?
-  logs              Json?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  adminId           String
-  admin             User          @relation(fields: [adminId], references: [id])
-
-  @@index([status])
-  @@index([createdAt])
-}
-
-model EfashionPrepareJob {
-  id                String                  @id @default(cuid())
-  status            PfsSyncStatus           @default(PENDING)
-  totalProducts     Int                     @default(0)
-  processedProducts Int                     @default(0)
-  readyProducts     Int                     @default(0)
-  errorProducts     Int                     @default(0)
-  approvedProducts  Int                     @default(0)
-  rejectedProducts  Int                     @default(0)
-  lastSkip          Int                     @default(0)
-  errorMessage      String?                 @db.Text
-  logs              Json?
-  analyzeResult     Json?
-  adminId           String
-  admin             User                    @relation(fields: [adminId], references: [id])
-  stagedProducts    EfashionStagedProduct[]
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
-
-  @@index([status])
-  @@index([createdAt])
-}
-
-model EfashionStagedProduct {
-  id                       String             @id @default(cuid())
-  prepareJobId             String
-  prepareJob               EfashionPrepareJob @relation(fields: [prepareJobId], references: [id], onDelete: Cascade)
-  efashionProductId        Int
-  reference                String
-  status                   PfsStagedStatus    @default(PREPARING)
-  name                     String
-  description              String             @db.Text
-  categoryId               Int
-  categoryName             String
-  isBestSeller             Boolean            @default(false)
-  variants                 Json
-  compositions             Json
-  translations             Json
-  imageUrls                Json
-  colorData                Json
-  manufacturingCountryId   String?
-  manufacturingCountryName String?
-  errorMessage             String?            @db.Text
-  existsInDb               Boolean            @default(false)
-  existingProductId        String?
-  differences              Json?
-  createdProductId         String?
-  createdAt                DateTime           @default(now())
-  updatedAt                DateTime           @updatedAt
-
-  @@index([prepareJobId])
-  @@index([status])
-}
-
-// ─────────────────────────────────────────────
-// Ankorstore Sync
-// ─────────────────────────────────────────────
-
-model AnkorstoreSyncJob {
-  id                String        @id @default(cuid())
-  status            PfsSyncStatus @default(PENDING)
-  totalProducts     Int           @default(0)
-  processedProducts Int           @default(0)
-  createdProducts   Int           @default(0)
-  updatedProducts   Int           @default(0)
-  skippedProducts   Int           @default(0)
-  errorProducts     Int           @default(0)
-  lastCursor        String? // for resume — last cursor position
-  errorMessage      String?       @db.Text
-  errorDetails      Json? // per-product errors
-  logs              Json? // detailed sync logs for frontend display
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  adminId           String
-  admin             User          @relation(fields: [adminId], references: [id])
-
-  @@index([status])
-  @@index([createdAt])
-}
-
-// Ankorstore productTypeId → BJ entity mapping
-model AnkorstoreMapping {
-  id         String   @id @default(cuid())
-  type       String // "productType"
-  akValue    String // Ankorstore value (e.g., "6716")
-  akName     String // Display name (e.g., "Colliers")
-  bjEntityId String // BJ entity id (Category.id)
-  bjName     String // BJ entity name
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([type, akValue])
-  @@index([type])
-}

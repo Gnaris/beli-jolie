@@ -36,8 +36,6 @@ const envSchema = z.object({
   DEEPL_API_KEY: z.string().optional(),
   PFS_EMAIL: z.string().optional(),
   PFS_PASSWORD: z.string().optional(),
-  EFASHION_EMAIL: z.string().optional(),
-  EFASHION_PASSWORD: z.string().optional(),
   EASY_EXPRESS_API_KEY: z.string().optional(),
 });
 
