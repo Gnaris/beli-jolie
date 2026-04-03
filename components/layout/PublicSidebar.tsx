@@ -80,6 +80,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
   const CLIENT_LINKS = [
     { label: t("orders"),    href: "/commandes" },
     { label: t("favorites"), href: "/favoris" },
+    { label: t("messages"),  href: "/espace-pro/messages" },
   ];
 
   // Search state
