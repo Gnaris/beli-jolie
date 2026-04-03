@@ -65,6 +65,14 @@ model User {
   activity       UserActivity?
   restockAlerts  RestockAlert[]
   sentEmails     SentEmail[]
+  stockMovements    StockMovement[]    @relation("StockMovementCreator")
+  conversations     Conversation[]
+  messagesSent      Message[]
+  claims            Claim[]
+  credits           Credit[]
+  promotionUsages   PromotionUsage[]
+  productViews      ProductView[]      @relation("ProductViewer")
+  priceChanges      PriceHistory[]     @relation("PriceChanger")
 }
 
 // ─────────────────────────────────────────────
@@ -117,6 +125,7 @@ model Category {
   products      Product[]
   translations  CategoryTranslation[]
   sizes         SizeCategoryLink[]
+  promotions    PromotionCategory[]
   createdAt     DateTime              @default(now())
 }
 
@@ -329,6 +338,9 @@ model Product {
   manufacturingCountry   ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
   seasonId               String?
   season                 Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  lowStockThreshold      Int?
+  views                  ProductView[]
+  promotions             PromotionProduct[]
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
 
@@ -420,6 +432,8 @@ model ProductColor {
   cartItems           CartItem[]
   collectionOverrides CollectionProduct[]
   restockAlerts       RestockAlert[]
+  stockMovements      StockMovement[]
+  priceHistory        PriceHistory[]
   pfsColorRef         String? // Override couleur PFS pour variantes multi-couleur
   pfsVariantId        String? // ID variant sur PFS — pour reverse sync
   createdAt           DateTime               @default(now())
@@ -458,9 +472,10 @@ model Size {
   position     Int                @default(0)
   pfsMappings  SizePfsMapping[]
   categories   SizeCategoryLink[]
-  variantSizes VariantSize[]
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  variantSizes     VariantSize[]
+  stockMovements   StockMovement[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 }
 
 // M2M: taille BJ ↔ taille PFS (une taille BJ peut être liée à plusieurs tailles PFS et inversement)
@@ -589,6 +604,109 @@ enum OrderStatus {
   CANCELLED // Annulée
 }
 
+// ─────────────────────────────────────────────
+// Stock
+// ─────────────────────────────────────────────
+
+enum StockMovementType {
+  MANUAL_IN
+  MANUAL_OUT
+  ORDER
+  CANCEL
+  RETURN
+  IMPORT
+}
+
+// ─────────────────────────────────────────────
+// Messagerie
+// ─────────────────────────────────────────────
+
+enum ConversationType {
+  SUPPORT
+  CLAIM
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum MessageSource {
+  APP
+  EMAIL
+}
+
+// ─────────────────────────────────────────────
+// SAV / Réclamations
+// ─────────────────────────────────────────────
+
+enum ClaimType {
+  ORDER_CLAIM
+  GENERAL
+}
+
+enum ClaimStatus {
+  OPEN
+  IN_REVIEW
+  ACCEPTED
+  REJECTED
+  RETURN_PENDING
+  RETURN_SHIPPED
+  RETURN_RECEIVED
+  RESOLUTION_PENDING
+  RESOLVED
+  CLOSED
+}
+
+enum ClaimResolution {
+  REFUND
+  CREDIT
+  RESHIP
+  NONE
+}
+
+enum ClaimItemReason {
+  DEFECTIVE
+  WRONG_ITEM
+  MISSING
+  DAMAGED
+  OTHER
+}
+
+enum ShippingMethod {
+  EASY_EXPRESS
+  CLIENT_SELF
+  OTHER
+}
+
+enum ReturnStatus {
+  PENDING
+  LABEL_GENERATED
+  SHIPPED
+  RECEIVED
+}
+
+enum ReshipStatus {
+  PENDING
+  SHIPPED
+  DELIVERED
+}
+
+// ─────────────────────────────────────────────
+// Promotions
+// ─────────────────────────────────────────────
+
+enum PromotionType {
+  CODE
+  AUTO
+}
+
+enum DiscountKind {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
+}
+
 // Commande validée par le client
 model Order {
   id          String      @id @default(cuid())
@@ -647,6 +765,16 @@ model Order {
   // CGV acceptance
   cgvAcceptedAt DateTime? // Timestamp when client accepted CGV before payment
 
+  // Promotion & credit applied
+  promoCode        String?
+  promoDiscount    Decimal          @default(0) @db.Decimal(10, 2)
+  creditApplied    Decimal          @default(0) @db.Decimal(10, 2)
+  // Relations for new features
+  stockMovements   StockMovement[]
+  claims           Claim[]
+  creditUsages     CreditUsage[]
+  promotionUsages  PromotionUsage[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -681,6 +809,8 @@ model OrderItem {
 
   variantSnapshot String? @db.Text // JSON: snapshot complet de la variante pour traçabilité légale
 
+  claimItems ClaimItem[]
+
   createdAt DateTime @default(now())
 
   @@index([orderId])
@@ -698,6 +828,7 @@ model Collection {
   image        String? // Chemin relatif depuis /public
   products     CollectionProduct[]
   translations CollectionTranslation[]
+  promotions   PromotionCollection[]
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 }
@@ -1246,6 +1377,306 @@ model StripeWebhookEvent {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Stock Movements
+// ─────────────────────────────────────────────
+
+model StockMovement {
+  id             String            @id @default(cuid())
+  productColorId String
+  productColor   ProductColor      @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  sizeId         String?
+  size           Size?             @relation(fields: [sizeId], references: [id])
+  quantity       Int
+  type           StockMovementType
+  reason         String?           @db.Text
+  orderId        String?
+  order          Order?            @relation(fields: [orderId], references: [id])
+  createdById    String?
+  createdBy      User?             @relation("StockMovementCreator", fields: [createdById], references: [id])
+  createdAt      DateTime          @default(now())
+
+  @@index([productColorId, createdAt])
+  @@index([orderId])
+  @@index([type])
+}
+
+// ─────────────────────────────────────────────
+// Messagerie (Chat + SAV)
+// ─────────────────────────────────────────────
+
+model Conversation {
+  id        String             @id @default(cuid())
+  type      ConversationType
+  subject   String?
+  status    ConversationStatus @default(OPEN)
+  userId    String
+  user      User               @relation(fields: [userId], references: [id])
+  claimId   String?            @unique
+  claim     Claim?             @relation(fields: [claimId], references: [id])
+  messages  Message[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@index([userId, status])
+  @@index([type, status])
+  @@index([updatedAt])
+}
+
+model Message {
+  id             String              @id @default(cuid())
+  conversationId String
+  conversation   Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User                @relation(fields: [senderId], references: [id])
+  senderRole     Role
+  content        String              @db.Text
+  source         MessageSource       @default(APP)
+  readAt         DateTime?
+  attachments    MessageAttachment[]
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model MessageAttachment {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileName  String
+  filePath  String
+  fileSize  Int
+  mimeType  String
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+}
+
+// ─────────────────────────────────────────────
+// SAV / Réclamations
+// ─────────────────────────────────────────────
+
+model Claim {
+  id             String           @id @default(cuid())
+  reference      String           @unique
+  type           ClaimType
+  status         ClaimStatus      @default(OPEN)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+  orderId        String?
+  order          Order?           @relation(fields: [orderId], references: [id])
+  description    String           @db.Text
+  adminNote      String?          @db.Text
+  resolution     ClaimResolution?
+  refundAmount   Decimal?         @db.Decimal(10, 2)
+  creditAmount   Decimal?         @db.Decimal(10, 2)
+  conversation   Conversation?
+  items          ClaimItem[]
+  images         ClaimImage[]
+  returnInfo     ClaimReturn?
+  reshipInfo     ClaimReship?
+  credits        Credit[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([userId, status])
+  @@index([status])
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+model ClaimItem {
+  id           String          @id @default(cuid())
+  claimId      String
+  claim        Claim           @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  orderItemId  String?
+  orderItem    OrderItem?      @relation(fields: [orderItemId], references: [id])
+  quantity     Int
+  reason       ClaimItemReason
+  reasonDetail String?         @db.Text
+
+  @@index([claimId])
+}
+
+model ClaimImage {
+  id        String   @id @default(cuid())
+  claimId   String
+  claim     Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  imagePath String
+  createdAt DateTime @default(now())
+
+  @@index([claimId])
+}
+
+model ClaimReturn {
+  id             String        @id @default(cuid())
+  claimId        String        @unique
+  claim          Claim         @relation(fields: [claimId], references: [id])
+  method         ShippingMethod
+  status         ReturnStatus  @default(PENDING)
+  trackingNumber String?
+  shippingLabel  String?
+  adminNote      String?       @db.Text
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model ClaimReship {
+  id             String        @id @default(cuid())
+  claimId        String        @unique
+  claim          Claim         @relation(fields: [claimId], references: [id])
+  method         ShippingMethod
+  status         ReshipStatus  @default(PENDING)
+  trackingNumber String?
+  shippingLabel  String?
+  adminNote      String?       @db.Text
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Avoirs (Credits SAV)
+// ─────────────────────────────────────────────
+
+model Credit {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  amount          Decimal       @db.Decimal(10, 2)
+  remainingAmount Decimal       @db.Decimal(10, 2)
+  claimId         String?
+  claim           Claim?        @relation(fields: [claimId], references: [id])
+  expiresAt       DateTime?
+  usages          CreditUsage[]
+  createdAt       DateTime      @default(now())
+
+  @@index([userId])
+  @@index([claimId])
+}
+
+model CreditUsage {
+  id        String   @id @default(cuid())
+  creditId  String
+  credit    Credit   @relation(fields: [creditId], references: [id])
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  amount    Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+
+  @@index([creditId])
+  @@index([orderId])
+}
+
+// ─────────────────────────────────────────────
+// Promotions
+// ─────────────────────────────────────────────
+
+model Promotion {
+  id              String              @id @default(cuid())
+  name            String
+  type            PromotionType
+  code            String?             @unique
+  discountKind    DiscountKind
+  discountValue   Decimal             @db.Decimal(10, 2)
+  minOrderAmount  Decimal?            @db.Decimal(10, 2)
+  maxUses         Int?
+  maxUsesPerUser  Int?
+  firstOrderOnly  Boolean             @default(false)
+  appliesToAll    Boolean             @default(true)
+  startsAt        DateTime
+  endsAt          DateTime?
+  isActive        Boolean             @default(true)
+  currentUses     Int                 @default(0)
+  categories      PromotionCategory[]
+  collections     PromotionCollection[]
+  products        PromotionProduct[]
+  usages          PromotionUsage[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([type, isActive])
+  @@index([code])
+  @@index([startsAt, endsAt])
+}
+
+model PromotionCategory {
+  id          String    @id @default(cuid())
+  promotionId String
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  categoryId  String
+  category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([promotionId, categoryId])
+}
+
+model PromotionCollection {
+  id           String     @id @default(cuid())
+  promotionId  String
+  promotion    Promotion  @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([promotionId, collectionId])
+}
+
+model PromotionProduct {
+  id          String    @id @default(cuid())
+  promotionId String
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([promotionId, productId])
+}
+
+model PromotionUsage {
+  id              String    @id @default(cuid())
+  promotionId     String
+  promotion       Promotion @relation(fields: [promotionId], references: [id])
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  orderId         String
+  order           Order     @relation(fields: [orderId], references: [id])
+  discountApplied Decimal   @db.Decimal(10, 2)
+  createdAt       DateTime  @default(now())
+
+  @@index([promotionId])
+  @@index([userId])
+  @@index([orderId])
+}
+
+// ─────────────────────────────────────────────
+// Product Analytics
+// ─────────────────────────────────────────────
+
+model ProductView {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation("ProductViewer", fields: [userId], references: [id])
+  sessionId String
+  createdAt DateTime @default(now())
+
+  @@index([productId, createdAt])
+  @@index([productId, sessionId, createdAt])
+}
+
+model PriceHistory {
+  id             String       @id @default(cuid())
+  productColorId String
+  productColor   ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  field          String
+  oldPrice       Decimal      @db.Decimal(10, 2)
+  newPrice       Decimal      @db.Decimal(10, 2)
+  changedById    String
+  changedBy      User         @relation("PriceChanger", fields: [changedById], references: [id])
+  createdAt      DateTime     @default(now())
+
+  @@index([productColorId, createdAt])
 }
 
 
