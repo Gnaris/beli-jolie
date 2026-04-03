@@ -338,3 +338,26 @@ export const getCachedDashboardStats = unstable_cache(
   ["dashboard-stats"],
   { revalidate: 300, tags: ["orders", "products", "users"] }
 );
+
+export const getCachedLowStockCount = unstable_cache(
+  async () => {
+    const globalThreshold = await prisma.siteConfig.findUnique({
+      where: { key: "default_low_stock_threshold" },
+    });
+    const threshold = globalThreshold ? parseInt(globalThreshold.value, 10) || 5 : 5;
+
+    const count = await prisma.product.count({
+      where: {
+        status: { in: ["ONLINE", "OFFLINE"] },
+        colors: {
+          some: {
+            stock: { lte: threshold },
+          },
+        },
+      },
+    });
+    return count;
+  },
+  ["low-stock-count"],
+  { revalidate: 300, tags: ["products"] }
+);
