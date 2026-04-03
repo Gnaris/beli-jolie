@@ -86,7 +86,15 @@ export default async function RootLayout({
       lang={locale}
       dir={isRTL ? "rtl" : "ltr"}
       className={`${poppins.variable} ${roboto.variable}`}
+      suppressHydrationWarning
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{if(document.cookie.match(/(?:^|;)\\s*bj_admin_theme=dark/)){document.documentElement.classList.add("admin-dark")}}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className="antialiased">
         <script
           type="application/ld+json"

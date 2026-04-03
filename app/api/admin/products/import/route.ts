@@ -126,10 +126,9 @@ function parseExcel(buffer: ArrayBuffer): ProductImportRow[] {
 // Validation
 // ─────────────────────────────────────────────
 
-function validateRow(row: ProductImportRow): string[] {
+/** Validate variant-level fields only (per-row) */
+function validateVariantRow(row: ProductImportRow): string[] {
   const errors: string[] = [];
-  if (!row.reference) errors.push("Référence manquante.");
-  if (!row.name) errors.push("Nom manquant.");
   if (!row.color) errors.push("Couleur manquante.");
   if (!["UNIT", "PACK"].includes(row.saleType)) errors.push("Type de vente invalide (UNIT ou PACK).");
   if (row.saleType === "PACK" && (!row.packQuantity || row.packQuantity < 1))
@@ -150,26 +149,56 @@ function validateRow(row: ProductImportRow): string[] {
  * Returns the grouped products ready for creation + any error rows.
  */
 async function prepareImport(rows: ProductImportRow[]) {
-  const validRows: ProductImportRow[] = [];
   const errorRows: DraftProductRow[] = [];
 
-  // Pre-validate
+  // 1. Group rows by reference FIRST (before validation)
+  const preGrouped = new Map<string, ProductImportRow[]>();
   for (const row of rows) {
-    const errs = validateRow(row);
-    if (errs.length > 0) {
-      errorRows.push({ ...row, errors: errs });
-    } else {
-      validRows.push(row);
+    if (!row.reference) {
+      errorRows.push({ ...row, errors: ["Référence manquante."] });
+      continue;
+    }
+    const ref = row.reference.toUpperCase();
+    if (!preGrouped.has(ref)) preGrouped.set(ref, []);
+    preGrouped.get(ref)!.push(row);
+  }
+
+  // 2. Inherit product-level fields from the group's primary/first row
+  const productFields = ["name", "description", "category", "tags", "composition"] as const;
+  for (const [, groupRows] of preGrouped) {
+    for (const field of productFields) {
+      const source = groupRows.find((r) => r[field]);
+      if (!source) continue;
+      for (const row of groupRows) {
+        if (!row[field] && source[field]) {
+          (row as unknown as Record<string, unknown>)[field] = source[field];
+        }
+      }
     }
   }
 
-  // Group valid rows by reference
+  // 3. Validate: product-level (name required per group) + variant-level per row
   const grouped = new Map<string, ProductImportRow[]>();
-  for (const row of validRows) {
-    const ref = row.reference.toUpperCase();
-    if (!grouped.has(ref)) grouped.set(ref, []);
-    grouped.get(ref)!.push(row);
+  for (const [ref, groupRows] of preGrouped) {
+    if (!groupRows[0].name) {
+      for (const row of groupRows) {
+        errorRows.push({ ...row, errors: ["Nom manquant (aucune ligne de cette référence n'a de nom)."] });
+      }
+      continue;
+    }
+    for (const row of groupRows) {
+      const errs = validateVariantRow(row);
+      if (errs.length > 0) {
+        errorRows.push({ ...row, errors: errs });
+        continue;
+      }
+      if (!grouped.has(ref)) grouped.set(ref, []);
+      grouped.get(ref)!.push(row);
+    }
   }
+
+  // Collect all valid rows for DB lookups
+  const validRows = [...grouped.values()].flat();
 
   // Pre-load colors and categories from DB
   const colorNames = [...new Set(validRows.map((r) => r.color))];

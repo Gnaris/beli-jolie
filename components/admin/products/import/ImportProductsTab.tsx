@@ -24,66 +24,378 @@ interface PfsAttributes {
 
 const TEMPLATE_JSON = JSON.stringify(
   [
-    // ── Produit simple : 1 couleur, vente à l'unité ──
+    // ─── 1. T-shirt basique : 1 couleur, UNIT, simple ───
     {
-      reference: "BJ-001",
-      name: "Collier Étoile",
-      description: "Collier fin avec pendentif étoile",
-      category: "Accessoires",
-      sub_categories: ["Petits accessoires"],
-      tags: ["tendance", "premium"],
+      reference: "TSH-001",
+      name: "T-shirt Essentiel",
+      description: "T-shirt col rond en coton bio, coupe droite",
+      category: "T-shirts",
+      sub_categories: ["Basiques"],
+      tags: ["basique", "coton", "essentiel"],
       compositions: [{ material: "Coton", percentage: 100 }],
+      season: "Été 2026",
+      manufacturing_country: "Portugal",
+      similar_refs: ["TSH-002"],
       colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 12.50, stock: 200, weight: 30, isPrimary: true },
+        { color: "Blanc", saleType: "UNIT", unitPrice: 14.90, stock: 500, weight: 180, isPrimary: true, size: "M" },
       ],
     },
-    // ── Produit multi-variantes : 3 couleurs, chacune en UNIT + PACK ──
+    // ─── 2. T-shirt premium : 3 couleurs, UNIT + PACK, remise sur 1 couleur ───
     {
-      reference: "PRD-002",
-      name: "Produit Classique",
-      description: "Produit ajustable, finition soignée",
-      category: "Textiles",
-      sub_categories: ["T-shirts", "Basiques"],
-      tags: ["classique", "ajustable"],
+      reference: "TSH-002",
+      name: "T-shirt Oversize Urban",
+      description: "T-shirt oversize à épaules tombantes, toucher doux",
+      category: "T-shirts",
+      sub_categories: ["Oversize", "Streetwear"],
+      tags: ["oversize", "streetwear", "urban"],
       compositions: [
-        { material: "Coton", percentage: 85 },
-        { material: "Polyester", percentage: 15 },
+        { material: "Coton", percentage: 90 },
+        { material: "Élasthanne", percentage: 10 },
       ],
-      similar_refs: ["PRD-003", "PRD-004"],
+      season: "Automne 2026",
+      manufacturing_country: "Turquie",
+      similar_refs: ["TSH-001"],
       colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 8.99, stock: 500, weight: 45, isPrimary: true },
-        { color: "Doré", saleType: "PACK", unitPrice: 7.50, stock: 100, weight: 45, packQuantity: 12 },
-        { color: "Argenté", saleType: "UNIT", unitPrice: 8.99, stock: 300, weight: 45, isPrimary: false },
-        { color: "Argenté", saleType: "PACK", unitPrice: 7.50, stock: 80, weight: 45, packQuantity: 12 },
-        { color: "Or Rose", saleType: "UNIT", unitPrice: 9.99, stock: 200, weight: 45, isPrimary: false },
-        { color: "Or Rose", saleType: "PACK", unitPrice: 8.50, stock: 50, weight: 45, packQuantity: 12 },
+        { color: "Noir", saleType: "UNIT", unitPrice: 24.90, stock: 300, weight: 220, isPrimary: true, size: "L" },
+        { color: "Noir", saleType: "PACK", unitPrice: 19.90, stock: 50, weight: 220, packQuantity: 6 },
+        { color: "Kaki", saleType: "UNIT", unitPrice: 24.90, stock: 200, weight: 220, size: "M" },
+        { color: "Beige", saleType: "UNIT", unitPrice: 24.90, stock: 250, weight: 220, size: "S", discountType: "PERCENT", discountValue: 10 },
       ],
     },
-    // ── Produit avec variante multi-couleurs (sous-couleurs) ──
+    // ─── 3. Collier pendentif : UNIT, remise PERCENT ───
     {
-      reference: "PRD-003",
-      name: "Produit Trio",
-      description: "Produit tricolore empilable",
-      category: "Déco",
-      tags: ["trio", "empilable"],
-      similar_refs: ["PRD-002"],
+      reference: "COL-001",
+      name: "Collier Lune Dorée",
+      description: "Collier fin avec pendentif croissant de lune, plaqué or 18k",
+      category: "Bijoux",
+      sub_categories: ["Colliers", "Pendentifs"],
+      tags: ["lune", "pendentif", "plaqué or", "élégant"],
+      compositions: [
+        { material: "Laiton", percentage: 85 },
+        { material: "Or", percentage: 15 },
+      ],
+      manufacturing_country: "France",
+      similar_refs: ["COL-002", "BRC-001"],
       colors: [
-        { color: "Doré/Argenté/Or Rose", saleType: "UNIT", unitPrice: 6.50, stock: 150, weight: 15, isPrimary: true, size: "17" },
-        { color: "Doré/Argenté/Or Rose", saleType: "PACK", unitPrice: 5.50, stock: 40, weight: 15, packQuantity: 24 },
-        { color: "Noir/Doré", saleType: "UNIT", unitPrice: 7.00, stock: 100, weight: 15, size: "18" },
+        { color: "Doré", saleType: "UNIT", unitPrice: 29.90, stock: 150, weight: 12, isPrimary: true, discountType: "PERCENT", discountValue: 15 },
       ],
     },
-    // ── Produit avec remise ──
+    // ─── 4. Collier multi-rang : multi-couleurs, UNIT + PACK avec remise ───
     {
-      reference: "PRD-004",
-      name: "Produit Promo",
-      category: "Accessoires",
-      tags: ["promo"],
+      reference: "COL-002",
+      name: "Collier Triple Chaîne",
+      description: "Collier trois rangs superposables, maille fine",
+      category: "Bijoux",
+      sub_categories: ["Colliers"],
+      tags: ["multi-rang", "superposable", "chaîne"],
+      compositions: [{ material: "Acier inoxydable", percentage: 100 }],
+      season: "Printemps 2026",
+      manufacturing_country: "Italie",
+      similar_refs: ["COL-001"],
+      colors: [
+        { color: "Doré/Argenté/Or Rose", saleType: "UNIT", unitPrice: 34.50, stock: 80, weight: 18, isPrimary: true },
+        { color: "Doré/Argenté/Or Rose", saleType: "PACK", unitPrice: 28.00, stock: 20, weight: 18, packQuantity: 6, discountType: "PERCENT", discountValue: 20 },
+      ],
+    },
+    // ─── 5. Bracelet jonc : 2 couleurs, remise AMOUNT ───
+    {
+      reference: "BRC-001",
+      name: "Bracelet Jonc Torsadé",
+      description: "Bracelet jonc fin torsadé, ajustable",
+      category: "Bijoux",
+      sub_categories: ["Bracelets"],
+      tags: ["jonc", "torsadé", "ajustable"],
+      compositions: [
+        { material: "Laiton", percentage: 90 },
+        { material: "Or", percentage: 10 },
+      ],
+      manufacturing_country: "France",
+      similar_refs: ["COL-001", "COL-002"],
+      colors: [
+        { color: "Doré", saleType: "UNIT", unitPrice: 18.90, stock: 300, weight: 25, isPrimary: true, discountType: "AMOUNT", discountValue: 3 },
+        { color: "Argenté", saleType: "UNIT", unitPrice: 18.90, stock: 200, weight: 25, discountType: "AMOUNT", discountValue: 3 },
+      ],
+    },
+    // ─── 6. Pantalon chino : 2 couleurs, UNIT ───
+    {
+      reference: "PNT-001",
+      name: "Chino Classique Slim",
+      description: "Pantalon chino coupe slim, taille mi-haute",
+      category: "Pantalons",
+      sub_categories: ["Chinos"],
+      tags: ["chino", "slim", "classique"],
+      compositions: [
+        { material: "Coton", percentage: 98 },
+        { material: "Élasthanne", percentage: 2 },
+      ],
+      season: "Printemps 2026",
+      manufacturing_country: "Turquie",
+      similar_refs: ["PNT-002", "JNS-001"],
+      colors: [
+        { color: "Beige", saleType: "UNIT", unitPrice: 39.90, stock: 180, weight: 450, isPrimary: true, size: "42" },
+        { color: "Marine", saleType: "UNIT", unitPrice: 39.90, stock: 150, weight: 450, size: "40" },
+      ],
+    },
+    // ─── 7. Pantalon cargo : UNIT + PACK, remise PERCENT sur PACK ───
+    {
+      reference: "PNT-002",
+      name: "Cargo Wide Leg",
+      description: "Pantalon cargo coupe large avec poches latérales",
+      category: "Pantalons",
+      sub_categories: ["Cargo", "Streetwear"],
+      tags: ["cargo", "wide", "streetwear", "poches"],
       compositions: [{ material: "Coton", percentage: 100 }],
-      similar_refs: ["PRD-002", "PRD-003"],
+      season: "Automne 2026",
+      manufacturing_country: "Inde",
+      similar_refs: ["PNT-001"],
       colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 5.99, stock: 800, weight: 20, isPrimary: true, discountType: "PERCENT", discountValue: 10 },
-        { color: "Doré", saleType: "PACK", unitPrice: 4.99, stock: 200, weight: 20, packQuantity: 12, discountType: "PERCENT", discountValue: 15 },
+        { color: "Kaki", saleType: "UNIT", unitPrice: 49.90, stock: 120, weight: 520, isPrimary: true, size: "44" },
+        { color: "Kaki", saleType: "PACK", unitPrice: 42.00, stock: 30, weight: 520, packQuantity: 4, discountType: "PERCENT", discountValue: 10 },
+        { color: "Noir", saleType: "UNIT", unitPrice: 49.90, stock: 100, weight: 520, size: "42" },
+      ],
+    },
+    // ─── 8. Jean slim : UNIT, remise AMOUNT ───
+    {
+      reference: "JNS-001",
+      name: "Jean Slim Stretch",
+      description: "Jean slim confortable avec stretch, délavage moyen",
+      category: "Jeans",
+      sub_categories: ["Slim"],
+      tags: ["slim", "stretch", "délavé"],
+      compositions: [
+        { material: "Coton", percentage: 92 },
+        { material: "Polyester", percentage: 6 },
+        { material: "Élasthanne", percentage: 2 },
+      ],
+      manufacturing_country: "Tunisie",
+      similar_refs: ["JNS-002", "PNT-001"],
+      colors: [
+        { color: "Bleu Moyen", saleType: "UNIT", unitPrice: 44.90, stock: 250, weight: 600, isPrimary: true, size: "40", discountType: "AMOUNT", discountValue: 5 },
+      ],
+    },
+    // ─── 9. Jean large : 2 couleurs, UNIT ───
+    {
+      reference: "JNS-002",
+      name: "Jean Wide Vintage",
+      description: "Jean coupe large inspiration 90s, taille haute",
+      category: "Jeans",
+      sub_categories: ["Wide", "Vintage"],
+      tags: ["wide", "vintage", "90s", "taille haute"],
+      compositions: [{ material: "Coton", percentage: 100 }],
+      season: "Printemps 2026",
+      manufacturing_country: "Italie",
+      similar_refs: ["JNS-001"],
+      colors: [
+        { color: "Bleu Clair", saleType: "UNIT", unitPrice: 52.00, stock: 130, weight: 650, isPrimary: true, size: "38" },
+        { color: "Noir Brut", saleType: "UNIT", unitPrice: 52.00, stock: 100, weight: 650, size: "42" },
+      ],
+    },
+    // ─── 10. Mocassin cuir : 2 couleurs, UNIT ───
+    {
+      reference: "MOC-001",
+      name: "Mocassin Cambridge",
+      description: "Mocassin en cuir pleine fleur, semelle cousue Blake",
+      category: "Chaussures",
+      sub_categories: ["Mocassins"],
+      tags: ["cuir", "élégant", "blake", "classique"],
+      compositions: [{ material: "Cuir", percentage: 100 }],
+      manufacturing_country: "Italie",
+      similar_refs: ["MOC-002"],
+      colors: [
+        { color: "Marron", saleType: "UNIT", unitPrice: 89.90, stock: 80, weight: 380, isPrimary: true, size: "43" },
+        { color: "Noir", saleType: "UNIT", unitPrice: 89.90, stock: 60, weight: 380, size: "42" },
+      ],
+    },
+    // ─── 11. Mocassin daim : UNIT + PACK, remise PERCENT ───
+    {
+      reference: "MOC-002",
+      name: "Mocassin Souple Daim",
+      description: "Mocassin en daim souple, intérieur cuir, semelle gomme",
+      category: "Chaussures",
+      sub_categories: ["Mocassins"],
+      tags: ["daim", "souple", "décontracté"],
+      compositions: [
+        { material: "Daim", percentage: 80 },
+        { material: "Cuir", percentage: 20 },
+      ],
+      season: "Été 2026",
+      manufacturing_country: "Portugal",
+      similar_refs: ["MOC-001"],
+      colors: [
+        { color: "Taupe", saleType: "UNIT", unitPrice: 69.90, stock: 100, weight: 320, isPrimary: true, size: "41", discountType: "PERCENT", discountValue: 20 },
+        { color: "Taupe", saleType: "PACK", unitPrice: 59.90, stock: 15, weight: 320, packQuantity: 4, discountType: "PERCENT", discountValue: 25 },
+      ],
+    },
+    // ─── 12. Basket running : multi-couleurs, UNIT ───
+    {
+      reference: "CHS-001",
+      name: "Sneaker Runner Pro",
+      description: "Basket de running légère, semelle amorti mousse",
+      category: "Chaussures",
+      sub_categories: ["Baskets", "Running"],
+      tags: ["running", "léger", "amorti", "sport"],
+      compositions: [
+        { material: "Synthétique", percentage: 70 },
+        { material: "Mousse", percentage: 30 },
+      ],
+      manufacturing_country: "Vietnam",
+      similar_refs: ["CHS-002"],
+      colors: [
+        { color: "Blanc/Noir", saleType: "UNIT", unitPrice: 79.90, stock: 200, weight: 290, isPrimary: true, size: "43" },
+        { color: "Noir/Rouge", saleType: "UNIT", unitPrice: 79.90, stock: 150, weight: 290, size: "42" },
+      ],
+    },
+    // ─── 13. Bottine chelsea : UNIT simple ───
+    {
+      reference: "CHS-002",
+      name: "Bottine Chelsea Cuir",
+      description: "Bottine chelsea en cuir lisse, élastique latéral, bout arrondi",
+      category: "Chaussures",
+      sub_categories: ["Bottines"],
+      tags: ["chelsea", "bottine", "cuir", "classique"],
+      compositions: [
+        { material: "Cuir", percentage: 90 },
+        { material: "Caoutchouc", percentage: 10 },
+      ],
+      season: "Hiver 2026",
+      manufacturing_country: "Espagne",
+      similar_refs: ["MOC-001", "CHS-001"],
+      colors: [
+        { color: "Noir", saleType: "UNIT", unitPrice: 109.00, stock: 70, weight: 480, isPrimary: true, size: "42" },
+      ],
+    },
+    // ─── 14. Sac cabas : 2 couleurs, UNIT + PACK ───
+    {
+      reference: "SAC-001",
+      name: "Sac Cabas Parisien",
+      description: "Sac cabas structuré en cuir grainé, double anse, poche intérieure zippée",
+      category: "Sacs",
+      sub_categories: ["Cabas", "Sacs à main"],
+      tags: ["cabas", "cuir", "parisien", "élégant"],
+      compositions: [
+        { material: "Cuir", percentage: 85 },
+        { material: "Coton", percentage: 15 },
+      ],
+      season: "Automne 2026",
+      manufacturing_country: "France",
+      similar_refs: ["SAC-002", "SAC-003"],
+      colors: [
+        { color: "Noir", saleType: "UNIT", unitPrice: 64.90, stock: 90, weight: 650, isPrimary: true },
+        { color: "Camel", saleType: "UNIT", unitPrice: 64.90, stock: 70, weight: 650 },
+        { color: "Noir", saleType: "PACK", unitPrice: 55.00, stock: 20, weight: 650, packQuantity: 3 },
+      ],
+    },
+    // ─── 15. Pochette bandoulière : UNIT, remise PERCENT ───
+    {
+      reference: "SAC-002",
+      name: "Pochette Bandoulière Mini",
+      description: "Mini sac bandoulière en cuir souple, bandoulière amovible chaîne dorée",
+      category: "Sacs",
+      sub_categories: ["Bandoulière", "Pochettes"],
+      tags: ["pochette", "mini", "bandoulière", "chaîne"],
+      compositions: [
+        { material: "Cuir", percentage: 90 },
+        { material: "Métal", percentage: 10 },
+      ],
+      season: "Printemps 2026",
+      manufacturing_country: "Italie",
+      similar_refs: ["SAC-001"],
+      colors: [
+        { color: "Rose Poudré", saleType: "UNIT", unitPrice: 42.50, stock: 120, weight: 280, isPrimary: true, discountType: "PERCENT", discountValue: 15 },
+      ],
+    },
+    // ─── 16. Sac à dos : multi-couleurs, UNIT ───
+    {
+      reference: "SAC-003",
+      name: "Sac à Dos Canvas",
+      description: "Sac à dos en toile épaisse avec empiècements cuir, compartiment laptop 15 pouces",
+      category: "Sacs",
+      sub_categories: ["Sacs à dos"],
+      tags: ["sac à dos", "canvas", "laptop", "voyage"],
+      compositions: [
+        { material: "Toile", percentage: 75 },
+        { material: "Cuir", percentage: 25 },
+      ],
+      manufacturing_country: "Inde",
+      similar_refs: ["SAC-001"],
+      colors: [
+        { color: "Gris/Marron", saleType: "UNIT", unitPrice: 54.90, stock: 90, weight: 750, isPrimary: true },
+        { color: "Marine/Camel", saleType: "UNIT", unitPrice: 54.90, stock: 60, weight: 750 },
+      ],
+    },
+    // ─── 17. Chapeau fedora : 2 couleurs, UNIT + PACK avec remise ───
+    {
+      reference: "CHP-001",
+      name: "Fedora Laine Premium",
+      description: "Chapeau fedora en feutre de laine, ruban gros-grain contrasté",
+      category: "Chapeaux",
+      sub_categories: ["Fedora"],
+      tags: ["fedora", "laine", "élégant", "ruban"],
+      compositions: [{ material: "Laine", percentage: 100 }],
+      season: "Automne 2026",
+      manufacturing_country: "France",
+      similar_refs: ["CHP-002"],
+      colors: [
+        { color: "Camel", saleType: "UNIT", unitPrice: 35.00, stock: 80, weight: 150, isPrimary: true, size: "58" },
+        { color: "Noir", saleType: "UNIT", unitPrice: 35.00, stock: 60, weight: 150, size: "56" },
+        { color: "Camel", saleType: "PACK", unitPrice: 28.00, stock: 15, weight: 150, packQuantity: 6, discountType: "PERCENT", discountValue: 15 },
+      ],
+    },
+    // ─── 18. Bonnet : UNIT, remise PERCENT ───
+    {
+      reference: "CHP-002",
+      name: "Bonnet Côtelé Chaud",
+      description: "Bonnet en maille côtelée, doublure polaire, revers ajustable",
+      category: "Chapeaux",
+      sub_categories: ["Bonnets"],
+      tags: ["bonnet", "chaud", "côtelé", "polaire"],
+      compositions: [
+        { material: "Laine", percentage: 50 },
+        { material: "Acrylique", percentage: 50 },
+      ],
+      season: "Hiver 2026",
+      manufacturing_country: "Écosse",
+      similar_refs: ["CHP-001", "GNT-001"],
+      colors: [
+        { color: "Gris Chiné", saleType: "UNIT", unitPrice: 19.90, stock: 350, weight: 90, isPrimary: true, discountType: "PERCENT", discountValue: 25 },
+      ],
+    },
+    // ─── 19. Gants cuir : multi-couleurs, UNIT + PACK, remise AMOUNT ───
+    {
+      reference: "GNT-001",
+      name: "Gants Cuir Doublés",
+      description: "Gants en cuir d'agneau doublés cachemire, coutures sellier",
+      category: "Accessoires",
+      sub_categories: ["Gants"],
+      tags: ["gants", "cuir", "cachemire", "hiver"],
+      compositions: [
+        { material: "Cuir", percentage: 70 },
+        { material: "Cachemire", percentage: 30 },
+      ],
+      season: "Hiver 2026",
+      manufacturing_country: "Italie",
+      similar_refs: ["CHP-002"],
+      colors: [
+        { color: "Noir", saleType: "UNIT", unitPrice: 49.90, stock: 100, weight: 120, isPrimary: true, size: "M" },
+        { color: "Marron/Beige", saleType: "UNIT", unitPrice: 52.90, stock: 70, weight: 120, size: "L" },
+        { color: "Noir", saleType: "PACK", unitPrice: 42.00, stock: 20, weight: 120, packQuantity: 6, discountType: "AMOUNT", discountValue: 5 },
+      ],
+    },
+    // ─── 20. T-shirt lot pro : PACK only, remise AMOUNT ───
+    {
+      reference: "TSH-003",
+      name: "T-shirt Uni Lot Pro",
+      description: "T-shirt uni basique vendu en lot, idéal revendeurs et événements",
+      category: "T-shirts",
+      sub_categories: ["Basiques", "Lots"],
+      tags: ["lot", "pro", "revendeur", "basique"],
+      compositions: [{ material: "Coton", percentage: 100 }],
+      manufacturing_country: "Bangladesh",
+      similar_refs: ["TSH-001", "TSH-002"],
+      colors: [
+        { color: "Blanc", saleType: "PACK", unitPrice: 8.90, stock: 100, weight: 170, isPrimary: true, packQuantity: 12, discountType: "AMOUNT", discountValue: 1 },
+        { color: "Noir", saleType: "PACK", unitPrice: 8.90, stock: 80, weight: 170, packQuantity: 12, discountType: "AMOUNT", discountValue: 1 },
+        { color: "Gris Chiné", saleType: "PACK", unitPrice: 9.50, stock: 60, weight: 170, packQuantity: 12 },
       ],
     },
   ],
@@ -811,7 +1123,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
               </div>
 
               {/* Entity rows */}
-              <div className="space-y-2">
+              <div className={`gap-2 ${type === "color" ? "grid grid-cols-1 md:grid-cols-2" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4"}`}>
                 {items.map((entity) => {
                   const key = `${entity.type}:${entity.name}`;
                   const isCreated = created.has(key);

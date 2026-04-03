@@ -591,21 +591,31 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                 // or default to the first variant if none is explicitly marked
                 create: (() => {
                   const hasExplicitPrimary = resolvedColors.some(({ row }) => row.isPrimary);
-                  return resolvedColors.map(({ row, mainColor, subColors }, ci) => ({
-                  colorId: mainColor.id,
-                  unitPrice: row.unitPrice,
-                  weight: row.weight ? row.weight / 1000 : 0.1,
-                  stock: row.stock,
-                  isPrimary: hasExplicitPrimary ? (row.isPrimary === true) : ci === 0,
-                  saleType: row.saleType,
-                  packQuantity: row.saleType === "PACK" ? (row.packQuantity ?? null) : null,
-                  discountType: row.discountType ?? null,
-                  discountValue: row.discountValue ?? null,
-                  // Create sub-colors if multi-color (e.g. "Bleu/Rose/Vert")
-                  subColors: subColors.length > 0
-                    ? { create: subColors.map((sc, idx) => ({ colorId: sc.id, position: idx })) }
-                    : undefined,
-                }));
+                  return resolvedColors.map(({ row, mainColor, subColors }, ci) => {
+                    const isPack = row.saleType === "PACK";
+                    const allColors = [mainColor, ...subColors];
+                    return {
+                      // PACK variants: colorId is null, colors go into PackColorLine
+                      // UNIT variants: colorId = main color, sub-colors go into subColors
+                      colorId: isPack ? null : mainColor.id,
+                      unitPrice: row.unitPrice,
+                      weight: row.weight ? row.weight / 1000 : 0.1,
+                      stock: row.stock,
+                      isPrimary: hasExplicitPrimary ? (row.isPrimary === true) : ci === 0,
+                      saleType: row.saleType,
+                      packQuantity: isPack ? (row.packQuantity ?? null) : null,
+                      discountType: row.discountType ?? null,
+                      discountValue: row.discountValue ?? null,
+                      // UNIT: sub-colors for multi-color variants (e.g. "Bleu/Rose/Vert")
+                      subColors: !isPack && subColors.length > 0
+                        ? { create: subColors.map((sc, idx) => ({ colorId: sc.id, position: idx })) }
+                        : undefined,
+                      // PACK: all colors go into a single PackColorLine
+                      packColorLines: isPack
+                        ? { create: [{ position: 0, colors: { create: allColors.map((c, idx) => ({ colorId: c.id, position: idx })) } }] }
+                        : undefined,
+                    };
+                  });
                 })(),
               },
             },
@@ -631,7 +641,10 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                     update: {},
                   });
                 }
-                const pc = product.colors.find((c) => c.colorId === mainColor.id);
+                // For PACK variants colorId is null, match by saleType + index position
+                const pc = row.saleType === "PACK"
+                  ? product.colors.find((c) => c.saleType === "PACK" && c.colorId === null && c.unitPrice.toString() === row.unitPrice.toString())
+                  : product.colors.find((c) => c.colorId === mainColor.id && c.saleType === row.saleType);
                 if (pc) {
                   await prisma.variantSize.create({
                     data: {
