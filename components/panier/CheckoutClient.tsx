@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
-import { Elements, PaymentElement, useStripe, useElements, CardNumberElement, CardExpiryElement, CardCvcElement } from "@stripe/react-stripe-js";
+import { Elements, useStripe, useElements, CardNumberElement, CardExpiryElement, CardCvcElement } from "@stripe/react-stripe-js";
 import { saveShippingAddress, deleteShippingAddress } from "@/app/actions/client/cart";
 import { placeOrder } from "@/app/actions/client/order";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
@@ -355,10 +355,12 @@ function StripePaymentForm({
   onSuccess,
   onError,
   disabled,
+  clientSecret,
 }: {
   onSuccess: (paymentIntentId: string) => void;
   onError: (msg: string) => void;
   disabled: boolean;
+  clientSecret: string;
 }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -376,12 +378,17 @@ function StripePaymentForm({
     setProcessing(true);
     onError("");
 
-    const result = await stripe.confirmPayment({
-      elements,
-      redirect: "if_required",
-    });
+    const cardElement = elements.getElement(CardNumberElement);
+    if (!cardElement) {
+      onError("Erreur d'initialisation du formulaire de paiement.");
+      setProcessing(false);
+      return;
+    }
 
-    const { error, paymentIntent } = result;
+    const { error, paymentIntent } = await stripe.confirmCardPayment(
+      clientSecret,
+      { payment_method: { card: cardElement } }
+    );
 
     if (error) {
       onError(error.message ?? "Erreur lors du paiement.");
@@ -1409,6 +1416,7 @@ function SummaryPanel({
                       onSuccess={handlePaymentSuccess}
                       onError={setStripeError}
                       disabled={isPending}
+                      clientSecret={clientSecret}
                     />
                   </Elements>
                 </>
