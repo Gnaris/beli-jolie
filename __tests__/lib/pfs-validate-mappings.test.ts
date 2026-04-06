@@ -59,14 +59,14 @@ describe("validatePfsMappings", () => {
     const product = makeProduct({
       category: { id: "cat-1", name: "Bijoux", pfsCategoryId: null, pfsGender: null, pfsFamilyId: null },
     });
-    expect(() => validatePfsMappings(product)).toThrow(/Catégorie.*non mappée/);
+    expect(() => validatePfsMappings(product)).toThrow(/Catégorie.*sans correspondance/);
   });
 
   it("throws for unmapped single color", () => {
     const product = makeProduct({
       colors: [makeVariant({ color: { id: "col-1", name: "Rouge", pfsColorRef: null } })],
     });
-    expect(() => validatePfsMappings(product)).toThrow(/Couleur.*Rouge.*non mappée/);
+    expect(() => validatePfsMappings(product)).toThrow(/Couleur.*Rouge.*sans correspondance/);
   });
 
   it("throws for multi-color UNIT variant without override", () => {
@@ -174,7 +174,7 @@ describe("validatePfsMappings", () => {
         { compositionId: "comp-1", percentage: 100, composition: { id: "comp-1", name: "Coton", pfsCompositionRef: null } },
       ],
     });
-    expect(() => validatePfsMappings(product)).toThrow(/Composition.*Coton.*non mappée/);
+    expect(() => validatePfsMappings(product)).toThrow(/Composition.*Coton.*sans correspondance/);
   });
 
   it("throws for unmapped size", () => {
@@ -185,6 +185,6 @@ describe("validatePfsMappings", () => {
         }),
       ],
     });
-    expect(() => validatePfsMappings(product)).toThrow(/Taille.*M.*non mappée/);
+    expect(() => validatePfsMappings(product)).toThrow(/Taille.*M.*sans correspondance/);
   });
 });

@@ -11,8 +11,6 @@ import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import { getImageSrc } from "@/lib/image-utils";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
-import FloatingShapes from "@/components/ui/FloatingShapes";
-import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import ProductDetail from "@/components/produits/ProductDetail";
 
 interface PageProps {
@@ -148,7 +146,50 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     getCachedShopName(),
   ]);
 
-  if (!product || product.status !== "ONLINE") notFound();
+  if (!product) notFound();
+
+  // Product exists but is not online (e.g. OFFLINE during refresh) — show unavailable page
+  if (product.status !== "ONLINE") {
+    const tProducts = await getTranslations("products");
+    return (
+      <div className="min-h-screen relative">
+        <PublicSidebar shopName={shopName} />
+        <div className="min-w-0 relative z-10">
+          <main className="min-h-screen bg-bg-secondary relative overflow-hidden">
+            <div className="container-site py-10">
+              <nav className="flex items-center gap-2 text-sm font-body text-text-muted mb-8">
+                <Link href="/produits" className="hover:text-text-primary transition-colors">
+                  {tProducts("breadcrumb")}
+                </Link>
+                <span className="text-border">/</span>
+                <span className="text-text-secondary truncate">{product.name}</span>
+              </nav>
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-16 h-16 rounded-full bg-bg-tertiary flex items-center justify-center mb-6">
+                  <svg className="w-8 h-8 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                </div>
+                <h1 className="text-2xl font-heading font-semibold text-text-primary mb-2">
+                  {tProducts("unavailableTitle")}
+                </h1>
+                <p className="text-text-muted font-body mb-8 max-w-md">
+                  {tProducts("unavailableDescription")}
+                </p>
+                <Link
+                  href="/produits"
+                  className="btn-primary px-6 py-3 rounded-xl font-medium"
+                >
+                  {tProducts("backToProducts")}
+                </Link>
+              </div>
+            </div>
+          </main>
+          <Footer shopName={shopName} />
+        </div>
+      </div>
+    );
+  }
 
   const similarProductIds = product.similarProducts.map((sp) => sp.similar.id);
   const bundleChildIds = product.bundleChildren.map((b) => b.child.id);
@@ -275,11 +316,9 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     <div className="min-h-screen relative">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
-      <FloatingShapes />
       <PublicSidebar shopName={shopName} />
       <div className="min-w-0 relative z-10">
         <main className="min-h-screen bg-bg-secondary relative overflow-hidden">
-          <ScatteredDecorations variant="sparse" seed={200} />
           <div className="container-site py-10 relative">
 
             {/* Fil d'Ariane */}

@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createConversation, addMessage, markAsRead } from "@/lib/messaging";
 import { notifyAdminNewMessage } from "@/lib/notifications";
+import { emitChatEvent } from "@/lib/chat-events";
 import { revalidateTag } from "next/cache";
 
 export async function createSupportConversation(subject: string, message: string) {
@@ -40,6 +41,20 @@ export async function createSupportConversation(subject: string, message: string
       conversationId: conversation.id,
     }).catch(() => {});
 
+    emitChatEvent({
+      type: "NEW_MESSAGE",
+      conversationId: conversation.id,
+      userId: session.user.id,
+      targetRole: "ADMIN",
+      messageData: {
+        id: conversation.id,
+        content: message.trim(),
+        senderRole: "CLIENT",
+        senderName: `${user?.firstName} ${user?.lastName}`,
+        createdAt: new Date().toISOString(),
+      },
+    });
+
     revalidateTag("messages", "default");
     return { success: true, conversationId: conversation.id };
   } catch {
@@ -47,7 +62,11 @@ export async function createSupportConversation(subject: string, message: string
   }
 }
 
-export async function sendClientMessage(conversationId: string, content: string) {
+export async function sendClientMessage(
+  conversationId: string,
+  content: string,
+  attachments?: { fileName: string; filePath: string; fileSize: number; mimeType: string }[],
+) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "CLIENT") {
     return { success: false, error: "Acces non autorise." };
@@ -62,7 +81,7 @@ export async function sendClientMessage(conversationId: string, content: string)
     return { success: false, error: "Conversation introuvable." };
   }
 
-  if (!content.trim()) {
+  if (!content.trim() && (!attachments || attachments.length === 0)) {
     return { success: false, error: "Le message ne peut pas etre vide." };
   }
 
@@ -76,7 +95,8 @@ export async function sendClientMessage(conversationId: string, content: string)
       conversationId,
       senderId: session.user.id,
       senderRole: "CLIENT",
-      content: content.trim(),
+      content: content.trim() || "📎 Pièce jointe",
+      attachments,
     });
 
     notifyAdminNewMessage({
@@ -86,6 +106,20 @@ export async function sendClientMessage(conversationId: string, content: string)
       messagePreview: content.trim(),
       conversationId,
     }).catch(() => {});
+
+    emitChatEvent({
+      type: "NEW_MESSAGE",
+      conversationId,
+      userId: session.user.id,
+      targetRole: "ADMIN",
+      messageData: {
+        id: message.id,
+        content: content.trim(),
+        senderRole: "CLIENT",
+        senderName: `${user?.firstName} ${user?.lastName}`,
+        createdAt: message.createdAt.toISOString(),
+      },
+    });
 
     revalidateTag("messages", "default");
     return { success: true, message };
@@ -134,4 +168,34 @@ export async function getClientConversation(conversationId: string) {
       },
     },
   });
+}
+
+/** Get the most recent OPEN support conversation for the chat widget */
+export async function getActiveSupportChat() {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "CLIENT") return null;
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      userId: session.user.id,
+      type: "SUPPORT",
+      status: "OPEN",
+    },
+    include: {
+      messages: {
+        include: {
+          sender: { select: { firstName: true, lastName: true, role: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+      _count: {
+        select: {
+          messages: { where: { senderRole: "ADMIN", readAt: null } },
+        },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  return conversation;
 }

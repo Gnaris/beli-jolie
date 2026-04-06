@@ -11,7 +11,8 @@ import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
 import AccessCodeTracker from "@/components/layout/AccessCodeTracker";
 import GuestBanner from "@/components/layout/GuestBanner";
 import HeartbeatTracker from "@/components/layout/HeartbeatTracker";
-import { getCachedShopName } from "@/lib/cached-data";
+import { getCachedShopName, getCachedBusinessHours } from "@/lib/cached-data";
+import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
 import "./globals.css";
 
 /* ─────────────────────────────────────────────
@@ -73,10 +74,11 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const [locale, messages, shopName] = await Promise.all([
+  const [locale, messages, shopName, businessHours] = await Promise.all([
     getLocale(),
     getMessages(),
     getCachedShopName(),
+    getCachedBusinessHours(),
   ]);
 
   const isRTL = RTL_LOCALES.includes(locale as "ar");
@@ -88,13 +90,7 @@ export default async function RootLayout({
       className={`${poppins.variable} ${roboto.variable}`}
       suppressHydrationWarning
     >
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{if(document.cookie.match(/(?:^|;)\\s*bj_admin_theme=dark/)){document.documentElement.classList.add("admin-dark");document.documentElement.style.colorScheme="dark";document.documentElement.style.backgroundColor="#181B25";document.documentElement.style.color="#F5F5F5"}}catch(e){}})()`,
-          }}
-        />
-      </head>
+      <head />
       <body className="antialiased">
         <script
           type="application/ld+json"
@@ -117,6 +113,7 @@ export default async function RootLayout({
                   <AccessCodeTracker />
                   <HeartbeatTracker />
                   {children}
+                  <ChatWidgetLoader businessHours={businessHours} />
                 </LoadingOverlayProvider>
               </ConfirmProvider>
             </ToastProvider>

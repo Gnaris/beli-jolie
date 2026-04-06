@@ -16,15 +16,14 @@ import {
   Legend,
 } from "recharts";
 
-/** Read CSS variables so Recharts inline styles adapt to dark mode */
+/** Read CSS variables so Recharts inline styles use theme colors */
 function useChartColors() {
   return useMemo(() => {
-    if (typeof window === "undefined") return { primary: "#1A1A1A", grid: "#F0F0F0", tick: "#9CA3AF" };
+    if (typeof window === "undefined") return { primary: "#1A56DB", grid: "#F0F0F0", tick: "#9CA3AF" };
     const s = getComputedStyle(document.documentElement);
-    const isDark = document.documentElement.classList.contains("admin-dark");
     return {
-      primary: isDark ? "#FFFFFF" : (s.getPropertyValue("--color-bg-dark").trim() || "#1A1A1A"),
-      grid: isDark ? "#2E2E2E" : "#F0F0F0",
+      primary: s.getPropertyValue("--color-bg-dark").trim() || "#1A56DB",
+      grid: "#F0F0F0",
       tick: s.getPropertyValue("--color-text-muted").trim() || "#9CA3AF",
     };
   }, []);

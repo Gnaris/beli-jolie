@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { addMessage, markAsRead } from "@/lib/messaging";
 import { notifyClientNewReply } from "@/lib/notifications";
+import { emitChatEvent } from "@/lib/chat-events";
 import { revalidateTag } from "next/cache";
 
 export async function getAdminConversations(filter?: "all" | "unread" | "open" | "closed") {
@@ -61,13 +62,17 @@ export async function getAdminConversation(conversationId: string) {
   });
 }
 
-export async function sendAdminReply(conversationId: string, content: string) {
+export async function sendAdminReply(
+  conversationId: string,
+  content: string,
+  attachments?: { fileName: string; filePath: string; fileSize: number; mimeType: string }[],
+) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") {
     return { success: false, error: "Acces non autorise." };
   }
 
-  if (!content.trim()) {
+  if (!content.trim() && (!attachments || attachments.length === 0)) {
     return { success: false, error: "Le message ne peut pas etre vide." };
   }
 
@@ -83,7 +88,8 @@ export async function sendAdminReply(conversationId: string, content: string) {
       conversationId,
       senderId: session.user.id,
       senderRole: "ADMIN",
-      content: content.trim(),
+      content: content.trim() || "📎 Pièce jointe",
+      attachments,
     });
 
     notifyClientNewReply({
@@ -93,6 +99,20 @@ export async function sendAdminReply(conversationId: string, content: string) {
       messagePreview: content.trim(),
       conversationId,
     }).catch(() => {});
+
+    emitChatEvent({
+      type: "NEW_MESSAGE",
+      conversationId,
+      userId: conversation.userId,
+      targetRole: "CLIENT",
+      messageData: {
+        id: message.id,
+        content: content.trim(),
+        senderRole: "ADMIN",
+        senderName: session.user.name || "Admin",
+        createdAt: message.createdAt.toISOString(),
+      },
+    });
 
     revalidateTag("messages", "default");
     return { success: true, message };
@@ -107,13 +127,67 @@ export async function closeConversation(conversationId: string) {
     return { success: false, error: "Acces non autorise." };
   }
 
-  await prisma.conversation.update({
+  const conversation = await prisma.conversation.update({
     where: { id: conversationId },
     data: { status: "CLOSED" },
+    select: { userId: true },
+  });
+
+  emitChatEvent({
+    type: "CONVERSATION_CLOSED",
+    conversationId,
+    userId: conversation.userId,
+    targetRole: "CLIENT",
   });
 
   revalidateTag("messages", "default");
   return { success: true };
+}
+
+export async function joinConversation(conversationId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    return { success: false, error: "Acces non autorise." };
+  }
+
+  try {
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { userId: true, status: true },
+    });
+
+    if (!conversation) return { success: false, error: "Conversation introuvable." };
+
+    const adminName = session.user.name || "Un administrateur";
+
+    // Add system message
+    const message = await addMessage({
+      conversationId,
+      senderId: session.user.id,
+      senderRole: "ADMIN",
+      content: `${adminName} a rejoint la conversation.`,
+    });
+
+    // Notify client via SSE
+    emitChatEvent({
+      type: "NEW_MESSAGE",
+      conversationId,
+      userId: conversation.userId,
+      targetRole: "CLIENT",
+      messageData: {
+        id: message.id,
+        content: `${adminName} a rejoint la conversation.`,
+        senderRole: "ADMIN",
+        senderName: adminName,
+        createdAt: message.createdAt.toISOString(),
+      },
+    });
+
+    revalidateTag("messages", "default");
+    return { success: true, message };
+  } catch {
+    return { success: false, error: "Erreur lors de la prise en charge." };
+  }
 }
 
 export async function getAdminUnreadCount() {

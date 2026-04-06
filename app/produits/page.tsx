@@ -8,8 +8,6 @@ import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display"
 import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
-import FloatingShapes from "@/components/ui/FloatingShapes";
-import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import SearchFilters from "@/components/produits/SearchFilters";
 import ProductsInfiniteScroll from "@/components/produits/ProductsInfiniteScroll";
 
@@ -269,12 +267,10 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen bg-bg-secondary relative">
-      <FloatingShapes />
       <PublicSidebar shopName={shopName} />
       <main className="relative z-10">
       {/* En-tete page */}
       <div className="bg-bg-primary border-b border-border relative overflow-hidden">
-        <ScatteredDecorations variant="sparse" seed={1} />
         <div className="container-site py-6 relative">
           <h1 className="font-heading text-xl font-semibold text-text-primary">
             {t("title")}
@@ -285,11 +281,25 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      <div className="py-6 pl-3 pr-4 sm:pl-4 sm:pr-6 lg:pr-8 relative overflow-hidden">
-        <ScatteredDecorations variant="dense" seed={100} />
-        <div className="flex gap-5">
-          {/* Sidebar filtres — desktop */}
-          <aside className="hidden lg:block w-60 shrink-0">
+      <div className="relative flex">
+        {/* Sidebar filtres — desktop (sticky, s'arrête au footer) */}
+        <aside className="hidden lg:block w-64 shrink-0">
+          <Suspense>
+            <SearchFilters
+              categories={categories}
+              collections={collections}
+              colors={colors}
+              tags={tags}
+              totalCount={totalCount}
+              showOosToggle={showOosToggle}
+            />
+          </Suspense>
+        </aside>
+
+        {/* Contenu principal */}
+        <div className="flex-1 min-w-0 p-4 sm:p-6 lg:py-6 lg:px-8 space-y-5">
+          {/* Barre mobile : filtres + compteur */}
+          <div className="lg:hidden">
             <Suspense>
               <SearchFilters
                 categories={categories}
@@ -298,36 +308,19 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
                 tags={tags}
                 totalCount={totalCount}
                 showOosToggle={showOosToggle}
-              />
-            </Suspense>
-          </aside>
-
-          {/* Contenu principal */}
-          <div className="flex-1 min-w-0 space-y-5">
-            {/* Barre mobile : filtres + compteur */}
-            <div className="lg:hidden">
-              <Suspense>
-                <SearchFilters
-                  categories={categories}
-                  collections={collections}
-                  colors={colors}
-                  tags={tags}
-                  totalCount={totalCount}
-                  showOosToggle={showOosToggle}
-                  mobileMode
-                />
-              </Suspense>
-            </div>
-
-            {/* Grille + infinite scroll */}
-            <Suspense>
-              <ProductsInfiniteScroll
-                initialProducts={products}
-                initialHasMore={initialHasMore}
-                clientDiscount={clientDiscount}
+                mobileMode
               />
             </Suspense>
           </div>
+
+          {/* Grille + infinite scroll */}
+          <Suspense>
+            <ProductsInfiniteScroll
+              initialProducts={products}
+              initialHasMore={initialHasMore}
+              clientDiscount={clientDiscount}
+            />
+          </Suspense>
         </div>
       </div>
       </main>

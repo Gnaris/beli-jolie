@@ -291,11 +291,11 @@ export default async function ModifierProduitPage({
 
   if (hasPfsConfig) {
     if (!product.category?.pfsCategoryId) {
-      mappingIssues.push(`Catégorie "${product.category?.name ?? '?'}" non mappée`);
+      mappingIssues.push(`Catégorie "${product.category?.name ?? '?'}" sans correspondance`);
     }
     for (const c of product.compositions) {
       if (!c.composition.pfsCompositionRef) {
-        mappingIssues.push(`Composition "${c.composition.name}" non mappée`);
+        mappingIssues.push(`Composition "${c.composition.name}" sans correspondance`);
       }
     }
     const _seenColorIds = new Set<string>();
@@ -319,13 +319,13 @@ export default async function ModifierProduitPage({
 
       if (!hasOverride && variant.colorId && variant.color && !_seenColorIds.has(variant.colorId)) {
         _seenColorIds.add(variant.colorId);
-        if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" non mappée`);
+        if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" sans correspondance`);
       }
       if (!hasOverride) {
         for (const sc of variant.subColors) {
           if (!_seenColorIds.has(sc.colorId)) {
             _seenColorIds.add(sc.colorId);
-            if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" non mappée`);
+            if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" sans correspondance`);
           }
         }
       }
@@ -334,7 +334,7 @@ export default async function ModifierProduitPage({
           for (const c of pcl.colors) {
             if (!_seenColorIds.has(c.colorId)) {
               _seenColorIds.add(c.colorId);
-              if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" non mappée`);
+              if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" sans correspondance`);
             }
           }
         }
@@ -343,16 +343,16 @@ export default async function ModifierProduitPage({
         if (!_seenSizeIds.has(vs.sizeId)) {
           _seenSizeIds.add(vs.sizeId);
           if (!vs.size.pfsMappings || vs.size.pfsMappings.length === 0) {
-            mappingIssues.push(`Taille "${vs.size.name}" non mappée`);
+            mappingIssues.push(`Taille "${vs.size.name}" sans correspondance`);
           }
         }
       }
     }
     if (product.manufacturingCountry && !product.manufacturingCountry.pfsCountryRef) {
-      mappingIssues.push(`Pays "${product.manufacturingCountry.name}" non mappé`);
+      mappingIssues.push(`Pays "${product.manufacturingCountry.name}" sans correspondance`);
     }
     if (product.season && !product.season.pfsRef) {
-      mappingIssues.push(`Saison "${product.season.name}" non mappée`);
+      mappingIssues.push(`Saison "${product.season.name}" sans correspondance`);
     }
   }
 

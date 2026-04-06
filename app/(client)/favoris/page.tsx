@@ -193,10 +193,24 @@ export default async function FavorisPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      <div className="py-6 pl-3 pr-4 sm:pl-4 sm:pr-6 lg:pr-8">
-        <div className="flex gap-5">
-          {/* Sidebar filtres — desktop */}
-          <aside className="hidden lg:block w-60 shrink-0">
+      <div className="relative flex">
+        {/* Sidebar filtres — desktop (sticky, s'arrête au footer) */}
+        <aside className="hidden lg:block w-64 shrink-0">
+          <Suspense>
+            <SearchFilters
+              basePath="/favoris"
+              categories={categories}
+              collections={collections}
+              colors={colors}
+              tags={tags}
+              totalCount={totalCount}
+            />
+          </Suspense>
+        </aside>
+
+        <div className="flex-1 min-w-0 p-4 sm:p-6 lg:py-6 lg:px-8 space-y-5">
+          {/* Barre mobile : filtres + compteur */}
+          <div className="lg:hidden">
             <Suspense>
               <SearchFilters
                 basePath="/favoris"
@@ -205,28 +219,12 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                 colors={colors}
                 tags={tags}
                 totalCount={totalCount}
+                mobileMode
               />
             </Suspense>
-          </aside>
+          </div>
 
-          {/* Contenu principal */}
-          <div className="flex-1 min-w-0 space-y-5">
-            {/* Barre mobile : filtres + compteur */}
-            <div className="lg:hidden">
-              <Suspense>
-                <SearchFilters
-                  basePath="/favoris"
-                  categories={categories}
-                  collections={collections}
-                  colors={colors}
-                  tags={tags}
-                  totalCount={totalCount}
-                  mobileMode
-                />
-              </Suspense>
-            </div>
-
-            {/* Grille produits ou état vide */}
+          {/* Grille produits ou état vide */}
             {favorites.length === 0 ? (
               <div className="bg-bg-primary border border-border rounded-xl p-12 text-center">
                 <svg
@@ -318,7 +316,6 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                 )}
               </div>
             )}
-          </div>
         </div>
       </div>
     </>

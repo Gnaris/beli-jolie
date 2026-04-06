@@ -22,7 +22,7 @@ export default function StockAdjustModal({
   const [quantity, setQuantity] = useState("");
   const [reason, setReason] = useState("");
   const [isPending, startTransition] = useTransition();
-  const { addToast } = useToast();
+  const toast = useToast();
 
   const parsedQty = parseInt(quantity, 10);
   const isValid = !isNaN(parsedQty) && parsedQty !== 0 && reason.trim().length > 0;
@@ -34,11 +34,11 @@ export default function StockAdjustModal({
     startTransition(async () => {
       const result = await adjustStock(productColorId, parsedQty, reason);
       if (result.success) {
-        addToast("Stock ajusté avec succès", "success");
+        toast.success("Stock ajusté avec succès");
         onSuccess();
         onClose();
       } else {
-        addToast(result.error || "Erreur", "error");
+        toast.error(result.error || "Erreur");
       }
     });
   }

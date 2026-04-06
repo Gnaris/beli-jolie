@@ -17,7 +17,7 @@ const DISCOUNT_LABELS: Record<string, string> = {
 export default function PromotionsList({ promotions }: { promotions: Promotion[] }) {
   const [filter, setFilter] = useState<"all" | "active" | "expired">("all");
   const [isPending, startTransition] = useTransition();
-  const { addToast } = useToast();
+  const toast = useToast();
 
   const now = new Date();
   const filtered = promotions.filter((p) => {
@@ -29,8 +29,8 @@ export default function PromotionsList({ promotions }: { promotions: Promotion[]
   function handleToggle(id: string) {
     startTransition(async () => {
       const result = await togglePromotion(id);
-      if (result.success) addToast("Statut mis a jour", "success");
-      else addToast(result.error || "Erreur", "error");
+      if (result.success) toast.success("Statut mis a jour");
+      else toast.error(result.error || "Erreur");
     });
   }
 

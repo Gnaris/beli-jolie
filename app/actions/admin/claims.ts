@@ -5,11 +5,10 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { canTransition } from "@/lib/claims";
 import { createCredit } from "@/lib/credits";
-import { createStockMovement } from "@/lib/stock";
 import { addMessage } from "@/lib/messaging";
 import { notifyClientClaimUpdate } from "@/lib/notifications";
+import { emitChatEvent } from "@/lib/chat-events";
 import { revalidateTag } from "next/cache";
-import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -23,7 +22,7 @@ export async function getAdminClaims(filter?: string) {
   const where: Record<string, unknown> = {};
   if (filter && filter !== "all") where.status = filter;
 
-  return prisma.claim.findMany({
+  const claims = await prisma.claim.findMany({
     where,
     include: {
       user: { select: { firstName: true, lastName: true, company: true } },
@@ -32,6 +31,12 @@ export async function getAdminClaims(filter?: string) {
     },
     orderBy: { createdAt: "desc" },
   });
+
+  return claims.map((c) => ({
+    ...c,
+    refundAmount: c.refundAmount ? Number(c.refundAmount) : null,
+    creditAmount: c.creditAmount ? Number(c.creditAmount) : null,
+  }));
 }
 
 export async function getAdminClaim(claimId: string) {
@@ -104,13 +109,21 @@ export async function updateClaimStatus(claimId: string, newStatus: string, mess
     claimId,
   }).catch(() => {});
 
+  emitChatEvent({
+    type: "CLAIM_STATUS_CHANGED",
+    conversationId: claim.conversation?.id || "",
+    userId: claim.userId,
+    targetRole: "CLIENT",
+    claimData: { claimId, newStatus },
+  });
+
   revalidateTag("claims", "default");
   return { success: true };
 }
 
 export async function setClaimResolution(
   claimId: string,
-  resolution: "REFUND" | "CREDIT" | "RESHIP",
+  resolution: "NONE" | "REFUND" | "CREDIT" | "RESHIP",
   params: { amount?: number; message?: string }
 ) {
   await requireAdmin();
@@ -140,115 +153,6 @@ export async function setClaimResolution(
   await prisma.claim.update({
     where: { id: claimId },
     data: updateData,
-  });
-
-  revalidateTag("claims", "default");
-  return { success: true };
-}
-
-export async function requestReturn(
-  claimId: string,
-  method: "EASY_EXPRESS" | "CLIENT_SELF",
-  adminNote?: string
-) {
-  await requireAdmin();
-
-  const claim = await prisma.claim.findUnique({
-    where: { id: claimId },
-    include: { user: true, order: true },
-  });
-  if (!claim) return { success: false, error: "Reclamation introuvable." };
-
-  if (method === "EASY_EXPRESS" && claim.order) {
-    logger.info(`[SAV] Easy Express return label requested for claim ${claim.reference}`);
-  }
-
-  await prisma.$transaction([
-    prisma.claimReturn.create({
-      data: {
-        claimId,
-        method,
-        status: method === "EASY_EXPRESS" ? "LABEL_GENERATED" : "PENDING",
-        adminNote,
-      },
-    }),
-    prisma.claim.update({
-      where: { id: claimId },
-      data: { status: "RETURN_PENDING" },
-    }),
-  ]);
-
-  revalidateTag("claims", "default");
-  return { success: true };
-}
-
-export async function confirmReturnReceived(claimId: string) {
-  const session = await requireAdmin();
-
-  const claim = await prisma.claim.findUnique({
-    where: { id: claimId },
-    include: { returnInfo: true, items: true },
-  });
-
-  if (!claim || claim.status !== "RETURN_SHIPPED") {
-    return { success: false, error: "La reclamation n'est pas en statut retour expedie." };
-  }
-
-  // Reinstate stock for returned items
-  for (const item of claim.items) {
-    if (item.orderItemId) {
-      const orderItem = await prisma.orderItem.findUnique({
-        where: { id: item.orderItemId },
-        select: { variantSnapshot: true },
-      });
-
-      if (orderItem?.variantSnapshot) {
-        try {
-          const snapshot = JSON.parse(orderItem.variantSnapshot);
-          const variantId = snapshot.productColorId || snapshot.id;
-          if (variantId) {
-            await createStockMovement({
-              productColorId: variantId,
-              quantity: item.quantity,
-              type: "RETURN",
-              createdById: session.user.id,
-            });
-          }
-        } catch { /* skip */ }
-      }
-    }
-  }
-
-  await prisma.$transaction([
-    prisma.claimReturn.update({
-      where: { claimId },
-      data: { status: "RECEIVED" },
-    }),
-    prisma.claim.update({
-      where: { id: claimId },
-      data: { status: "RETURN_RECEIVED" },
-    }),
-  ]);
-
-  revalidateTag("claims", "default");
-  revalidateTag("products", "default");
-  return { success: true };
-}
-
-export async function createReship(
-  claimId: string,
-  method: "EASY_EXPRESS" | "OTHER",
-  trackingNumber?: string
-) {
-  await requireAdmin();
-
-  await prisma.claimReship.create({
-    data: {
-      claimId,
-      method,
-      status: "PENDING",
-      trackingNumber,
-    },
   });
 
   revalidateTag("claims", "default");

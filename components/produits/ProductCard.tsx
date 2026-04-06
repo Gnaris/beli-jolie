@@ -216,7 +216,7 @@ export default function ProductCard({
     <article className="group card card-hover overflow-hidden flex flex-col animate-zoom-fade p-2.5">
       {/* Image */}
       <Link href={`/produits/${id}`} className="block">
-        <div className="bg-bg-secondary relative overflow-hidden aspect-[5/6] sm:aspect-[4/5] md:aspect-[3/4] rounded-[14px] shadow-[inset_3px_3px_8px_rgba(0,0,0,0.06),inset_-2px_-2px_6px_rgba(255,255,255,0.8)]">
+        <div className="bg-bg-secondary relative overflow-hidden aspect-[5/6] sm:aspect-[4/5] md:aspect-[3/4] rounded-[14px] border border-border-light">
           {image ? (
             <Image
               src={image}

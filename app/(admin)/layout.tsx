@@ -1,7 +1,6 @@
 import React from "react";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
 import { authOptions } from "@/lib/auth";
 import { getCachedAdminWarnings, getCachedShopName } from "@/lib/cached-data";
 import Link from "next/link";
@@ -11,12 +10,13 @@ import AdminMobileNav from "@/components/admin/AdminMobileNav";
 import AdminClientModeButton from "@/components/admin/AdminClientModeButton";
 
 import LiveCountBadge from "@/components/admin/LiveCountBadge";
+import AdminChatBadge from "@/components/admin/AdminChatBadge";
 import AdminEmailWrapper from "@/components/admin/email/AdminEmailWrapper";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
 import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
-import AdminDarkModeSync from "@/components/admin/AdminDarkModeSync";
 import { getCachedSiteConfig, getCachedPfsEnabled } from "@/lib/cached-data";
+import { getAdminUnreadCount } from "@/app/actions/admin/messages";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -29,11 +29,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const initials = session.user.name
     ? session.user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
     : "A";
-
-  // Theme preference from cookie
-  const cookieStore = await cookies();
-  const adminTheme = cookieStore.get("bj_admin_theme")?.value === "dark" ? "dark" : "light";
-  const isDarkMode = adminTheme === "dark";
 
   const shopName = await getCachedShopName();
 
@@ -53,7 +48,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const autoTranslateConfig = await getCachedSiteConfig("auto_translate_enabled");
   const autoTranslateEnabled = deeplEnabled && autoTranslateConfig?.value === "true";
 
-  const pfsEnabled = await getCachedPfsEnabled();
+  const [pfsEnabled, unreadMessageCount] = await Promise.all([
+    getCachedPfsEnabled(),
+    getAdminUnreadCount(),
+  ]);
   const totalAttributeWarnings = untranslatedCount + unusedColorsCount + unusedCompositionsCount + unusedTagsCount + untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
   const warningCounts: Record<string, { count: number; tooltip: string } | undefined> = {
@@ -66,8 +64,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
     <PfsWrapper>
     <AdminEmailWrapper>
-    <AdminDarkModeSync isDark={isDarkMode} />
-    <div id="admin-theme-wrapper" suppressHydrationWarning className={`min-h-screen bg-bg-secondary flex${isDarkMode ? " admin-dark" : ""}`}>
+    <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
 
       {/* ===== SIDEBAR - fixed left (desktop) ===== */}
       <aside className="w-[260px] shrink-0 bg-bg-primary border-r border-border hidden lg:flex flex-col fixed top-0 left-0 h-screen z-40">
@@ -117,6 +114,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                       </span>
                       <span className="flex-1">{item.label}</span>
                       {item.href === "/admin/utilisateurs" && <LiveCountBadge />}
+                      {item.href === "/admin/messages" && <AdminChatBadge initialCount={unreadMessageCount} />}
                       {item.href === "/admin/commandes" && pendingOrdersCount > 0 && (
                         <span className="relative group/tooltip">
                           <span className="flex items-center justify-center text-[11px] bg-blue-100 text-blue-700 border border-blue-200 rounded-full min-w-[22px] h-[22px] px-1.5 font-semibold">

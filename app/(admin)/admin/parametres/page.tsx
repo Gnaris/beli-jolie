@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import { parseDisplayConfig } from "@/lib/product-display";
@@ -10,7 +9,6 @@ import MaintenanceModeToggle from "@/components/admin/settings/MaintenanceModeTo
 import CatalogDisplayConfig from "@/components/admin/settings/CatalogDisplayConfig";
 import HomepageCarouselsConfig from "@/components/admin/settings/HomepageCarouselsConfig";
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
-import DarkModeToggle from "@/components/admin/settings/DarkModeToggle";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
 import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
@@ -19,13 +17,14 @@ import GmailConfig from "@/components/admin/settings/GmailConfig";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
+import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
   return { title: `Paramètres — ${shopName} Admin` };
 }
 
-const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "paiement", "email", "livraison", "marketplaces", "traduction"] as const;
+const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "paiement", "email", "livraison", "marketplaces", "horaires", "traduction"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -54,6 +53,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
       {activeTab === "email" && <EmailTab />}
       {activeTab === "livraison" && <LivraisonTab />}
       {activeTab === "marketplaces" && <MarketplacesTab />}
+      {activeTab === "horaires" && <HorairesTab />}
       {activeTab === "traduction" && <TraductionTab />}
     </div>
   );
@@ -68,8 +68,6 @@ async function GeneralTab() {
     prisma.siteConfig.findUnique({ where: { key: "banner_image" } }),
   ]);
 
-  const cookieStore = await cookies();
-  const adminTheme = (cookieStore.get("bj_admin_theme")?.value === "dark" ? "dark" : "light") as "light" | "dark";
   const currentMinHT = minConfig ? parseFloat(minConfig.value) : 0;
 
   return (
@@ -90,11 +88,6 @@ async function GeneralTab() {
           <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Mot de passe admin</h3>
           <p className="text-sm text-text-secondary font-body mb-4">Réinitialisation par email.</p>
           <AdminPasswordResetButton />
-        </div>
-        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Apparence</h3>
-          <p className="text-sm text-text-secondary font-body mb-4">Mode jour / nuit admin.</p>
-          <DarkModeToggle currentTheme={adminTheme} />
         </div>
       </div>
     </div>
@@ -334,6 +327,23 @@ async function MarketplacesTab() {
           pfsEnabled={pfsEnabledRow?.value === "true"}
         />
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Horaires — Business hours
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function HorairesTab() {
+  const row = await prisma.siteConfig.findUnique({ where: { key: "business_hours" } });
+  let schedule = null;
+  if (row?.value) {
+    try { schedule = JSON.parse(row.value); } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <BusinessHoursConfig initialSchedule={schedule} />
     </div>
   );
 }

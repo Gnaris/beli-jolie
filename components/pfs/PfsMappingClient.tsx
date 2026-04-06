@@ -386,7 +386,7 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
       <input
         type="text"
         placeholder="Rechercher..."
-        aria-label="Rechercher dans les mappings"
+        aria-label="Rechercher dans les correspondances"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="field-input w-full max-w-sm"

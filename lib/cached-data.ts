@@ -109,6 +109,19 @@ export function getCachedSiteConfig(key: string) {
   )();
 }
 
+// ─── Business hours (cached 5min) ─────────────────────────────────────────────
+export function getCachedBusinessHours() {
+  return unstable_cache(
+    async () => {
+      const row = await prisma.siteConfig.findUnique({ where: { key: "business_hours" } });
+      if (!row?.value) return null;
+      try { return JSON.parse(row.value); } catch { return null; }
+    },
+    ["business-hours"],
+    { revalidate: 300, tags: ["site-config"] }
+  )();
+}
+
 // ─── Company info (from CompanyInfo, used for shipping, legal, etc.) ─────────
 const DEFAULT_SHOP_NAME = "Ma Boutique";
 

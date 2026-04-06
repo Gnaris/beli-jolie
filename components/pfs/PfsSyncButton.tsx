@@ -203,7 +203,7 @@ export default function PfsSyncButton({
         <span className="inline-flex items-center gap-1.5 animate-fadeIn cursor-help">
           <span className="badge badge-warning text-[11px]">Sync Paris Fashion Shop impossible</span>
           <span className="text-[10px] text-text-muted">
-            — {mappingIssues.length} entité{mappingIssues.length > 1 ? "s" : ""} non mappée{mappingIssues.length > 1 ? "s" : ""}
+            — {mappingIssues.length} entité{mappingIssues.length > 1 ? "s" : ""} sans correspondance
           </span>
         </span>
       </PfsTooltip>

@@ -9,8 +9,6 @@ import { parseDisplayConfig, fetchCarouselProducts, type HomepageCarousel } from
 import { getCachedSiteConfig, getCachedBestsellerRefs, getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
-import FloatingShapes from "@/components/ui/FloatingShapes";
-import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import BrandInfoSection from "@/components/home/BrandInfoSection";
 import CollectionsGrid from "@/components/home/CollectionsGrid";
 import ProductCarousel, { CarouselProduct } from "@/components/home/ProductCarousel";
@@ -276,7 +274,6 @@ export default async function HomePage() {
     <div className="min-h-screen bg-bg-secondary relative">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(webSiteJsonLd) }} />
-      <FloatingShapes />
       <PublicSidebar shopName={shopName} />
 
       <main className="relative z-10 -mt-16">
@@ -294,7 +291,6 @@ export default async function HomePage() {
             <div key={carousel.id} className="relative overflow-hidden">
               {i === 0 && <SectionDivider from="var(--color-bg-secondary)" to={i % 2 === 0 ? "var(--color-bg-secondary)" : "var(--color-bg-primary)"} />}
               <div className={`${i % 2 === 0 ? "bg-bg-secondary" : "bg-bg-primary"}`}>
-                <ScatteredDecorations variant={i % 3 === 0 ? "dense" : "sparse"} seed={i + 1} />
                 <ProductCarousel
                   title={carousel.title}
                   products={carousel.products}
@@ -310,14 +306,12 @@ export default async function HomePage() {
           {/* 5. Brand info section */}
           <SectionDivider from="var(--color-bg-primary)" to="var(--color-bg-secondary)" />
           <div className="relative overflow-hidden">
-            <ScatteredDecorations variant="dense" seed={200} />
             <BrandInfoSection />
           </div>
 
           {/* 6. Collections */}
           <SectionDivider from="var(--color-bg-secondary)" to="var(--color-bg-primary)" />
           <div className="bg-bg-primary relative overflow-hidden">
-            <ScatteredDecorations variant="sparse" seed={3} />
             <CollectionsGrid collections={collections} />
           </div>
 

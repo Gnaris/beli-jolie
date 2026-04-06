@@ -8,28 +8,30 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 export default function ReorderButton({ orderId }: { orderId: string }) {
   const [isPending, startTransition] = useTransition();
-  const { addToast } = useToast();
-  const confirm = useConfirm();
+  const toast = useToast();
+  const { confirm } = useConfirm();
   const router = useRouter();
 
   async function handleReorder() {
-    const mode = await confirm(
-      "Commander a nouveau ?",
-      { confirmLabel: "Remplacer le panier", cancelLabel: "Fusionner avec le panier" }
-    );
+    const mode = await confirm({
+      title: "Commander à nouveau ?",
+      message: "Voulez-vous remplacer votre panier actuel ou fusionner les articles ?",
+      confirmLabel: "Remplacer le panier",
+      cancelLabel: "Fusionner avec le panier",
+    });
 
     const selectedMode = mode ? "replace" : "merge";
 
     startTransition(async () => {
       const result = await reorderFromOrder(orderId, selectedMode);
       if (result.success) {
-        addToast(result.message || "Articles ajoutes au panier", "success");
+        toast.success(result.message || "Articles ajoutes au panier");
         if (result.warnings && result.warnings.length > 0) {
-          result.warnings.forEach((w) => addToast(w, "warning"));
+          result.warnings.forEach((w) => toast.warning(w));
         }
         router.push("/panier");
       } else {
-        addToast(result.error || "Erreur", "error");
+        toast.error(result.error || "Erreur");
       }
     });
   }

@@ -14,7 +14,6 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Report error to the health circuit breaker
     fetch("/api/internal/report-error", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -26,44 +25,23 @@ export default function Error({
     })
       .then((res) => res.json())
       .then((data) => {
-        // If maintenance was triggered, redirect to maintenance page
         if (data?.maintenanceTriggered) {
           window.location.href = "/maintenance";
         }
       })
       .catch(() => {
-        // If reporting fails too, redirect to maintenance
         window.location.href = "/maintenance";
       });
   }, [error]);
 
   return (
-    <div className="min-h-screen bg-bg-dark flex flex-col items-center justify-center px-6 py-12">
-      {/* Animated background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div
-          className="absolute top-1/4 left-1/4 w-64 h-64 rounded-full opacity-5"
-          style={{ background: "radial-gradient(circle, #ffffff 0%, transparent 70%)" }}
-        />
-        <div
-          className="absolute bottom-1/3 right-1/4 w-96 h-96 rounded-full opacity-5"
-          style={{ background: "radial-gradient(circle, #ffffff 0%, transparent 70%)" }}
-        />
-      </div>
-
-      <div className="relative z-10 max-w-lg w-full text-center">
-        {/* Logo */}
-        <div className="mb-10">
-          <span className="font-heading text-2xl font-bold text-white tracking-tight">
-            Notre site
-          </span>
-        </div>
-
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6">
+      <div className="max-w-md w-full text-center">
         {/* Icon */}
-        <div className="mx-auto mb-8 w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+        <div className="mx-auto mb-8 w-14 h-14 rounded-full border border-white/10 flex items-center justify-center">
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            className="w-9 h-9 text-white/70"
+            className="w-6 h-6 text-white/40"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -78,46 +56,23 @@ export default function Error({
         </div>
 
         {/* Title */}
-        <h1 className="font-heading text-3xl font-bold text-white mb-4 leading-tight">
+        <h1 className="font-heading text-2xl font-semibold text-white mb-3 tracking-tight">
           Une erreur est survenue
         </h1>
 
-        {/* Divider */}
-        <div className="mx-auto mb-6 w-12 h-px bg-white/20" />
-
         {/* Message */}
-        <p className="font-body text-white/60 text-base leading-relaxed mb-4">
-          Nous avons détecté un problème technique. Notre équipe est
-          automatiquement notifiée et travaille à le résoudre.
+        <p className="font-body text-white/40 text-sm leading-relaxed mb-10">
+          Un problème technique a été détecté. Notre équipe en est
+          automatiquement informée.
         </p>
-        <p className="font-body text-white/60 text-base leading-relaxed mb-10">
-          Merci pour votre patience et votre confiance.
-        </p>
-
-        {/* Status badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-8">
-          <span className="w-2 h-2 rounded-full bg-[#F59E0B] animate-pulse" />
-          <span className="font-body text-white/50 text-sm">
-            Résolution en cours
-          </span>
-        </div>
 
         {/* Retry button */}
-        <div>
-          <button
-            onClick={reset}
-            className="px-6 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm font-medium hover:bg-white/15 transition-colors font-body"
-          >
-            Réessayer
-          </button>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="relative z-10 mt-12 text-center">
-        <p className="font-body text-white/20 text-xs">
-          Plateforme réservée aux professionnels revendeurs
-        </p>
+        <button
+          onClick={reset}
+          className="px-8 py-2.5 rounded-full bg-white text-black text-sm font-medium hover:bg-white/90 transition-colors font-body"
+        >
+          Réessayer
+        </button>
       </div>
     </div>
   );

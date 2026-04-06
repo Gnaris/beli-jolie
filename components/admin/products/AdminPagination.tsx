@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 
 interface Props {
   currentPage: number;
@@ -41,8 +41,34 @@ export default function AdminPagination({ currentPage, totalPages }: Props) {
 
   const pages = getPageNumbers(currentPage, totalPages);
 
+  const [goToValue, setGoToValue] = useState("");
+
+  const handleGoToPage = () => {
+    const page = parseInt(goToValue, 10);
+    if (!isNaN(page) && page >= 1 && page <= totalPages) {
+      goTo(page);
+      setGoToValue("");
+    }
+  };
+
   return (
-    <div className="flex items-center justify-end gap-1">
+    <div className="flex items-center justify-end gap-2">
+      {/* Aller a la page */}
+      <div className="flex items-center gap-1.5 mr-2">
+        <span className="text-sm text-text-muted font-body whitespace-nowrap">Page</span>
+        <input
+          type="number"
+          min={1}
+          max={totalPages}
+          value={goToValue}
+          onChange={(e) => setGoToValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleGoToPage(); }}
+          placeholder={String(currentPage)}
+          className="w-14 h-8 px-2 text-sm text-center font-body border border-border rounded-lg bg-bg-primary focus:outline-none focus:border-bg-dark transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        <span className="text-sm text-text-muted font-body">/ {totalPages}</span>
+      </div>
+
       {/* Precedent */}
       <button
         type="button"

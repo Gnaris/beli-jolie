@@ -347,7 +347,7 @@ function PfsColorDropdown({
             <span className="flex-1 truncate font-body">{currentPfs.label}</span>
           </>
         ) : (
-          <span className="flex-1 italic font-body">Non mappé</span>
+          <span className="flex-1 italic font-body">Aucune correspondance</span>
         )}
         <svg className="w-3 h-3 shrink-0 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

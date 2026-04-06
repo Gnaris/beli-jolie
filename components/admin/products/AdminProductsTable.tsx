@@ -225,7 +225,6 @@ function VariantRow({
   }
 
   // ── Mode édition ──
-  // Use variant-input CSS class for dark mode support
   const inputClass = "variant-input w-full";
 
 

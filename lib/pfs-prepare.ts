@@ -148,7 +148,7 @@ async function prepareSingleProduct(
     const pfsCatId = refDetails?.product?.category?.id || pfsProduct.category?.id || undefined;
     const categoryId = await findOrCreateCategory(categoryName, pfsProduct.category.labels, categoryFr, pfsCatId);
     if (!categoryId) {
-      addLog(`  ❌ ${bjRef} — Catégorie non liée: "${categoryName}". Liez-la dans /admin/pfs/mapping avant de synchroniser.`);
+      addLog(`  ❌ ${bjRef} — Catégorie non liée: "${categoryName}". Liez-la dans la page Correspondances avant de synchroniser.`);
       return { status: "error", reference: bjRef, error: `Catégorie non liée: ${categoryName}` };
     }
     addLog(`  📂 Catégorie: ${categoryName}`);
@@ -897,7 +897,7 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
           v.colorId = resolvedId;
           updated = true;
         } else {
-          throw new Error(`Couleur non liée: "${v.colorName}" (${v.colorRef}). Liez-la dans /admin/pfs/mapping.`);
+          throw new Error(`Couleur non liée: "${v.colorName}" (${v.colorRef}). Liez-la dans la page Correspondances.`);
         }
       }
     }

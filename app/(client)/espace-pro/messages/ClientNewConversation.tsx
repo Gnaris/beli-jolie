@@ -10,7 +10,7 @@ export default function ClientNewConversation() {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
-  const { addToast } = useToast();
+  const toast = useToast();
   const router = useRouter();
 
   function handleSubmit(e: React.FormEvent) {
@@ -20,13 +20,13 @@ export default function ClientNewConversation() {
     startTransition(async () => {
       const result = await createSupportConversation(subject, message);
       if (result.success && result.conversationId) {
-        addToast("Message envoye", "success");
+        toast.success("Message envoye");
         setOpen(false);
         setSubject("");
         setMessage("");
         router.push(`/espace-pro/messages/${result.conversationId}`);
       } else {
-        addToast(result.error || "Erreur", "error");
+        toast.error(result.error || "Erreur");
       }
     });
   }

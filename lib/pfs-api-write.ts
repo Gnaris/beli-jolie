@@ -295,14 +295,16 @@ export async function pfsPatchVariants(
 }
 
 // ─────────────────────────────────────────────
-// 5a. Soft-delete product (rename ref → DEL-xxx, status → DELETED)
+// 5a. Soft-delete product (rename ref → random alphanumeric, status → DELETED)
 // PFS has no hard-delete endpoint, so we rename + archive
 // ─────────────────────────────────────────────
 
 export async function pfsDeleteProduct(pfsProductId: string): Promise<void> {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  const deleteRef = `DEL-${ts}-${rand}`;
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let deleteRef = "";
+  for (let i = 0; i < 10; i++) {
+    deleteRef += chars[Math.floor(Math.random() * chars.length)];
+  }
 
   // Rename reference so the original ref becomes available again
   await pfsUpdateProduct(pfsProductId, { reference_code: deleteRef });

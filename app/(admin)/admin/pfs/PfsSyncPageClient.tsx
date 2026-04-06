@@ -32,6 +32,15 @@ interface ActiveImportJob {
   createdAt: string;
 }
 
+interface CorrespondanceStatus {
+  colors: { total: number; mapped: number };
+  categories: { total: number; mapped: number };
+  compositions: { total: number; mapped: number };
+  countries: { total: number; mapped: number };
+  seasons: { total: number; mapped: number };
+  sizes: { total: number; mapped: number };
+}
+
 // ─────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────
@@ -46,6 +55,8 @@ export default function PfsSyncPageClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [corrStatus, setCorrStatus] = useState<CorrespondanceStatus | null>(null);
+  const [corrLoading, setCorrLoading] = useState(true);
 
   // ── Fetch PFS + BJ product counts ──
   useEffect(() => {
@@ -56,6 +67,37 @@ export default function PfsSyncPageClient() {
         if (typeof d.bjCount === "number") setBjCount(d.bjCount);
       })
       .catch(() => {});
+  }, []);
+
+  // ── Fetch correspondance status ──
+  useEffect(() => {
+    fetch("/api/admin/pfs-sync/mapping-data")
+      .then((r) => r.json())
+      .then((d) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const colors = d.colors ?? [];
+        const categories = d.categories ?? [];
+        const compositions = d.compositions ?? [];
+        const countries = d.countries ?? [];
+        const seasons = d.seasons ?? [];
+        const sizes = d.sizes ?? [];
+        setCorrStatus({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          colors: { total: colors.length, mapped: colors.filter((c: any) => c.pfsColorRef).length },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          categories: { total: categories.length, mapped: categories.filter((c: any) => c.pfsCategoryId).length },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          compositions: { total: compositions.length, mapped: compositions.filter((c: any) => c.pfsCompositionRef).length },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          countries: { total: countries.length, mapped: countries.filter((c: any) => c.pfsCountryRef).length },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          seasons: { total: seasons.length, mapped: seasons.filter((s: any) => s.pfsRef).length },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          sizes: { total: sizes.length, mapped: sizes.filter((s: any) => s.pfsMappings?.length > 0).length },
+        });
+      })
+      .catch(() => {})
+      .finally(() => setCorrLoading(false));
   }, []);
 
   // ── Fetch latest job on load ──
@@ -117,6 +159,19 @@ export default function PfsSyncPageClient() {
   const isActive = job?.status === "RUNNING" || job?.status === "ANALYZING" || job?.status === "PENDING" || job?.status === "NEEDS_VALIDATION";
   const hasActiveImport = !!activeImportJob;
 
+  // ── Correspondance check ──
+  const corrMissing: { label: string; total: number; mapped: number }[] = [];
+  if (corrStatus) {
+    if (corrStatus.colors.mapped < corrStatus.colors.total) corrMissing.push({ label: "Couleurs", ...corrStatus.colors });
+    if (corrStatus.categories.mapped < corrStatus.categories.total) corrMissing.push({ label: "Catégories", ...corrStatus.categories });
+    if (corrStatus.compositions.mapped < corrStatus.compositions.total) corrMissing.push({ label: "Compositions", ...corrStatus.compositions });
+    if (corrStatus.countries.mapped < corrStatus.countries.total) corrMissing.push({ label: "Pays", ...corrStatus.countries });
+    if (corrStatus.seasons.mapped < corrStatus.seasons.total) corrMissing.push({ label: "Saisons", ...corrStatus.seasons });
+    if (corrStatus.sizes.mapped < corrStatus.sizes.total) corrMissing.push({ label: "Tailles", ...corrStatus.sizes });
+  }
+  const corrComplete = corrStatus !== null && corrMissing.length === 0;
+  const corrBlocked = corrStatus !== null && corrMissing.length > 0;
+
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Header */}
@@ -124,7 +179,7 @@ export default function PfsSyncPageClient() {
         <div>
           <h1 className="page-title">Paris Fashion Shop</h1>
           <p className="page-subtitle">
-            Synchronisez et mappez vos produits depuis le marketplace B2B
+            Gérez les correspondances et importez vos produits depuis le marketplace B2B
           </p>
         </div>
       </div>
@@ -193,6 +248,57 @@ export default function PfsSyncPageClient() {
         </div>
       </div>
 
+      {/* Correspondance status card */}
+      {!corrLoading && corrStatus && (
+        <div className={`card p-4 flex items-center gap-4 ${corrBlocked ? "border-[#EF4444]/30 bg-[#EF4444]/5" : "border-[#22C55E]/30 bg-[#22C55E]/5"}`}>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${corrBlocked ? "bg-[#EF4444]/10" : "bg-[#22C55E]/10"}`}>
+            {corrBlocked ? (
+              <svg className="w-5 h-5 text-[#EF4444]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            {corrBlocked ? (
+              <>
+                <p className="text-sm font-medium text-text-primary">
+                  Correspondances incomplètes — importation bloquée
+                </p>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  Tous les attributs doivent avoir une correspondance Paris Fashion Shop avant de pouvoir importer.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {corrMissing.map((m) => (
+                    <span key={m.label} className="badge badge-error text-[11px]">
+                      {m.label} : {m.mapped}/{m.total}
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-text-primary">
+                  Toutes les correspondances sont configurées
+                </p>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  Tous les attributs ont une correspondance Paris Fashion Shop. L&apos;importation est possible.
+                </p>
+              </>
+            )}
+          </div>
+          <Link
+            href="/admin/pfs/correspondances"
+            className="btn-secondary text-sm shrink-0"
+          >
+            {corrBlocked ? "Configurer" : "Voir"}
+          </Link>
+        </div>
+      )}
+
       <div className="flex items-start justify-between">
         <p className="page-subtitle">
           Importe les produits inexistants depuis Paris Fashion Shop
@@ -256,7 +362,7 @@ export default function PfsSyncPageClient() {
         </div>
       )}
 
-      {/* Action buttons (only when no active job, no active import, and not fully synced) */}
+      {/* Action buttons (only when no active job, no active import, not fully synced, and correspondances complete) */}
       {!loading && !isActive && !hasActiveImport && !countsMatch && (
         <>
           {/* Warning alert */}
@@ -284,8 +390,9 @@ export default function PfsSyncPageClient() {
 
             <button
               onClick={startImport}
-              disabled={starting}
+              disabled={starting || corrBlocked || corrLoading}
               className="btn-primary flex-1 min-w-[280px]"
+              title={corrBlocked ? "Complétez les correspondances avant d'importer" : undefined}
             >
               {starting ? (
                 <>

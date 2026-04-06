@@ -64,7 +64,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
   const [prevCount, setPrevCount]         = useState(0);
   const [badgeBounce, setBadgeBounce]     = useState(false);
   const [scrolled, setScrolled]           = useState(false);
-  const [previewPending] = useTransition();
+  const [previewPending, startPreviewTransition] = useTransition();
   const pathname  = usePathname();
   const router = useRouter();
   const { data: session } = useSession();
@@ -75,15 +75,24 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     { label: t("products"),    href: "/produits" },
     { label: t("categories"),  href: "/categories" },
     { label: t("collections"), href: "/collections" },
+    { label: t("contact"),     href: "/nous-contacter" },
   ];
 
   const CLIENT_LINKS = [
-    { label: t("orders"),    href: "/commandes" },
     { label: t("favorites"), href: "/favoris" },
+  ];
+
+  const PROFILE_LINKS = [
+    { label: t("profile"),   href: "/espace-pro" },
+    { label: t("orders"),    href: "/commandes" },
     { label: t("messages"),  href: "/espace-pro/messages" },
     { label: t("claims"),    href: "/espace-pro/reclamations" },
     { label: t("credits"),   href: "/espace-pro/avoirs" },
   ];
+
+  // Profile dropdown state
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -94,11 +103,14 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const searchAbortRef = useRef<AbortController | null>(null);
 
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
         setShowResults(false);
+      }
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
       }
     }
     document.addEventListener("mousedown", handler);
@@ -177,6 +189,11 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     return () => window.removeEventListener("scroll", handler);
   }, []);
 
+  // Close profile dropdown on route change
+  useEffect(() => {
+    setProfileOpen(false);
+  }, [pathname]);
+
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
 
@@ -224,62 +241,30 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     <>
       {/* ===== TOP NAVBAR - fixed ===== */}
       <header
-        className="fixed top-3 left-4 right-4 z-50 bg-white/85 backdrop-blur-xl rounded-2xl border border-white/60 shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)] transition-all duration-200"
+        className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-border shadow-sm transition-all duration-200"
       >
-        <div className="container-site h-16 flex items-center gap-6">
+        {/* Row 1: Logo — Search — Actions */}
+        <div className="container-site h-16 flex lg:grid lg:grid-cols-[1fr_minmax(0,2fr)_1fr] items-center gap-4">
 
           {/* Mobile hamburger — LEFT on mobile */}
           <button
             onClick={() => setMobileOpen(true)}
-            className="lg:hidden flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary bg-bg-secondary shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-1px_-1px_3px_rgba(255,255,255,0.8)] hover:shadow-[inset_3px_3px_6px_rgba(0,0,0,0.07),inset_-2px_-2px_4px_rgba(255,255,255,0.7)] rounded-[10px] transition-colors"
+            className="lg:hidden flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary bg-bg-secondary border border-border hover:bg-bg-tertiary rounded-[10px] transition-colors"
             aria-label="Menu"
           >
             <IconMenu />
           </button>
 
-          {/* Logo — centered on mobile, left on desktop */}
+          {/* Logo */}
           <Link
             href="/"
-            className="relative font-heading text-base font-bold text-text-primary tracking-tight shrink-0 group shimmer-overlay overflow-hidden lg:mr-0 max-lg:absolute max-lg:left-1/2 max-lg:-translate-x-1/2"
+            className="relative font-heading text-base font-bold text-text-primary tracking-tight shrink-0 group shimmer-overlay overflow-hidden max-lg:absolute max-lg:left-1/2 max-lg:-translate-x-1/2 lg:justify-self-start"
           >
             {shopName}
           </Link>
 
-          {/* Desktop nav */}
-          <nav ref={navContainerRef} className="hidden lg:flex items-center gap-1 flex-1 relative">
-            {/* Sliding bubble indicator */}
-            <span
-              className="absolute top-0 h-full bg-bg-secondary/80 rounded-md pointer-events-none z-0"
-              style={{
-                left: bubble?.left ?? 0,
-                width: bubble?.width ?? 0,
-                opacity: bubble ? 1 : 0,
-                transition: bubbleInitRef.current
-                  ? "left 0.35s cubic-bezier(0.4, 0, 0.2, 1), width 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease"
-                  : "opacity 0.3s ease",
-              }}
-            />
-            {allLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                data-nav-active={isActive(link.href) ? "true" : undefined}
-                className={`relative z-10 px-3 py-1.5 text-sm rounded-md transition-colors duration-200 font-body ${
-                  isActive(link.href)
-                    ? "text-text-primary font-medium"
-                    : "text-text-secondary hover:text-text-primary"
-                }`}
-              >
-                {link.label}
-                {isActive(link.href) && (
-                  <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-text-primary rounded-full animate-slide-in" />
-                )}
-              </Link>
-            ))}
-          </nav>
-
-          {/* Search bar (desktop only) */}
-          <div ref={searchRef} className="hidden lg:flex items-center relative w-72 z-20">
+          {/* Search bar — centered and expanded (desktop) */}
+          <div ref={searchRef} className="hidden lg:flex items-center relative justify-self-center w-full max-w-2xl z-20">
             <form onSubmit={handleSearchSubmit} className="w-full">
               <div className="relative">
                 <input
@@ -291,9 +276,9 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                   aria-expanded={showResults}
                   aria-autocomplete="list"
                   role="combobox"
-                  className="w-full bg-bg-secondary border-none rounded-xl shadow-[inset_3px_3px_8px_rgba(0,0,0,0.06),inset_-2px_-2px_6px_rgba(255,255,255,0.8)] focus:ring-2 focus:ring-accent/30 pl-9 pr-4 py-2 text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none transition-colors"
+                  className="w-full bg-bg-secondary border border-border rounded-xl focus:ring-2 focus:ring-accent/30 pl-10 pr-4 py-2.5 text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none transition-colors"
                 />
-                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                 </svg>
                 {searchLoading && (
@@ -306,7 +291,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
 
             {/* Search results dropdown */}
             {showResults && (
-              <div role="listbox" aria-label={t("searchResults")} className="absolute top-full left-0 right-0 mt-2 bg-bg-primary/95 backdrop-blur-lg border border-white/60 rounded-2xl shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)] overflow-hidden z-50 max-h-96 overflow-y-auto animate-fadeIn">
+              <div role="listbox" aria-label={t("searchResults")} className="absolute top-full left-0 right-0 mt-2 bg-bg-primary/95 backdrop-blur-lg border border-border rounded-2xl shadow-sm overflow-hidden z-50 max-h-96 overflow-y-auto animate-fadeIn">
                 {searchResults.length === 0 ? (
                   <div className="px-4 py-6 text-center">
                     <p className="text-sm text-text-muted font-body">
@@ -367,7 +352,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
           </div>
 
           {/* Right actions */}
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-2 ml-auto lg:ml-0 lg:justify-self-end">
 
             {/* Language switcher */}
             <LanguageSwitcher currentLocale={locale} />
@@ -376,7 +361,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
             {showClientUI && (
               <Link
                 href="/panier"
-                className="relative flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary bg-bg-secondary shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-1px_-1px_3px_rgba(255,255,255,0.8)] hover:shadow-[inset_3px_3px_6px_rgba(0,0,0,0.07),inset_-2px_-2px_4px_rgba(255,255,255,0.7)] rounded-[10px] transition-colors"
+                className="relative flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary bg-bg-secondary border border-border hover:bg-bg-tertiary rounded-[10px] transition-colors"
                 aria-label={t("cart")}
               >
                 <IconCart />
@@ -388,27 +373,86 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
               </Link>
             )}
 
-            {/* Logged-in user */}
+            {/* Logged-in user — profile dropdown */}
             {session ? (
-              <div className="hidden lg:flex items-center gap-2">
-                <Link href="/espace-pro" className="flex items-center gap-2.5 px-3 py-1.5 bg-bg-secondary rounded-lg border border-border-light hover:border-border-dark transition-colors">
+              <div ref={profileRef} className="hidden lg:block relative">
+                <button
+                  onClick={() => setProfileOpen((v) => !v)}
+                  className="flex items-center gap-2.5 px-3 py-1.5 bg-bg-secondary rounded-lg border border-border-light hover:border-border-dark transition-colors"
+                >
                   <div className="w-6 h-6 rounded-full bg-bg-dark flex items-center justify-center shrink-0">
                     <span className="text-text-inverse text-[10px] font-bold font-body">{initials}</span>
                   </div>
                   <span className="text-sm font-medium text-text-primary font-body max-w-[120px] truncate">
                     {company}
                   </span>
-                </Link>
-                <button
-                  onClick={async () => {
-                    try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
-                    signOut({ callbackUrl: "/" });
-                  }}
-                  className="flex items-center justify-center w-9 h-9 text-text-muted hover:text-text-primary bg-bg-secondary shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-1px_-1px_3px_rgba(255,255,255,0.8)] hover:shadow-[inset_3px_3px_6px_rgba(0,0,0,0.07),inset_-2px_-2px_4px_rgba(255,255,255,0.7)] rounded-[10px] transition-colors"
-                  aria-label={t("logout")}
-                >
-                  <IconLogout />
+                  <svg className={`w-3.5 h-3.5 text-text-muted transition-transform duration-200 ${profileOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
                 </button>
+
+                {profileOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-bg-primary/95 backdrop-blur-xl border border-border rounded-2xl shadow-sm overflow-hidden z-50 animate-fadeIn">
+                    {/* User info */}
+                    <div className="px-4 py-3 border-b border-border-light">
+                      <p className="text-sm font-medium text-text-primary font-body truncate">{company}</p>
+                      <p className="text-xs text-text-muted font-body truncate">{session.user.email}</p>
+                    </div>
+
+                    {/* Profile links */}
+                    <div className="py-1.5">
+                      {PROFILE_LINKS.map((link) => (
+                        <Link
+                          key={link.href}
+                          href={link.href}
+                          onClick={() => setProfileOpen(false)}
+                          className={`flex items-center px-4 py-2.5 text-sm font-body transition-colors ${
+                            isActive(link.href)
+                              ? "bg-bg-tertiary text-text-primary font-medium"
+                              : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+                          }`}
+                        >
+                          {link.label}
+                        </Link>
+                      ))}
+                    </div>
+
+                    {/* Back to admin (preview mode) */}
+                    {session.user.role === "ADMIN" && (
+                      <div className="border-t border-border-light py-1.5">
+                        <button
+                          type="button"
+                          disabled={previewPending}
+                          onClick={() => {
+                            setProfileOpen(false);
+                            startPreviewTransition(() => disableAdminPreview());
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-warning hover:text-text-primary hover:bg-bg-secondary transition-colors font-body font-medium disabled:opacity-60"
+                        >
+                          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                          </svg>
+                          {previewPending ? "..." : t("backToAdmin")}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Logout */}
+                    <div className="border-t border-border-light py-1.5">
+                      <button
+                        onClick={async () => {
+                          try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
+                          setProfileOpen(false);
+                          signOut({ callbackUrl: "/" });
+                        }}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors font-body"
+                      >
+                        <IconLogout />
+                        {t("logout")}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <Link
@@ -421,6 +465,39 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
 
           </div>
         </div>
+
+        {/* Row 2: Navigation links — centered (desktop only) */}
+        <nav ref={navContainerRef} className="hidden lg:flex items-center justify-center gap-1 py-1.5 border-t border-border-light relative">
+          {/* Sliding bubble indicator */}
+          <span
+            className="absolute top-0 h-full bg-bg-secondary/80 rounded-md pointer-events-none z-0"
+            style={{
+              left: bubble?.left ?? 0,
+              width: bubble?.width ?? 0,
+              opacity: bubble ? 1 : 0,
+              transition: bubbleInitRef.current
+                ? "left 0.35s cubic-bezier(0.4, 0, 0.2, 1), width 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease"
+                : "opacity 0.3s ease",
+            }}
+          />
+          {allLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              data-nav-active={isActive(link.href) ? "true" : undefined}
+              className={`relative z-10 px-4 py-2 text-sm rounded-md transition-colors duration-200 font-body ${
+                isActive(link.href)
+                  ? "text-text-primary font-medium"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              {link.label}
+              {isActive(link.href) && (
+                <span className="absolute bottom-0 left-4 right-4 h-[2px] bg-text-primary rounded-full animate-slide-in" />
+              )}
+            </Link>
+          ))}
+        </nav>
       </header>
 
       {/* ===== MOBILE DRAWER ===== */}
@@ -430,7 +507,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
             className="fixed inset-0 bg-black/30 backdrop-blur-md z-50 lg:hidden animate-fadeIn"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 w-[calc(100%-3rem)] max-w-72 bg-bg-primary/95 backdrop-blur-xl z-50 lg:hidden flex flex-col rounded-r-2xl shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)]">
+          <div className="fixed inset-y-0 left-0 w-[calc(100%-3rem)] max-w-72 bg-bg-primary/95 backdrop-blur-xl z-50 lg:hidden flex flex-col rounded-r-2xl shadow-sm">
 
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
@@ -472,7 +549,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
               {showClientUI && (
                 <>
                   <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-body px-3 pb-1 pt-4">
-                    {t("account")}
+                    {t("shop")}
                   </p>
                   {CLIENT_LINKS.map((link) => (
                     <Link
@@ -486,11 +563,23 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                       }`}
                     >
                       {link.label}
-                      {link.href === "/panier" && cartCount > 0 && (
-                        <span className="w-5 h-5 bg-bg-dark text-text-inverse text-[10px] font-bold rounded-full flex items-center justify-center">
-                          {cartCount}
-                        </span>
-                      )}
+                    </Link>
+                  ))}
+                  <p className="text-[10px] text-text-muted uppercase tracking-[0.15em] font-body px-3 pb-1 pt-4">
+                    {t("account")}
+                  </p>
+                  {PROFILE_LINKS.map((link) => (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      onClick={() => setMobileOpen(false)}
+                      className={`flex items-center px-3 py-2.5 text-sm rounded-lg transition-colors font-body ${
+                        isActive(link.href)
+                          ? "bg-bg-tertiary text-text-primary font-medium"
+                          : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+                      }`}
+                    >
+                      {link.label}
                     </Link>
                   ))}
                 </>
@@ -518,6 +607,22 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                       <p className="text-xs text-text-muted truncate font-body">{session.user.email}</p>
                     </div>
                   </div>
+                  {session.user.role === "ADMIN" && (
+                    <button
+                      type="button"
+                      disabled={previewPending}
+                      onClick={() => {
+                        setMobileOpen(false);
+                        startPreviewTransition(() => disableAdminPreview());
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-warning hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-body font-medium disabled:opacity-60 mb-1"
+                    >
+                      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                      </svg>
+                      {previewPending ? "..." : t("backToAdmin")}
+                    </button>
+                  )}
                   <button
                     onClick={async () => {
                       try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
@@ -544,33 +649,9 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
         </>
       )}
 
-      {/* Spacer for fixed navbar */}
-      <div className="h-16" />
+      {/* Spacer for fixed navbar (row1 h-16 + row2 nav ~40px on desktop) */}
+      <div className="h-16 lg:h-[116px]" />
 
-      {/* ── Bandeau mode aperçu admin ── */}
-      {session?.user?.role === "ADMIN" && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0F172A] text-white px-4 py-3 flex items-center justify-between gap-4 shadow-[0_-2px_12px_rgba(0,0,0,0.3)]">
-          <div className="flex items-center gap-2 text-sm font-body">
-            <svg className="w-4 h-4 text-warning shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-            <span className="font-semibold text-warning">{t("adminPreview")}</span>
-            <span className="text-text-inverse/60 hidden sm:inline">— {t("adminPreviewDesc")}</span>
-          </div>
-          <form action={disableAdminPreview}>
-            <button
-              type="submit"
-              disabled={previewPending}
-              className="text-xs font-body font-semibold bg-bg-primary text-text-primary px-4 py-1.5 rounded-lg hover:bg-border-light transition-colors whitespace-nowrap disabled:opacity-60"
-            >
-              {previewPending ? "..." : t("backToAdmin")}
-            </button>
-          </form>
-        </div>
-      )}
-      {/* Spacer for fixed admin preview banner */}
-      {session?.user?.role === "ADMIN" && <div className="h-14" />}
     </>
   );
 }

@@ -24,7 +24,7 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
   }
   try {
     const res = await fetch(new URL("/api/site-status", requestUrl).toString(), {
-      cache: "no-store",
+      next: { revalidate: 60 },
     });
     if (!res.ok) {
       maintenanceCache = { value: true, timestamp: now };

@@ -135,33 +135,3 @@ export async function getClientClaim(claimId: string) {
     },
   });
 }
-
-export async function confirmReturnShipped(claimId: string) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "CLIENT") {
-    return { success: false, error: "Acces non autorise." };
-  }
-
-  const claim = await prisma.claim.findFirst({
-    where: { id: claimId, userId: session.user.id, status: "RETURN_PENDING" },
-    include: { returnInfo: true },
-  });
-
-  if (!claim || !claim.returnInfo) {
-    return { success: false, error: "Reclamation introuvable ou pas en attente de retour." };
-  }
-
-  await prisma.$transaction([
-    prisma.claimReturn.update({
-      where: { id: claim.returnInfo.id },
-      data: { status: "SHIPPED" },
-    }),
-    prisma.claim.update({
-      where: { id: claimId },
-      data: { status: "RETURN_SHIPPED" },
-    }),
-  ]);
-
-  revalidateTag("claims", "default");
-  return { success: true };
-}

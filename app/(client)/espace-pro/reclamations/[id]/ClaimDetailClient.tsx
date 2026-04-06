@@ -1,18 +1,20 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import ConversationThread from "@/components/shared/ConversationThread";
 import MessageInput from "@/components/shared/MessageInput";
+import ClaimTimeline from "@/components/client/claims/ClaimTimeline";
 import { sendClientMessage } from "@/app/actions/client/messages";
-import { confirmReturnShipped } from "@/app/actions/client/claims";
 import { useToast } from "@/components/ui/Toast";
+import { useChatStream } from "@/hooks/useChatStream";
+import type { ChatEvent } from "@/hooks/useChatStream";
 import type { ThreadMessage } from "@/components/shared/ConversationThread";
+import type { ChatAttachment } from "@/components/shared/MessageInput";
 
 interface ClaimData {
   id: string;
   status: string;
-  returnInfo: { id: string; method: string; status: string; trackingNumber: string | null } | null;
   conversation: {
     id: string;
     subject: string | null;
@@ -22,58 +24,74 @@ interface ClaimData {
 }
 
 export default function ClaimDetailClient({ claim }: { claim: ClaimData }) {
-  const [isPending, startTransition] = useTransition();
-  const { addToast } = useToast();
+  const [messages, setMessages] = useState<ThreadMessage[]>(claim.conversation?.messages || []);
+  const [status, setStatus] = useState(claim.status);
+  const toast = useToast();
   const router = useRouter();
 
-  async function handleSendMessage(content: string) {
-    if (!claim.conversation) return;
-    const result = await sendClientMessage(claim.conversation.id, content);
-    if (!result.success) addToast(result.error || "Erreur", "error");
-    else router.refresh();
-  }
-
-  function handleConfirmShipped() {
-    startTransition(async () => {
-      const result = await confirmReturnShipped(claim.id);
-      if (result.success) {
-        addToast("Retour confirme", "success");
-        router.refresh();
-      } else {
-        addToast(result.error || "Erreur", "error");
+  // Real-time: receive new admin messages + status changes via SSE
+  const handleChatEvent = useCallback(
+    (event: ChatEvent) => {
+      if (event.type === "NEW_MESSAGE" && claim.conversation && event.conversationId === claim.conversation.id && event.messageData) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === event.messageData!.id)) return prev;
+          return [
+            ...prev,
+            {
+              id: event.messageData!.id,
+              content: event.messageData!.content,
+              senderRole: event.messageData!.senderRole as "ADMIN" | "CLIENT",
+              sender: {
+                firstName: event.messageData!.senderName.split(" ")[0] || "",
+                lastName: event.messageData!.senderName.split(" ").slice(1).join(" ") || "",
+                role: event.messageData!.senderRole as "ADMIN" | "CLIENT",
+              },
+              createdAt: event.messageData!.createdAt,
+            },
+          ];
+        });
       }
-    });
+
+      if (event.type === "CLAIM_STATUS_CHANGED" && event.claimData?.claimId === claim.id) {
+        setStatus(event.claimData.newStatus);
+      }
+    },
+    [claim.conversation, claim.id]
+  );
+  useChatStream(handleChatEvent);
+
+  async function handleSendMessage(content: string, attachments?: ChatAttachment[]) {
+    if (!claim.conversation) return;
+    const result = await sendClientMessage(claim.conversation.id, content, attachments);
+    if (result.success && result.message) {
+      setMessages((prev) => [...prev, result.message as unknown as ThreadMessage]);
+      router.refresh();
+    } else {
+      toast.error(result.error || "Erreur");
+    }
   }
 
   return (
     <>
-      {/* Return info */}
-      {claim.returnInfo && claim.status === "RETURN_PENDING" && (
-        <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-3">
-          <h3 className="font-heading font-bold text-text-primary">Retour</h3>
-          <p className="text-sm text-text-muted font-body">
-            Methode : {claim.returnInfo.method === "EASY_EXPRESS" ? "Easy Express" : "Envoi personnel"}
-          </p>
-          <button
-            onClick={handleConfirmShipped}
-            disabled={isPending}
-            className="px-4 py-2 text-sm font-body bg-[#1A1A1A] text-white rounded-lg hover:bg-[#333] disabled:opacity-40 transition-colors"
-          >
-            {isPending ? "..." : "Confirmer l'envoi du retour"}
-          </button>
-        </div>
-      )}
+      {/* Real-time timeline */}
+      <ClaimTimeline status={status} />
 
       {/* Conversation */}
       {claim.conversation && (
-        <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden" style={{ maxHeight: "500px" }}>
-          <div className="flex flex-col h-full">
+        <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden flex flex-col" style={{ height: "500px" }}>
+          <div className="flex flex-col h-full flex-1 min-h-0">
             <ConversationThread
-              messages={claim.conversation.messages}
+              messages={messages}
               currentUserRole="CLIENT"
-              subject="Echanges"
+              subject="Échanges"
             />
-            <MessageInput onSend={handleSendMessage} />
+            {status === "CLOSED" ? (
+              <div className="border-t border-border px-4 py-3 text-center">
+                <p className="text-sm text-text-muted font-body">Cette réclamation est clôturée.</p>
+              </div>
+            ) : (
+              <MessageInput onSend={handleSendMessage} />
+            )}
           </div>
         </div>
       )}

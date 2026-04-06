@@ -31,7 +31,9 @@ import {
 } from "@/lib/pfs-api-write";
 import { randomUUID } from "crypto";
 import sharp from "sharp";
+import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
+import { emitProductEvent } from "@/lib/product-events";
 
 // ─────────────────────────────────────────────
 // Types
@@ -52,10 +54,17 @@ type ProgressCallback = (progress: PfsRefreshProgress) => void;
 // Unique reference generation
 // ─────────────────────────────────────────────
 
-function generateUniqueRef(prefix: string): string {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rand = randomUUID().slice(0, 4).toUpperCase();
-  return `${prefix}-${ts}-${rand}`;
+function generateRandomRef(): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let ref = "";
+  for (let i = 0; i < 10; i++) {
+    ref += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return ref;
+}
+
+function generateUniqueRef(_prefix: string): string {
+  return generateRandomRef();
 }
 
 function generateTempRef(): string {
@@ -546,6 +555,13 @@ export async function pfsRefreshProduct(
     if (allVariantsOutOfStock) {
       logger.info(`[PFS Refresh] All variants out of stock — product set OFFLINE locally`);
     }
+
+    // ── Step 7: Invalidate caches & notify clients ──
+    revalidateTag("products", "default");
+    emitProductEvent({
+      type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
+      productId,
+    });
 
     logger.info(`[PFS Refresh] Successfully refreshed product ${product.reference}`);
     progress.status = "success";

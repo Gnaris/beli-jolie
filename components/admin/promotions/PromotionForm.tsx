@@ -32,7 +32,7 @@ const DEFAULT_DATA: PromotionData = {
 export default function PromotionForm({ initial }: { initial?: Partial<PromotionData> & { id?: string } }) {
   const [data, setData] = useState<PromotionData>({ ...DEFAULT_DATA, ...initial });
   const [isPending, startTransition] = useTransition();
-  const { addToast } = useToast();
+  const toast = useToast();
   const router = useRouter();
 
   function update<K extends keyof PromotionData>(key: K, value: PromotionData[K]) {
@@ -70,10 +70,10 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
         : await createPromotion(input);
 
       if (result.success) {
-        addToast(data.id ? "Promotion mise a jour" : "Promotion creee", "success");
+        toast.success(data.id ? "Promotion mise a jour" : "Promotion creee");
         router.push("/admin/promotions");
       } else {
-        addToast(result.error || "Erreur", "error");
+        toast.error(result.error || "Erreur");
       }
     });
   }

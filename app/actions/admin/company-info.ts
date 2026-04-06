@@ -23,6 +23,7 @@ export interface CompanyInfoData {
   postalCode?: string;
   country?: string;
   phone?: string;
+  whatsapp?: string;
   email?: string;
   website?: string;
   director?: string;
@@ -64,6 +65,7 @@ export async function updateCompanyInfo(
           postalCode: data.postalCode?.trim() || null,
           country: data.country?.trim() || "France",
           phone: data.phone?.trim() || null,
+          whatsapp: data.whatsapp?.trim() || null,
           email: data.email?.trim() || null,
           website: data.website?.trim() || null,
           director: data.director?.trim() || null,
@@ -88,6 +90,7 @@ export async function updateCompanyInfo(
           postalCode: data.postalCode?.trim() || null,
           country: data.country?.trim() || "France",
           phone: data.phone?.trim() || null,
+          whatsapp: data.whatsapp?.trim() || null,
           email: data.email?.trim() || null,
           website: data.website?.trim() || null,
           director: data.director?.trim() || null,

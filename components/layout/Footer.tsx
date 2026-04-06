@@ -12,19 +12,20 @@ export default function Footer({ shopName }: FooterProps) {
   const currentYear = new Date().getFullYear();
 
   const catalogueItems = [
-    { label: t("necklaces"), href: "/produits" },
-    { label: t("bracelets"), href: "/produits" },
-    { label: t("rings"),     href: "/produits" },
-    { label: t("earrings"),  href: "/produits" },
+    { label: t("products"),    href: "/produits" },
+    { label: t("collections"), href: "/collections" },
+    { label: t("categories"),  href: "/categories" },
   ];
 
   const proItems = [
-    { label: t("login"),    href: "/connexion" },
-    { label: t("register"), href: "/inscription" },
     { label: t("orders"),   href: "/commandes" },
+    { label: t("favorites"), href: "/favoris" },
+    { label: t("cart"),      href: "/panier" },
+    { label: t("account"),   href: "/espace-pro" },
   ];
 
   const infoItems = [
+    { label: t("contact"), href: "/nous-contacter" },
     { label: t("legal"),   href: "/mentions-legales" },
     { label: t("cgv"),     href: "/cgv" },
     { label: t("privacy"), href: "/confidentialite" },

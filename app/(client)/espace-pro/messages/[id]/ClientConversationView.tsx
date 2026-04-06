@@ -7,6 +7,7 @@ import MessageInput from "@/components/shared/MessageInput";
 import { sendClientMessage } from "@/app/actions/client/messages";
 import { useToast } from "@/components/ui/Toast";
 import type { ThreadMessage } from "@/components/shared/ConversationThread";
+import type { ChatAttachment } from "@/components/shared/MessageInput";
 
 interface ConversationData {
   id: string;
@@ -17,16 +18,16 @@ interface ConversationData {
 
 export default function ClientConversationView({ conversation }: { conversation: ConversationData }) {
   const [messages, setMessages] = useState<ThreadMessage[]>(conversation.messages);
-  const { addToast } = useToast();
+  const toast = useToast();
   const router = useRouter();
 
-  async function handleSend(content: string) {
-    const result = await sendClientMessage(conversation.id, content);
+  async function handleSend(content: string, attachments?: ChatAttachment[]) {
+    const result = await sendClientMessage(conversation.id, content, attachments);
     if (result.success && result.message) {
       setMessages((prev) => [...prev, result.message as unknown as ThreadMessage]);
       router.refresh();
     } else {
-      addToast(result.error || "Erreur", "error");
+      toast.error(result.error || "Erreur");
     }
   }
 

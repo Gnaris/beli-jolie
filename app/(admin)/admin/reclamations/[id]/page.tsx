@@ -1,7 +1,9 @@
 import { getServerSession } from "next-auth";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { authOptions } from "@/lib/auth";
+import { resolveImageUrl } from "@/lib/image-utils";
 import { getAdminClaim } from "@/app/actions/admin/claims";
 import ClaimTimeline from "@/components/client/claims/ClaimTimeline";
 import AdminClaimView from "./AdminClaimView";
@@ -14,8 +16,24 @@ export default async function AdminClaimDetailPage({ params }: { params: Promise
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
   const { id } = await params;
-  const claim = await getAdminClaim(id);
-  if (!claim) notFound();
+  const rawClaim = await getAdminClaim(id);
+  if (!rawClaim) notFound();
+
+  // Serialize Prisma Decimal fields to plain numbers for client components
+  const claim = {
+    ...rawClaim,
+    refundAmount: rawClaim.refundAmount ? Number(rawClaim.refundAmount) : null,
+    creditAmount: rawClaim.creditAmount ? Number(rawClaim.creditAmount) : null,
+    order: rawClaim.order
+      ? { ...rawClaim.order, totalTTC: Number(rawClaim.order.totalTTC) }
+      : null,
+    items: rawClaim.items.map((item) => ({
+      ...item,
+      orderItem: item.orderItem
+        ? { ...item.orderItem, unitPrice: Number(item.orderItem.unitPrice) }
+        : null,
+    })),
+  };
 
   return (
     <div className="space-y-4">
@@ -33,7 +51,7 @@ export default async function AdminClaimDetailPage({ params }: { params: Promise
                 {new Date(claim.createdAt).toLocaleDateString("fr-FR")}
               </span>
             </div>
-            <ClaimTimeline status={claim.status} hasReturn={!!claim.returnInfo} />
+            <ClaimTimeline status={claim.status} />
             <p className="text-sm text-text-primary font-body">{claim.description}</p>
 
             {claim.items.length > 0 && (
@@ -56,11 +74,16 @@ export default async function AdminClaimDetailPage({ params }: { params: Promise
             {claim.images.length > 0 && (
               <div className="border-t border-border pt-4">
                 <p className="text-xs uppercase tracking-wider text-text-muted font-semibold font-body mb-2">Photos</p>
-                <div className="flex gap-2 flex-wrap">
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
                   {claim.images.map((img) => (
-                    <a key={img.id} href={img.imagePath} target="_blank" rel="noopener noreferrer"
-                       className="w-20 h-20 bg-bg-secondary rounded-lg flex items-center justify-center text-xs text-text-muted hover:opacity-75">
-                      Photo
+                    <a key={img.id} href={resolveImageUrl(img.imagePath)} target="_blank" rel="noopener noreferrer"
+                       className="relative aspect-square rounded-xl overflow-hidden border border-border bg-bg-secondary hover:border-[#1A1A1A]/30 hover:shadow-md transition-all group">
+                      <Image
+                        src={resolveImageUrl(img.imagePath)}
+                        alt="Pièce jointe"
+                        fill
+                        className="object-cover group-hover:scale-105 transition-transform"
+                      />
                     </a>
                   ))}
                 </div>
@@ -70,7 +93,7 @@ export default async function AdminClaimDetailPage({ params }: { params: Promise
 
           {/* Conversation */}
           {claim.conversation && (
-            <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden" style={{ maxHeight: "500px" }}>
+            <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden flex flex-col" style={{ height: "500px" }}>
               <AdminClaimView claim={claim} />
             </div>
           )}
@@ -95,7 +118,7 @@ export default async function AdminClaimDetailPage({ params }: { params: Promise
               <div className="text-sm font-body space-y-1">
                 <p className="text-text-primary">{claim.order.orderNumber}</p>
                 <p className="text-text-muted">
-                  {new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(Number(claim.order.totalTTC))}
+                  {new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(claim.order.totalTTC)}
                 </p>
                 <Link href={`/admin/commandes/${claim.order.id}`} className="text-text-muted underline hover:text-text-primary">
                   Voir la commande
@@ -105,7 +128,7 @@ export default async function AdminClaimDetailPage({ params }: { params: Promise
           )}
 
           {/* Actions */}
-          <AdminClaimActions claimId={claim.id} status={claim.status} userId={claim.user.id} adminNote={claim.adminNote} />
+          <AdminClaimActions claimId={claim.id} status={claim.status} adminNote={claim.adminNote} />
         </div>
       </div>
     </div>

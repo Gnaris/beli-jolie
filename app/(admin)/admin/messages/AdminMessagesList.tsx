@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { getAdminConversations } from "@/app/actions/admin/messages";
+import { useChatStream } from "@/hooks/useChatStream";
 
 type Conversation = Awaited<ReturnType<typeof getAdminConversations>>[number];
 
@@ -18,6 +19,20 @@ export default function AdminMessagesList({ initialConversations }: { initialCon
   const [filter, setFilter] = useState<"all" | "unread" | "open" | "closed">("all");
   const [search, setSearch] = useState("");
   const [isPending, startTransition] = useTransition();
+
+  // Real-time: refresh list when a new message arrives
+  const handleChatEvent = useCallback(
+    (event: { type: string }) => {
+      if (event.type === "NEW_MESSAGE") {
+        startTransition(async () => {
+          const data = await getAdminConversations(filter);
+          setConversations(data);
+        });
+      }
+    },
+    [filter]
+  );
+  useChatStream(handleChatEvent);
 
   function handleFilter(f: typeof filter) {
     setFilter(f);

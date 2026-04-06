@@ -3,35 +3,22 @@
 const MAIN_STEPS = [
   { status: "OPEN", label: "Ouverte" },
   { status: "IN_REVIEW", label: "En examen" },
-  { status: "ACCEPTED", label: "Acceptee" },
-  { status: "RESOLVED", label: "Resolue" },
-  { status: "CLOSED", label: "Fermee" },
-];
-
-const RETURN_STEPS = [
-  { status: "RETURN_PENDING", label: "Retour demande" },
-  { status: "RETURN_SHIPPED", label: "Retour expedie" },
-  { status: "RETURN_RECEIVED", label: "Retour recu" },
+  { status: "ACCEPTED", label: "Acceptée" },
+  { status: "RESOLVED", label: "Résolue" },
+  { status: "CLOSED", label: "Fermée" },
 ];
 
 const REJECTED_PATH = [
   { status: "OPEN", label: "Ouverte" },
   { status: "IN_REVIEW", label: "En examen" },
-  { status: "REJECTED", label: "Refusee" },
-  { status: "CLOSED", label: "Fermee" },
+  { status: "REJECTED", label: "Refusée" },
+  { status: "CLOSED", label: "Fermée" },
 ];
 
-function getSteps(currentStatus: string, hasReturn: boolean) {
+function getSteps(currentStatus: string) {
   if (["REJECTED"].includes(currentStatus) || currentStatus === "CLOSED") {
-    // Check if it was rejected
     return REJECTED_PATH;
   }
-
-  if (hasReturn || ["RETURN_PENDING", "RETURN_SHIPPED", "RETURN_RECEIVED"].includes(currentStatus)) {
-    const base = MAIN_STEPS.slice(0, 3); // OPEN, IN_REVIEW, ACCEPTED
-    return [...base, ...RETURN_STEPS, ...MAIN_STEPS.slice(3)]; // + RETURN steps + RESOLVED, CLOSED
-  }
-
   return MAIN_STEPS;
 }
 
@@ -44,8 +31,8 @@ function getStepState(stepStatus: string, currentStatus: string, steps: { status
   return "pending";
 }
 
-export default function ClaimTimeline({ status, hasReturn = false }: { status: string; hasReturn?: boolean }) {
-  const steps = getSteps(status, hasReturn);
+export default function ClaimTimeline({ status }: { status: string }) {
+  const steps = getSteps(status);
 
   return (
     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-0 w-full overflow-x-auto py-2">

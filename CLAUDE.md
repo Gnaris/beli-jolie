@@ -57,7 +57,7 @@ next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (R
 
 ### Styling
 
-**Tailwind CSS v4** — no `tailwind.config.js`. Theme tokens in `app/globals.css` inside `@theme inline {}`. Dark mode via `.admin-dark` class on root. Dark mode overrides for hardcoded colors (bg-white, text-[#1A1A1A], etc.) are centralized as `.admin-dark .class` rules at the bottom of `globals.css` — add new overrides there when introducing new hardcoded color values.
+**Tailwind CSS v4** — no `tailwind.config.js`. Theme tokens in `app/globals.css` inside `@theme {}`. No dark mode. Clean flat design with subtle shadows (`--shadow-card`, `--shadow-card-md`, `--shadow-card-lg`, `--shadow-sm`). No claymorphism — use standard Tailwind shadow utilities (`shadow-sm`, `shadow-md`, `shadow-lg`).
 
 ### Key Prisma enums
 
@@ -124,8 +124,9 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthro
 - **Dropdowns** : toujours `CustomSelect`, jamais `<select>` natif
 - **UI context** : `useConfirm()` de ConfirmDialog, `useToast()` de Toast — pas de default import
 - **Fonts** : `var(--font-poppins)` headings, `var(--font-roboto)` body
-- **Admin dark mode** : prefer `bg-bg-primary`, `text-text-primary`, `border-border`. Hardcoded colors (`bg-white`, `text-[#1A1A1A]`, `border-[#E5E5E5]`, etc.) are auto-overridden via `.admin-dark` CSS rules in `globals.css`. For Recharts/inline styles, use CSS variables (`var(--color-bg-primary)`, `var(--color-text-primary)`, etc.)
-- **Admin forms** : blocs `bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]`
+- **No dark mode** : admin is light-only. Use CSS variable classes (`bg-bg-primary`, `text-text-primary`, `border-border`) for consistency
+- **Admin forms** : blocs `bg-bg-primary border border-border rounded-2xl p-6 shadow-sm`
+- **Shadows** : use Tailwind utilities (`shadow-sm`, `shadow-md`, `shadow-lg`). No custom inline shadows. Cards use `.card` / `.card-hover` classes
 - **Mobile-first** : touch targets min 44px, `prefers-reduced-motion` respecte
 - **Error boundaries** : exist per segment (`(admin)`, `(client)`, `(auth)`) in addition to root `error.tsx`
 

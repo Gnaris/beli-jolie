@@ -9,23 +9,23 @@ type Claim = Awaited<ReturnType<typeof getAdminClaims>>[number];
 const STATUS_BADGES: Record<string, { className: string; label: string }> = {
   OPEN: { className: "badge badge-info", label: "Ouverte" },
   IN_REVIEW: { className: "badge badge-warning", label: "En examen" },
-  ACCEPTED: { className: "badge badge-success", label: "Acceptee" },
-  REJECTED: { className: "badge badge-error", label: "Refusee" },
+  ACCEPTED: { className: "badge badge-success", label: "Acceptée" },
+  REJECTED: { className: "badge badge-error", label: "Refusée" },
   RETURN_PENDING: { className: "badge badge-warning", label: "Retour" },
-  RETURN_SHIPPED: { className: "badge badge-info", label: "Expedie" },
-  RETURN_RECEIVED: { className: "badge badge-success", label: "Recu" },
-  RESOLUTION_PENDING: { className: "badge badge-warning", label: "Resolution" },
-  RESOLVED: { className: "badge badge-success", label: "Resolue" },
-  CLOSED: { className: "badge badge-neutral", label: "Fermee" },
+  RETURN_SHIPPED: { className: "badge badge-info", label: "Expédié" },
+  RETURN_RECEIVED: { className: "badge badge-success", label: "Reçu" },
+  RESOLUTION_PENDING: { className: "badge badge-warning", label: "Résolution" },
+  RESOLVED: { className: "badge badge-success", label: "Résolue" },
+  CLOSED: { className: "badge badge-neutral", label: "Fermée" },
 };
 
 const FILTERS = [
   { key: "all", label: "Toutes" },
   { key: "OPEN", label: "Ouvertes" },
   { key: "IN_REVIEW", label: "En examen" },
-  { key: "ACCEPTED", label: "Acceptees" },
-  { key: "RESOLVED", label: "Resolues" },
-  { key: "CLOSED", label: "Fermees" },
+  { key: "ACCEPTED", label: "Acceptées" },
+  { key: "RESOLVED", label: "Résolues" },
+  { key: "CLOSED", label: "Fermées" },
 ];
 
 export default function AdminClaimsList({ initialClaims }: { initialClaims: Claim[] }) {

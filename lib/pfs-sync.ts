@@ -523,7 +523,7 @@ export async function findOrCreateComposition(
     return existing.id;
   }
 
-  return null; // Composition non liée — l'admin doit la lier via /admin/pfs/mapping
+  return null; // Composition non liée — l'admin doit la lier via la page Correspondances
 }
 
 // ─────────────────────────────────────────────

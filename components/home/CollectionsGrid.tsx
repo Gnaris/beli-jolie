@@ -42,7 +42,7 @@ export default function CollectionsGrid({ collections }: Props) {
             <Link
               key={col.id}
               href={`/collections/${col.id}`}
-              className="group relative aspect-[4/3] rounded-[20px] overflow-hidden bg-bg-tertiary shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)] hover:shadow-[10px_10px_24px_rgba(26,86,219,0.12),-8px_-8px_20px_rgba(255,255,255,0.9)] hover:-translate-y-1 transition-all duration-300 animate-zoom-fade"
+              className="group relative aspect-[4/3] rounded-[20px] overflow-hidden bg-bg-tertiary shadow-sm hover:shadow-md transition-all duration-300 animate-zoom-fade"
               style={{ animationDelay: `${index * 0.1}s` }}
             >
               {col.image ? (

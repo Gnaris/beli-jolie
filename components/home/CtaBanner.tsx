@@ -35,7 +35,7 @@ export default function CtaBanner() {
         <div className="flex flex-wrap justify-center gap-3">
           <Link
             href="/produits"
-            className="inline-flex items-center gap-2 bg-accent text-bg-dark font-heading font-semibold text-sm px-7 py-3 rounded-lg hover:bg-accent-dark transition-colors duration-200"
+            className="inline-flex items-center gap-2 bg-white text-[#0F172A] font-heading font-semibold text-sm px-7 py-3 rounded-lg hover:bg-white/90 transition-colors duration-200 shadow-lg shadow-white/10"
           >
             {t("heroCta")} &rarr;
           </Link>

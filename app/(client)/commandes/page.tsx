@@ -6,7 +6,6 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
-import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -77,7 +76,6 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
 
   return (
     <div className="p-4 md:p-6 lg:p-10 w-full relative overflow-hidden">
-      <ScatteredDecorations variant="dense" seed={2} />
       {/* En-tete */}
       <div className="mb-6">
         <h1 className="font-heading text-xl font-semibold text-text-primary">

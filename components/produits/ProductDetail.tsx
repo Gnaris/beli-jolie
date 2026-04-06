@@ -339,7 +339,7 @@ export default function ProductDetail({
         {/* -- Images -------------------------------------------------- */}
         <div className="space-y-4 animate-zoom-fade">
           <div
-            className="aspect-square bg-bg-secondary overflow-hidden relative cursor-zoom-in rounded-2xl shadow-[inset_3px_3px_8px_rgba(0,0,0,0.06),inset_-2px_-2px_6px_rgba(255,255,255,0.8)]"
+            className="aspect-square bg-bg-secondary overflow-hidden relative cursor-zoom-in rounded-2xl border border-border-light"
             onClick={() => displayedImage && setZoomedSrc(displayedImage)}
           >
             {displayedImage ? (
@@ -384,7 +384,7 @@ export default function ProductDetail({
                     onMouseEnter={() => setHoveredImageIdx(i)}
                     onMouseLeave={() => setHoveredImageIdx(null)}
                     onClick={() => handleImageClick(i)}
-                    className={`w-[4.5rem] h-[4.5rem] object-contain rounded-xl cursor-pointer transition-all duration-200 border-2 shadow-[inset_2px_2px_4px_rgba(0,0,0,0.04),inset_-1px_-1px_3px_rgba(255,255,255,0.8)] ${
+                    className={`w-[4.5rem] h-[4.5rem] object-contain rounded-xl cursor-pointer transition-all duration-200 border-2 bg-bg-secondary ${
                       activeImageIdx === i
                         ? "border-text-primary shadow-sm scale-105"
                         : "border-border hover:border-border-dark hover:scale-105"
@@ -461,7 +461,7 @@ export default function ProductDetail({
                     onMouseEnter={() => setHoveredGroupKey(c.groupKey)}
                     onMouseLeave={() => setHoveredGroupKey(null)}
                     onClick={() => handleColorClick(c.groupKey)}
-                    className={`relative rounded-full transition-all duration-300 swatch-pulse flex items-center justify-center w-[36px] h-[36px] sm:w-[28px] sm:h-[28px] shadow-[2px_2px_6px_rgba(26,86,219,0.08),-1px_-1px_4px_rgba(255,255,255,0.8)] ${
+                    className={`relative rounded-full transition-all duration-300 swatch-pulse flex items-center justify-center w-[36px] h-[36px] sm:w-[28px] sm:h-[28px] shadow-sm ${
                       selectedGroupKey === c.groupKey
                         ? "ring-2 ring-accent ring-offset-2 scale-110 shadow-md"
                         : "ring-1 ring-border hover:ring-border-dark hover:scale-110"

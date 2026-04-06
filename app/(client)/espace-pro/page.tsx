@@ -8,7 +8,6 @@ import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import AccountEditor from "@/components/client/AccountEditor";
 import LogoutButton from "@/components/client/LogoutButton";
-import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -211,7 +210,6 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-4 md:p-6 lg:p-10 w-full relative overflow-hidden">
-      <ScatteredDecorations variant="sparse" seed={100} />
       <div className="flex gap-6 relative">
         {/* -- Colonne principale (gauche) -- */}
         <div className="flex-1 min-w-0 space-y-6">

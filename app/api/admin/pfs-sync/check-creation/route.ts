@@ -69,12 +69,12 @@ export async function POST(req: NextRequest) {
       if (product) {
         // Category
         if (!product.category?.pfsCategoryId) {
-          mappingIssues.push(`Catégorie "${product.category?.name ?? "?"}" non mappée`);
+          mappingIssues.push(`Catégorie "${product.category?.name ?? "?"}" sans correspondance`);
         }
         // Compositions
         for (const c of product.compositions) {
           if (!c.composition.pfsCompositionRef) {
-            mappingIssues.push(`Composition "${c.composition.name}" non mappée`);
+            mappingIssues.push(`Composition "${c.composition.name}" sans correspondance`);
           }
         }
         // Colors & sizes
@@ -97,20 +97,20 @@ export async function POST(req: NextRequest) {
 
           if (!hasOverride && variant.colorId && variant.color && !seenColorIds.has(variant.colorId)) {
             seenColorIds.add(variant.colorId);
-            if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" non mappée`);
+            if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" sans correspondance`);
           }
           if (!hasOverride) {
             for (const sc of variant.subColors) {
               if (!seenColorIds.has(sc.colorId)) {
                 seenColorIds.add(sc.colorId);
-                if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" non mappée`);
+                if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" sans correspondance`);
               }
             }
             for (const pcl of variant.packColorLines) {
               for (const c of pcl.colors) {
                 if (!seenColorIds.has(c.colorId)) {
                   seenColorIds.add(c.colorId);
-                  if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" non mappée`);
+                  if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" sans correspondance`);
                 }
               }
             }
@@ -119,18 +119,18 @@ export async function POST(req: NextRequest) {
             if (!seenSizeIds.has(vs.sizeId)) {
               seenSizeIds.add(vs.sizeId);
               if (!vs.size.pfsMappings || vs.size.pfsMappings.length === 0) {
-                mappingIssues.push(`Taille "${vs.size.name}" non mappée`);
+                mappingIssues.push(`Taille "${vs.size.name}" sans correspondance`);
               }
             }
           }
         }
         // Country
         if (product.manufacturingCountry && !product.manufacturingCountry.pfsCountryRef) {
-          mappingIssues.push(`Pays "${product.manufacturingCountry.name}" non mappé`);
+          mappingIssues.push(`Pays "${product.manufacturingCountry.name}" sans correspondance`);
         }
         // Season
         if (product.season && !product.season.pfsRef) {
-          mappingIssues.push(`Saison "${product.season.name}" non mappée`);
+          mappingIssues.push(`Saison "${product.season.name}" sans correspondance`);
         }
       }
     }

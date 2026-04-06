@@ -8,7 +8,7 @@ export const metadata = { title: "Avoirs" };
 
 export default async function ClientCreditsPage() {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "CLIENT") redirect("/connexion");
+  if (!session) redirect("/connexion");
 
   const [credits, availableTotal] = await Promise.all([
     prisma.credit.findMany({

@@ -542,7 +542,7 @@ export default function SearchFilters({
 
   // -- Mode sidebar desktop --
   return (
-    <div className="sticky top-6">
+    <div className="sticky top-[116px] h-[calc(100vh-116px)] overflow-y-auto border-r border-border bg-bg-primary px-4 py-5">
       {/* Header sidebar */}
       <div className="flex items-center justify-between mb-5">
         <h2 className="font-heading text-sm font-semibold text-text-primary">
@@ -552,9 +552,7 @@ export default function SearchFilters({
           {totalCount}
         </span>
       </div>
-      <div className="card p-4">
-        {filterContent}
-      </div>
+      {filterContent}
     </div>
   );
 }

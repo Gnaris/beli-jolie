@@ -56,6 +56,25 @@ export async function setMaintenanceMode(
   }
 }
 
+export async function updateBusinessHours(schedule: {
+  timezone: string;
+  days: Record<string, { open: string; close: string; closed?: boolean }>;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await prisma.siteConfig.upsert({
+      where: { key: "business_hours" },
+      update: { value: JSON.stringify(schedule) },
+      create: { key: "business_hours", value: JSON.stringify(schedule) },
+    });
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 export async function updateStockDisplayConfig(config: {
   showOutOfStockVariants: boolean;
   showOutOfStockProducts: boolean;

@@ -1305,6 +1305,7 @@ model CompanyInfo {
   postalCode  String?
   country     String   @default("France")
   phone       String?
+  whatsapp    String?
   email       String?
   website     String?
   director    String? // Directeur de publication

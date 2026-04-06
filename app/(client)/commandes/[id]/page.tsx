@@ -9,7 +9,6 @@ import { getCachedShopName } from "@/lib/cached-data";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 import SuccessToast from "@/components/client/SuccessToast";
 import { STATUS_CONFIG, getTrackingUrl } from "@/app/(client)/commandes/page";
-import ScatteredDecorations from "@/components/ui/ScatteredDecorations";
 import { getTranslations } from "next-intl/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -58,7 +57,6 @@ export default async function CommandeDetailPage({
 
   return (
     <div className="p-4 md:p-6 lg:p-10 w-full space-y-6 relative overflow-hidden">
-      <ScatteredDecorations variant="dense" seed={3} />
       <SuccessToast />
 
       {/* Fil d'Ariane */}

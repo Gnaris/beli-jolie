@@ -95,7 +95,7 @@ function CartRow({
     <div className="flex gap-3 sm:gap-4 py-5 border-b border-border last:border-0">
       {/* Image */}
       <Link href={`/produits/${product.id}`} className="shrink-0">
-        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-bg-secondary shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-1px_-1px_4px_rgba(255,255,255,0.8)]">
+        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-bg-secondary border border-border-light">
           {image ? (
             <Image src={image} alt={tp(product.name)} width={80} height={80} sizes="80px" className="w-full h-full object-cover" />
           ) : (
@@ -365,7 +365,7 @@ export default function CartPageClient({ cart, minOrderHT, stripeReady = true }:
         {/* ── Liste articles ─────────────────────── */}
         <div className="lg:col-span-2 space-y-6">
           {Object.entries(grouped).map(([category, items]) => (
-            <div key={category} className="bg-bg-primary border border-white/60 rounded-[20px] overflow-hidden shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)]">
+            <div key={category} className="bg-bg-primary border border-border rounded-xl overflow-hidden shadow-sm">
               {/* En-tête catégorie */}
               <div className="px-5 py-3 border-b border-border bg-bg-tertiary">
                 <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">

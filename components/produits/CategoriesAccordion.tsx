@@ -54,7 +54,7 @@ export default function CategoriesAccordion({ categories }: Props) {
             >
               {/* Name */}
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-[10px] bg-bg-secondary shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-1px_-1px_3px_rgba(255,255,255,0.8)] flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-[10px] bg-bg-secondary border border-border flex items-center justify-center shrink-0">
                   <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z M6 6h.008v.008H6V6z" />
                   </svg>
@@ -120,7 +120,7 @@ export default function CategoriesAccordion({ categories }: Props) {
                   {/* "All" link */}
                   <Link
                     href={`/produits?cat=${cat.id}`}
-                    className="flex items-center justify-between px-4 py-2.5 rounded-xl hover:bg-bg-primary hover:shadow-[4px_4px_10px_rgba(26,86,219,0.06),-2px_-2px_8px_rgba(255,255,255,0.8)] transition-all duration-200 group/sub"
+                    className="flex items-center justify-between px-4 py-2.5 rounded-xl hover:bg-bg-primary hover:shadow-sm transition-all duration-200 group/sub"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -142,10 +142,10 @@ export default function CategoriesAccordion({ categories }: Props) {
                     <Link
                       key={sub.id}
                       href={`/produits?cat=${cat.id}&subcat=${sub.id}`}
-                      className="flex items-center justify-between px-4 py-2.5 rounded-xl hover:bg-bg-primary hover:shadow-[4px_4px_10px_rgba(26,86,219,0.06),-2px_-2px_8px_rgba(255,255,255,0.8)] transition-all duration-200 group/sub"
+                      className="flex items-center justify-between px-4 py-2.5 rounded-xl hover:bg-bg-primary hover:shadow-sm transition-all duration-200 group/sub"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 rounded-lg bg-bg-tertiary shadow-[inset_1px_1px_3px_rgba(0,0,0,0.04),inset_-1px_-1px_2px_rgba(255,255,255,0.7)] flex items-center justify-center">
+                        <div className="w-7 h-7 rounded-lg bg-bg-tertiary shadow-sm flex items-center justify-center">
                           <span className="text-[10px] font-semibold text-text-muted font-body">
                             {sub.name.charAt(0).toUpperCase()}
                           </span>

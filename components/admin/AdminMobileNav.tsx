@@ -89,7 +89,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
 
       {/* Slide-in drawer */}
       <nav
-        className={`fixed top-0 left-0 h-full w-[calc(100%-3rem)] max-w-[280px] bg-bg-primary/95 backdrop-blur-xl border-r border-border rounded-r-2xl shadow-[8px_8px_20px_rgba(26,86,219,0.1),-6px_-6px_16px_rgba(255,255,255,0.85)] z-50 transform transition-transform duration-200 ease-out lg:hidden ${
+        className={`fixed top-0 left-0 h-full w-[calc(100%-3rem)] max-w-[280px] bg-bg-primary/95 backdrop-blur-xl border-r border-border rounded-r-2xl shadow-lg z-50 transform transition-transform duration-200 ease-out lg:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >

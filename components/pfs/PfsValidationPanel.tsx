@@ -386,11 +386,11 @@ export default function PfsValidationPanel({ jobId, analyzeResult, onValidated }
           <span>{analyzeResult.totalScanned} produits analysés</span>
           <span>{analyzeResult.totalNewProducts} nouveaux produits</span>
           <span>{analyzeResult.totalExistingSkipped} déjà existants</span>
-          <span>{analyzeResult.existingMappings} mappings existants</span>
+          <span>{analyzeResult.existingMappings} correspondances existantes</span>
         </div>
         <div className="flex flex-wrap gap-2 mt-4">
           {total === 0 && (
-            <span className="badge badge-success">Toutes les entités sont mappées</span>
+            <span className="badge badge-success">Toutes les entités ont une correspondance</span>
           )}
           {editCategories.length > 0 && (
             <span className="badge badge-warning">{editCategories.length} catégorie{editCategories.length > 1 ? "s" : ""}</span>

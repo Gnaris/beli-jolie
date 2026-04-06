@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { getCachedSiteConfig, getCachedProductCount, getCachedShopName } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedProductCount, getCachedShopName, getCachedBusinessHours } from "@/lib/cached-data";
+import BusinessHoursDisplay from "@/components/shared/BusinessHoursDisplay";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 import FloatingGems from "@/components/ui/FloatingGems";
 
@@ -10,11 +11,12 @@ export const metadata: Metadata = {
 };
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
-  const [config, cookieStore, productCount, shopName] = await Promise.all([
+  const [config, cookieStore, productCount, shopName, businessHours] = await Promise.all([
     getCachedSiteConfig("maintenance_mode"),
     cookies(),
     getCachedProductCount(),
     getCachedShopName(),
+    getCachedBusinessHours(),
   ]);
   const currentLocale = cookieStore.get("bj_locale")?.value ?? "fr";
   const inMaintenance = config?.value === "true";
@@ -101,6 +103,12 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
             </div>
 
           </div>
+
+          {businessHours && (
+            <div className="relative z-10 bg-white/5 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/10">
+              <BusinessHoursDisplay schedule={businessHours} compact />
+            </div>
+          )}
 
           <div className="relative z-10 flex items-center gap-3">
             <LanguageSwitcher currentLocale={currentLocale} />

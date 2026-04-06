@@ -1187,7 +1187,7 @@ export default function PfsLiveCompareModal({
                                   <div className="flex flex-col gap-1.5">
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <span className="text-[11px] text-amber-600 dark:text-amber-400">
-                                        Couleur « {pfsV?.colorName} » non mappée
+                                        Couleur « {pfsV?.colorName} » sans correspondance
                                       </span>
                                       <button
                                         onClick={(e) => { e.stopPropagation(); openQuickCreate("color", pfsV?.colorName ?? "", { pfsRef: pfsV?.pfsColorRef ?? undefined }); }}

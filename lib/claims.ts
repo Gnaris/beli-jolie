@@ -35,6 +35,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   RESOLUTION_PENDING: ["RESOLVED"],
   RESOLVED: ["CLOSED"],
   REJECTED: ["CLOSED"],
+  CLOSED: ["OPEN"],
 };
 
 export function canTransition(from: string, to: string): boolean {
