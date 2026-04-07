@@ -278,7 +278,7 @@ export default async function HomePage() {
 
       <main className="relative z-10 -mt-16">
           {/* 1. Hero banner */}
-          <HeroBanner bannerImage={bannerImage} shopName={shopName} />
+          <HeroBanner bannerImage={bannerImage} shopName={shopName} productCount={productCount} />
 
           {/* 2. Marquee band (disabled) */}
           {/* <MarqueeBand /> */}
