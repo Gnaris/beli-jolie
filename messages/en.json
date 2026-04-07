@@ -142,6 +142,8 @@
     "viewAll": "See all products",
     "collections": "Our Collections",
     "collectionsDesc": "Discover our themed collections",
+    "collectionsTitle": "Our Collections",
+    "collectionsProducts": "{count} products",
     "deals": "Great Deals",
     "dealsMore": "See all deals",
     "ctaTitle": "Ready to enrich your store?",

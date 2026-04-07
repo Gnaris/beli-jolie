@@ -143,6 +143,8 @@
     "viewAll": "Voir tous les produits",
     "collections": "Nos collections",
     "collectionsDesc": "Découvrez nos collections thématiques",
+    "collectionsTitle": "Nos Collections",
+    "collectionsProducts": "{count} produits",
     "deals": "Bonne affaire",
     "dealsMore": "Voir toutes les promos",
     "ctaTitle": "Prêt à enrichir votre boutique ?",
