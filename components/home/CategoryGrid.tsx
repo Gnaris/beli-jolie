@@ -9,7 +9,7 @@ import { useProductTranslation } from "@/hooks/useProductTranslation";
 interface CategoryItem {
   id: string;
   name: string;
-  image: string | null;
+  image?: string | null;
   _count: { products: number };
 }
 

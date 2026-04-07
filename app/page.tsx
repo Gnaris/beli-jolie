@@ -193,7 +193,7 @@ export default async function HomePage() {
     prisma.product.count({ where: { status: "ONLINE" } }),
     prisma.category.findMany({
       orderBy: { name: "asc" },
-      select:  { id: true, name: true, image: true, _count: { select: { products: true } } },
+      select:  { id: true, name: true, _count: { select: { products: true } } },
     }),
   ]);
 
