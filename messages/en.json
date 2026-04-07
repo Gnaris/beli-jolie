@@ -149,7 +149,17 @@
     "ctaTitle": "Ready to enrich your store?",
     "ctaDesc": "Access our full product catalog. Wholesale prices, express delivery, and dedicated professional service.",
     "featuredTitle": "Featured",
-    "featuredViewAll": "View full catalog"
+    "featuredViewAll": "View full catalog",
+    "trustDelivery": "Fast Delivery",
+    "trustDeliveryDesc": "Shipped within 24h",
+    "trustPayment": "Secure Payment",
+    "trustPaymentDesc": "Card, transfer, check",
+    "trustSupport": "Customer Service",
+    "trustSupportDesc": "Responsive and dedicated",
+    "trustQuality": "Quality Guaranteed",
+    "trustQualityDesc": "Carefully selected products",
+    "categoriesTitle": "Browse by category",
+    "categoriesProducts": "{count} products"
   },
   "brand": {
     "steelTitle": "Guaranteed Quality",

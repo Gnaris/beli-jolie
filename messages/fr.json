@@ -150,7 +150,17 @@
     "ctaTitle": "Prêt à enrichir votre boutique ?",
     "ctaDesc": "Accédez à notre catalogue complet de produits. Tarifs grossiste, livraison express et service dédié aux professionnels.",
     "featuredTitle": "Coup de cœur",
-    "featuredViewAll": "Voir tout le catalogue"
+    "featuredViewAll": "Voir tout le catalogue",
+    "trustDelivery": "Livraison Rapide",
+    "trustDeliveryDesc": "Expédition sous 24h",
+    "trustPayment": "Paiement Sécurisé",
+    "trustPaymentDesc": "CB, virement, chèque",
+    "trustSupport": "Service Client",
+    "trustSupportDesc": "Réactif et dédié",
+    "trustQuality": "Qualité Garantie",
+    "trustQualityDesc": "Produits sélectionnés",
+    "categoriesTitle": "Explorer par catégorie",
+    "categoriesProducts": "{count} produits"
   },
   "brand": {
     "steelTitle": "Qualité garantie",
