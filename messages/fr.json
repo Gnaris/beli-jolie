@@ -146,7 +146,9 @@
     "deals": "Bonne affaire",
     "dealsMore": "Voir toutes les promos",
     "ctaTitle": "Prêt à enrichir votre boutique ?",
-    "ctaDesc": "Accédez à notre catalogue complet de produits. Tarifs grossiste, livraison express et service dédié aux professionnels."
+    "ctaDesc": "Accédez à notre catalogue complet de produits. Tarifs grossiste, livraison express et service dédié aux professionnels.",
+    "featuredTitle": "Coup de cœur",
+    "featuredViewAll": "Voir tout le catalogue"
   },
   "brand": {
     "steelTitle": "Qualité garantie",
