@@ -216,10 +216,6 @@ async function main() {
   const companyInfos = await prisma.companyInfo.deleteMany();
   console.log(`  CompanyInfo                    : ${companyInfos.count}`);
 
-  // ── Emails ──
-  const sentEmails = await prisma.sentEmail.deleteMany();
-  console.log(`  SentEmail                      : ${sentEmails.count}`);
-
   // ── Translation quotas ──
   const translationQuotas = await prisma.translationQuota.deleteMany();
   console.log(`  TranslationQuota               : ${translationQuotas.count}`);

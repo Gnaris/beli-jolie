@@ -64,7 +64,6 @@ model User {
   accessCodes         AccessCode[]
   activity       UserActivity?
   restockAlerts  RestockAlert[]
-  sentEmails     SentEmail[]
   stockMovements    StockMovement[]    @relation("StockMovementCreator")
   conversations     Conversation[]
   messagesSent      Message[]
@@ -1191,28 +1190,6 @@ model PfsSyncJob {
 
   @@index([status])
   @@index([createdAt])
-}
-
-// ─────────────────────────────────────────────
-// Emails envoyés par l'admin
-// ─────────────────────────────────────────────
-
-model SentEmail {
-  id          String   @id @default(cuid())
-  toEmail     String
-  toName      String?
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  subject     String
-  htmlBody    String   @db.LongText
-  attachments Json? // [{filename, path, size}]
-  sentAt      DateTime @default(now())
-  adminId     String // Admin who sent it
-
-  @@index([userId])
-  @@index([toEmail])
-  @@index([sentAt])
-  @@index([adminId])
 }
 
 // ─────────────────────────────────────────────

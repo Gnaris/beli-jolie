@@ -67,7 +67,7 @@ const CONFIG: Record<ConfirmType, {
     btnBg: "#F59E0B", btnHover: "#D97706", btnText: "#FFFFFF",
   },
   info: {
-    iconBgClass: "bg-[#DBEAFE]", iconColor: "#2563EB",
+    iconBgClass: "bg-[#E5E7EB]", iconColor: "#4B5563",
     icon: "M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z",
     btnBg: "#1A1A1A", btnHover: "#000000", btnText: "#FFFFFF",
   },

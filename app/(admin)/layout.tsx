@@ -11,7 +11,6 @@ import AdminClientModeButton from "@/components/admin/AdminClientModeButton";
 
 import LiveCountBadge from "@/components/admin/LiveCountBadge";
 import AdminChatBadge from "@/components/admin/AdminChatBadge";
-import AdminEmailWrapper from "@/components/admin/email/AdminEmailWrapper";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
 import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
@@ -63,7 +62,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
     <PfsWrapper>
-    <AdminEmailWrapper>
     <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
 
       {/* ===== SIDEBAR - fixed left (desktop) ===== */}
@@ -188,7 +186,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       {pfsEnabled && <PfsRefreshWidget />}
     </div>
-    </AdminEmailWrapper>
     </PfsWrapper>
     </DeeplConfigProvider>
   );

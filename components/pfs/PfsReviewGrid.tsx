@@ -1116,7 +1116,7 @@ export default function PfsReviewGrid({ jobId, onBack, onProductCountChange }: P
               {counts.ready > selectedIds.size && (
                 <button
                   onClick={handleSelectAllReady}
-                  className="text-sm text-[#3B82F6] underline underline-offset-2 hover:text-[#2563EB]"
+                  className="text-sm text-[#4B5563] underline underline-offset-2 hover:text-[#374151]"
                 >
                   Tout sélectionner ({counts.ready})
                 </button>

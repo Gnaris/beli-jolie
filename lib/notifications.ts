@@ -83,11 +83,11 @@ export async function notifyNewClientRegistration(
     : "";
 
   const kbisNote = client.kbisPath
-    ? `<p style="margin-top:16px;color:#475569;font-size:13px;">Le document Kbis est joint à cet email.</p>`
+    ? `<p style="margin-top:16px;color:#4B5563;font-size:13px;">Le document Kbis est joint à cet email.</p>`
     : `<p style="margin-top:16px;color:#F59E0B;font-size:13px;">Aucun Kbis fourni lors de l'inscription.</p>`;
 
   const docNote = client.documentPath
-    ? `<p style="margin-top:8px;color:#475569;font-size:13px;">Un document complémentaire est également joint.</p>`
+    ? `<p style="margin-top:8px;color:#4B5563;font-size:13px;">Un document complémentaire est également joint.</p>`
     : "";
 
   await transporter.sendMail({
@@ -95,13 +95,13 @@ export async function notifyNewClientRegistration(
     to: notifyEmail,
     subject: `Nouvelle inscription client — ${client.company}`,
     html: `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#0F172A;">
-        <h2 style="color:#0F3460;border-bottom:2px solid #E2E8F0;padding-bottom:10px;">
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+        <h2 style="color:#1A1A1A;border-bottom:2px solid #E5E7EB;padding-bottom:10px;">
           Nouvelle demande d'inscription
         </h2>
         <p>Un nouveau client vient de s'inscrire sur la plateforme B2B ${escapeHtml(shopName)}.</p>
         <table style="width:100%;border-collapse:collapse;margin-top:16px;">
-          <tr style="background:#F1F5F9;">
+          <tr style="background:#F3F4F6;">
             <td style="padding:10px 14px;font-weight:bold;width:40%;">Prénom / Nom</td>
             <td style="padding:10px 14px;">${escapeHtml(client.firstName)} ${escapeHtml(client.lastName)}</td>
           </tr>
@@ -109,7 +109,7 @@ export async function notifyNewClientRegistration(
             <td style="padding:10px 14px;font-weight:bold;">Société</td>
             <td style="padding:10px 14px;">${escapeHtml(client.company)}</td>
           </tr>
-          <tr style="background:#F1F5F9;">
+          <tr style="background:#F3F4F6;">
             <td style="padding:10px 14px;font-weight:bold;">Email</td>
             <td style="padding:10px 14px;">${escapeHtml(client.email)}</td>
           </tr>
@@ -117,7 +117,7 @@ export async function notifyNewClientRegistration(
             <td style="padding:10px 14px;font-weight:bold;">Téléphone</td>
             <td style="padding:10px 14px;">${escapeHtml(client.phone)}</td>
           </tr>
-          <tr style="background:#F1F5F9;">
+          <tr style="background:#F3F4F6;">
             <td style="padding:10px 14px;font-weight:bold;">SIRET</td>
             <td style="padding:10px 14px;">${escapeHtml(client.siret)}</td>
           </tr>
@@ -127,11 +127,11 @@ export async function notifyNewClientRegistration(
         ${docNote}
         <div style="margin-top:20px;">
           <a href="${process.env.NEXTAUTH_URL}/admin/utilisateurs"
-             style="background:#0F3460;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">
+             style="background:#1A1A1A;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">
             Examiner le dossier →
           </a>
         </div>
-        <p style="margin-top:24px;color:#94A3B8;font-size:12px;">
+        <p style="margin-top:24px;color:#9CA3AF;font-size:12px;">
           ${escapeHtml(shopName)} — Administration
         </p>
       </div>
@@ -199,7 +199,7 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
                style="background:#1A1A1A;color:#fff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
               Voir le produit →
             </a>
-            <p style="margin-top:24px;color:#94A3B8;font-size:12px;">
+            <p style="margin-top:24px;color:#9CA3AF;font-size:12px;">
               ${escapeHtml(shopName)} — Vous recevez cet email car vous avez activé une alerte de réassort.
             </p>
           </div>
@@ -239,7 +239,7 @@ const STATUS_CONFIG: Record<string, {
     heading: "Votre commande est en cours de préparation",
     message: (num) =>
       `Bonne nouvelle ! Votre commande <strong>${escapeHtml(num)}</strong> est en cours de préparation par notre équipe. Nous vous tiendrons informé(e) dès son expédition.`,
-    color: "#2563EB",
+    color: "#4B5563",
     icon: "📦",
   },
   SHIPPED: {
@@ -247,7 +247,7 @@ const STATUS_CONFIG: Record<string, {
     heading: "Votre commande a été expédiée",
     message: (num) =>
       `Votre commande <strong>${escapeHtml(num)}</strong> a été expédiée ! Elle est en route vers votre adresse de livraison.`,
-    color: "#7C3AED",
+    color: "#374151",
     icon: "🚚",
   },
   DELIVERED: {
@@ -314,8 +314,8 @@ export async function notifyOrderStatusChange(
     // Tracking info (for SHIPPED status)
     const trackingHtml =
       data.newStatus === "SHIPPED" && order.eeTrackingId
-        ? `<div style="background:#F0F4FF;border:1px solid #BFDBFE;border-radius:8px;padding:14px 18px;margin:16px 0;">
-            <strong style="color:#1E40AF;">Suivi de votre colis</strong><br/>
+        ? `<div style="background:#F3F4F6;border:1px solid #D1D5DB;border-radius:8px;padding:14px 18px;margin:16px 0;">
+            <strong style="color:#1F2937;">Suivi de votre colis</strong><br/>
             <span style="color:#1A1A1A;">Transporteur : ${escapeHtml(order.carrierName || '')}</span><br/>
             <span style="color:#1A1A1A;">N° de suivi : <strong>${escapeHtml(order.eeTrackingId || '')}</strong></span>
           </div>`
@@ -584,6 +584,67 @@ export async function notifyAdminNewClaim(params: {
 /**
  * Notify client of claim status update.
  */
+/**
+ * Notify admin of pending orders (hourly digest).
+ * Sends a simple email with the count of PENDING orders + link to admin.
+ * Does nothing if count === 0 or Gmail is not configured.
+ */
+export async function notifyPendingOrders(count: number): Promise<void> {
+  if (count <= 0) return;
+
+  const [shopName, companyInfo, gmailCfg] = await Promise.all([
+    getCachedShopName(), getCachedCompanyInfo(), getCachedGmailConfig(),
+  ]);
+
+  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
+  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
+  if (!GMAIL_USER || !GMAIL_PASSWORD) {
+    logger.warn("[order-digest] Configuration Gmail manquante — email ignoré.");
+    return;
+  }
+
+  const notifyEmail = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
+  if (!notifyEmail) {
+    logger.warn("[order-digest] Aucun email destinataire configuré — email ignoré.");
+    return;
+  }
+
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const plural = count > 1 ? "s" : "";
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
+  });
+
+  await transporter.sendMail({
+    from: `"${shopName}" <${GMAIL_USER}>`,
+    to: notifyEmail,
+    subject: `${shopName} — ${count} commande${plural} en attente`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;color:#1A1A1A;">
+        <div style="background:#1A1A1A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+          <h2 style="margin:0;font-size:20px;">Notification Commande${plural}</h2>
+        </div>
+        <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;text-align:center;">
+          <p style="font-size:16px;line-height:1.6;">
+            Vous avez <strong>${count}</strong> commande${plural} en attente.
+          </p>
+          <a href="${baseUrl}/admin/commandes"
+             style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;margin-top:12px;">
+            Voir les commandes →
+          </a>
+        </div>
+        <p style="color:#9CA3AF;font-size:11px;padding:12px;text-align:center;">
+          ${escapeHtml(shopName)} — Administration
+        </p>
+      </div>
+    `,
+  });
+
+  logger.info(`[order-digest] Email envoyé : ${count} commande${plural} en attente`);
+}
+
 export async function notifyClientClaimUpdate(params: {
   clientEmail: string;
   clientName: string;

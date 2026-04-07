@@ -2179,7 +2179,7 @@ function QuickAddModal({
                   <button type="button"
                     onClick={() => { setSaleType("UNIT"); if (sizeEntries.length > 1) setSizeEntries(sizeEntries.slice(0, 1)); }}
                     className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors font-body ${
-                      saleType === "UNIT" ? "bg-[#3B82F6] text-white" : "border border-[#D5D5D5] text-text-secondary hover:border-bg-dark"
+                      saleType === "UNIT" ? "bg-[#4B5563] text-white" : "border border-[#D5D5D5] text-text-secondary hover:border-bg-dark"
                     }`}>Unité</button>
                   <button type="button"
                     onClick={() => setSaleType("PACK")}

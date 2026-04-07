@@ -234,7 +234,7 @@ export default function PfsHistoryClient() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       {job.pendingReview > 0 ? (
-                        <span className="inline-flex items-center gap-1 text-sm font-medium text-[#3B82F6]">
+                        <span className="inline-flex items-center gap-1 text-sm font-medium text-[#4B5563]">
                           {job.pendingReview}
                         </span>
                       ) : (
@@ -313,7 +313,7 @@ export default function PfsHistoryClient() {
 
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <StatCell label="Total" value={job.totalProducts} />
-                  <StatCell label="En attente" value={job.pendingReview} color="#3B82F6" />
+                  <StatCell label="En attente" value={job.pendingReview} color="#4B5563" />
                   <StatCell label="Approuvés" value={job.approvedProducts} color="#22C55E" />
                   <StatCell label="Refusés" value={job.rejectedProducts} color="#EF4444" />
                   <StatCell label="Identiques" value={job.existingNoDiff} />

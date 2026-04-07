@@ -61,8 +61,8 @@ const CONFIG: Record<ToastType, {
     icon: "M12 9v2m0 4h.01M12 3l9.66 16.5H2.34L12 3z",
   },
   info: {
-    dotColor: "#3B82F6", borderColor: "#BFDBFE", bgBar: "#EFF6FF", barColor: "#3B82F6",
-    iconBg: "#DBEAFE", iconColor: "#2563EB",
+    dotColor: "#6B7280", borderColor: "#D1D5DB", bgBar: "#F3F4F6", barColor: "#6B7280",
+    iconBg: "#E5E7EB", iconColor: "#4B5563",
     icon: "M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z",
   },
 };

@@ -264,7 +264,7 @@ function SelectButton({
   label?: string;
 }) {
   const bgSelected = side === "bj"
-    ? "bg-[#3B82F6] text-white border-[#3B82F6]"
+    ? "bg-[#4B5563] text-white border-[#4B5563]"
     : "bg-[#F59E0B] text-white border-[#F59E0B]";
   const bgDefault = "bg-bg-secondary text-text-secondary border-border hover:bg-border hover:text-text-primary";
 
@@ -329,10 +329,10 @@ function CompareField({
       <div className="grid grid-cols-1 md:grid-cols-2 divide-x divide-border">
         {/* Boutique column */}
         <div className={`pr-3 rounded-l-lg p-3 transition-all ${
-          selected === "bj" ? "bg-[#3B82F6]/5" : "bg-bg-primary"
+          selected === "bj" ? "bg-[#4B5563]/5" : "bg-bg-primary"
         }`}>
           <div className="flex items-center gap-1.5 mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6] bg-[#3B82F6]/10 rounded px-1.5 py-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#4B5563] bg-[#4B5563]/10 rounded px-1.5 py-0.5">
               Boutique
             </span>
           </div>
@@ -380,7 +380,7 @@ function VariantCard({
   selected: boolean;
   compact?: boolean;
 }) {
-  const color = side === "bj" ? "#3B82F6" : "#F59E0B";
+  const color = side === "bj" ? "#4B5563" : "#F59E0B";
   const label = side === "bj" ? "Boutique" : "Paris Fashion Shop";
 
   return (
@@ -880,7 +880,7 @@ export default function PfsLiveCompareModal({
               </div>
               <div className="flex items-center gap-3 text-xs text-text-secondary">
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#3B82F6]" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#4B5563]" />
                   Boutique (actuel)
                 </span>
                 <span className="flex items-center gap-1.5">
@@ -1304,10 +1304,10 @@ export default function PfsLiveCompareModal({
                           <div className="grid grid-cols-1 md:grid-cols-2 mt-2 rounded-lg border border-border overflow-hidden">
                             {/* Boutique side */}
                             <div className={`p-3 md:border-r border-border transition-all ${
-                              sel === "bj" ? "bg-[#3B82F6]/5" : "bg-bg-primary"
+                              sel === "bj" ? "bg-[#4B5563]/5" : "bg-bg-primary"
                             }`}>
                               <div className="flex items-center justify-between mb-2">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6] bg-[#3B82F6]/10 rounded px-1.5 py-0.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-[#4B5563] bg-[#4B5563]/10 rounded px-1.5 py-0.5">
                                   Boutique
                                 </span>
                                 <SelectButton

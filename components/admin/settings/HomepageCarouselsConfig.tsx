@@ -321,7 +321,7 @@ export default function HomepageCarouselsConfig({ initialCarousels, categories, 
           </div>
           <div className="flex items-center gap-1">
             <button type="button" onClick={() => toggleCarouselVisibility(carousel.id)}
-              className={`p-1 rounded transition-colors ${carousel.visible ? "hover:bg-[#E5E5E5] text-text-primary" : "hover:bg-[#DBEAFE] text-text-muted"}`}
+              className={`p-1 rounded transition-colors ${carousel.visible ? "hover:bg-[#E5E5E5] text-text-primary" : "hover:bg-[#E5E7EB] text-text-muted"}`}
               title={carousel.visible ? "Masquer" : "Afficher"}>
               {carousel.visible ? (
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

@@ -93,7 +93,7 @@ export default function FloatingGems() {
       aria-hidden="true"
     >
       {GEMS.map((gem) => {
-        const color = "#1A56DB";
+        const color = "#1A1A1A";
         return (
           <div
             key={gem.id}
@@ -118,11 +118,11 @@ export default function FloatingGems() {
       {/* Gradient glow spots */}
       <div
         className="absolute -top-32 -left-32 w-96 h-96 rounded-full opacity-[0.04]"
-        style={{ background: "radial-gradient(circle, #1A56DB 0%, transparent 70%)" }}
+        style={{ background: "radial-gradient(circle, #1A1A1A 0%, transparent 70%)" }}
       />
       <div
         className="absolute -bottom-32 -right-32 w-80 h-80 rounded-full opacity-[0.04]"
-        style={{ background: "radial-gradient(circle, #1A56DB 0%, transparent 70%)" }}
+        style={{ background: "radial-gradient(circle, #1A1A1A 0%, transparent 70%)" }}
       />
     </div>
   );

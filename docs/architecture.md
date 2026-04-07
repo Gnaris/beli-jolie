@@ -70,7 +70,7 @@ Manual rotation: `POST /api/admin/products/images/rotate` → 90° CW all 3 size
 - `LoginAttempt` (email/ip/success), `AccountLockout` (progressive, 11 levels), `RegistrationLog` (3h cooldown)
 - `ImportJob` (bulk import history), `ImportDraft` (error rows PRODUCTS|IMAGES)
 - `AccessCode` (guest browsing, prefill fields, expiry), `Catalog`/`CatalogProduct` (shareable via token)
-- `SentEmail` (admin email history), `TranslationQuota` (provider+monthYear)
+- `TranslationQuota` (provider+monthYear)
 - `*Translation` tables: Category, SubCategory, Color, Composition, ManufacturingCountry, Season
 - `ManufacturingCountry` (name, isoCode, pfsCountryRef), `Season` (name, pfsSeasonRef)
 - `Size` (name, position), `SizeCategoryLink` (M2M), `SizePfsMapping` (M2M pfsSizeRef)
@@ -96,7 +96,6 @@ AI descriptions: Claude Sonnet via `lib/claude.ts`. Auto-translated: products, c
 - **Reusable UI**: `ConfirmDialog` (useConfirm), `CustomSelect`, `Toast` (useToast), `ColorSwatch` (subColors, patternImage)
 - **Import**: `ImportHistoryClient.tsx` at `/admin/produits/importer/historique`
 - **PFS Sync**: `/admin/pfs`, `PfsMappingTab.tsx` → lazy-loads `PfsMappingClient` (5-tab mapping)
-- **Email**: `ComposeEmailDrawer.tsx` (bottom-right, minimizable, rich text, attachments). Context: `EmailComposeProvider`/`useEmailCompose()`. Trigger: `SendEmailButton`
 
 ## Real-Time SSE (`lib/product-events.ts`)
 

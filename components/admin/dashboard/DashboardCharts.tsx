@@ -19,10 +19,10 @@ import {
 /** Read CSS variables so Recharts inline styles use theme colors */
 function useChartColors() {
   return useMemo(() => {
-    if (typeof window === "undefined") return { primary: "#1A56DB", grid: "#F0F0F0", tick: "#9CA3AF" };
+    if (typeof window === "undefined") return { primary: "#1A1A1A", grid: "#F0F0F0", tick: "#9CA3AF" };
     const s = getComputedStyle(document.documentElement);
     return {
-      primary: s.getPropertyValue("--color-bg-dark").trim() || "#1A56DB",
+      primary: s.getPropertyValue("--color-bg-dark").trim() || "#1A1A1A",
       grid: "#F0F0F0",
       tick: s.getPropertyValue("--color-text-muted").trim() || "#9CA3AF",
     };
@@ -41,7 +41,7 @@ interface Props {
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "#F59E0B",
-  PROCESSING: "#3B82F6",
+  PROCESSING: "#4B5563",
   SHIPPED: "#8B5CF6",
   DELIVERED: "#22C55E",
   CANCELLED: "#9CA3AF",

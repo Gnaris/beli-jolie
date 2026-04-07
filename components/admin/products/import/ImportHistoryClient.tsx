@@ -548,7 +548,7 @@ function JobRowDesktop({
   return (
     <>
       <tr
-        className={`table-row cursor-pointer transition-colors ${selected ? "bg-[#F0F7FF]" : "hover:bg-[#FAFAFA]"}`}
+        className={`table-row cursor-pointer transition-colors ${selected ? "bg-[#F3F4F6]" : "hover:bg-[#FAFAFA]"}`}
         onClick={onToggle}
       >
         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -565,7 +565,7 @@ function JobRowDesktop({
             className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
               job.type === "PRODUCTS"
                 ? "bg-[#F0F0F0] text-text-primary"
-                : "bg-[#E8F0FE] text-[#3B82F6]"
+                : "bg-[#F3F4F6] text-[#4B5563]"
             }`}
           >
             {job.type === "PRODUCTS" ? "Produits" : "Images"}
@@ -630,7 +630,7 @@ function JobCardMobile({
   ActionsCell: React.FC<{ job: ImportJobWithDraft }>;
 }) {
   return (
-    <div className={`bg-bg-primary border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden ${selected ? "border-[#3B82F6] bg-[#F0F7FF]" : "border-border"}`}>
+    <div className={`bg-bg-primary border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden ${selected ? "border-[#4B5563] bg-[#F3F4F6]" : "border-border"}`}>
       <div className="p-4 cursor-pointer" onClick={onToggle}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
@@ -646,7 +646,7 @@ function JobCardMobile({
               className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
                 job.type === "PRODUCTS"
                   ? "bg-[#F0F0F0] text-text-primary"
-                  : "bg-[#E8F0FE] text-[#3B82F6]"
+                  : "bg-[#F3F4F6] text-[#4B5563]"
               }`}
             >
               {job.type === "PRODUCTS" ? "Produits" : "Images"}

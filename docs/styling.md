@@ -6,10 +6,9 @@
 
 ## Palettes
 
-**Admin**: primary `#1A1A1A`, surface `#F7F7F8`, text `#1A1A1A`, accent `#22C55E`.
-**Public**: accent gold `#D4AF37` (light `#FDF6E3`, dark `#B8960C`).
+**Neutral palette**: primary `#1A1A1A`, surface `#F9FAFB`, text `#111827`, accent `#4B5563`.
 **Status**: success `#22C55E`, warning `#F59E0B`, error `#EF4444`, info `#3B82F6`.
-**Dark mode**: `.admin-dark` class on root. Always use CSS var classes, never hardcode colors.
+Always use CSS var classes (`bg-bg-dark`, `text-text-primary`, etc.), never hardcode colors.
 
 ## CSS Utilities
 

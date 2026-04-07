@@ -34,7 +34,7 @@ export default function Footer({ shopName }: FooterProps) {
   ];
 
   return (
-    <footer className="relative bg-gradient-to-b from-[#0F172A] to-[#070B14] text-white">
+    <footer className="relative bg-gradient-to-b from-[#111111] to-[#0A0A0A] text-white">
       <div className="container-site py-10 md:py-14">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
 
