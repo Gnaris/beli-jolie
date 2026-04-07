@@ -9,13 +9,12 @@ import { parseDisplayConfig, fetchCarouselProducts, type HomepageCarousel } from
 import { getCachedSiteConfig, getCachedBestsellerRefs, getCachedShopName } from "@/lib/cached-data";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
-import BrandInfoSection from "@/components/home/BrandInfoSection";
 import CollectionsGrid from "@/components/home/CollectionsGrid";
 import ProductCarousel, { CarouselProduct } from "@/components/home/ProductCarousel";
 import HeroBanner from "@/components/home/HeroBanner";
-import MarqueeBand from "@/components/home/MarqueeBand";
-import StatsStrip from "@/components/home/StatsStrip";
-import SectionDivider from "@/components/home/SectionDivider";
+import FeaturedProduct from "@/components/home/FeaturedProduct";
+import TrustBand from "@/components/home/TrustBand";
+import CategoryGrid from "@/components/home/CategoryGrid";
 import CtaBanner from "@/components/home/CtaBanner";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -185,15 +184,17 @@ export default async function HomePage() {
     : null;
 
   // ── Fetch collections + counts ─────────────────────────────────────────────
-  const [collections, productCount, collectionCount, categoryCount] = await Promise.all([
+  const [collections, productCount, categories] = await Promise.all([
     prisma.collection.findMany({
       orderBy: { createdAt: "desc" },
       take:    4,
-      select:  { id: true, name: true, image: true },
+      select:  { id: true, name: true, image: true, _count: { select: { products: true } } },
     }),
     prisma.product.count({ where: { status: "ONLINE" } }),
-    prisma.collection.count(),
-    prisma.category.count(),
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      select:  { id: true, name: true, image: true, _count: { select: { products: true } } },
+    }),
   ]);
 
   // ── Build carousel data from config ───────────────────────────────────────
@@ -280,42 +281,41 @@ export default async function HomePage() {
           {/* 1. Hero banner */}
           <HeroBanner bannerImage={bannerImage} shopName={shopName} productCount={productCount} />
 
-          {/* 2. Marquee band (disabled) */}
-          {/* <MarqueeBand /> */}
+          {/* 2. Featured product (from bestsellers) */}
+          {carouselList.length > 0 && carouselList[0].products.length >= 3 && (
+            <FeaturedProduct
+              products={carouselList[0].products.slice(0, 3)}
+              clientDiscount={clientDiscount}
+            />
+          )}
 
-          {/* 3. Stats strip */}
-          <StatsStrip productCount={productCount} collectionCount={collectionCount} categoryCount={categoryCount} />
-
-          {/* 4. Carousels — rendered in config order */}
+          {/* 3. Product carousels — first is premium, rest are standard */}
           {carouselList.map((carousel, i) => (
-            <div key={carousel.id} className="relative overflow-hidden">
-              {i === 0 && <SectionDivider from="var(--color-bg-secondary)" to={i % 2 === 0 ? "var(--color-bg-secondary)" : "var(--color-bg-primary)"} />}
-              <div className={`${i % 2 === 0 ? "bg-bg-secondary" : "bg-bg-primary"}`}>
-                <ProductCarousel
-                  title={carousel.title}
-                  products={carousel.products}
-                  viewMoreHref={carousel.viewMoreHref}
-                  viewMoreLabel={t("newProductsMore")}
-                  clientDiscount={clientDiscount}
-                  showPromoBadge={carousel.isPromo}
-                />
-              </div>
-            </div>
+            <ProductCarousel
+              key={carousel.id}
+              title={carousel.title}
+              products={carousel.products}
+              viewMoreHref={carousel.viewMoreHref}
+              viewMoreLabel={t("newProductsMore")}
+              variant={i % 2 === 0 ? "gray" : "white"}
+              size={i === 0 ? "premium" : "standard"}
+              clientDiscount={clientDiscount}
+              showPromoBadge={carousel.isPromo}
+            />
           ))}
 
-          {/* 5. Brand info section */}
-          <SectionDivider from="var(--color-bg-primary)" to="var(--color-bg-secondary)" />
-          <div className="relative overflow-hidden">
-            <BrandInfoSection />
-          </div>
+          {/* 4. Collections mosaic */}
+          <CollectionsGrid collections={collections} />
 
-          {/* 6. Collections */}
-          <SectionDivider from="var(--color-bg-secondary)" to="var(--color-bg-primary)" />
-          <div className="bg-bg-primary relative overflow-hidden">
-            <CollectionsGrid collections={collections} />
-          </div>
+          {/* 5. Trust band */}
+          <TrustBand />
 
-          {/* 7. CTA banner before footer */}
+          {/* 6. Category grid */}
+          {categories.length > 0 && (
+            <CategoryGrid categories={categories} />
+          )}
+
+          {/* 7. CTA banner */}
           <CtaBanner />
       </main>
 

@@ -1,48 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
+import { useTranslations } from "next-intl";
+import { useScrollReveal } from "./useScrollReveal";
 
 export default function CtaBanner() {
-  const t = useTranslations("home");
   const { data: session } = useSession();
+  const t = useTranslations("home");
+  const sectionRef = useScrollReveal();
 
   return (
-    <section className="relative overflow-hidden bg-[#0F172A] py-16 sm:py-20">
-      {/* Decorative elements */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
-        {/* Subtle radial glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-accent/[0.03] rounded-full blur-3xl" />
-      </div>
+    <section
+      ref={sectionRef}
+      className="scroll-fade-up relative overflow-hidden py-20 lg:py-24"
+      style={{ backgroundColor: "#111111" }}
+    >
+      {/* Subtle radial glow */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: "radial-gradient(ellipse at center, rgba(75,85,99,0.1) 0%, transparent 70%)",
+        }}
+      />
 
-      <div className="container-site relative z-10 text-center">
-        {/* Decorative diamond */}
-        <div className="flex justify-center mb-6">
-          <svg className="w-6 h-6 text-accent animate-slow-rotate" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2l3 7h7l-5.5 4.5L18.5 21 12 17l-6.5 4 2-7.5L2 9h7z" />
-          </svg>
-        </div>
-
-        <h2 className="font-heading text-xl sm:text-2xl md:text-3xl font-bold text-text-inverse mb-4">
+      <div className="relative z-10 text-center px-6 max-w-2xl mx-auto">
+        <h2
+          className="font-heading font-bold text-white leading-tight mb-4"
+          style={{ fontSize: "clamp(1.75rem, 4vw, 2.75rem)" }}
+        >
           {t("ctaTitle")}
         </h2>
-        <p className="font-body text-sm sm:text-base text-white/60 max-w-lg mx-auto mb-8 leading-relaxed">
+        <p className="font-body text-white/60 text-base mb-8 max-w-lg mx-auto">
           {t("ctaDesc")}
         </p>
-        <div className="flex flex-wrap justify-center gap-3">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link
             href="/produits"
-            className="inline-flex items-center gap-2 bg-white text-[#0F172A] font-heading font-semibold text-sm px-7 py-3 rounded-lg hover:bg-white/90 transition-colors duration-200 shadow-lg shadow-white/10"
+            className="px-8 py-3 bg-white text-bg-darker font-heading font-semibold text-sm rounded-full hover:bg-white/90 transition-colors"
           >
-            {t("heroCta")} &rarr;
+            {t("heroCta")}
           </Link>
           {!session && (
             <Link
               href="/inscription"
-              className="inline-flex items-center gap-2 border border-white/20 text-white/80 font-body font-medium text-sm px-6 py-3 rounded-lg hover:bg-white/5 hover:border-white/30 transition-all duration-200"
+              className="px-8 py-3 border border-white/30 text-white font-heading font-medium text-sm rounded-full hover:bg-white/10 transition-colors"
             >
               {t("heroRegister")}
             </Link>
