@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
+import ReorderButton from "@/components/client/orders/ReorderButton";
 import SuccessToast from "@/components/client/SuccessToast";
 import { STATUS_CONFIG, getTrackingUrl } from "@/app/(client)/commandes/page";
 import { getTranslations } from "next-intl/server";
@@ -80,6 +81,19 @@ export default async function CommandeDetailPage({
           </span>
           {order.status === "PENDING" && (
             <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} />
+          )}
+          <ReorderButton orderId={order.id} />
+          {order.status !== "CANCELLED" && (
+            <Link
+              href={`/espace-pro/reclamations/nouveau?order=${order.id}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-body font-medium text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              {t("createClaim")}
+            </Link>
           )}
         </div>
       </div>
@@ -169,6 +183,30 @@ export default async function CommandeDetailPage({
                 d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
             {t("downloadInvoice")}
+          </a>
+        </div>
+      )}
+
+      {/* -- Avoir (credit note) -- */}
+      {order.creditNotePath && (
+        <div className="bg-bg-primary border border-border rounded-xl p-5 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-heading text-sm font-semibold text-text-primary">
+              {t("creditNote")}
+            </h2>
+            <p className="text-xs text-text-muted font-body mt-0.5">
+              {t("creditNoteAvailable")}
+            </p>
+          </div>
+          <a
+            href={`/api/client/commandes/${order.id}/credit-note`}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-sm font-body font-medium rounded-lg transition-colors shrink-0"
+          >
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {t("downloadCreditNote")}
           </a>
         </div>
       )}

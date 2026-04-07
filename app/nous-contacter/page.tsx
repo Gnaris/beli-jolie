@@ -3,6 +3,8 @@ import { getCachedShopName, getCachedCompanyInfo, getCachedBusinessHours } from 
 import { isWithinBusinessHours, getNextOpenSlot, formatScheduleForDisplay } from "@/lib/business-hours";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
 import { DEFAULT_BUSINESS_HOURS } from "@/lib/business-hours";
+import PublicSidebar from "@/components/layout/PublicSidebar";
+import Footer from "@/components/layout/Footer";
 import ContactPageClient from "./ContactPageClient";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -26,17 +28,21 @@ export default async function NousContacterPage() {
   const displaySchedule = formatScheduleForDisplay(schedule);
 
   return (
-    <ContactPageClient
-      shopName={shopName}
-      phone={companyInfo?.phone ?? null}
-      whatsapp={companyInfo?.whatsapp ?? null}
-      email={companyInfo?.email ?? null}
-      address={companyInfo?.address ?? null}
-      city={companyInfo?.city ?? null}
-      postalCode={companyInfo?.postalCode ?? null}
-      isOpen={isOpen}
-      nextSlot={nextSlot}
-      schedule={displaySchedule}
-    />
+    <>
+      <PublicSidebar shopName={shopName} />
+      <ContactPageClient
+        shopName={shopName}
+        phone={companyInfo?.phone ?? null}
+        whatsapp={companyInfo?.whatsapp ?? null}
+        email={companyInfo?.email ?? null}
+        address={companyInfo?.address ?? null}
+        city={companyInfo?.city ?? null}
+        postalCode={companyInfo?.postalCode ?? null}
+        isOpen={isOpen}
+        nextSlot={nextSlot}
+        schedule={displaySchedule}
+      />
+      <Footer shopName={shopName} />
+    </>
   );
 }

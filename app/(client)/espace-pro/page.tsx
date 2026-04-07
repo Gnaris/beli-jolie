@@ -6,6 +6,7 @@ import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
+import { getAvailableCredit } from "@/lib/credits";
 import AccountEditor from "@/components/client/AccountEditor";
 import LogoutButton from "@/components/client/LogoutButton";
 import { getTranslations } from "next-intl/server";
@@ -83,7 +84,7 @@ export default async function DashboardPage() {
   const t = await getTranslations("account");
   const tOrders = await getTranslations("orders");
 
-  const [user, orders, favorites, cart] = await Promise.all([
+  const [user, orders, favorites, cart, credits, availableCredit, ordersWithCreditNote] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
     prisma.order.findMany({
       where: { userId },
@@ -114,6 +115,17 @@ export default async function DashboardPage() {
     prisma.cart.findUnique({
       where: { userId },
       include: { items: { select: { quantity: true } } },
+    }),
+    prisma.credit.findMany({
+      where: { userId },
+      include: { claim: { select: { reference: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    getAvailableCredit(userId),
+    prisma.order.findMany({
+      where: { userId, creditNotePath: { not: null } },
+      select: { id: true, orderNumber: true, createdAt: true, creditNotePath: true },
+      orderBy: { createdAt: "desc" },
     }),
   ]);
 
@@ -406,6 +418,76 @@ export default async function DashboardPage() {
               </div>
             )}
           </div>
+
+          {/* -- Avoirs -- */}
+          {(credits.length > 0 || ordersWithCreditNote.length > 0) && (
+            <div className="bg-bg-primary rounded-xl border border-border overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+                <h2 className="font-heading text-sm font-semibold text-text-primary">
+                  {tOrders("creditNote")}
+                </h2>
+                {availableCredit > 0 && (
+                  <span className="font-heading text-sm font-bold text-success">
+                    {availableCredit.toFixed(2)} {"\u20AC"}
+                  </span>
+                )}
+              </div>
+              <div className="divide-y divide-border-light">
+                {ordersWithCreditNote.map((o) => (
+                  <div key={o.id} className="px-5 py-3.5 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-body text-sm font-medium text-text-primary">
+                        {tOrders("creditNote")} — {o.orderNumber}
+                      </p>
+                      <p className="text-xs text-text-muted font-body mt-0.5">
+                        {new Date(o.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
+                      </p>
+                    </div>
+                    <a
+                      href={`/api/client/commandes/${o.id}/credit-note`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-bg-dark hover:bg-primary-hover text-text-inverse text-xs font-body font-medium rounded-lg transition-colors shrink-0"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                          d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      {tOrders("downloadCreditNote")}
+                    </a>
+                  </div>
+                ))}
+                {credits.map((credit) => {
+                  const remaining = Number(credit.remainingAmount);
+                  const total = Number(credit.amount);
+                  const isExpired = credit.expiresAt && new Date(credit.expiresAt) < new Date();
+                  return (
+                    <div key={credit.id} className="px-5 py-3.5 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-body text-sm font-medium text-text-primary">
+                          {total.toFixed(2)} {"\u20AC"}
+                          <span className="text-text-muted font-normal"> — {tOrders("remaining")} : {remaining.toFixed(2)} {"\u20AC"}</span>
+                        </p>
+                        {credit.claim && (
+                          <p className="text-xs text-text-muted font-body mt-0.5">
+                            {tOrders("claimRef")} {credit.claim.reference}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className={`badge ${remaining > 0 && !isExpired ? "badge-success" : "badge-neutral"}`}>
+                          {isExpired ? tOrders("expired") : remaining > 0 ? tOrders("active") : tOrders("used")}
+                        </span>
+                        {credit.expiresAt && (
+                          <p className="text-[10px] text-text-muted font-body mt-1">
+                            {tOrders("expiresOn")} {new Date(credit.expiresAt).toLocaleDateString("fr-FR")}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* -- Favoris recents -- */}
           <div className="bg-bg-primary rounded-xl border border-border overflow-hidden">

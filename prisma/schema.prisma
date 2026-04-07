@@ -760,7 +760,8 @@ model Order {
   eeLabelUrl   String? // URL du bordereau PDF @db.Text
 
   // Facture uploadée par l'admin
-  invoicePath String? // Chemin relatif depuis /private/uploads/invoices/
+  invoicePath    String? // Chemin relatif depuis /private/uploads/invoices/
+  creditNotePath String? // Avoir PDF uploadé par l'admin
 
   // CGV acceptance
   cgvAcceptedAt DateTime? // Timestamp when client accepted CGV before payment

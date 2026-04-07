@@ -108,10 +108,15 @@ function NavigationLoader() {
   const pathname = usePathname();
   const prevPathname = useRef(pathname);
   const { showLoading, hideLoading } = useLoadingOverlay();
+  const navigationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (prevPathname.current !== pathname) {
       // Route changed — hide any previous overlay
+      if (navigationTimer.current) {
+        clearTimeout(navigationTimer.current);
+        navigationTimer.current = null;
+      }
       hideLoading();
       prevPathname.current = pathname;
     }
@@ -129,15 +134,31 @@ function NavigationLoader() {
       if (anchor.hasAttribute("download")) return;
       if (e.ctrlKey || e.metaKey || e.shiftKey) return;
 
-      // Same page — no overlay
-      if (href === pathname || href === pathname + "/") return;
+      // API routes / file downloads — not a page navigation
+      if (href.startsWith("/api/")) return;
+
+      // Extract pathname part (strip query string and hash)
+      const hrefPathname = href.split("?")[0].split("#")[0];
+      const normalizedCurrent = pathname.endsWith("/") ? pathname : pathname + "/";
+      const normalizedHref = hrefPathname.endsWith("/") ? hrefPathname : hrefPathname + "/";
+
+      // Same pathname (only query/hash changed) — no overlay
+      if (normalizedHref === normalizedCurrent) return;
 
       showLoading();
+
+      // Safety net: hide overlay after 8s if pathname never changed
+      // (navigation failed, interrupted, or took too long)
+      if (navigationTimer.current) clearTimeout(navigationTimer.current);
+      navigationTimer.current = setTimeout(() => {
+        hideLoading();
+        navigationTimer.current = null;
+      }, 8000);
     }
 
     document.addEventListener("click", handleClick, true);
     return () => document.removeEventListener("click", handleClick, true);
-  }, [pathname, showLoading]);
+  }, [pathname, showLoading, hideLoading]);
 
   return null;
 }

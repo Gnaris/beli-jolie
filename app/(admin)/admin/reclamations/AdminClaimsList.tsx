@@ -88,36 +88,51 @@ export default function AdminClaimsList({ initialClaims }: { initialClaims: Clai
           <p className="text-text-muted font-body">Aucune reclamation.</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((claim) => {
-            const badge = STATUS_BADGES[claim.status] || { className: "badge badge-neutral", label: claim.status };
-            return (
-              <Link
-                key={claim.id}
-                href={`/admin/reclamations/${claim.id}`}
-                className="block bg-bg-primary border border-border rounded-2xl p-4 hover:border-[#1A1A1A]/30 transition-colors"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-heading font-semibold text-text-primary">{claim.reference}</span>
-                      <span className={badge.className}>{badge.label}</span>
-                    </div>
-                    <p className="text-sm text-text-muted font-body mt-1">
-                      {claim.user.firstName} {claim.user.lastName}
-                      {claim.user.company && ` (${claim.user.company})`}
-                    </p>
-                    {claim.order && (
-                      <p className="text-xs text-text-muted font-body">Cmd {claim.order.orderNumber}</p>
-                    )}
-                  </div>
-                  <span className="text-xs text-text-muted font-body whitespace-nowrap">
-                    {new Date(claim.createdAt).toLocaleDateString("fr-FR")}
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
+        <div className="border border-border rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm font-body">
+              <thead>
+                <tr className="bg-bg-secondary border-b border-border">
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Référence</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Client</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Commande</th>
+                  <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Statut</th>
+                  <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((claim) => {
+                  const badge = STATUS_BADGES[claim.status] || { className: "badge badge-neutral", label: claim.status };
+                  return (
+                    <tr key={claim.id} className="hover:bg-bg-secondary/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <Link href={`/admin/reclamations/${claim.id}`} className="font-heading font-semibold text-text-primary hover:underline">
+                          {claim.reference}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-text-primary">
+                          {claim.user.firstName} {claim.user.lastName}
+                        </span>
+                        {claim.user.company && (
+                          <span className="text-xs text-text-muted ml-1">({claim.user.company})</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-text-muted">
+                        {claim.order ? claim.order.orderNumber : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={badge.className}>{badge.label}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-text-muted whitespace-nowrap">
+                        {new Date(claim.createdAt).toLocaleDateString("fr-FR")}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

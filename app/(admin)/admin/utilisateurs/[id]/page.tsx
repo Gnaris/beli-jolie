@@ -17,6 +17,14 @@ const STATUS_CONFIG: Record<UserStatus, { label: string; className: string }> = 
   REJECTED: { label: "Compte rejeté",            className: "badge badge-error" },
 };
 
+const ORDER_STATUS: Record<string, { label: string; badge: string }> = {
+  PENDING:    { label: "En attente",     badge: "badge badge-warning" },
+  PROCESSING: { label: "En préparation", badge: "badge badge-info" },
+  SHIPPED:    { label: "Expédiée",       badge: "badge badge-success" },
+  DELIVERED:  { label: "Livrée",         badge: "badge badge-success" },
+  CANCELLED:  { label: "Annulée",        badge: "badge badge-error" },
+};
+
 export async function generateMetadata({
   params,
 }: {
@@ -50,7 +58,7 @@ export default async function ClientDetailPage({
 
   const { id } = await params;
 
-  const [user, cart] = await Promise.all([
+  const [user, cart, orders] = await Promise.all([
     prisma.user.findUnique({ where: { id } }),
     prisma.cart.findUnique({
       where: { userId: id },
@@ -68,6 +76,11 @@ export default async function ClientDetailPage({
           orderBy: { createdAt: "desc" },
         },
       },
+    }),
+    prisma.order.findMany({
+      where: { userId: id },
+      include: { _count: { select: { items: true } } },
+      orderBy: { createdAt: "desc" },
     }),
   ]);
 
@@ -347,6 +360,75 @@ export default async function ClientDetailPage({
                 }, 0).toFixed(2)} &euro;
               </span>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* -- Commandes du client -- */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-border table-header flex items-center justify-between">
+          <h2 className="font-heading text-base font-semibold text-text-primary">
+            Commandes du client
+          </h2>
+          {orders.length > 0 && (
+            <span className="badge badge-neutral font-body">
+              {orders.length} commande{orders.length > 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
+        {orders.length === 0 ? (
+          <div className="p-8 text-center">
+            <div className="w-12 h-12 bg-bg-tertiary rounded-full flex items-center justify-center mx-auto mb-3">
+              <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+              </svg>
+            </div>
+            <p className="text-sm text-text-muted font-body">
+              Ce client n&apos;a passé aucune commande.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-bg-secondary text-left">
+                  <th className="px-5 py-2.5 font-body font-semibold text-text-muted text-xs uppercase tracking-wider">N° commande</th>
+                  <th className="px-5 py-2.5 font-body font-semibold text-text-muted text-xs uppercase tracking-wider">Date</th>
+                  <th className="px-5 py-2.5 font-body font-semibold text-text-muted text-xs uppercase tracking-wider">Articles</th>
+                  <th className="px-5 py-2.5 font-body font-semibold text-text-muted text-xs uppercase tracking-wider">Total TTC</th>
+                  <th className="px-5 py-2.5 font-body font-semibold text-text-muted text-xs uppercase tracking-wider">Statut</th>
+                  <th className="px-5 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-light">
+                {orders.map((order) => {
+                  const sCfg = ORDER_STATUS[order.status] ?? ORDER_STATUS.PENDING;
+                  return (
+                    <tr key={order.id} className="hover:bg-bg-secondary/50 transition-colors">
+                      <td className="px-5 py-3 font-body font-medium text-text-primary">{order.orderNumber}</td>
+                      <td className="px-5 py-3 font-body text-text-secondary">
+                        {new Date(order.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
+                      </td>
+                      <td className="px-5 py-3 font-body text-text-secondary">{order._count.items}</td>
+                      <td className="px-5 py-3 font-heading font-semibold text-text-primary">{Number(order.totalTTC).toFixed(2)} &euro;</td>
+                      <td className="px-5 py-3">
+                        <span className={`${sCfg.badge} text-xs`}>{sCfg.label}</span>
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <Link
+                          href={`/admin/commandes/${order.id}`}
+                          className="text-xs font-body font-medium text-text-secondary hover:text-text-primary transition-colors"
+                        >
+                          Détail →
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

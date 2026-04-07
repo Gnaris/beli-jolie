@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import OrderStatusActions from "@/components/admin/orders/OrderStatusActions";
 import InvoiceUpload from "@/components/admin/orders/InvoiceUpload";
+import CreditNoteUpload from "@/components/admin/orders/CreditNoteUpload";
 
 export const metadata: Metadata = { title: "Détail commande — Admin" };
 
@@ -106,6 +107,18 @@ export default async function AdminCommandeDetailPage({
         </div>
         <div className="px-5 py-4">
           <InvoiceUpload orderId={order.id} hasInvoice={!!order.invoicePath} />
+        </div>
+      </section>
+
+      {/* Avoir */}
+      <section className="card overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-border table-header">
+          <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+            Avoir
+          </h2>
+        </div>
+        <div className="px-5 py-4">
+          <CreditNoteUpload orderId={order.id} hasCreditNote={!!order.creditNotePath} />
         </div>
       </section>
 

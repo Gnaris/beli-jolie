@@ -59,80 +59,58 @@ export default async function ClientClaimsPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {claims.map((claim) => {
-            const cfg = STATUS_CONFIG[claim.status] || { badge: "badge badge-neutral", label: claim.status, icon: "📄" };
-            const hasItems = claim._count.items > 0;
-            const hasImages = claim._count.images > 0;
-
-            return (
-              <Link
-                key={claim.id}
-                href={`/espace-pro/reclamations/${claim.id}`}
-                className="group block bg-bg-primary border border-border rounded-2xl p-5 hover:border-[#1A1A1A]/20 hover:shadow-md transition-all duration-200"
-              >
-                <div className="flex items-start gap-4">
-                  {/* Icon */}
-                  <div className="w-10 h-10 rounded-xl bg-bg-secondary flex items-center justify-center text-lg flex-shrink-0 group-hover:scale-105 transition-transform">
-                    {cfg.icon}
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <span className="font-heading font-bold text-text-primary">{claim.reference}</span>
-                      <span className={cfg.badge}>{cfg.label}</span>
-                      {claim.type === "ORDER_CLAIM" ? (
-                        <span className="badge badge-purple">Commande</span>
-                      ) : (
-                        <span className="badge badge-neutral">Générale</span>
-                      )}
-                    </div>
-
-                    {claim.order && (
-                      <p className="text-xs text-text-muted font-body mt-1.5">
-                        Commande <span className="font-medium text-text-primary">{claim.order.orderNumber}</span>
-                      </p>
-                    )}
-
-                    {/* Meta row */}
-                    <div className="flex items-center gap-3 mt-2.5">
-                      {hasItems && (
-                        <span className="inline-flex items-center gap-1 text-xs text-text-muted font-body">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                          </svg>
-                          {claim._count.items} article{claim._count.items > 1 ? "s" : ""}
-                        </span>
-                      )}
-                      {hasImages && (
-                        <span className="inline-flex items-center gap-1 text-xs text-text-muted font-body">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          {claim._count.images} photo{claim._count.images > 1 ? "s" : ""}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Date + arrow */}
-                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                    <span className="text-xs text-text-muted font-body">
-                      {new Date(claim.createdAt).toLocaleDateString("fr-FR", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </span>
-                    <svg className="w-4 h-4 text-text-muted/40 group-hover:text-text-primary group-hover:translate-x-0.5 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+        <div className="border border-border rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm font-body">
+              <thead>
+                <tr className="bg-bg-secondary border-b border-border">
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Référence</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Type</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Commande</th>
+                  <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Articles</th>
+                  <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Statut</th>
+                  <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {claims.map((claim) => {
+                  const cfg = STATUS_CONFIG[claim.status] || { badge: "badge badge-neutral", label: claim.status, icon: "📄" };
+                  return (
+                    <tr key={claim.id} className="hover:bg-bg-secondary/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <Link href={`/espace-pro/reclamations/${claim.id}`} className="font-heading font-bold text-text-primary hover:underline">
+                          {claim.reference}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        {claim.type === "ORDER_CLAIM" ? (
+                          <span className="badge badge-purple">Commande</span>
+                        ) : (
+                          <span className="badge badge-neutral">Générale</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-text-muted">
+                        {claim.order ? claim.order.orderNumber : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-center text-text-muted">
+                        {claim._count.items > 0 ? `${claim._count.items} article${claim._count.items > 1 ? "s" : ""}` : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={cfg.badge}>{cfg.label}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-text-muted whitespace-nowrap">
+                        {new Date(claim.createdAt).toLocaleDateString("fr-FR", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

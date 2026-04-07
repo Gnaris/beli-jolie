@@ -88,52 +88,66 @@ export default function AdminMessagesList({ initialConversations }: { initialCon
           <p className="text-text-muted font-body">Aucune conversation.</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((conv) => {
-            const lastMsg = conv.messages[0];
-            const unread = conv._count.messages;
-            return (
-              <Link
-                key={conv.id}
-                href={`/admin/messages/${conv.id}`}
-                className={`block bg-bg-primary border rounded-2xl p-4 hover:border-[#1A1A1A]/30 transition-colors ${
-                  unread > 0 ? "border-accent/40" : "border-border"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-text-primary font-body">
-                        {conv.user.firstName} {conv.user.lastName}
-                      </span>
-                      {conv.user.company && (
-                        <span className="text-xs text-text-muted font-body">({conv.user.company})</span>
-                      )}
-                      {unread > 0 && <span className="badge badge-info">{unread}</span>}
-                      <span className={`badge ${conv.status === "OPEN" ? "badge-success" : "badge-neutral"}`}>
-                        {conv.status === "OPEN" ? "Ouvert" : "Ferme"}
-                      </span>
-                    </div>
-                    <p className="text-sm font-medium text-text-primary mt-1 font-heading">
-                      {conv.subject || "Sans sujet"}
-                    </p>
-                    {lastMsg && (
-                      <p className="text-xs text-text-muted font-body mt-1 truncate">
-                        {lastMsg.senderRole === "ADMIN" ? "Vous : " : ""}{lastMsg.content}
-                      </p>
-                    )}
-                  </div>
-                  {lastMsg && (
-                    <span className="text-xs text-text-muted font-body whitespace-nowrap">
-                      {new Date(lastMsg.createdAt).toLocaleDateString("fr-FR", {
-                        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
-                      })}
-                    </span>
-                  )}
-                </div>
-              </Link>
-            );
-          })}
+        <div className="border border-border rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm font-body">
+              <thead>
+                <tr className="bg-bg-secondary border-b border-border">
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Client</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Sujet</th>
+                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Dernier message</th>
+                  <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Non lus</th>
+                  <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Statut</th>
+                  <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((conv) => {
+                  const lastMsg = conv.messages[0];
+                  const unread = conv._count.messages;
+                  return (
+                    <tr key={conv.id} className="hover:bg-bg-secondary/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <Link href={`/admin/messages/${conv.id}`} className="hover:underline">
+                          <span className="font-semibold text-text-primary">
+                            {conv.user.firstName} {conv.user.lastName}
+                          </span>
+                          {conv.user.company && (
+                            <span className="text-xs text-text-muted ml-1">({conv.user.company})</span>
+                          )}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Link href={`/admin/messages/${conv.id}`} className="font-heading font-medium text-text-primary hover:underline">
+                          {conv.subject || "Sans sujet"}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 max-w-[250px]">
+                        {lastMsg && (
+                          <p className="text-xs text-text-muted truncate">
+                            {lastMsg.senderRole === "ADMIN" ? "Vous : " : ""}{lastMsg.content}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {unread > 0 && <span className="badge badge-info">{unread}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`badge ${conv.status === "OPEN" ? "badge-success" : "badge-neutral"}`}>
+                          {conv.status === "OPEN" ? "Ouvert" : "Fermé"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-text-muted whitespace-nowrap">
+                        {lastMsg && new Date(lastMsg.createdAt).toLocaleDateString("fr-FR", {
+                          day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+                        })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
