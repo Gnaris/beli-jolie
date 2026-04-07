@@ -72,6 +72,7 @@ model User {
   promotionUsages   PromotionUsage[]
   productViews      ProductView[]      @relation("ProductViewer")
   priceChanges      PriceHistory[]     @relation("PriceChanger")
+  visits            Visit[]
 }
 
 // ─────────────────────────────────────────────
@@ -603,6 +604,11 @@ enum OrderStatus {
   CANCELLED // Annulée
 }
 
+enum OrderModificationReason {
+  OUT_OF_STOCK    // Rupture de stock
+  CLIENT_REQUEST  // À la demande du client
+}
+
 // ─────────────────────────────────────────────
 // Stock
 // ─────────────────────────────────────────────
@@ -770,10 +776,11 @@ model Order {
   promoDiscount    Decimal          @default(0) @db.Decimal(10, 2)
   creditApplied    Decimal          @default(0) @db.Decimal(10, 2)
   // Relations for new features
-  stockMovements   StockMovement[]
-  claims           Claim[]
-  creditUsages     CreditUsage[]
-  promotionUsages  PromotionUsage[]
+  stockMovements    StockMovement[]
+  claims            Claim[]
+  creditUsages      CreditUsage[]
+  promotionUsages   PromotionUsage[]
+  itemModifications OrderItemModification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -809,12 +816,30 @@ model OrderItem {
 
   variantSnapshot String? @db.Text // JSON: snapshot complet de la variante pour traçabilité légale
 
-  claimItems ClaimItem[]
+  claimItems    ClaimItem[]
+  modifications OrderItemModification[]
 
   createdAt DateTime @default(now())
 
   @@index([orderId])
   @@index([productRef]) // bestseller groupBy + reassort queries
+}
+
+// Modification d'article de commande (traçabilité)
+model OrderItemModification {
+  id               String                    @id @default(cuid())
+  orderItemId      String
+  orderItem        OrderItem                 @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  orderId          String
+  order            Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  originalQuantity Int
+  newQuantity      Int                       // 0 = rupture totale
+  reason           OrderModificationReason
+  priceDifference  Decimal                   @db.Decimal(12, 2) // montant négatif = avoir dû
+  createdAt        DateTime                  @default(now())
+
+  @@index([orderId])
+  @@index([orderItemId])
 }
 
 // ─────────────────────────────────────────────
@@ -980,6 +1005,20 @@ model UserActivity {
   favAddsCount  Int      @default(0)
 
   @@index([lastSeenAt])
+}
+
+// ─────────────────────────────────────────────
+// Visites clients (1 entrée = 1 session)
+// ─────────────────────────────────────────────
+
+model Visit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }
 
 // ─────────────────────────────────────────────

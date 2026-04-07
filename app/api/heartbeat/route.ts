@@ -24,10 +24,32 @@ export async function POST(req: NextRequest) {
     const isNewSession = body.isNewSession === true;
 
     const now = new Date();
+    const userId = session.user.id;
+    const isAdmin = session.user.role === "ADMIN";
+
+    // Track visit for non-admin users
+    if (!isAdmin) {
+      let shouldCreateVisit = isNewSession;
+
+      if (!shouldCreateVisit) {
+        // Check if lastSeenAt is stale (>30min) — means a new session
+        const existing = await prisma.userActivity.findUnique({
+          where: { userId },
+          select: { lastSeenAt: true },
+        });
+        if (!existing || now.getTime() - existing.lastSeenAt.getTime() > 30 * 60 * 1000) {
+          shouldCreateVisit = true;
+        }
+      }
+
+      if (shouldCreateVisit) {
+        await prisma.visit.create({ data: { userId } });
+      }
+    }
 
     if (isNewSession) {
       await prisma.userActivity.upsert({
-        where: { userId: session.user.id },
+        where: { userId },
         update: {
           lastSeenAt: now,
           connectedAt: now,
@@ -36,7 +58,7 @@ export async function POST(req: NextRequest) {
           favAddsCount: 0,
         },
         create: {
-          userId: session.user.id,
+          userId,
           lastSeenAt: now,
           connectedAt: now,
           currentPage,
@@ -46,13 +68,13 @@ export async function POST(req: NextRequest) {
       });
     } else {
       await prisma.userActivity.upsert({
-        where: { userId: session.user.id },
+        where: { userId },
         update: {
           lastSeenAt: now,
           currentPage,
         },
         create: {
-          userId: session.user.id,
+          userId,
           lastSeenAt: now,
           connectedAt: now,
           currentPage,

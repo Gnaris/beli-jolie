@@ -3,7 +3,9 @@ import type { Metadata } from "next";
 import { Poppins, Roboto } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
+import { getServerSession } from "next-auth";
 import { RTL_LOCALES } from "@/i18n/request";
+import { authOptions } from "@/lib/auth";
 import SessionProvider from "@/components/providers/SessionProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
@@ -74,11 +76,12 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const [locale, messages, shopName, businessHours] = await Promise.all([
+  const [locale, messages, shopName, businessHours, session] = await Promise.all([
     getLocale(),
     getMessages(),
     getCachedShopName(),
     getCachedBusinessHours(),
+    getServerSession(authOptions),
   ]);
 
   const isRTL = RTL_LOCALES.includes(locale as "ar");
@@ -105,7 +108,7 @@ export default async function RootLayout({
           }}
         />
         <NextIntlClientProvider messages={messages}>
-          <SessionProvider>
+          <SessionProvider session={session}>
             <ToastProvider>
               <ConfirmProvider>
                 <LoadingOverlayProvider>

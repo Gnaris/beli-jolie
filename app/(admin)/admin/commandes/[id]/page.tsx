@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import OrderStatusActions from "@/components/admin/orders/OrderStatusActions";
 import InvoiceUpload from "@/components/admin/orders/InvoiceUpload";
 import CreditNoteUpload from "@/components/admin/orders/CreditNoteUpload";
+import OrderItemsEditor from "@/components/admin/orders/OrderItemsEditor";
 
 export const metadata: Metadata = { title: "Détail commande — Admin" };
 
@@ -30,8 +31,10 @@ export default async function AdminCommandeDetailPage({
 
   const order = await prisma.order.findUnique({
     where: { id },
-    include: { items: { orderBy: { createdAt: "asc" } } },
-    // invoicePath is a scalar field, included by default
+    include: {
+      items: { orderBy: { createdAt: "asc" } },
+      itemModifications: true,
+    },
   });
 
   if (!order) notFound();
@@ -80,7 +83,18 @@ export default async function AdminCommandeDetailPage({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
           </svg>
-          Télécharger le bon de commande PDF
+          Bon de commande PDF
+        </a>
+        <a
+          href={`/api/admin/commandes/${order.id}/pdf?noPrices=1`}
+          target="_blank"
+          className="btn-secondary inline-flex items-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+              d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+          Bon de commande sans prix
         </a>
 
         {order.eeLabelUrl && (
@@ -98,133 +112,187 @@ export default async function AdminCommandeDetailPage({
         )}
       </div>
 
-      {/* Facture client */}
-      <section className="card overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-border table-header">
-          <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-            Facture client
-          </h2>
-        </div>
-        <div className="px-5 py-4">
-          <InvoiceUpload orderId={order.id} hasInvoice={!!order.invoicePath} />
-        </div>
-      </section>
+      {/* Livraison + Facturation */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <section className="card overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border table-header">
+            <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+              Adresse de livraison
+            </h2>
+          </div>
+          <div className="px-5 py-4 text-sm font-body space-y-2">
+            {order.shipCompany && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Société</p>
+                <p className="text-text-primary">{order.shipCompany}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Prénom</p>
+                <p className="text-text-primary">{order.shipFirstName}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Nom</p>
+                <p className="text-text-primary">{order.shipLastName}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Adresse</p>
+              <p className="text-text-primary">{order.shipAddress1}</p>
+              {order.shipAddress2 && <p className="text-text-primary">{order.shipAddress2}</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Code postal</p>
+                <p className="text-text-primary">{order.shipZipCode}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Ville</p>
+                <p className="text-text-primary">{order.shipCity}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Pays</p>
+              <p className="text-text-primary">{order.shipCountry}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Email</p>
+                <p className="text-text-primary">{order.clientEmail}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Téléphone</p>
+                <p className="text-text-primary">{order.clientPhone}</p>
+              </div>
+            </div>
+            {order.clientVatNumber && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">N° TVA</p>
+                <p className="text-text-primary font-mono text-xs">{order.clientVatNumber}</p>
+              </div>
+            )}
+          </div>
+        </section>
 
-      {/* Avoir */}
-      <section className="card overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-border table-header">
-          <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-            Avoir
-          </h2>
-        </div>
-        <div className="px-5 py-4">
-          <CreditNoteUpload orderId={order.id} hasCreditNote={!!order.creditNotePath} />
-        </div>
-      </section>
+        <section className="card overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border table-header">
+            <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+              Facturation
+            </h2>
+          </div>
+          <div className="px-5 py-4 text-sm font-body space-y-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Société</p>
+              <p className="text-text-primary">{order.clientCompany}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Prénom</p>
+                <p className="text-text-primary">{order.shipFirstName}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Nom</p>
+                <p className="text-text-primary">{order.shipLastName}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Adresse</p>
+              <p className="text-text-primary">{order.shipAddress1}</p>
+              {order.shipAddress2 && <p className="text-text-primary">{order.shipAddress2}</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Code postal</p>
+                <p className="text-text-primary">{order.shipZipCode}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Ville</p>
+                <p className="text-text-primary">{order.shipCity}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Pays</p>
+              <p className="text-text-primary">{order.shipCountry}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Email</p>
+                <p className="text-text-primary">{order.clientEmail}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Téléphone</p>
+                <p className="text-text-primary">{order.clientPhone}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">SIRET</p>
+              <p className="text-text-primary font-mono text-xs">{order.clientSiret}</p>
+            </div>
+            {order.clientVatNumber && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">N° TVA</p>
+                <p className="text-text-primary font-mono text-xs">{order.clientVatNumber}</p>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
 
+      {/* Facture + Avoir */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <section className="card overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border table-header">
+            <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+              Facture client
+            </h2>
+          </div>
+          <div className="px-5 py-4">
+            <InvoiceUpload orderId={order.id} hasInvoice={!!order.invoicePath} />
+          </div>
+        </section>
+
+        <section className="card overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border table-header">
+            <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+              Avoir
+            </h2>
+          </div>
+          <div className="px-5 py-4">
+            <CreditNoteUpload orderId={order.id} hasCreditNote={!!order.creditNotePath} />
+          </div>
+        </section>
+      </div>
+
+      {/* Articles (editor + modifications) */}
+      <OrderItemsEditor
+        orderId={order.id}
+        items={order.items.map((item) => ({
+          ...item,
+          unitPrice: Number(item.unitPrice),
+          lineTotal: Number(item.lineTotal),
+        }))}
+        existingModifications={order.itemModifications.map((mod) => {
+          const item = order.items.find((i) => i.id === mod.orderItemId);
+          return {
+            orderItemId: mod.orderItemId,
+            originalQuantity: mod.originalQuantity,
+            newQuantity: mod.newQuantity,
+            reason: mod.reason as "OUT_OF_STOCK" | "CLIENT_REQUEST",
+            priceDifference: Number(mod.priceDifference),
+            productName: item?.productName ?? "",
+            productRef: item?.productRef ?? "",
+            colorName: item?.colorName ?? "",
+            imagePath: item?.imagePath ?? null,
+            unitPrice: Number(item?.unitPrice ?? 0),
+          };
+        })}
+      />
+
+      {/* Récap + Transporteur */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-
-        {/* -- Colonne principale -- */}
-        <div className="xl:col-span-2 space-y-5">
-
-          {/* Articles */}
-          <section className="card overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-border table-header">
-              <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-                Articles commandés ({order.items.length})
-              </h2>
-            </div>
-            <div className="divide-y divide-border-light">
-              {order.items.map((item) => (
-                <div key={item.id} className="flex gap-4 px-5 py-4">
-                  {/* Image */}
-                  <div className="w-12 h-12 sm:w-16 sm:h-16 shrink-0 bg-bg-tertiary border border-border rounded-lg overflow-hidden">
-                    {item.imagePath ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.imagePath} alt={item.productName}
-                        className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
-                            d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Infos */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text-primary font-body">
-                      {item.productName}
-                    </p>
-                    <p className="text-xs font-mono text-text-muted mt-0.5">{item.productRef}</p>
-                    <div className="flex flex-wrap gap-1.5 mt-1">
-                      <span className="badge badge-neutral">
-                        {item.colorName}
-                      </span>
-                      {item.saleType === "PACK" && (
-                        <span className="badge badge-neutral">
-                          Paquet ×{item.packQty}
-                        </span>
-                      )}
-                      {(() => {
-                        if (item.sizesJson) {
-                          try {
-                            const sizes: { name: string; quantity: number }[] = JSON.parse(item.sizesJson);
-                            if (sizes.length > 0) return (
-                              <span className="badge badge-neutral">
-                                {sizes.map(s => `${s.name}×${s.quantity}`).join(", ")}
-                              </span>
-                            );
-                          } catch { /* ignore */ }
-                        }
-                        if (item.size) return (
-                          <span className="badge badge-neutral">
-                            Taille {item.size}
-                          </span>
-                        );
-                        return null;
-                      })()}
-                    </div>
-                  </div>
-
-                  {/* Prix */}
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-text-primary font-heading">
-                      {fmt(item.lineTotal)}
-                    </p>
-                    <p className="text-xs text-text-muted font-body mt-0.5">
-                      {item.quantity} × {fmt(item.unitPrice)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Client */}
-          <section className="card overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-border table-header">
-              <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-                Client
-              </h2>
-            </div>
-            <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-              <InfoRow label="Société"   value={order.clientCompany} />
-              <InfoRow label="Email"     value={order.clientEmail} />
-              <InfoRow label="Téléphone" value={order.clientPhone} />
-              <InfoRow label="SIRET"     value={order.clientSiret} mono />
-              {order.clientVatNumber && (
-                <InfoRow label="N° TVA" value={order.clientVatNumber} mono />
-              )}
-            </div>
-          </section>
-        </div>
-
-        {/* -- Colonne latérale -- */}
+        <div className="xl:col-span-2" />
         <div className="space-y-5">
-
           {/* Récap financier */}
           <section className="card overflow-hidden">
             <div className="px-5 py-3.5 border-b border-border table-header">
@@ -256,28 +324,20 @@ export default async function AdminCommandeDetailPage({
             </div>
           </section>
 
-          {/* Livraison */}
+          {/* Transporteur */}
           <section className="card overflow-hidden">
             <div className="px-5 py-3.5 border-b border-border table-header">
               <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-                Livraison
+                Transporteur
               </h2>
             </div>
-            <div className="px-5 py-4 space-y-3 text-sm font-body">
+            <div className="px-5 py-4 space-y-2 text-sm font-body">
               <p className="font-medium text-text-primary">{order.carrierName}</p>
               {order.eeTrackingId && (
                 <p className="text-xs font-mono text-text-secondary bg-bg-tertiary px-2 py-1 rounded inline-block">
                   Suivi : {order.eeTrackingId}
                 </p>
               )}
-              <div className="border-t border-border pt-3 text-text-secondary leading-relaxed">
-                <p className="font-medium text-text-primary">{order.shipLabel}</p>
-                <p>{order.shipFirstName} {order.shipLastName}{order.shipCompany ? ` — ${order.shipCompany}` : ""}</p>
-                <p>{order.shipAddress1}</p>
-                {order.shipAddress2 && <p>{order.shipAddress2}</p>}
-                <p>{order.shipZipCode} {order.shipCity}</p>
-                <p>{order.shipCountry}</p>
-              </div>
             </div>
           </section>
         </div>

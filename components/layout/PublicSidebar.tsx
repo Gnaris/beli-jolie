@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useTransition, useCallback } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -64,6 +65,9 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
   const [prevCount, setPrevCount]         = useState(0);
   const [badgeBounce, setBadgeBounce]     = useState(false);
   const [scrolled, setScrolled]           = useState(false);
+  const [flyItems, setFlyItems]           = useState<{ id: number; src: string; style: React.CSSProperties }[]>([]);
+  const cartIconRef                       = useRef<HTMLAnchorElement>(null);
+  const flyIdRef                          = useRef(0);
   const [previewPending, startPreviewTransition] = useTransition();
   const pathname  = usePathname();
   const router = useRouter();
@@ -181,6 +185,50 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showClientUI]);
+
+  // Listen for fly-to-cart events from product cards
+  useEffect(() => {
+    function handleFlyToCart(e: Event) {
+      const detail = (e as CustomEvent).detail as {
+        imageSrc: string;
+        rect: { top: number; left: number; width: number; height: number };
+        quantity?: number;
+      };
+      const cartEl = cartIconRef.current;
+      if (!cartEl || !detail.rect) return;
+
+      const cartRect = cartEl.getBoundingClientRect();
+      const dx = cartRect.left + cartRect.width / 2 - (detail.rect.left + detail.rect.width / 2);
+      const dy = cartRect.top + cartRect.height / 2 - (detail.rect.top + detail.rect.height / 2);
+
+      const id = ++flyIdRef.current;
+      const style: React.CSSProperties = {
+        position: "fixed",
+        top: detail.rect.top,
+        left: detail.rect.left,
+        width: detail.rect.width,
+        height: detail.rect.height,
+        zIndex: 9999,
+        pointerEvents: "none",
+        objectFit: "cover",
+        "--fly-dx": `${dx}px`,
+        "--fly-dy": `${dy}px`,
+      } as React.CSSProperties;
+
+      setFlyItems((prev) => [...prev, { id, src: detail.imageSrc, style }]);
+
+      // After animation ends, remove element & bump count
+      setTimeout(() => {
+        setFlyItems((prev) => prev.filter((f) => f.id !== id));
+        setCartCount((c) => c + (detail.quantity ?? 1));
+        setBadgeBounce(true);
+        setTimeout(() => setBadgeBounce(false), 500);
+      }, 650);
+    }
+
+    window.addEventListener("cart:item-added", handleFlyToCart);
+    return () => window.removeEventListener("cart:item-added", handleFlyToCart);
+  }, []);
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 8);
@@ -359,6 +407,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
             {/* Cart */}
             {showClientUI && (
               <Link
+                ref={cartIconRef}
                 href="/panier"
                 className="relative flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary bg-bg-secondary border border-border hover:bg-bg-tertiary rounded-[10px] transition-colors"
                 aria-label={t("cart")}
@@ -650,6 +699,24 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
 
       {/* Spacer for fixed navbar (row1 h-16 + row2 nav ~40px on desktop) */}
       <div className="h-16 lg:h-[116px]" />
+
+      {/* Flying product images for add-to-cart animation */}
+      {flyItems.length > 0 &&
+        createPortal(
+          <>
+            {flyItems.map((item) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={item.id}
+                src={item.src}
+                alt=""
+                className="animate-fly-to-cart shadow-lg"
+                style={item.style}
+              />
+            ))}
+          </>,
+          document.body
+        )}
 
     </>
   );

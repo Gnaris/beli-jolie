@@ -42,7 +42,7 @@ type PrismaProduct = {
     isPrimary: boolean;
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | null;
-    color: { name: string; hex: string | null } | null;
+    color: { name: string; hex: string | null; patternImage?: string | null } | null;
   }[];
 };
 
@@ -55,7 +55,7 @@ function computeDiscountedPrice(unitPrice: number, discountType: "PERCENT" | "AM
 function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string, string>>): CarouselProduct[] {
   return products.map((p) => {
     // Deduplicate by colorId, take min price per color
-    const colorMap = new Map<string, { id: string; colorId: string; hex: string | null; name: string; unitPrice: number; discountedPrice: number; hasDiscount: boolean; isPrimary: boolean }>();
+    const colorMap = new Map<string, { id: string; colorId: string; hex: string | null; patternImage: string | null; name: string; unitPrice: number; discountedPrice: number; hasDiscount: boolean; isPrimary: boolean; variantId: string }>();
     for (const c of p.colors) {
       if (!c.colorId) continue;
       const price = Number(c.unitPrice);
@@ -63,13 +63,14 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
       const discounted = computeDiscountedPrice(price, c.discountType, dv);
       const hasDsc = discounted < price;
       if (!colorMap.has(c.colorId)) {
-        colorMap.set(c.colorId, { id: c.colorId, colorId: c.colorId, hex: c.color?.hex ?? null, name: c.color?.name ?? "", unitPrice: price, discountedPrice: discounted, hasDiscount: hasDsc, isPrimary: c.isPrimary });
+        colorMap.set(c.colorId, { id: c.colorId, colorId: c.colorId, hex: c.color?.hex ?? null, patternImage: c.color?.patternImage ?? null, name: c.color?.name ?? "", unitPrice: price, discountedPrice: discounted, hasDiscount: hasDsc, isPrimary: c.isPrimary, variantId: c.id });
       } else {
         const entry = colorMap.get(c.colorId)!;
         if (discounted < entry.discountedPrice) {
           entry.unitPrice = price;
           entry.discountedPrice = discounted;
           entry.hasDiscount = hasDsc;
+          entry.variantId = c.id;
         }
         if (c.isPrimary) entry.isPrimary = true;
       }
@@ -82,12 +83,14 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
       colors:    [...colorMap.values()].map((c) => ({
         id:              c.colorId,
         hex:             c.hex,
+        patternImage:    c.patternImage,
         name:            c.name,
         firstImage:      imageMap.get(p.id)?.get(c.colorId) ?? null,
         unitPrice:       c.unitPrice,
         discountedPrice: c.discountedPrice,
         hasDiscount:     c.hasDiscount,
         isPrimary:       c.isPrimary,
+        variantId:       c.variantId,
       })),
     };
   });
@@ -114,7 +117,7 @@ const COLOR_INCLUDE = {
       isPrimary:     true,
       discountType:  true,
       discountValue: true,
-      color:         { select: { name: true, hex: true } },
+      color:         { select: { name: true, hex: true, patternImage: true } },
     },
   },
 };

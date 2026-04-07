@@ -89,6 +89,7 @@ export default function ProductCard({
   const [addedMsg, setAddedMsg] = useState("");
   const [addError, setAddError] = useState("");
   const [showSparkles, setShowSparkles] = useState(false);
+  const imageRef = useRef<HTMLDivElement>(null);
 
   // Re-sync selected color when filtered color IDs change
   const filteredKey = filteredColorIds.join(",");
@@ -201,6 +202,13 @@ export default function ProductCard({
           setAddError(t("errorNoOption"));
           return;
         }
+        // Fly-to-cart animation
+        if (imageRef.current && image) {
+          const rect = imageRef.current.getBoundingClientRect();
+          window.dispatchEvent(new CustomEvent("cart:item-added", {
+            detail: { imageSrc: image, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }, quantity: qty },
+          }));
+        }
         setAddedMsg(t("added"));
         setTimeout(() => setAddedMsg(""), 2500);
       } catch {
@@ -216,7 +224,7 @@ export default function ProductCard({
     <article className="group card card-hover overflow-hidden flex flex-col animate-zoom-fade p-2.5">
       {/* Image */}
       <Link href={`/produits/${id}`} className="block">
-        <div className="bg-bg-secondary relative overflow-hidden aspect-[5/6] sm:aspect-[4/5] md:aspect-[3/4] rounded-[14px] border border-border-light">
+        <div ref={imageRef} className="bg-bg-secondary relative overflow-hidden aspect-[5/6] sm:aspect-[4/5] md:aspect-[3/4] rounded-[14px] border border-border-light">
           {image ? (
             <Image
               src={image}

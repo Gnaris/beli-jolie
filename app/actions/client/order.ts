@@ -245,9 +245,10 @@ export async function placeOrder(
     });
 
     return {
-      productName: item.variant.product.name,
-      productRef:  item.variant.product.reference,
-      colorName:   item.variant.color
+      productName:  item.variant.product.name,
+      productRef:   item.variant.product.reference,
+      categoryName: item.variant.product.category?.name ?? null,
+      colorName:    item.variant.color
         ? (item.variant.subColors?.length
             ? [item.variant.color.name, ...item.variant.subColors.map((sc: { color: { name: string } }) => sc.color.name)].join("/")
             : item.variant.color.name)
@@ -398,6 +399,10 @@ export async function placeOrder(
       shipCountry:     address.country,
       carrierName:     input.carrierName,
       carrierPrice:    input.carrierPrice,
+      clientDiscountAmt: Number(clientDiscountAmt),
+      promoCode:       order.promoCode ?? null,
+      promoDiscount:   Number(order.promoDiscount ?? 0),
+      creditApplied:   Number(order.creditApplied ?? 0),
       tvaRate:         input.tvaRate,
       subtotalHT,
       tvaAmount,

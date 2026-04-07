@@ -603,7 +603,7 @@ export default function CheckoutClient({
   const [carriers, setCarriers]         = useState<Carrier[]>([]);
   const [transactionId, setTransactionId] = useState<string>("");
   const [selectedCarrierId, setSelectedCarrierId] = useState<string | null>(null);
-  const [carriersLoading, setCarriersLoading]     = useState(false);
+  const [carriersLoading, setCarriersLoading]     = useState(!!selectedAddrId);
   const [carriersError, setCarriersError]         = useState("");
   const [noCarrierConfigured, setNoCarrierConfigured] = useState(false);
   const selectedCarrier = deliveryMode === "pickup"

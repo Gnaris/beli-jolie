@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { addToCart } from "@/app/actions/client/cart";
 import { getImageSrc } from "@/lib/image-utils";
@@ -70,6 +70,7 @@ export default function CatalogProductCard({
   const [quantity, setQuantity] = useState(1);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
 
   if (!activeVariant) return null;
 
@@ -100,6 +101,13 @@ export default function CatalogProductCard({
     startTransition(async () => {
       try {
         await addToCart(activeVariant!.id, quantity);
+        // Fly-to-cart animation
+        if (imageContainerRef.current && image) {
+          const rect = imageContainerRef.current.getBoundingClientRect();
+          window.dispatchEvent(new CustomEvent("cart:item-added", {
+            detail: { imageSrc: getImageSrc(image, "medium"), rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }, quantity },
+          }));
+        }
         setSuccess(true);
         setQuantity(1);
         setTimeout(() => setSuccess(false), 2500);
@@ -112,7 +120,7 @@ export default function CatalogProductCard({
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-[0_1px_6px_rgba(0,0,0,0.07)] hover:shadow-[0_4px_18px_rgba(0,0,0,0.12)] transition-all duration-200">
       {/* Image */}
-      <div className="relative aspect-[4/5] bg-[#F5F5F5] overflow-hidden">
+      <div ref={imageContainerRef} className="relative aspect-[4/5] bg-[#F5F5F5] overflow-hidden">
         {image ? (
           <img
             src={getImageSrc(image, "medium")}

@@ -1,21 +1,27 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState, useTransition, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useScrollReveal } from "./useScrollReveal";
+import { addToCart } from "@/app/actions/client/cart";
+import ColorSwatch from "@/components/ui/ColorSwatch";
 
 interface ColorData {
   id: string;
   hex: string | null;
+  patternImage?: string | null;
   name: string;
   firstImage: string | null;
   unitPrice: number;
   discountedPrice?: number;
   hasDiscount?: boolean;
   isPrimary: boolean;
+  variantId: string;
 }
 
 export interface CarouselProduct {
@@ -63,20 +69,27 @@ function CarouselCard({
   const t = useTranslations("products");
   const tProduct = useTranslations("product");
   const { tp, tc: translateCat } = useProductTranslation();
+  const { data: session } = useSession();
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
 
   const primaryColor = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
-  const image = primaryColor?.firstImage;
+  const [selectedColorId, setSelectedColorId] = useState<string>(primaryColor?.id ?? "");
 
-  const minBasePrice = Math.min(...product.colors.map((c) => c.unitPrice));
-  const minDiscountedPrice = Math.min(...product.colors.map((c) => c.discountedPrice ?? c.unitPrice));
-  const hasProductDiscount = minDiscountedPrice < minBasePrice;
+  const selectedColor = product.colors.find((c) => c.id === selectedColorId) ?? primaryColor;
+  const image = selectedColor?.firstImage;
 
-  const priceBeforeClient = minDiscountedPrice;
+  // Price for selected color
+  const basePrice = selectedColor?.unitPrice ?? 0;
+  const discountedPrice = selectedColor?.discountedPrice ?? basePrice;
+  const hasProductDiscount = discountedPrice < basePrice;
+
+  const priceBeforeClient = discountedPrice;
   const finalPrice = applyClientDiscount(priceBeforeClient, clientDiscount);
   const hasClientDiscount = !!clientDiscount && finalPrice < priceBeforeClient;
 
   const showStrikethrough = hasClientDiscount || hasProductDiscount;
-  const strikethroughPrice = hasClientDiscount ? priceBeforeClient : minBasePrice;
+  const strikethroughPrice = hasClientDiscount ? priceBeforeClient : basePrice;
   const anyColorHasDiscount = product.colors.some((c) => c.hasDiscount);
 
   const isPremium = size === "premium";
@@ -85,10 +98,46 @@ function CarouselCard({
   const cardRadius = isPremium ? "rounded-2xl" : "rounded-xl";
   const cardShadow = isPremium ? "shadow-md hover:shadow-lg" : "shadow-sm hover:shadow-md";
 
+  const imageRef = useRef<HTMLDivElement>(null);
+  const [addedFeedback, setAddedFeedback] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleAddToCart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setErrorMsg(null);
+
+    if (!session?.user) {
+      router.push("/connexion");
+      return;
+    }
+
+    if (!selectedColor?.variantId) return;
+
+    startTransition(async () => {
+      try {
+        await addToCart(selectedColor.variantId, 1);
+        // Fly-to-cart animation
+        if (imageRef.current && image) {
+          const rect = imageRef.current.getBoundingClientRect();
+          window.dispatchEvent(new CustomEvent("cart:item-added", {
+            detail: { imageSrc: image, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }, quantity: 1 },
+          }));
+        }
+        setAddedFeedback(true);
+        setTimeout(() => setAddedFeedback(false), 2000);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Erreur";
+        setErrorMsg(msg);
+        setTimeout(() => setErrorMsg(null), 3000);
+      }
+    });
+  }, [session, selectedColor, image, router]);
+
   return (
     <article className={`group shrink-0 ${cardWidth} ${cardRadius} bg-bg-primary border border-border overflow-hidden flex flex-col transition-shadow duration-300 ${cardShadow}`}>
       <Link href={`/produits/${product.id}`} className="block">
-        <div className={`${imageAspect} bg-bg-secondary relative overflow-hidden`}>
+        <div ref={imageRef} className={`${imageAspect} bg-bg-secondary relative overflow-hidden`}>
           {image ? (
             <Image
               src={image}
@@ -132,16 +181,33 @@ function CarouselCard({
       </Link>
 
       <div className="p-4 flex flex-col gap-2 flex-1">
-        {/* Color swatches */}
+        {/* Color swatches — clickable */}
         {product.colors.length > 1 && (
           <div className="flex items-center gap-1.5 flex-wrap">
             {product.colors.slice(0, 5).map((c) => (
-              <span
+              <button
                 key={c.id}
+                type="button"
                 title={tp(c.name)}
-                className="w-4 h-4 rounded-full border border-border"
-                style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
-              />
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setSelectedColorId(c.id);
+                }}
+                className={`rounded-full transition-all duration-200 ${
+                  c.id === selectedColorId
+                    ? "ring-2 ring-accent ring-offset-1 scale-110"
+                    : "hover:scale-110"
+                }`}
+              >
+                <ColorSwatch
+                  hex={c.hex}
+                  patternImage={c.patternImage}
+                  size={16}
+                  border
+                  rounded="full"
+                />
+              </button>
             ))}
           </div>
         )}
@@ -168,12 +234,51 @@ function CarouselCard({
             </span>
           )}
           <span className={`font-heading font-semibold ${isPremium ? "text-base" : "text-sm"} ${showStrikethrough ? "text-[#EF4444]" : "text-text-primary"}`}>
-            {(hasClientDiscount ? finalPrice : minDiscountedPrice).toFixed(2)} &euro;
+            {(hasClientDiscount ? finalPrice : discountedPrice).toFixed(2)} &euro;
           </span>
           <span className="text-[10px] text-text-muted font-body">
             {tProduct("htUnit")}
           </span>
         </div>
+
+        {/* Add to cart button */}
+        <button
+          type="button"
+          onClick={handleAddToCart}
+          disabled={isPending || addedFeedback}
+          className={`mt-1 w-full py-2 rounded-lg text-xs font-medium font-body transition-all duration-200 ${
+            addedFeedback
+              ? "bg-green-500 text-white"
+              : errorMsg
+                ? "bg-red-50 text-red-600 border border-red-200"
+                : "bg-accent text-white hover:bg-accent-dark active:scale-[0.98]"
+          } disabled:opacity-70`}
+        >
+          {isPending ? (
+            <span className="inline-flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            </span>
+          ) : addedFeedback ? (
+            <span className="inline-flex items-center gap-1">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              {tProduct("addedToCart")}
+            </span>
+          ) : errorMsg ? (
+            errorMsg
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+              </svg>
+              {tProduct("addToCart")}
+            </span>
+          )}
+        </button>
       </div>
     </article>
   );

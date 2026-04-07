@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useCallback } from "react";
+import { useState, useTransition, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -186,6 +186,7 @@ export default function ProductDetail({
   const [addedOptId, setAddedOptId]               = useState<string | null>(null);
   const [restockAlerts, setRestockAlerts]         = useState<Record<string, boolean>>({});
   const [alertLoading, setAlertLoading]           = useState<Record<string, boolean>>({});
+  const mainImageRef = useRef<HTMLDivElement>(null);
 
   const toggleRestockAlert = useCallback(async (variantId: string, productColorId: string) => {
     setAlertLoading((prev) => ({ ...prev, [variantId]: true }));
@@ -255,6 +256,13 @@ export default function ProductDetail({
     startTransition(async () => {
       try {
         await addToCart(variantId, qty);
+        // Fly-to-cart animation
+        if (mainImageRef.current && displayedImage) {
+          const rect = mainImageRef.current.getBoundingClientRect();
+          window.dispatchEvent(new CustomEvent("cart:item-added", {
+            detail: { imageSrc: displayedImage, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }, quantity: qty },
+          }));
+        }
         setAddedOptId(variantId);
         router.refresh();
         setTimeout(() => setAddedOptId(null), 2000);
@@ -339,6 +347,7 @@ export default function ProductDetail({
         {/* -- Images -------------------------------------------------- */}
         <div className="space-y-4 animate-zoom-fade">
           <div
+            ref={mainImageRef}
             className="aspect-square bg-bg-secondary overflow-hidden relative cursor-zoom-in rounded-2xl border border-border-light"
             onClick={() => displayedImage && setZoomedSrc(displayedImage)}
           >

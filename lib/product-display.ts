@@ -173,7 +173,7 @@ const CAROUSEL_SELECT = {
       isPrimary: true,
       discountType: true,
       discountValue: true,
-      color: { select: { name: true, hex: true } },
+      color: { select: { name: true, hex: true, patternImage: true } },
     },
   },
 } as const;
@@ -190,7 +190,7 @@ type CarouselPrismaProduct = {
     isPrimary: boolean;
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | Decimal | null;
-    color: { name: string; hex: string | null } | null;
+    color: { name: string; hex: string | null; patternImage?: string | null } | null;
   }[];
 };
 

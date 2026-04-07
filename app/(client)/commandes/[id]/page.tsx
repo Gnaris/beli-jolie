@@ -2,14 +2,17 @@ import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
+import OrderItemImage from "@/components/ui/OrderItemImage";
+import ClientOrderItemsList from "@/components/client/orders/OrderItemsList";
+import OrderModifications from "@/components/client/orders/OrderModifications";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 import ReorderButton from "@/components/client/orders/ReorderButton";
 import SuccessToast from "@/components/client/SuccessToast";
 import { STATUS_CONFIG, getTrackingUrl } from "@/app/(client)/commandes/page";
+import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -36,7 +39,10 @@ export default async function CommandeDetailPage({
 
   const order = await prisma.order.findFirst({
     where: { id, userId: session.user.id },
-    include: { items: { orderBy: { createdAt: "asc" } } },
+    include: {
+      items: { orderBy: { createdAt: "asc" } },
+      itemModifications: true,
+    },
   });
 
   if (!order) notFound();
@@ -58,7 +64,7 @@ export default async function CommandeDetailPage({
 
   return (
     <div className="p-4 md:p-6 lg:p-10 w-full space-y-6 relative overflow-hidden">
-      <SuccessToast />
+      <Suspense fallback={null}><SuccessToast /></Suspense>
 
       {/* Fil d'Ariane */}
       <div className="flex items-center gap-2 text-sm font-body text-text-muted">
@@ -163,52 +169,243 @@ export default async function CommandeDetailPage({
         </div>
       )}
 
-      {/* -- Facture -- */}
-      {order.invoicePath && (
-        <div className="bg-bg-primary border border-border rounded-xl p-5 flex items-center justify-between gap-4">
+      {/* -- Livraison + Facturation -- */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-bg-primary border border-border rounded-xl p-5">
+          <h2 className="font-heading text-sm font-semibold text-text-primary mb-3">
+            {t("deliveryAddress")}
+          </h2>
+          <div className="text-sm font-body space-y-2">
+            {order.shipCompany && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("companyLabel")}</p>
+                <p className="text-text-primary">{order.shipCompany}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("firstNameLabel")}</p>
+                <p className="text-text-primary">{order.shipFirstName}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("lastNameLabel")}</p>
+                <p className="text-text-primary">{order.shipLastName}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("addressLabel2")}</p>
+              <p className="text-text-primary">{order.shipAddress1}</p>
+              {order.shipAddress2 && <p className="text-text-primary">{order.shipAddress2}</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("zipCodeLabel")}</p>
+                <p className="text-text-primary">{order.shipZipCode}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("cityLabel")}</p>
+                <p className="text-text-primary">{order.shipCity}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("countryLabel")}</p>
+              <p className="text-text-primary">{order.shipCountry}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("emailLabel")}</p>
+                <p className="text-text-primary">{order.clientEmail}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("phoneLabel")}</p>
+                <p className="text-text-primary">{order.clientPhone}</p>
+              </div>
+            </div>
+            {order.clientVatNumber && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("vatNumberLabel")}</p>
+                <p className="text-text-primary font-mono text-xs">{order.clientVatNumber}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-bg-primary border border-border rounded-xl p-5">
+          <h2 className="font-heading text-sm font-semibold text-text-primary mb-3">
+            {t("billingInfo")}
+          </h2>
+          <div className="text-sm font-body space-y-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("companyLabel")}</p>
+              <p className="text-text-primary">{order.clientCompany}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("firstNameLabel")}</p>
+                <p className="text-text-primary">{order.shipFirstName}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("lastNameLabel")}</p>
+                <p className="text-text-primary">{order.shipLastName}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("addressLabel2")}</p>
+              <p className="text-text-primary">{order.shipAddress1}</p>
+              {order.shipAddress2 && <p className="text-text-primary">{order.shipAddress2}</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("zipCodeLabel")}</p>
+                <p className="text-text-primary">{order.shipZipCode}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("cityLabel")}</p>
+                <p className="text-text-primary">{order.shipCity}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("countryLabel")}</p>
+              <p className="text-text-primary">{order.shipCountry}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("emailLabel")}</p>
+                <p className="text-text-primary">{order.clientEmail}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("phoneLabel")}</p>
+                <p className="text-text-primary">{order.clientPhone}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("siretLabel")}</p>
+              <p className="text-text-primary font-mono text-xs">{order.clientSiret}</p>
+            </div>
+            {order.clientVatNumber && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">{t("vatNumberLabel")}</p>
+                <p className="text-text-primary font-mono text-xs">{order.clientVatNumber}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* -- Bon de commande -- */}
+      <div className="bg-bg-primary border border-border rounded-xl p-5">
+        <h2 className="font-heading text-sm font-semibold text-text-primary mb-1">
+          {t("orderForm")}
+        </h2>
+        <p className="text-xs text-text-muted font-body mb-4">
+          {t("orderFormDesc")}
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <a
+            href={`/api/client/commandes/${order.id}/pdf`}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-sm font-body font-medium rounded-lg transition-colors"
+          >
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {t("downloadOrderWithPrices")}
+          </a>
+          <a
+            href={`/api/client/commandes/${order.id}/pdf?noPrices=1`}
+            className="inline-flex items-center gap-2 px-4 py-2 border border-border text-text-primary text-sm font-body font-medium rounded-lg hover:bg-bg-secondary transition-colors"
+          >
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {t("downloadOrderNoPrices")}
+          </a>
+        </div>
+      </div>
+
+      {/* -- Facture + Avoir -- */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Facture */}
+        <div className="bg-bg-primary border border-border rounded-xl p-5 flex flex-col justify-between gap-4">
           <div>
             <h2 className="font-heading text-sm font-semibold text-text-primary">
               {t("invoice")}
             </h2>
-            <p className="text-xs text-text-muted font-body mt-0.5">
-              {t("invoiceAvailable")}
-            </p>
+            {order.invoicePath ? (
+              <p className="text-xs text-text-muted font-body mt-0.5">
+                {t("invoiceAvailable")}
+              </p>
+            ) : (
+              <p className="text-xs text-text-muted font-body mt-2">
+                {t("invoiceUnavailable")}
+              </p>
+            )}
           </div>
-          <a
-            href={`/api/client/commandes/${order.id}/invoice`}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-sm font-body font-medium rounded-lg transition-colors shrink-0"
-          >
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
-            {t("downloadInvoice")}
-          </a>
+          {order.invoicePath && (
+            <a
+              href={`/api/client/commandes/${order.id}/invoice`}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-sm font-body font-medium rounded-lg transition-colors self-start"
+            >
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              {t("downloadInvoice")}
+            </a>
+          )}
         </div>
-      )}
 
-      {/* -- Avoir (credit note) -- */}
-      {order.creditNotePath && (
-        <div className="bg-bg-primary border border-border rounded-xl p-5 flex items-center justify-between gap-4">
+        {/* Avoir */}
+        <div className="bg-bg-primary border border-border rounded-xl p-5 flex flex-col justify-between gap-4">
           <div>
             <h2 className="font-heading text-sm font-semibold text-text-primary">
               {t("creditNote")}
             </h2>
-            <p className="text-xs text-text-muted font-body mt-0.5">
-              {t("creditNoteAvailable")}
-            </p>
+            {order.creditNotePath ? (
+              <p className="text-xs text-text-muted font-body mt-0.5">
+                {t("creditNoteAvailable")}
+              </p>
+            ) : (
+              <p className="text-xs text-text-muted font-body mt-2">
+                {t("noCreditNote")}
+              </p>
+            )}
           </div>
-          <a
-            href={`/api/client/commandes/${order.id}/credit-note`}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-sm font-body font-medium rounded-lg transition-colors shrink-0"
-          >
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
-            {t("downloadCreditNote")}
-          </a>
+          {order.creditNotePath && (
+            <a
+              href={`/api/client/commandes/${order.id}/credit-note`}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-sm font-body font-medium rounded-lg transition-colors self-start"
+            >
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              {t("downloadCreditNote")}
+            </a>
+          )}
         </div>
+      </div>
+
+      {/* -- Articles Modifiés (si modifications) -- */}
+      {order.itemModifications.length > 0 && (
+        <OrderModifications
+          modifications={order.itemModifications.map((mod) => {
+            const item = order.items.find((i) => i.id === mod.orderItemId);
+            return {
+              orderItemId: mod.orderItemId,
+              originalQuantity: mod.originalQuantity,
+              newQuantity: mod.newQuantity,
+              reason: mod.reason as "OUT_OF_STOCK" | "CLIENT_REQUEST",
+              priceDifference: Number(mod.priceDifference),
+              productName: item?.productName ?? "",
+              productRef: item?.productRef ?? "",
+              colorName: item?.colorName ?? "",
+              imagePath: item?.imagePath ?? null,
+              unitPrice: Number(item?.unitPrice ?? 0),
+            };
+          })}
+        />
       )}
 
       {/* -- Articles -- */}
@@ -218,65 +415,19 @@ export default async function CommandeDetailPage({
             {t("articleList")} ({order.items.reduce((s, i) => s + i.quantity, 0)})
           </h2>
         </div>
-        <div className="divide-y divide-border-light">
-          {order.items.map((item) => (
-            <div key={item.id} className="px-5 py-4 flex items-center gap-4">
-              {/* Image */}
-              <div className="w-14 h-14 bg-bg-tertiary rounded-lg overflow-hidden shrink-0">
-                {item.imagePath ? (
-                  <Image src={item.imagePath} alt={item.productName} width={80} height={80} unoptimized className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
-                        d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
-                    </svg>
-                  </div>
-                )}
-              </div>
-
-              {/* Info produit */}
-              <div className="flex-1 min-w-0">
-                <p className="font-body font-medium text-sm text-text-primary truncate">{item.productName}</p>
-                <p className="text-xs text-text-muted font-body mt-0.5 font-mono">{item.productRef}</p>
-                <div className="flex flex-wrap gap-2 mt-1">
-                  <span className="badge badge-neutral text-[10px]">
-                    {item.colorName}
-                  </span>
-                  {(() => {
-                    if (item.sizesJson) {
-                      try {
-                        const sizes: { name: string; quantity: number }[] = JSON.parse(item.sizesJson);
-                        if (sizes.length > 0) return (
-                          <span className="badge badge-neutral text-[10px]">
-                            {sizes.map(s => `${s.name}×${s.quantity}`).join(", ")}
-                          </span>
-                        );
-                      } catch { /* ignore */ }
-                    }
-                    if (item.size) return (
-                      <span className="badge badge-neutral text-[10px]">
-                        {t("sizeOption", { size: item.size })}
-                      </span>
-                    );
-                    return null;
-                  })()}
-                  <span className={`badge text-[10px] ${item.saleType === "PACK" ? "badge-purple" : "badge-info"}`}>
-                    {item.saleType === "PACK" ? t("packOption", { qty: item.packQty ?? 0 }) : t("unitOption")}
-                  </span>
-                </div>
-              </div>
-
-              {/* Qte + prix */}
-              <div className="text-right shrink-0">
-                <p className="text-xs text-text-muted font-body">x{item.quantity}</p>
-                <p className="font-body font-semibold text-sm text-text-primary mt-0.5">
-                  {Number(item.lineTotal).toFixed(2)} {"\u20AC"}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
+        <ClientOrderItemsList items={order.items.map((item) => {
+          const mod = order.itemModifications.find((m) => m.orderItemId === item.id);
+          return {
+            ...item,
+            unitPrice: Number(item.unitPrice),
+            lineTotal: Number(item.lineTotal),
+            modification: mod ? {
+              originalQuantity: mod.originalQuantity,
+              newQuantity: mod.newQuantity,
+              reason: mod.reason,
+            } : null,
+          };
+        })} />
 
         {/* Totaux */}
         <div className="px-5 py-4 bg-bg-secondary border-t border-border space-y-1.5">
@@ -301,35 +452,6 @@ export default async function CommandeDetailPage({
             <span>{t("totalTTC")}</span>
             <span>{Number(order.totalTTC).toFixed(2)} {"\u20AC"}</span>
           </div>
-        </div>
-      </div>
-
-      {/* -- Adresse de livraison -- */}
-      <div className="bg-bg-primary border border-border rounded-xl p-5">
-        <h2 className="font-heading text-sm font-semibold text-text-primary mb-3">
-          {t("deliveryAddress")}
-        </h2>
-        <address className="not-italic text-sm font-body text-text-secondary leading-relaxed">
-          <p className="font-medium text-text-primary">{order.shipFirstName} {order.shipLastName}</p>
-          {order.shipCompany && <p>{order.shipCompany}</p>}
-          <p>{order.shipAddress1}</p>
-          {order.shipAddress2 && <p>{order.shipAddress2}</p>}
-          <p>{order.shipZipCode} {order.shipCity}</p>
-          <p>{order.shipCountry}</p>
-        </address>
-      </div>
-
-      {/* -- Infos client -- */}
-      <div className="bg-bg-primary border border-border rounded-xl p-5">
-        <h2 className="font-heading text-sm font-semibold text-text-primary mb-3">
-          {t("billingInfo")}
-        </h2>
-        <div className="text-sm font-body text-text-secondary space-y-1">
-          <p><span className="font-medium text-text-primary">{order.clientCompany}</span></p>
-          <p>{order.clientEmail}</p>
-          <p>{order.clientPhone}</p>
-          <p className="text-xs text-text-muted">{t("siretLabel")} {order.clientSiret}</p>
-          {order.clientVatNumber && <p className="text-xs text-text-muted">{t("vatNumberLabel")} : {order.clientVatNumber}</p>}
         </div>
       </div>
 

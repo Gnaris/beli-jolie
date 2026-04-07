@@ -6,25 +6,25 @@ import { generateOrderPDF } from "@/lib/pdf-order";
 import { logger } from "@/lib/logger";
 
 /**
- * GET /api/admin/commandes/[id]/pdf
+ * GET /api/client/commandes/[id]/pdf?noPrices=1
  *
- * Génère et sert le bon de commande PDF à la volée.
- * Réservé aux admins.
+ * Generates the order PDF on the fly for the authenticated client.
+ * ?noPrices=1 → version without prices.
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session) {
     return new NextResponse("Non autorisé", { status: 401 });
   }
 
   const { id } = await params;
-  const hidePrices = _req.nextUrl.searchParams.get("noPrices") === "1";
+  const hidePrices = req.nextUrl.searchParams.get("noPrices") === "1";
 
-  const order = await prisma.order.findUnique({
-    where: { id },
+  const order = await prisma.order.findFirst({
+    where: { id, userId: session.user.id },
     include: { items: { orderBy: { createdAt: "asc" } } },
   });
 
@@ -60,14 +60,14 @@ export async function GET(
       subtotalHT:      Number(order.subtotalHT),
       tvaAmount:       Number(order.tvaAmount),
       totalTTC:        Number(order.totalTTC),
+      hidePrices,
       items: order.items.map((item) => {
-        // Extraire categoryName du variantSnapshot si disponible
         let categoryName: string | null = null;
         if (item.variantSnapshot) {
           try {
             const snap = JSON.parse(item.variantSnapshot);
             categoryName = snap.categoryName ?? null;
-          } catch { /* ignore parse errors on legacy orders */ }
+          } catch { /* ignore */ }
         }
 
         return {
@@ -86,7 +86,6 @@ export async function GET(
           lineTotal:    Number(item.lineTotal),
         };
       }),
-      hidePrices,
     });
 
     const suffix = hidePrices ? "-sans-prix" : "";
@@ -98,7 +97,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    logger.error("[pdf] Erreur génération PDF", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("[pdf] Erreur génération PDF client", { error: err instanceof Error ? err.message : String(err) });
     return new NextResponse("Erreur génération PDF", { status: 500 });
   }
 }

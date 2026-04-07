@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 const DURATION = 5000;
@@ -10,10 +10,13 @@ export default function SuccessToast() {
   const router = useRouter();
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
+  const shownRef = useRef(false);
 
   useEffect(() => {
+    if (shownRef.current) return;
     if (searchParams.get("success") !== "1") return;
 
+    shownRef.current = true;
     setVisible(true);
     setExiting(false);
 
