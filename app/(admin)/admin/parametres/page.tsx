@@ -312,9 +312,11 @@ async function LivraisonTab() {
    TAB : Marketplaces — PFS
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MarketplacesTab() {
-  const [pfsConfig, pfsEnabledRow] = await Promise.all([
+  const [pfsConfig, pfsEnabledRow, ankorsConfig, ankorsEnabledRow] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findUnique({ where: { key: "pfs_enabled" }, select: { value: true } }),
+    prisma.siteConfig.findUnique({ where: { key: "ankors_client_id" }, select: { key: true } }),
+    prisma.siteConfig.findUnique({ where: { key: "ankors_enabled" }, select: { value: true } }),
   ]);
 
   return (
@@ -325,6 +327,8 @@ async function MarketplacesTab() {
         <MarketplaceConfig
           hasPfsConfig={!!pfsConfig}
           pfsEnabled={pfsEnabledRow?.value === "true"}
+          hasAnkorsConfig={!!ankorsConfig}
+          ankorsEnabled={ankorsEnabledRow?.value === "true"}
         />
       </div>
     </div>

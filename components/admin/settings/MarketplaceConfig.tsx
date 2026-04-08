@@ -5,6 +5,9 @@ import {
   updatePfsCredentials,
   validatePfsCredentials,
   togglePfsEnabled,
+  updateAnkorstoreCredentials,
+  validateAnkorstoreCredentials,
+  toggleAnkorstoreEnabled,
 } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
@@ -12,12 +15,17 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 interface Props {
   hasPfsConfig: boolean;
   pfsEnabled: boolean;
+  hasAnkorsConfig: boolean;
+  ankorsEnabled: boolean;
 }
 
 export default function MarketplaceConfig({
   hasPfsConfig,
   pfsEnabled: initialPfsEnabled,
+  hasAnkorsConfig,
+  ankorsEnabled: initialAnkorsEnabled,
 }: Props) {
+  // PFS state
   const [pfsEmail, setPfsEmail] = useState("");
   const [pfsPassword, setPfsPassword] = useState("");
   const [pfsStatus, setPfsStatus] = useState<"none" | "valid" | "invalid" | "checking">(
@@ -29,10 +37,23 @@ export default function MarketplaceConfig({
   const [isValidatingPfs, startValidatingPfs] = useTransition();
   const [isTogglingPfs, startTogglingPfs] = useTransition();
 
+  // Ankorstore state
+  const [ankorsClientId, setAnkorsClientId] = useState("");
+  const [ankorsClientSecret, setAnkorsClientSecret] = useState("");
+  const [ankorsStatus, setAnkorsStatus] = useState<"none" | "valid" | "invalid" | "checking">(
+    hasAnkorsConfig ? "valid" : "none"
+  );
+  const [ankorsEnabledState, setAnkorsEnabledState] = useState(initialAnkorsEnabled);
+  const [ankorsEditing, setAnkorsEditing] = useState(!hasAnkorsConfig);
+  const [isSavingAnkors, startSavingAnkors] = useTransition();
+  const [isValidatingAnkors, startValidatingAnkors] = useTransition();
+  const [isTogglingAnkors, startTogglingAnkors] = useTransition();
+
   const toast = useToast();
   const { showLoading, hideLoading } = useLoadingOverlay();
 
   const isPendingPfs = isSavingPfs || isValidatingPfs || isTogglingPfs;
+  const isPendingAnkors = isSavingAnkors || isValidatingAnkors || isTogglingAnkors;
 
   function handlePfsValidate() {
     if (!pfsEmail.trim() || !pfsPassword.trim()) return;
@@ -90,6 +111,71 @@ export default function MarketplaceConfig({
           newValue
             ? "La synchronisation Paris Fashion Shops est maintenant active."
             : "Les fonctionnalités Paris Fashion Shops sont désactivées."
+        );
+      } else {
+        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      }
+    });
+  }
+
+  // ─── Ankorstore handlers ──────────────────────────────────────────────────
+
+  function handleAnkorsValidate() {
+    if (!ankorsClientId.trim() || !ankorsClientSecret.trim()) return;
+    showLoading();
+    startValidatingAnkors(async () => {
+      try {
+        setAnkorsStatus("checking");
+        const result = await validateAnkorstoreCredentials({
+          clientId: ankorsClientId.trim(),
+          clientSecret: ankorsClientSecret.trim(),
+        });
+        if (result.valid) {
+          setAnkorsStatus("valid");
+          toast.success("Connexion réussie", "Identifiants Ankorstore valides.");
+        } else {
+          setAnkorsStatus("invalid");
+          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleAnkorsSave() {
+    showLoading();
+    startSavingAnkors(async () => {
+      try {
+        const result = await updateAnkorstoreCredentials({
+          clientId: ankorsClientId.trim(),
+          clientSecret: ankorsClientSecret.trim(),
+        });
+        if (result.success) {
+          toast.success("Enregistré", "Identifiants Ankorstore sauvegardés.");
+          setAnkorsEditing(false);
+          setAnkorsClientId("");
+          setAnkorsClientSecret("");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handleAnkorsToggle() {
+    const newValue = !ankorsEnabledState;
+    startTogglingAnkors(async () => {
+      const result = await toggleAnkorstoreEnabled(newValue);
+      if (result.success) {
+        setAnkorsEnabledState(newValue);
+        toast.success(
+          newValue ? "Ankorstore activé" : "Ankorstore désactivé",
+          newValue
+            ? "L'intégration Ankorstore est maintenant active."
+            : "L'intégration Ankorstore est désactivée."
         );
       } else {
         toast.error("Erreur", result.error ?? "Une erreur est survenue.");
@@ -204,6 +290,122 @@ export default function MarketplaceConfig({
                   type="button"
                   onClick={() => { setPfsEditing(false); setPfsEmail(""); setPfsPassword(""); setPfsStatus("valid"); }}
                   disabled={isPendingPfs}
+                  className="h-9 px-3 text-sm font-body text-text-secondary hover:text-text-primary"
+                >
+                  Annuler
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ─── Ankorstore ───────────────────────────────────────────────────── */}
+      <div className="border-t border-border pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h4 className="font-heading text-sm font-semibold text-text-primary">Ankorstore</h4>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                ankorsStatus === "valid" ? "bg-[#22C55E]" :
+                ankorsStatus === "invalid" ? "bg-[#EF4444]" :
+                ankorsStatus === "checking" ? "bg-[#F59E0B] animate-pulse" :
+                "bg-[#D1D1D1]"
+              }`}
+            />
+            <span className="font-body text-xs text-text-secondary">
+              {ankorsStatus === "valid" && "Connecté"}
+              {ankorsStatus === "invalid" && "Invalide"}
+              {ankorsStatus === "checking" && "Vérification..."}
+              {ankorsStatus === "none" && "Non configuré"}
+            </span>
+          </div>
+
+          {hasAnkorsConfig && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={ankorsEnabledState}
+              aria-label="Activer Ankorstore"
+              disabled={isPendingAnkors}
+              onClick={handleAnkorsToggle}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 focus:ring-offset-2 disabled:opacity-50 ${
+                ankorsEnabledState ? "bg-[#22C55E]" : "bg-[#D1D1D1]"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                  ankorsEnabledState ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          )}
+        </div>
+
+        {!ankorsEditing && hasAnkorsConfig ? (
+          <div className="flex items-center gap-3">
+            <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
+              ••••••••••••••••
+            </div>
+            <button
+              type="button"
+              onClick={() => setAnkorsEditing(true)}
+              className="text-sm font-body text-text-secondary hover:text-text-primary underline"
+            >
+              Modifier
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={ankorsClientId}
+                onChange={(e) => {
+                  setAnkorsClientId(e.target.value);
+                  if (ankorsStatus === "valid" || ankorsStatus === "invalid") setAnkorsStatus("none");
+                }}
+                placeholder="Client ID"
+                className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+                disabled={isPendingAnkors}
+                autoComplete="off"
+              />
+              <input
+                type="password"
+                value={ankorsClientSecret}
+                onChange={(e) => {
+                  setAnkorsClientSecret(e.target.value);
+                  if (ankorsStatus === "valid" || ankorsStatus === "invalid") setAnkorsStatus("none");
+                }}
+                placeholder="Client Secret"
+                className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+                disabled={isPendingAnkors}
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAnkorsValidate}
+                disabled={isPendingAnkors || !ankorsClientId.trim() || !ankorsClientSecret.trim()}
+                className="h-9 px-4 rounded-lg border border-border text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+              >
+                {isValidatingAnkors ? "Vérification..." : "Tester la connexion"}
+              </button>
+              <button
+                type="button"
+                onClick={handleAnkorsSave}
+                disabled={isPendingAnkors || !ankorsClientId.trim() || !ankorsClientSecret.trim() || ankorsStatus !== "valid"}
+                className="h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+              >
+                {isSavingAnkors ? "Enregistrement..." : "Sauvegarder"}
+              </button>
+              {hasAnkorsConfig && (
+                <button
+                  type="button"
+                  onClick={() => { setAnkorsEditing(false); setAnkorsClientId(""); setAnkorsClientSecret(""); setAnkorsStatus("valid"); }}
+                  disabled={isPendingAnkors}
                   className="h-9 px-3 text-sm font-body text-text-secondary hover:text-text-primary"
                 >
                   Annuler
