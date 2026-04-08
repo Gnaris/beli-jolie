@@ -9,12 +9,9 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import {
   runAnkorstoreAutoMatch,
   removeAnkorstoreMatch,
-  confirmAnkorstoreMatch,
-  searchBjProducts,
   type AnkorstoreMatchReportSerialized,
   type AnkorstoreMatchResultSerialized,
 } from "@/app/actions/admin/ankorstore";
-import { getImageSrc } from "@/lib/image-utils";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -37,13 +34,6 @@ interface Props {
 
 type TabKey = "matches" | "review" | "unmatched";
 
-interface SearchResult {
-  id: string;
-  name: string;
-  reference: string;
-  image: string | null;
-}
-
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function AnkorstoreMappingClient({
@@ -64,11 +54,6 @@ export default function AnkorstoreMappingClient({
   const [report, setReport] = useState<AnkorstoreMatchReportSerialized | null>(null);
   const [isRunning, startRunning] = useTransition();
   const [isRemoving, startRemoving] = useTransition();
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, startSearching] = useTransition();
-  const [isAssociating, startAssociating] = useTransition();
 
   // ─── Not configured ────────────────────────────────────────────────
 
@@ -136,48 +121,6 @@ export default function AnkorstoreMappingClient({
           }
         });
       },
-    });
-  }
-
-  function handleSearch(query: string) {
-    setSearchQuery(query);
-    if (query.trim().length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    startSearching(async () => {
-      const results = await searchBjProducts(query.trim());
-      setSearchResults(results);
-    });
-  }
-
-  function handleAssociate(ankorstoreProductId: string, bjProductId: string) {
-    showLoading();
-    startAssociating(async () => {
-      try {
-        const result = await confirmAnkorstoreMatch(ankorstoreProductId, bjProductId);
-        if (result.success) {
-          toast.success("Associe", "Le produit a ete associe.");
-          setExpandedRow(null);
-          setSearchQuery("");
-          setSearchResults([]);
-          // Remove from review items and refresh server data
-          if (report) {
-            setReport({
-              ...report,
-              reviewItems: report.reviewItems.filter(
-                (r) => r.ankorstoreProductId !== ankorstoreProductId
-              ),
-            });
-          }
-          setMatchedCount((prev) => prev + 1);
-          router.refresh();
-        } else {
-          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-        }
-      } finally {
-        hideLoading();
-      }
     });
   }
 
@@ -263,28 +206,12 @@ export default function AnkorstoreMappingClient({
             <UnmatchedList
               items={reviewItems}
               emptyMessage="Aucun produit ambigu. Lancez le matching automatique pour detecter les correspondances."
-              expandedRow={expandedRow}
-              onToggleExpand={(id) => setExpandedRow(expandedRow === id ? null : id)}
-              searchQuery={searchQuery}
-              searchResults={searchResults}
-              isSearching={isSearching}
-              isAssociating={isAssociating}
-              onSearch={handleSearch}
-              onAssociate={handleAssociate}
             />
           )}
           {activeTab === "unmatched" && (
             <UnmatchedList
               items={unmatchedItems}
               emptyMessage="Aucun produit non matche. Lancez le matching automatique pour detecter les correspondances."
-              expandedRow={expandedRow}
-              onToggleExpand={(id) => setExpandedRow(expandedRow === id ? null : id)}
-              searchQuery={searchQuery}
-              searchResults={searchResults}
-              isSearching={isSearching}
-              isAssociating={isAssociating}
-              onSearch={handleSearch}
-              onAssociate={handleAssociate}
             />
           )}
         </div>
@@ -356,25 +283,9 @@ function MatchesTab({
 function UnmatchedList({
   items,
   emptyMessage,
-  expandedRow,
-  onToggleExpand,
-  searchQuery,
-  searchResults,
-  isSearching,
-  isAssociating,
-  onSearch,
-  onAssociate,
 }: {
   items: AnkorstoreMatchResultSerialized[];
   emptyMessage: string;
-  expandedRow: string | null;
-  onToggleExpand: (id: string) => void;
-  searchQuery: string;
-  searchResults: SearchResult[];
-  isSearching: boolean;
-  isAssociating: boolean;
-  onSearch: (q: string) => void;
-  onAssociate: (ankorstoreProductId: string, bjProductId: string) => void;
 }) {
   if (items.length === 0) {
     return (
@@ -386,114 +297,31 @@ function UnmatchedList({
 
   return (
     <div className="space-y-2">
-      {items.map((item) => {
-        const isExpanded = expandedRow === item.ankorstoreProductId;
-
-        return (
-          <div
-            key={item.ankorstoreProductId}
-            className="rounded-lg border border-border overflow-hidden"
-          >
-            <div
-              className="flex items-center gap-3 p-3 hover:bg-bg-secondary/50 transition-colors cursor-pointer"
-              onClick={() => onToggleExpand(item.ankorstoreProductId)}
-            >
-              {item.ankorstoreImageUrl ? (
-                <img
-                  src={item.ankorstoreImageUrl}
-                  alt=""
-                  className="w-10 h-10 rounded-lg object-cover border border-border shrink-0"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-lg bg-bg-secondary border border-border shrink-0 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-                  </svg>
-                </div>
+      {items.map((item) => (
+        <div
+          key={item.bjProductId}
+          className="flex items-center gap-3 p-3 rounded-lg border border-border"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="font-body text-sm font-medium text-text-primary truncate">
+              {item.bjProductName}
+            </p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="font-body text-xs text-text-muted">
+                Ref: {item.bjReference}
+              </span>
+              <span className={`badge ${item.status === "ambiguous" ? "badge-warning" : "badge-error"}`}>
+                {item.status === "ambiguous" ? "Ambigu" : "Non trouve"}
+              </span>
+              {item.ankorstoreVariants.length > 0 && (
+                <span className="font-body text-xs text-text-muted">
+                  ({item.ankorstoreVariants.length} variante{item.ankorstoreVariants.length > 1 ? "s" : ""} trouvee{item.ankorstoreVariants.length > 1 ? "s" : ""})
+                </span>
               )}
-              <div className="min-w-0 flex-1">
-                <p className="font-body text-sm font-medium text-text-primary truncate">
-                  {item.ankorstoreProductName}
-                </p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  {item.extractedRef && (
-                    <span className="font-body text-xs text-text-muted">
-                      Ref: {item.extractedRef}
-                    </span>
-                  )}
-                  <span className={`badge ${item.status === "ambiguous" ? "badge-warning" : "badge-error"}`}>
-                    {item.status === "ambiguous" ? "Ambigu" : "Non matche"}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="h-8 px-3 rounded-lg border border-border text-xs font-body font-medium text-text-secondary hover:text-text-primary transition-colors shrink-0"
-              >
-                {isExpanded ? "Fermer" : "Associer"}
-              </button>
             </div>
-
-            {isExpanded && (
-              <div className="border-t border-border p-3 bg-bg-secondary/30">
-                <div className="mb-3">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => onSearch(e.target.value)}
-                    placeholder="Rechercher un produit BJ par nom ou reference..."
-                    className="w-full h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-                    autoFocus
-                  />
-                </div>
-
-                {isSearching && (
-                  <p className="font-body text-xs text-text-secondary py-2">Recherche...</p>
-                )}
-
-                {!isSearching && searchResults.length === 0 && searchQuery.trim().length >= 2 && (
-                  <p className="font-body text-xs text-text-secondary py-2">
-                    Aucun resultat pour &quot;{searchQuery}&quot;.
-                  </p>
-                )}
-
-                {searchResults.length > 0 && (
-                  <div className="space-y-1 max-h-60 overflow-y-auto">
-                    {searchResults.map((result) => (
-                      <div
-                        key={result.id}
-                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-bg-primary transition-colors"
-                      >
-                        {result.image ? (
-                          <img
-                            src={getImageSrc(result.image, "thumb")}
-                            alt=""
-                            className="w-8 h-8 rounded object-cover border border-border shrink-0"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded bg-bg-secondary border border-border shrink-0" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="font-body text-sm text-text-primary truncate">{result.name}</p>
-                          <p className="font-body text-xs text-text-muted">{result.reference}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => onAssociate(item.ankorstoreProductId, result.id)}
-                          disabled={isAssociating}
-                          className="h-7 px-3 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 shrink-0"
-                        >
-                          Associer
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }

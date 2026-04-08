@@ -300,12 +300,86 @@ export async function ankorstoreSearchVariants(filter: {
     params.set("filter[sku]", filter.sku);
   }
   if (filter.skuOrName) {
-    params.set("filter[search]", filter.skuOrName);
+    params.set("filter[skuOrName]", filter.skuOrName);
   }
 
   const url = `${ANKORSTORE_BASE_URL}/product-variants?${params.toString()}`;
   const json = await ankorstoreFetch(url);
 
-  const dataArr = Array.isArray(json.data) ? json.data : [json.data];
+  const dataArr = Array.isArray(json.data) ? json.data : json.data ? [json.data] : [];
   return dataArr.map(parseVariant);
+}
+
+/**
+ * Search Ankorstore variants by reference, then resolve to full products.
+ * Returns products whose variants match the given reference string.
+ *
+ * Strategy: search variants by skuOrName → get parent product IDs → fetch products.
+ */
+export async function ankorstoreSearchProductsByRef(
+  reference: string
+): Promise<AnkorstoreProduct[]> {
+  if (!reference.trim()) return [];
+
+  // Search variants by the reference (SKU format is {ref}_{color})
+  const variants = await ankorstoreSearchVariants({ skuOrName: reference.trim() });
+  if (variants.length === 0) return [];
+
+  // We need to fetch the parent products — variants don't carry product relationships
+  // in the list endpoint. We'll get unique product IDs from a product-variants call
+  // that includes the product relationship.
+  const params = new URLSearchParams();
+  params.set("filter[skuOrName]", reference.trim());
+  params.set("include", "product");
+
+  const url = `${ANKORSTORE_BASE_URL}/product-variants?${params.toString()}`;
+  try {
+    const json = await ankorstoreFetch(url);
+    const includedMap = buildIncludedMap(json.included);
+
+    // Collect unique products from included
+    const productMap = new Map<string, AnkorstoreProduct>();
+    for (const [key, resource] of includedMap) {
+      if (key.startsWith("products:")) {
+        const product = parseProduct(resource, includedMap);
+        productMap.set(product.id, product);
+      }
+    }
+
+    // If no included products, build minimal products from variant data
+    if (productMap.size === 0) {
+      // Group variants by deduced product (from SKU prefix)
+      const grouped = new Map<string, AnkorstoreVariant[]>();
+      for (const v of variants) {
+        const prefix = v.sku?.split("_")[0] ?? v.name;
+        const existing = grouped.get(prefix) ?? [];
+        existing.push(v);
+        grouped.set(prefix, existing);
+      }
+      for (const [prefix, vars] of grouped) {
+        productMap.set(prefix, {
+          id: prefix,
+          name: prefix,
+          description: "",
+          images: vars[0]?.images ?? [],
+          active: true,
+          archived: false,
+          variants: vars,
+        });
+      }
+    }
+
+    return Array.from(productMap.values());
+  } catch {
+    // Fallback: return minimal product objects from variants
+    return [{
+      id: variants[0].id,
+      name: reference,
+      description: "",
+      images: [],
+      active: true,
+      archived: false,
+      variants,
+    }];
+  }
 }

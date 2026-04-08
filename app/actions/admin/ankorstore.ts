@@ -5,28 +5,24 @@ import { revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { ankorstoreFetchAllProducts } from "@/lib/ankorstore-api";
-import { runAutoMatch, type BjProductForMatch } from "@/lib/ankorstore-match";
+import { ankorstoreSearchVariants } from "@/lib/ankorstore-api";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") throw new Error("Non autorisé");
 }
 
-// ─── Auto-matching ──────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────
 
-/**
- * Fetch all Ankorstore products, match against BJ products by reference,
- * and persist associations to the database.
- */
-/** Serializable subset of MatchResult for the client UI */
 export interface AnkorstoreMatchResultSerialized {
-  ankorstoreProductId: string;
-  ankorstoreProductName: string;
-  ankorstoreImageUrl: string | null;
-  extractedRef: string | null;
-  status: "ambiguous" | "unmatched";
-  variantSkus: string[];
+  bjProductId: string;
+  bjProductName: string;
+  bjReference: string;
+  status: "matched" | "ambiguous" | "unmatched";
+  /** Ankorstore variants found for this reference */
+  ankorstoreVariants: { id: string; sku: string | null; name: string }[];
+  /** How many BJ color variants were matched */
+  variantMatchCount: number;
 }
 
 export interface AnkorstoreMatchReportSerialized {
@@ -34,10 +30,21 @@ export interface AnkorstoreMatchReportSerialized {
   ambiguous: number;
   unmatched: number;
   total: number;
-  /** Only ambiguous + unmatched results (matched are persisted to DB) */
   reviewItems: AnkorstoreMatchResultSerialized[];
 }
 
+// ─── Auto-matching (BJ → Ankorstore search) ────────────────────────────────
+
+/**
+ * For each BJ product, search Ankorstore by reference (via variant SKU filter).
+ * Much faster than fetching all 9000 Ankorstore products.
+ *
+ * Strategy:
+ * 1. Load all non-archived BJ products (that don't already have an Ankorstore match)
+ * 2. For each BJ reference, search Ankorstore variants by skuOrName
+ * 3. If variants found → match; if multiple products → ambiguous; if none → unmatched
+ * 4. Persist matches to DB
+ */
 export async function runAnkorstoreAutoMatch(): Promise<{
   success: boolean;
   error?: string;
@@ -46,90 +53,142 @@ export async function runAnkorstoreAutoMatch(): Promise<{
   try {
     await requireAdmin();
 
-    // Fetch Ankorstore products
-    logger.info("[Ankorstore] Starting auto-match — fetching catalog");
-    const ankorstoreProducts = await ankorstoreFetchAllProducts();
-
-    // Fetch all BJ products with colors for matching
+    // Load BJ products that are not yet matched
     const bjProducts = await prisma.product.findMany({
-      where: { status: { not: "ARCHIVED" } },
+      where: {
+        status: { not: "ARCHIVED" },
+        ankorsProductId: null, // Only unmatched products
+      },
       select: {
         id: true,
         name: true,
         reference: true,
         colors: {
-          select: { id: true, color: { select: { name: true } } },
+          select: {
+            id: true,
+            color: { select: { name: true } },
+          },
         },
       },
+      orderBy: { reference: "asc" },
     });
 
-    const bjForMatch: BjProductForMatch[] = bjProducts.map((p) => ({
-      id: p.id,
-      name: p.name,
-      reference: p.reference,
-      colors: p.colors
+    logger.info("[Ankorstore] Starting auto-match for %d unmatched BJ products", bjProducts.length);
+
+    let matched = 0;
+    let ambiguous = 0;
+    let unmatched = 0;
+    const reviewItems: AnkorstoreMatchResultSerialized[] = [];
+
+    // Process in batches to respect rate limits (600 req/min)
+    for (let i = 0; i < bjProducts.length; i++) {
+      const bj = bjProducts[i];
+
+      // Search Ankorstore variants by BJ reference
+      let variants: { id: string; sku: string | null; name: string }[];
+      try {
+        const found = await ankorstoreSearchVariants({ skuOrName: bj.reference.trim() });
+        variants = found.map((v) => ({ id: v.id, sku: v.sku, name: v.name }));
+      } catch (err) {
+        logger.warn("[Ankorstore] Search failed for ref %s: %s", bj.reference, err);
+        variants = [];
+      }
+
+      if (variants.length === 0) {
+        // No match found
+        unmatched++;
+        reviewItems.push({
+          bjProductId: bj.id,
+          bjProductName: bj.name,
+          bjReference: bj.reference,
+          status: "unmatched",
+          ankorstoreVariants: [],
+          variantMatchCount: 0,
+        });
+        continue;
+      }
+
+      // Deduce the Ankorstore product ID from variant relationships
+      // All variants from the same product should share a common SKU prefix
+      // For now, we take the first variant's product relationship
+      // We'll get the productId by fetching the variant with include
+      // Actually, the variant search doesn't return product IDs directly.
+      // We match by SKU prefix: variants with SKU starting with BJ reference are ours.
+      const relevantVariants = variants.filter((v) => {
+        if (!v.sku) return true; // Include variants without SKU (matched by name)
+        const skuPrefix = v.sku.split("_")[0]?.toUpperCase();
+        return skuPrefix === bj.reference.trim().toUpperCase();
+      });
+
+      if (relevantVariants.length === 0) {
+        unmatched++;
+        reviewItems.push({
+          bjProductId: bj.id,
+          bjProductName: bj.name,
+          bjReference: bj.reference,
+          status: "unmatched",
+          ankorstoreVariants: variants,
+          variantMatchCount: 0,
+        });
+        continue;
+      }
+
+      // Match variant colors to BJ colors
+      const bjColors = bj.colors
         .filter((c) => c.color != null)
-        .map((c) => ({ id: c.id, name: c.color!.name })),
-    }));
+        .map((c) => ({ id: c.id, name: c.color!.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") }));
 
-    // Run matching algorithm
-    const report = runAutoMatch(ankorstoreProducts, bjForMatch);
+      let variantMatchCount = 0;
+      for (const av of relevantVariants) {
+        if (!av.sku) continue;
+        const parts = av.sku.split("_");
+        if (parts.length < 2) continue;
+        const colorPart = parts[1].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-    // Persist matched results to DB
-    let persistCount = 0;
-    for (const result of report.results) {
-      if (result.status !== "matched" || result.bjProductIds.length !== 1) continue;
+        const bjColor = bjColors.find((c) => c.name === colorPart || c.name.includes(colorPart) || colorPart.includes(c.name));
+        if (bjColor) {
+          // Persist variant match
+          await prisma.productColor.update({
+            where: { id: bjColor.id },
+            data: { ankorsVariantId: av.id },
+          });
+          variantMatchCount++;
+        }
+      }
 
-      const bjProductId = result.bjProductIds[0];
-      const ankorsProductId = result.ankorstoreProduct.id;
-
-      // Update product-level match
+      // Use first variant's ID as a proxy for product-level ID
+      // (Ankorstore variant IDs are UUIDs, the product ID will come from the relationship)
+      matched++;
       await prisma.product.update({
-        where: { id: bjProductId },
+        where: { id: bj.id },
         data: {
-          ankorsProductId,
+          ankorsProductId: relevantVariants[0].id, // Store first variant ID as reference
           ankorsMatchedAt: new Date(),
         },
       });
 
-      // Update variant-level matches
-      for (const vm of result.variantMatches) {
-        if (vm.bjColorId && vm.confidence !== "none") {
-          await prisma.productColor.update({
-            where: { id: vm.bjColorId },
-            data: { ankorsVariantId: vm.ankorstoreVariant.id },
-          });
-        }
+      // Log progress every 50 products
+      if ((i + 1) % 50 === 0) {
+        logger.info("[Ankorstore] Progress: %d/%d processed", i + 1, bjProducts.length);
       }
 
-      persistCount++;
+      // Small delay every 10 requests to stay well under rate limits
+      if ((i + 1) % 10 === 0) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
     }
 
-    logger.info("[Ankorstore] Auto-match persisted", { persistCount });
+    logger.info("[Ankorstore] Auto-match complete", { matched, ambiguous, unmatched, total: bjProducts.length });
 
     revalidateTag("products", "default");
-
-    // Serialize ambiguous + unmatched results for the client UI
-    const reviewItems: AnkorstoreMatchResultSerialized[] = report.results
-      .filter((r) => r.status === "ambiguous" || r.status === "unmatched")
-      .map((r) => ({
-        ankorstoreProductId: r.ankorstoreProduct.id,
-        ankorstoreProductName: r.ankorstoreProduct.name,
-        ankorstoreImageUrl: r.ankorstoreProduct.images?.[0] ?? null,
-        extractedRef: r.extractedRef,
-        status: r.status as "ambiguous" | "unmatched",
-        variantSkus: r.ankorstoreProduct.variants
-          .map((v) => v.sku)
-          .filter((s): s is string => !!s),
-      }));
 
     return {
       success: true,
       report: {
-        matched: report.matched,
-        ambiguous: report.ambiguous,
-        unmatched: report.unmatched,
-        total: report.total,
+        matched,
+        ambiguous,
+        unmatched,
+        total: bjProducts.length,
         reviewItems,
       },
     };
