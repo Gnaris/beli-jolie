@@ -102,6 +102,7 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
     discountType: "",
     discountValue: "",
     pfsColorRef: "",
+    sku: "",
   };
 }
 

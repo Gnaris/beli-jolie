@@ -99,14 +99,6 @@ export async function sendClientMessage(
       attachments,
     });
 
-    notifyAdminNewMessage({
-      clientName: `${user?.firstName} ${user?.lastName}`,
-      clientCompany: user?.company || "",
-      subject: conversation.subject || "Sans sujet",
-      messagePreview: content.trim(),
-      conversationId,
-    }).catch(() => {});
-
     emitChatEvent({
       type: "NEW_MESSAGE",
       conversationId,

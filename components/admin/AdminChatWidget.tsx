@@ -214,8 +214,8 @@ export default function AdminChatWidget() {
     [activeConvId, isOpen, view]
   );
 
-  // Only open SSE connection when chat panel is open (saves HTTP connection slots)
-  useChatStream(handleChatEvent, isOpen);
+  // Only open SSE when viewing a conversation (list doesn't need real-time)
+  useChatStream(handleChatEvent, isOpen && view === "conversation");
 
   // ── Typing emission ─────────────────────────
   function emitTyping(typing: boolean) {

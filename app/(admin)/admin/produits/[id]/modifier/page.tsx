@@ -203,6 +203,7 @@ export default async function ModifierProduitPage({
     discountType:  (pc.discountType ?? "") as "" | "PERCENT" | "AMOUNT",
     discountValue: pc.discountValue != null ? String(pc.discountValue) : "",
     pfsColorRef:   pc.pfsColorRef ?? "",
+    sku:           pc.sku ?? "",
   }));
 
   // Build group key for each ProductColor — must match imageGroupKeyFromVariant() in ColorVariantManager

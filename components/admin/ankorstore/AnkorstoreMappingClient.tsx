@@ -82,10 +82,13 @@ export default function AnkorstoreMappingClient({
   // ─── Handlers ──────────────────────────────────────────────────────
 
   function handleAutoMatch() {
+    console.log("[Ankorstore] Auto-match button clicked");
     showLoading();
     startRunning(async () => {
       try {
+        console.log("[Ankorstore] Calling server action...");
         const result = await runAnkorstoreAutoMatch();
+        console.log("[Ankorstore] Server action result:", result);
         if (result.success && result.report) {
           toast.success(
             "Matching termine",

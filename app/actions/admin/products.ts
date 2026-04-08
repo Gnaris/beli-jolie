@@ -12,6 +12,7 @@ import { emitProductEvent } from "@/lib/product-events";
 import { pfsUpdateStatus, pfsDeleteProduct, type PfsStatus } from "@/lib/pfs-api-write";
 import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
+import { generateSku } from "@/lib/sku";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -136,6 +137,87 @@ function validateVariants(colors: ColorInput[]): void {
 }
 
 // ─────────────────────────────────────────────
+// SKU assignment for all variants of a product
+// ─────────────────────────────────────────────
+
+/**
+ * Assign SKUs to all variants of a product that don't have one yet.
+ * Format: {reference}_{COULEUR-SOUSCOULEUR}_{UNIT|PACK}_{index}
+ * Index is global across all variants, based on creation order.
+ */
+async function assignVariantSkus(
+  productId: string,
+  reference: string,
+  tx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+): Promise<void> {
+  const db = tx || prisma;
+  const variants = await db.productColor.findMany({
+    where: { productId },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      sku: true,
+      saleType: true,
+      colorId: true,
+      color: { select: { name: true } },
+      subColors: {
+        orderBy: { position: "asc" },
+        select: { color: { select: { name: true } } },
+      },
+      packColorLines: {
+        orderBy: { position: "asc" },
+        take: 1,
+        select: {
+          colors: {
+            orderBy: { position: "asc" },
+            select: { color: { select: { name: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  const updates: Promise<unknown>[] = [];
+  for (let i = 0; i < variants.length; i++) {
+    const v = variants[i];
+    // Build color names array
+    let colorNames: string[];
+    if (v.saleType === "UNIT") {
+      colorNames = [
+        v.color?.name,
+        ...v.subColors.map((sc) => sc.color.name),
+      ].filter(Boolean) as string[];
+    } else {
+      // PACK: colors from the single PackColorLine
+      const line = v.packColorLines[0];
+      colorNames = line
+        ? line.colors.map((c) => c.color.name)
+        : [];
+    }
+
+    const sku = generateSku(
+      reference.trim().toUpperCase(),
+      colorNames,
+      v.saleType as "UNIT" | "PACK",
+      i + 1
+    );
+
+    if (v.sku !== sku) {
+      updates.push(
+        db.productColor.update({
+          where: { id: v.id },
+          data: { sku },
+        })
+      );
+    }
+  }
+
+  if (updates.length > 0) {
+    await Promise.all(updates);
+  }
+}
+
+// ─────────────────────────────────────────────
 // Créer un produit
 // ─────────────────────────────────────────────
 
@@ -253,6 +335,9 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       }
     }
   }
+
+  // Assign SKUs to all newly created variants
+  await assignVariantSkus(product.id, input.reference);
 
   // Images: create ProductColorImage entries linked to specific ProductColor variant
   if (input.imagePaths && input.imagePaths.length > 0) {
@@ -597,6 +682,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         }
       }
     }
+
+    // ── Assign/update SKUs for all variants ──────────
+    await assignVariantSkus(id, input.reference, tx);
 
     // ── Images: full replace linked to specific ProductColor variant ──────────
     if (input.imagePaths && input.imagePaths.length > 0) {

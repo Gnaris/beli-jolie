@@ -15,6 +15,7 @@ interface ToastItem {
   title: string;
   message?: string;
   duration?: number; // ms, 0 = no auto-dismiss
+  action?: { label: string; onClick: () => void };
 }
 
 interface ToastContextValue {
@@ -130,6 +131,15 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: strin
               <p className="text-xs font-body text-text-secondary mt-0.5 leading-relaxed">
                 {item.message}
               </p>
+            )}
+            {item.action && (
+              <button
+                onClick={() => { item.action!.onClick(); dismiss(); }}
+                className="text-xs font-body font-semibold mt-1 hover:underline transition-colors"
+                style={{ color: c.iconColor }}
+              >
+                {item.action.label}
+              </button>
             )}
           </div>
 

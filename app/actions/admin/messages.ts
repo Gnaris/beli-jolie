@@ -4,7 +4,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { addMessage, markAsRead } from "@/lib/messaging";
-import { notifyClientNewReply } from "@/lib/notifications";
 import { emitChatEvent } from "@/lib/chat-events";
 import { revalidateTag } from "next/cache";
 
@@ -91,14 +90,6 @@ export async function sendAdminReply(
       content: content.trim() || "📎 Pièce jointe",
       attachments,
     });
-
-    notifyClientNewReply({
-      clientEmail: conversation.user.email,
-      clientName: conversation.user.firstName,
-      subject: conversation.subject || "Sans sujet",
-      messagePreview: content.trim(),
-      conversationId,
-    }).catch(() => {});
 
     emitChatEvent({
       type: "NEW_MESSAGE",

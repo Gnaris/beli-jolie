@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **Architecture** : `docs/architecture.md` (routes, auth, data models, components, integrations)
 > **PFS Sync** : `docs/pfs-system.md` (sync, reverse sync, mapping, prepare flow)
 > **Styling** : `docs/styling.md` (palette, CSS utilities, conventions)
-> **API PFS** : `API_DOCUMENTATION.md` (endpoints, request/response formats)
+> **API PFS** : `docs/pfs-api.md` (endpoints, request/response formats)
 ---
 
 ## Architecture

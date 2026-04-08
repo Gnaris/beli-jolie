@@ -57,6 +57,8 @@ export interface VariantState {
   discountValue: string;
   // PFS color override for multi-color variants (single-color uses Color.pfsColorRef)
   pfsColorRef: string;
+  // SKU auto-généré: {ref}_{couleurs}_{UNIT|PACK}_{index}
+  sku: string;
 }
 
 export interface ColorImageState {
@@ -256,6 +258,7 @@ function defaultVariant(): VariantState {
     discountType: "",
     discountValue: "",
     pfsColorRef: "",
+    sku: "",
   };
 }
 
@@ -2802,6 +2805,13 @@ export default function ColorVariantManager({
                     )}
                   </div>
 
+                  {/* SKU */}
+                  {v.sku && (
+                    <div className="text-[10px] text-text-muted font-mono truncate" title={v.sku}>
+                      SKU: {v.sku}
+                    </div>
+                  )}
+
                   {/* Row 2: color */}
                   {isUnit ? (
                     <MultiColorSelect
@@ -2921,6 +2931,7 @@ export default function ColorVariantManager({
                     </th>
                     <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[70px]">Type</th>
                     <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold min-w-[140px]">Couleur</th>
+                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[150px]">SKU</th>
                     <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[90px]">Prix/unité</th>
                     <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold min-w-[120px]">Tailles</th>
                     <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[65px]">Total</th>
@@ -2936,7 +2947,7 @@ export default function ColorVariantManager({
                         {showBulkRow ? selectedIds.size : "—"}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5" colSpan={2}>
+                    <td className="px-2 py-1.5" colSpan={3}>
                       <span className={`text-[10px] font-body ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
                         {showBulkRow
                           ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}`
@@ -3134,6 +3145,13 @@ export default function ColorVariantManager({
                               Correspondance Paris Fashion Shop manquante
                             </span>
                           )}
+                        </td>
+
+                        {/* SKU */}
+                        <td className="px-2 py-2">
+                          <span className="text-[11px] text-text-muted font-mono truncate block" title={v.sku || "—"}>
+                            {v.sku || "—"}
+                          </span>
                         </td>
 
                         {/* Unit Price */}
