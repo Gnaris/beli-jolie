@@ -19,6 +19,7 @@ interface PfsRefreshContextValue {
   enqueueBulk: (items: { productId: string; productName: string; reference: string }[]) => void;
   isRefreshing: (productId: string) => boolean;
   clearCompleted: () => void;
+  cancelQueued: () => void;
 }
 
 const PfsRefreshContext = createContext<PfsRefreshContextValue | null>(null);
@@ -177,8 +178,12 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
     setQueue((prev) => prev.filter((item) => item.status === "queued" || item.status === "in_progress"));
   }, []);
 
+  const cancelQueued = useCallback(() => {
+    setQueue((prev) => prev.filter((item) => item.status !== "queued"));
+  }, []);
+
   return (
-    <PfsRefreshContext.Provider value={{ queue, enqueue, enqueueBulk, isRefreshing, clearCompleted }}>
+    <PfsRefreshContext.Provider value={{ queue, enqueue, enqueueBulk, isRefreshing, clearCompleted, cancelQueued }}>
       {children}
     </PfsRefreshContext.Provider>
   );

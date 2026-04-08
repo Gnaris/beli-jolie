@@ -31,17 +31,17 @@ export async function GET(
   const pdfBuffer = await generateInvoicePdf({
     orderNumber: order.orderNumber,
     createdAt: order.createdAt,
-    totalHT: order.totalHT,
+    totalHT: order.subtotalHT,
     tvaAmount: order.tvaAmount,
     totalTTC: order.totalTTC,
-    shippingCost: order.shippingCost,
-    clientName: order.clientName,
+    shippingCost: order.carrierPrice,
+    clientName: `${order.shipFirstName} ${order.shipLastName}`,
     clientCompany: order.clientCompany || "",
     clientEmail: order.clientEmail,
-    clientAddress: order.shippingAddress,
-    clientCity: order.shippingCity,
-    clientZip: order.shippingZip,
-    clientCountry: order.shippingCountry,
+    clientAddress: order.shipAddress1,
+    clientCity: order.shipCity,
+    clientZip: order.shipZipCode,
+    clientCountry: order.shipCountry,
     items: order.items.map((i) => ({
       productName: i.productName,
       productRef: i.productRef,
@@ -52,7 +52,7 @@ export async function GET(
     })),
   });
 
-  return new NextResponse(pdfBuffer, {
+  return new NextResponse(new Uint8Array(pdfBuffer), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="facture-${order.orderNumber}.pdf"`,

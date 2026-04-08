@@ -53,7 +53,7 @@ NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. 
 
 ### i18n
 
-next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (RTL), zh. Messages: `messages/[locale].json`. Auto-translations: DeepL Free (500K chars/month) + Claude AI (`lib/claude.ts`). Auto-translate toggle: `auto_translate_enabled` in SiteConfig.
+next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (RTL), zh. Messages: `messages/[locale].json`. Auto-translations: DeepL Free (500K chars/month). Auto-translate toggle: `auto_translate_enabled` in SiteConfig.
 
 ### Styling
 
@@ -91,7 +91,7 @@ Vitest + `__tests__/` dir. Integration tests in `__tests__/integration/` (DB-bac
 
 ## Variables d'environnement
 
-**Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ANTHROPIC_API_KEY`, `ENCRYPTION_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`, `NEXT_PUBLIC_R2_URL`
+**Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ENCRYPTION_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`, `NEXT_PUBLIC_R2_URL`
 
 **Optionnelles** : `STRIPE_PLATFORM_SECRET_KEY` (Stripe Connect platform mode)
 
@@ -112,7 +112,7 @@ Dual-mode: **Platform** (`STRIPE_PLATFORM_SECRET_KEY` + per-client `stripe_conne
 | Tailwind | v4 | No config file. Theme in `globals.css` `@theme inline {}` |
 | React | 19.2.3 | |
 
-Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, @anthropic-ai/sdk, playwright, nodemailer, DeepL (HTTP direct).
+Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwright, nodemailer, DeepL (HTTP direct).
 `serverExternalPackages: ["pdfkit", "sharp", "exceljs"]` dans `next.config.ts`. Path alias: `@/*` → `./*`.
 
 ## Gotchas critiques

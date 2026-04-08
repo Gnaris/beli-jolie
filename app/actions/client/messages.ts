@@ -170,6 +170,37 @@ export async function getClientConversation(conversationId: string) {
   });
 }
 
+export async function closeClientConversation(conversationId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "CLIENT") {
+    return { success: false, error: "Acces non autorise." };
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, userId: session.user.id },
+    select: { id: true },
+  });
+
+  if (!conversation) {
+    return { success: false, error: "Conversation introuvable." };
+  }
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { status: "CLOSED" },
+  });
+
+  emitChatEvent({
+    type: "CONVERSATION_CLOSED",
+    conversationId,
+    userId: session.user.id,
+    targetRole: "ADMIN",
+  });
+
+  revalidateTag("messages", "default");
+  return { success: true };
+}
+
 /** Get the most recent OPEN support conversation for the chat widget */
 export async function getActiveSupportChat() {
   const session = await getServerSession(authOptions);

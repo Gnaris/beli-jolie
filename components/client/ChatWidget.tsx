@@ -3,14 +3,17 @@
 import { useState, useEffect, useRef, useTransition, useCallback } from "react";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useToast } from "@/components/ui/Toast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   getActiveSupportChat,
   createSupportConversation,
   sendClientMessage,
+  closeClientConversation,
 } from "@/app/actions/client/messages";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
 import { isWithinBusinessHours, getNextOpenSlot, formatScheduleForDisplay } from "@/lib/business-hours";
 import Link from "next/link";
+import { playNotificationSound } from "@/lib/notification-sound";
 
 interface ChatMessage {
   id: string;
@@ -37,6 +40,7 @@ export default function ChatWidget({ businessHours }: Props) {
   const [adminTyping, setAdminTyping] = useState(false);
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
+  const { confirm } = useConfirm();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,6 +84,10 @@ export default function ChatWidget({ businessHours }: Props) {
   const handleChatEvent = useCallback(
     (event: { type: string; conversationId: string; messageData?: ChatMessage }) => {
       if (event.type === "NEW_MESSAGE" && event.messageData) {
+        // Play sound for any admin reply, even if widget is closed
+        if (event.messageData.senderRole === "ADMIN") {
+          playNotificationSound();
+        }
         if (event.conversationId === conversationId) {
           setMessages((prev) => {
             if (prev.some((m) => m.id === event.messageData!.id)) return prev;
@@ -200,6 +208,22 @@ export default function ChatWidget({ businessHours }: Props) {
     setNewMessage("");
   }
 
+  async function handleCloseConversation() {
+    if (!conversationId) return;
+    const ok = await confirm({
+      title: "Clôturer la conversation",
+      message: "Voulez-vous vraiment clôturer cette conversation ?",
+      confirmLabel: "Clôturer",
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const result = await closeClientConversation(conversationId);
+      if (result.success) {
+        setConversationStatus("CLOSED");
+      }
+    });
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -248,6 +272,18 @@ export default function ChatWidget({ businessHours }: Props) {
                 )}
               </div>
             </div>
+            {conversationId && conversationStatus === "OPEN" && (
+              <button
+                onClick={handleCloseConversation}
+                disabled={isPending}
+                title="Cloturer la conversation"
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-text-muted hover:text-red-500 transition-colors disabled:opacity-40"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </button>
+            )}
             <button
               onClick={() => { setIsOpen(false); setShowSchedule(false); }}
               className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-bg-secondary transition-colors"
@@ -388,7 +424,7 @@ export default function ChatWidget({ businessHours }: Props) {
           {conversationId && conversationStatus === "CLOSED" && !loading && (
             <div className="border-t border-border px-4 py-3 bg-bg-secondary/50 shrink-0 space-y-2">
               <p className="text-xs font-body text-text-muted text-center">
-                Cette conversation a été clôturée par l&apos;équipe support.
+                Cette conversation a ete cloturee.
               </p>
               <button
                 onClick={handleStartNew}

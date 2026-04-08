@@ -18,6 +18,7 @@ describe("canTransition", () => {
     ["RESOLUTION_PENDING", "RESOLVED"],
     ["RESOLVED", "CLOSED"],
     ["REJECTED", "CLOSED"],
+    ["CLOSED", "OPEN"],
   ];
 
   it.each(validTransitions)("allows %s → %s", (from, to) => {
@@ -33,7 +34,6 @@ describe("canTransition", () => {
     ["RETURN_PENDING", "RESOLVED"],
     ["RETURN_SHIPPED", "RESOLVED"],
     ["RESOLVED", "OPEN"],
-    ["CLOSED", "OPEN"],
     ["REJECTED", "ACCEPTED"],
   ];
 

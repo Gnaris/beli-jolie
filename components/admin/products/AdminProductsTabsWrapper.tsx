@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, type ReactNode } from "react";
-
-const TAB_ORDER = ["produits", "categories", "couleurs", "compositions", "pays", "saisons", "tailles", "mots-cles"];
+import { type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const TABS_META = [
   { key: "produits", label: "Produits", icon: "M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" },
@@ -15,50 +14,39 @@ const TABS_META = [
   { key: "mots-cles", label: "Mots clés", icon: "M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3zM6 6h.008v.008H6V6z" },
 ];
 
-interface TabDef {
-  key: string;
-  content: ReactNode;
-}
-
 interface Props {
   initialTab: string;
-  tabs: TabDef[];
+  children: ReactNode;
   warnings?: Record<string, number>;
 }
 
-export default function AdminProductsTabsWrapper({ initialTab, tabs, warnings = {} }: Props) {
-  const [activeTab, setActiveTab] = useState(initialTab);
-  const prevTabRef = useRef(activeTab);
-  const [direction, setDirection] = useState<"left" | "right" | null>(null);
-  const [animCounter, setAnimCounter] = useState(0);
+export default function AdminProductsTabsWrapper({ initialTab, children, warnings = {} }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const handleTabChange = (tabKey: string) => {
-    if (tabKey === activeTab) return;
-    setActiveTab(tabKey);
-
-    // Update URL without triggering server navigation
-    const params = new URLSearchParams();
-    if (tabKey !== "produits") params.set("tab", tabKey);
-    const qs = params.toString();
-    window.history.replaceState(null, "", `/admin/produits${qs ? `?${qs}` : ""}`);
-  };
-
-  useEffect(() => {
-    if (prevTabRef.current !== activeTab) {
-      const prevIdx = TAB_ORDER.indexOf(prevTabRef.current);
-      const nextIdx = TAB_ORDER.indexOf(activeTab);
-      setDirection(nextIdx > prevIdx ? "left" : "right");
-      setAnimCounter((c) => c + 1);
-      prevTabRef.current = activeTab;
+    if (tabKey === initialTab) return;
+    // Navigate with URL — triggers server re-render for the new tab only
+    const params = new URLSearchParams(searchParams.toString());
+    if (tabKey !== "produits") {
+      params.set("tab", tabKey);
+    } else {
+      params.delete("tab");
     }
-  }, [activeTab]);
-
-  const animClass =
-    direction === "left"
-      ? "animate-[slide-in-right_0.3s_ease-out]"
-      : direction === "right"
-        ? "animate-[slide-in-left_0.3s_ease-out]"
-        : "";
+    // Clear page/filters when switching tabs
+    params.delete("page");
+    params.delete("q");
+    params.delete("exactRef");
+    params.delete("status");
+    params.delete("cat");
+    params.delete("minPrice");
+    params.delete("maxPrice");
+    params.delete("dateFrom");
+    params.delete("dateTo");
+    params.delete("stockBelow");
+    const qs = params.toString();
+    router.push(`/admin/produits${qs ? `?${qs}` : ""}`);
+  };
 
   return (
     <>
@@ -66,7 +54,7 @@ export default function AdminProductsTabsWrapper({ initialTab, tabs, warnings = 
       <div className="border-b border-border">
         <div className="flex items-center gap-1 overflow-x-auto pb-1 -mb-px scrollbar-none">
           {TABS_META.map((tab) => {
-            const isActive = activeTab === tab.key;
+            const isActive = initialTab === tab.key;
             const warningCount = warnings[tab.key] ?? 0;
             return (
               <button
@@ -93,20 +81,8 @@ export default function AdminProductsTabsWrapper({ initialTab, tabs, warnings = 
         </div>
       </div>
 
-      {/* Tab content with slide animation */}
-      <div className="overflow-hidden">
-        {tabs.map((tab) => {
-          const isActive = tab.key === activeTab;
-          if (!isActive) {
-            return <div key={tab.key} className="hidden">{tab.content}</div>;
-          }
-          return (
-            <div key={`${tab.key}-${animCounter}`} className={animClass}>
-              {tab.content}
-            </div>
-          );
-        })}
-      </div>
+      {/* Active tab content */}
+      <div>{children}</div>
     </>
   );
 }

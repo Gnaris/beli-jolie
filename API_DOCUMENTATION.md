@@ -52,18 +52,19 @@ Chaque variant inclut `colors[]` array dedie + `images` du produit parent.
 
 ---
 
-## 5. Creer produit — `POST /catalog/products`
+## 5. Creer produit — `POST /catalog/products/create`
 
 ```json
-{ "data": [{ "reference": "T999VS1", "reference_code": "T999VS1", "gender": "WOMAN",
-  "gender_label": "Femme", "brand_name": "Ma Boutique", "family": "ID_FAMILLE",
+{ "data": { "reference_code": "T999VS1", "gender_label": "WOMAN",
+  "brand_name": "Princesse", "family": "ID_FAMILLE",
   "category": "ID_CATEGORIE", "season_name": "PE2026",
   "label": { "fr": "...", "en": "...", "de": "...", "es": "...", "it": "..." },
   "description": { "fr": "...", "en": "...", "de": "...", "es": "...", "it": "..." },
-  "material_composition": "ACIERINOXYDABLE", "country_of_manufacture": "CN" }] }
+  "material_composition": [{ "id": "a0zW5000000YvezIAC", "value": "100" }],
+  "lining_composition": [], "country_of_manufacture": "CN", "variants": [] } }
 ```
 
-**Obligatoire**: `reference` ET `reference_code` (meme valeur). `material_composition` = **string** (array crash 500 sur POST).
+**Champs**: `reference_code` (reference produit). `gender_label` = reference genre (WOMAN/MAN/KID/SUPPLIES, pas le label FR). `material_composition` = tableau `[{id, value}]`. `brand_name` = nom exact de la marque sur PFS. `variants` = `[]` (variants crees separement).
 Reponse: `{ resume: { products, errors }, data: [...] }`. Produit cree en statut `NEW`.
 
 ---
@@ -72,7 +73,7 @@ Reponse: `{ resume: { products, errors }, data: [...] }`. Produit cree en statut
 
 ```json
 { "data": { "label": {...}, "description": {...}, "category": "ID", "family": "ID",
-  "gender_label": "Femme", "season_name": "PE2026", "country_of_manufacture": "CN",
+  "gender_label": "WOMAN", "season_name": "PE2026", "country_of_manufacture": "CN",
   "material_composition": [{ "id": "ACIERINOXYDABLE", "value": 85 }, { "id": "LAITON", "value": 15 }],
   "default_color": "GOLDEN", "brand_name": "Ma Boutique" } }
 ```

@@ -135,7 +135,7 @@ function CarouselCard({
   }, [session, selectedColor, image, router]);
 
   return (
-    <article className={`group shrink-0 ${cardWidth} ${cardRadius} bg-bg-primary border border-border overflow-hidden flex flex-col transition-shadow duration-300 ${cardShadow}`}>
+    <article className={`group shrink-0 h-full ${cardWidth} ${cardRadius} bg-bg-primary border border-border overflow-hidden flex flex-col transition-shadow duration-300 ${cardShadow}`}>
       <Link href={`/produits/${product.id}`} className="block">
         <div ref={imageRef} className={`${imageAspect} bg-bg-secondary relative overflow-hidden`}>
           {image ? (
@@ -181,36 +181,34 @@ function CarouselCard({
       </Link>
 
       <div className="p-4 flex flex-col gap-2 flex-1">
-        {/* Color swatches — clickable */}
-        {product.colors.length > 1 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {product.colors.slice(0, 5).map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                title={tp(c.name)}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setSelectedColorId(c.id);
-                }}
-                className={`rounded-full transition-all duration-200 ${
-                  c.id === selectedColorId
-                    ? "ring-2 ring-accent ring-offset-1 scale-110"
-                    : "hover:scale-110"
-                }`}
-              >
-                <ColorSwatch
-                  hex={c.hex}
-                  patternImage={c.patternImage}
-                  size={16}
-                  border
-                  rounded="full"
-                />
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Color swatches — clickable (min-h reserves space for consistent card heights) */}
+        <div className="flex items-center gap-1.5 flex-wrap min-h-[20px]">
+          {product.colors.slice(0, 5).map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              title={tp(c.name)}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setSelectedColorId(c.id);
+              }}
+              className={`rounded-full transition-all duration-200 ${
+                c.id === selectedColorId
+                  ? "ring-2 ring-accent ring-offset-1 scale-110"
+                  : "hover:scale-110"
+              }`}
+            >
+              <ColorSwatch
+                hex={c.hex}
+                patternImage={c.patternImage}
+                size={16}
+                border
+                rounded="full"
+              />
+            </button>
+          ))}
+        </div>
 
         <Link href={`/produits/${product.id}`}>
           <p className="font-body font-semibold text-sm text-text-primary line-clamp-1 leading-snug hover:text-text-secondary transition-colors">
@@ -366,10 +364,10 @@ export default function ProductCarousel({
         {/* Scroll container */}
         <div
           ref={scrollRef}
-          className="flex gap-5 overflow-x-auto pb-2 scroll-smooth no-scrollbar snap-x snap-mandatory"
+          className="flex items-stretch gap-5 overflow-x-auto pb-2 scroll-smooth no-scrollbar snap-x snap-mandatory"
         >
           {products.map((p) => (
-            <div key={p.id} className="snap-start">
+            <div key={p.id} className="snap-start h-full">
               <CarouselCard product={p} clientDiscount={clientDiscount} showPromoBadge={showPromoBadge} size={size} />
             </div>
           ))}

@@ -285,43 +285,39 @@ export async function pfsRefreshProduct(
     const descriptionWithDims = product.description + buildDimensionsSuffix(product);
     const translated = await pfsTranslate(product.name, descriptionWithDims);
 
-    const mainComposition = product.compositions[0]?.composition.pfsCompositionRef ?? "ACIERINOXYDABLE";
+    // Build composition array with IDs
+    const compositionArray = product.compositions
+      .filter((c) => c.composition.pfsCompositionRef)
+      .map((c) => ({ id: c.composition.pfsCompositionRef!, value: String(c.percentage) }));
+    if (compositionArray.length === 0) {
+      compositionArray.push({ id: "ACIERINOXYDABLE", value: "100" });
+    }
+
     // Prefer values from existing PFS product, then local DB, then defaults
     const gender = existingGender || product.category.pfsGender || PFS_DEFAULTS.gender;
     const family = existingFamily || product.category.pfsFamilyId || PFS_DEFAULTS.family;
-    const genderLabels: Record<string, string> = { WOMAN: "Femme", MAN: "Homme", KID: "Enfant", SUPPLIES: "Fournitures" };
 
-    // Use the brand from existing PFS product (must match exactly what PFS expects)
-    const brandName = existingBrand || PFS_DEFAULTS.brand_name;
+    // Use the brand from existing PFS product, then shop name from DB, then default
+    const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
+    const brandName = existingBrand || shopNameInfo?.shopName || PFS_DEFAULTS.brand_name;
 
     const createData: PfsProductCreateData = {
-      reference: tempRef,
       reference_code: tempRef,
-      gender,
-      gender_label: genderLabels[gender] ?? PFS_DEFAULTS.gender_label,
+      gender_label: gender,
       brand_name: brandName,
       family,
       category: product.category.pfsCategoryId!,
       season_name: product.season?.pfsRef ?? PFS_DEFAULTS.season_name,
       label: translated.productName,
       description: translated.productDescription,
-      material_composition: mainComposition,
+      material_composition: compositionArray,
       country_of_manufacture: product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode ?? PFS_DEFAULTS.country_of_manufacture,
+      variants: [],
     };
 
     const result = await pfsCreateProduct(createData);
     newPfsProductId = result.pfsProductId;
     logger.info(`[PFS Refresh] Created new product: ${newPfsProductId}`);
-
-    // If multiple compositions, update with array format
-    if (product.compositions.length > 1) {
-      const compositionArray = product.compositions
-        .filter((c) => c.composition.pfsCompositionRef)
-        .map((c) => ({ id: c.composition.pfsCompositionRef!, value: c.percentage }));
-      if (compositionArray.length > 0) {
-        await pfsUpdateProduct(newPfsProductId, { material_composition: compositionArray });
-      }
-    }
 
     // ── Step 3: Create all variants ──
     report("Création des variantes...");

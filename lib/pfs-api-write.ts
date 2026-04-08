@@ -19,9 +19,7 @@ import { logger } from "@/lib/logger";
 // ─────────────────────────────────────────────
 
 export interface PfsProductCreateData {
-  reference: string;
   reference_code: string;
-  gender: string;
   gender_label: string;
   brand_name: string;
   family: string;
@@ -29,8 +27,10 @@ export interface PfsProductCreateData {
   season_name: string;
   label: Record<string, string>;
   description: Record<string, string>;
-  material_composition: string; // String for POST (array crashes)
+  material_composition: { id: string; value: string }[];
+  lining_composition?: { id: string; value: string }[];
   country_of_manufacture: string;
+  variants?: unknown[];
 }
 
 export interface PfsProductUpdateData {
@@ -117,15 +117,18 @@ async function _fetchWithRetryInner(
 
       if (res.ok) return res;
 
-      const errBody = await res.text().catch(() => "");
       const method = options.method ?? "GET";
       const shortUrl = url.replace(PFS_BASE_URL, "");
 
       if (res.status === 404) {
-        throw new Error(`PFS API 404: ${method} ${shortUrl} — ${errBody.slice(0, 200)}`);
+        const errBody = await res.text().catch(() => "");
+        const err = new Error(`PFS API 404: ${method} ${shortUrl} — ${errBody.slice(0, 200)}`);
+        (err as Error & { nonRetryable: boolean }).nonRetryable = true;
+        throw err;
       }
 
       if (res.status === 429 || res.status >= 500) {
+        const errBody = await res.text().catch(() => "");
         lastError = new Error(`PFS API ${res.status}: ${method} ${shortUrl} — ${errBody.slice(0, 200)}`);
         const jitter = Math.random() * 1000;
         const delay = Math.min(2000 * Math.pow(2, attempt) + jitter, 30000);
@@ -134,10 +137,15 @@ async function _fetchWithRetryInner(
         continue;
       }
 
-      // Return non-retryable errors as-is (400, 422, etc.)
+      // Return non-retryable errors as-is (400, 422, etc.) — don't read body here,
+      // let the caller read it
       return res;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      // Don't retry non-retryable errors (e.g. 404)
+      if ((err as Error & { nonRetryable?: boolean }).nonRetryable) {
+        throw lastError;
+      }
       const jitter = Math.random() * 1000;
       const delay = Math.min(2000 * Math.pow(2, attempt) + jitter, 30000);
       logger.warn("[PFS] Request failed, retrying", { error: lastError.message, attempt: attempt + 1, maxRetries, delayMs: Math.round(delay) });
@@ -198,23 +206,51 @@ async function pfsDelete(path: string): Promise<{ status: number; data: unknown 
 export async function pfsCreateProduct(
   product: PfsProductCreateData,
 ): Promise<{ pfsProductId: string }> {
-  const { status, data } = await pfsPost("/catalog/products", {
-    data: [product],
+  const { status, data } = await pfsPost("/catalog/products/create", {
+    data: product,
   });
 
-  const resp = data as { resume?: { products: number; errors: number }; data?: { id?: string; errors?: Record<string, string[]> }[] };
+  logger.info("[PFS] Create product response", { status, data: JSON.stringify(data).slice(0, 1000) });
 
-  if (status !== 200 || !resp.resume || resp.resume.errors > 0) {
+  const resp = data as {
+    // New /create endpoint format
+    id?: string;
+    message?: string;
+    errors?: { message: string; columns: string[] }[];
+    // Legacy format (kept for safety)
+    resume?: { products: number; errors: number };
+    data?: { id?: string; errors?: Record<string, string[]> }[];
+  };
+
+  // New format: validation errors
+  if (resp.errors && resp.errors.length > 0) {
+    const errorDetail = resp.errors.map((e) => `${e.columns.join(",")}: ${e.message}`).join("; ");
+    throw new Error(`PFS create product failed: ${errorDetail}`);
+  }
+
+  // New /create format: { data: { id: "pro_..." } }
+  const nestedId = (resp as { data?: { id?: string } }).data?.id;
+  if (nestedId) {
+    return { pfsProductId: nestedId };
+  }
+
+  // Direct id in response
+  if (resp.id) {
+    return { pfsProductId: resp.id };
+  }
+
+  // Legacy format fallback
+  if (resp.resume && resp.resume.errors > 0) {
     const errorDetail = resp.data?.[0]?.errors
       ? Object.entries(resp.data[0].errors).map(([k, v]) => `${k}: ${(v as string[]).join(", ")}`).join("; ")
-      : JSON.stringify(data).slice(0, 300);
+      : JSON.stringify(data).slice(0, 1000);
     throw new Error(`PFS create product failed: ${errorDetail}`);
   }
 
   const pfsId = resp.data?.[0]?.id;
-  if (!pfsId) throw new Error("PFS create product: no ID returned");
+  if (pfsId) return { pfsProductId: pfsId };
 
-  return { pfsProductId: pfsId };
+  throw new Error(`PFS create product failed (${status}): ${JSON.stringify(data).slice(0, 500)}`);
 }
 
 // ─────────────────────────────────────────────

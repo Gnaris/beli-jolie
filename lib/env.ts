@@ -15,7 +15,6 @@ const envSchema = z.object({
   NEXTAUTH_SECRET: z.string().min(1, "NEXTAUTH_SECRET is required"),
   NEXTAUTH_URL: z.url("NEXTAUTH_URL must be a valid URL"),
   ENCRYPTION_KEY: z.string().min(1, "ENCRYPTION_KEY is required"),
-  ANTHROPIC_API_KEY: z.string().optional(),
 
   // ── Cloudflare R2 (required) ──────────────────────────────────────────────
   R2_ACCESS_KEY_ID: z.string().min(1, "R2_ACCESS_KEY_ID is required"),

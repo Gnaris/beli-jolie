@@ -44,27 +44,30 @@ interface PageProps {
 const VALID_TABS = ["produits", "categories", "couleurs", "compositions", "pays", "saisons", "tailles", "mots-cles"] as const;
 type TabKey = (typeof VALID_TABS)[number];
 
+/** Render only the active tab's content server-side (avoids PFS calls + heavy queries for hidden tabs) */
+function getActiveTabContent(activeTab: TabKey, params: Record<string, string | undefined>) {
+  switch (activeTab) {
+    case "produits":     return <ProduitsContent params={params} />;
+    case "categories":   return <CategoriesContent />;
+    case "couleurs":     return <CouleursContent />;
+    case "compositions": return <CompositionsContent />;
+    case "pays":         return <PaysContent />;
+    case "saisons":      return <SaisonsContent />;
+    case "tailles":      return <TaillesContent />;
+    case "mots-cles":    return <MotsClesContent />;
+  }
+}
+
 export default async function ProduitsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const activeTab = (VALID_TABS.includes(params.tab as TabKey) ? params.tab : "produits") as TabKey;
 
-  // Render immediately — warnings load in parallel via Suspense
   return (
     <div className="space-y-6">
       <Suspense fallback={
-        <AdminProductsTabsWrapper
-          initialTab={activeTab}
-          tabs={[
-            { key: "produits",     content: <Suspense><ProduitsContent params={params} /></Suspense> },
-            { key: "categories",   content: <Suspense><CategoriesContent /></Suspense> },
-            { key: "couleurs",     content: <Suspense><CouleursContent /></Suspense> },
-            { key: "compositions", content: <Suspense><CompositionsContent /></Suspense> },
-            { key: "pays",         content: <Suspense><PaysContent /></Suspense> },
-            { key: "saisons",      content: <Suspense><SaisonsContent /></Suspense> },
-            { key: "tailles",      content: <Suspense><TaillesContent /></Suspense> },
-            { key: "mots-cles",    content: <Suspense><MotsClesContent /></Suspense> },
-          ]}
-        />
+        <AdminProductsTabsWrapper initialTab={activeTab}>
+          <Suspense>{getActiveTabContent(activeTab, params)}</Suspense>
+        </AdminProductsTabsWrapper>
       }>
         <TabsWithWarnings activeTab={activeTab} params={params} />
       </Suspense>
@@ -91,20 +94,9 @@ async function TabsWithWarnings({ activeTab, params }: { activeTab: TabKey; para
   if (untranslatedCategoriesCount + untranslatedSubCategoriesCount > 0) tabWarnings["categories"] = untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
   return (
-    <AdminProductsTabsWrapper
-      initialTab={activeTab}
-      warnings={tabWarnings}
-      tabs={[
-        { key: "produits",     content: <Suspense><ProduitsContent params={params} /></Suspense> },
-        { key: "categories",   content: <Suspense><CategoriesContent /></Suspense> },
-        { key: "couleurs",     content: <Suspense><CouleursContent /></Suspense> },
-        { key: "compositions", content: <Suspense><CompositionsContent /></Suspense> },
-        { key: "pays",         content: <Suspense><PaysContent /></Suspense> },
-        { key: "saisons",      content: <Suspense><SaisonsContent /></Suspense> },
-        { key: "tailles",      content: <Suspense><TaillesContent /></Suspense> },
-        { key: "mots-cles",    content: <Suspense><MotsClesContent /></Suspense> },
-      ]}
-    />
+    <AdminProductsTabsWrapper initialTab={activeTab} warnings={tabWarnings}>
+      <Suspense>{getActiveTabContent(activeTab, params)}</Suspense>
+    </AdminProductsTabsWrapper>
   );
 }
 

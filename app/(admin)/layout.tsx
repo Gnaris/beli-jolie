@@ -14,6 +14,7 @@ import AdminChatBadge from "@/components/admin/AdminChatBadge";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
 import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
+import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import { getCachedSiteConfig, getCachedPfsEnabled } from "@/lib/cached-data";
 import { getAdminUnreadCount } from "@/app/actions/admin/messages";
 
@@ -185,6 +186,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </div>
 
       {pfsEnabled && <PfsRefreshWidget />}
+      <AdminChatWidgetLoader />
     </div>
     </PfsWrapper>
     </DeeplConfigProvider>

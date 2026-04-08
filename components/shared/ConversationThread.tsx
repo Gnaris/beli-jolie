@@ -38,14 +38,14 @@ export default function ConversationThread({
   }, [messages.length, typingName]);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden">
       {subject && (
         <div className="border-b border-border px-4 py-3">
           <h2 className="font-heading text-lg font-bold text-text-primary">{subject}</h2>
         </div>
       )}
 
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4">
         {messages.map((msg) => {
           const isSelf = msg.senderRole === currentUserRole;
           return (

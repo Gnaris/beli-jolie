@@ -12,11 +12,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:pfs-smoke": "vitest run __tests__/pfs/pfs-smoke.test.ts",
-    "c" : "claude --dangerously-skip-permissions",
-    "pull" : "git pull && npx prisma db push && npx prisma generate && npm run dev"
+    "c": "claude --dangerously-skip-permissions",
+    "pull": "git pull && npx prisma db push && npx prisma generate && npm run dev"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.79.0",
     "@aws-sdk/client-s3": "^3.1019.0",
     "@prisma/client": "^5.22.0",
     "@stripe/react-stripe-js": "^5.6.1",

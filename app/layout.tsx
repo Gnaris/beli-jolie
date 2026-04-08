@@ -15,6 +15,7 @@ import GuestBanner from "@/components/layout/GuestBanner";
 import HeartbeatTracker from "@/components/layout/HeartbeatTracker";
 import { getCachedShopName, getCachedBusinessHours } from "@/lib/cached-data";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
+import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import "./globals.css";
 
 /* ─────────────────────────────────────────────
@@ -117,6 +118,7 @@ export default async function RootLayout({
                   <HeartbeatTracker />
                   {children}
                   <ChatWidgetLoader businessHours={businessHours} />
+                  <AdminChatWidgetLoader />
                 </LoadingOverlayProvider>
               </ConfirmProvider>
             </ToastProvider>

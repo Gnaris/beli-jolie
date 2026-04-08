@@ -4,6 +4,18 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import PfsLiveCompareModal from "./PfsLiveCompareModal";
 import { forcePfsSync } from "@/app/actions/admin/pfs-reverse-sync";
 
+// ── Session cache — avoids re-checking PFS on every page visit ──────────────
+// Persists across navigations within the same browser session (SPA).
+// Manual sync always bypasses the cache.
+type PfsCacheEntry = {
+  noDiffs: boolean;
+  hasDiffs: boolean;
+  notOnPfs: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any;
+};
+const pfsCheckCache = new Map<string, PfsCacheEntry>();
+
 // ── Styled Tooltip ──────────────────────────────────────────────────────────
 
 function PfsTooltip({
@@ -127,6 +139,7 @@ export default function PfsSyncButton({
         // Product not on PFS
         if (res.status === 400 && data?.notOnPfs) {
           setNotOnPfs(true);
+          pfsCheckCache.set(productId, { noDiffs: false, hasDiffs: false, notOnPfs: true, data: null });
           setChecking(false);
           return;
         }
@@ -141,9 +154,11 @@ export default function PfsSyncButton({
         setNoDiffs(true);
         setHasDiffs(false);
         setSyncStatus("synced");
+        pfsCheckCache.set(productId, { noDiffs: true, hasDiffs: false, notOnPfs: false, data });
       } else {
         setHasDiffs(true);
         setNoDiffs(false);
+        pfsCheckCache.set(productId, { noDiffs: false, hasDiffs: true, notOnPfs: false, data });
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -164,6 +179,7 @@ export default function PfsSyncButton({
       if (result.success) {
         setSyncStatus("synced");
         setNotOnPfs(false);
+        pfsCheckCache.delete(productId);
         // After creation, reload to get pfsProductId
         window.location.reload();
       } else {
@@ -181,13 +197,27 @@ export default function PfsSyncButton({
   const handleModalClose = useCallback(() => {
     setModalOpen(false);
     cachedData.current = null;
-  }, []);
+    // Invalidate cache so next visit re-checks
+    pfsCheckCache.delete(productId);
+  }, [productId]);
 
-  // ── Auto-check on mount (always) ──
+  // ── Auto-check on mount — use cache if available ──
   useEffect(() => {
     if (!pfsProductId || (mappingIssues && mappingIssues.length > 0)) return;
 
-    // Small delay to not block page render
+    const cached = pfsCheckCache.get(productId);
+    if (cached) {
+      // Restore cached state — no API call
+      setNoDiffs(cached.noDiffs);
+      setHasDiffs(cached.hasDiffs);
+      setNotOnPfs(cached.notOnPfs);
+      if (cached.noDiffs) setSyncStatus("synced");
+      if (cached.data) cachedData.current = cached.data;
+      setAutoChecked(true);
+      return;
+    }
+
+    // First visit — check PFS
     const timer = setTimeout(() => {
       setAutoChecked(false);
       handleSync().then(() => setAutoChecked(true));

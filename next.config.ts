@@ -37,6 +37,12 @@ const nextConfig: NextConfig = {
   compress: true,
   poweredByHeader: false,
 
+  // Prevent file tracing from scanning all 52k+ files in public/
+  outputFileTracingExcludes: {
+    "/api/admin/products/import/draft/[id]": ["./public/**"],
+    "/api/admin/products/import/images/variants": ["./public/**"],
+  },
+
   // ─── Rewrite /uploads/* to R2 (so existing DB paths work as image URLs) ───
   async rewrites() {
     const r2PublicUrl = process.env.R2_PUBLIC_URL || process.env.NEXT_PUBLIC_R2_URL;

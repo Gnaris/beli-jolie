@@ -490,7 +490,11 @@ function ProductRow({
                   key={colorKey}
                   title={`${fullName}${isOos ? " — Rupture" : ""}`}
                   className="inline-block w-5 h-5 rounded-full relative shrink-0"
-                  style={swatchStyle}
+                  style={{
+                    ...swatchStyle,
+                    border: '2px solid #fff',
+                    boxShadow: '0 0 0 1px #D1D1D1',
+                  }}
                 >
                   {isOos && (
                     <span className="absolute inset-[-2px] rounded-full border-[2.5px] border-[#EF4444] pointer-events-none" />

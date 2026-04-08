@@ -26,8 +26,9 @@ export interface ChatEvent {
 /**
  * Subscribe to real-time chat events via SSE.
  * Calls `onEvent` for each incoming event. Auto-reconnects on disconnect.
+ * Pass `enabled = false` to defer the SSE connection (saves HTTP slots).
  */
-export function useChatStream(onEvent: (event: ChatEvent) => void) {
+export function useChatStream(onEvent: (event: ChatEvent) => void, enabled = true) {
   const onEventRef = useRef(onEvent);
 
   useEffect(() => {
@@ -35,6 +36,8 @@ export function useChatStream(onEvent: (event: ChatEvent) => void) {
   });
 
   useEffect(() => {
+    if (!enabled) return;
+
     let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout>;
     let alive = true;
@@ -63,5 +66,5 @@ export function useChatStream(onEvent: (event: ChatEvent) => void) {
       clearTimeout(reconnectTimer);
       es?.close();
     };
-  }, []);
+  }, [enabled]);
 }

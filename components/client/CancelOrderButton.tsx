@@ -17,7 +17,7 @@ export default function CancelOrderButton({ orderId, orderNumber }: Props) {
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
-  const { toast } = useToast();
+  const { error: showError } = useToast();
 
   async function handleClick() {
     const ok = await confirm({
@@ -34,7 +34,7 @@ export default function CancelOrderButton({ orderId, orderNumber }: Props) {
       try {
         await cancelOrder(orderId);
       } catch (e: unknown) {
-        toast(e instanceof Error ? e.message : t("error"), "error");
+        showError(e instanceof Error ? e.message : t("error"));
       } finally {
         hideLoading();
       }

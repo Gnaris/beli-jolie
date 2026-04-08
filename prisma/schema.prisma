@@ -53,26 +53,26 @@ model User {
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
-  cart           Cart?
-  addresses      ShippingAddress[]
-  orders         Order[]
-  favorites      Favorite[]
-  importDrafts   ImportDraft[]
-  importJobs     ImportJob[]
-  pfsSyncJobs         PfsSyncJob[]
-  pfsPrepareJobs      PfsPrepareJob[]
-  accessCodes         AccessCode[]
-  activity       UserActivity?
-  restockAlerts  RestockAlert[]
-  stockMovements    StockMovement[]    @relation("StockMovementCreator")
-  conversations     Conversation[]
-  messagesSent      Message[]
-  claims            Claim[]
-  credits           Credit[]
-  promotionUsages   PromotionUsage[]
-  productViews      ProductView[]      @relation("ProductViewer")
-  priceChanges      PriceHistory[]     @relation("PriceChanger")
-  visits            Visit[]
+  cart            Cart?
+  addresses       ShippingAddress[]
+  orders          Order[]
+  favorites       Favorite[]
+  importDrafts    ImportDraft[]
+  importJobs      ImportJob[]
+  pfsSyncJobs     PfsSyncJob[]
+  pfsPrepareJobs  PfsPrepareJob[]
+  accessCodes     AccessCode[]
+  activity        UserActivity?
+  restockAlerts   RestockAlert[]
+  stockMovements  StockMovement[]   @relation("StockMovementCreator")
+  conversations   Conversation[]
+  messagesSent    Message[]
+  claims          Claim[]
+  credits         Credit[]
+  promotionUsages PromotionUsage[]
+  productViews    ProductView[]     @relation("ProductViewer")
+  priceChanges    PriceHistory[]    @relation("PriceChanger")
+  visits          Visit[]
 }
 
 // ─────────────────────────────────────────────
@@ -118,10 +118,10 @@ model Category {
   id            String                @id @default(cuid())
   name          String                @unique
   slug          String                @unique
-  pfsCategoryId      String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
-  pfsGender          String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
-  pfsFamilyId        String? // ID famille PFS (ex: "a035J00000185J7QAI")
-  subCategories      SubCategory[]
+  pfsCategoryId String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
+  pfsGender     String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
+  pfsFamilyId   String? // ID famille PFS (ex: "a035J00000185J7QAI")
+  subCategories SubCategory[]
   products      Product[]
   translations  CategoryTranslation[]
   sizes         SizeCategoryLink[]
@@ -217,7 +217,7 @@ model ManufacturingCountryTranslation {
 model Season {
   id           String              @id @default(cuid())
   name         String              @unique
-  pfsRef       String?             // PFS collection reference: "PE2026", "AH2025" — multiple seasons can share the same ref
+  pfsRef       String? // PFS collection reference: "PE2026", "AH2025" — multiple seasons can share the same ref
   createdAt    DateTime            @default(now())
   products     Product[]
   translations SeasonTranslation[]
@@ -467,15 +467,15 @@ model ProductColorSubColor {
 
 // Bibliothèque de tailles réutilisables (ex: "XS", "S", "17", "Taille unique")
 model Size {
-  id           String             @id @default(cuid())
-  name         String             @unique
-  position     Int                @default(0)
-  pfsMappings  SizePfsMapping[]
-  categories   SizeCategoryLink[]
-  variantSizes     VariantSize[]
-  stockMovements   StockMovement[]
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id             String             @id @default(cuid())
+  name           String             @unique
+  position       Int                @default(0)
+  pfsMappings    SizePfsMapping[]
+  categories     SizeCategoryLink[]
+  variantSizes   VariantSize[]
+  stockMovements StockMovement[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 }
 
 // M2M: taille BJ ↔ taille PFS (une taille BJ peut être liée à plusieurs tailles PFS et inversement)
@@ -605,8 +605,8 @@ enum OrderStatus {
 }
 
 enum OrderModificationReason {
-  OUT_OF_STOCK    // Rupture de stock
-  CLIENT_REQUEST  // À la demande du client
+  OUT_OF_STOCK // Rupture de stock
+  CLIENT_REQUEST // À la demande du client
 }
 
 // ─────────────────────────────────────────────
@@ -772,9 +772,9 @@ model Order {
   cgvAcceptedAt DateTime? // Timestamp when client accepted CGV before payment
 
   // Promotion & credit applied
-  promoCode        String?
-  promoDiscount    Decimal          @default(0) @db.Decimal(10, 2)
-  creditApplied    Decimal          @default(0) @db.Decimal(10, 2)
+  promoCode         String?
+  promoDiscount     Decimal                 @default(0) @db.Decimal(10, 2)
+  creditApplied     Decimal                 @default(0) @db.Decimal(10, 2)
   // Relations for new features
   stockMovements    StockMovement[]
   claims            Claim[]
@@ -827,16 +827,16 @@ model OrderItem {
 
 // Modification d'article de commande (traçabilité)
 model OrderItemModification {
-  id               String                    @id @default(cuid())
+  id               String                  @id @default(cuid())
   orderItemId      String
-  orderItem        OrderItem                 @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  orderItem        OrderItem               @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   orderId          String
-  order            Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order            Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   originalQuantity Int
-  newQuantity      Int                       // 0 = rupture totale
+  newQuantity      Int // 0 = rupture totale
   reason           OrderModificationReason
-  priceDifference  Decimal                   @db.Decimal(12, 2) // montant négatif = avoir dû
-  createdAt        DateTime                  @default(now())
+  priceDifference  Decimal                 @db.Decimal(12, 2) // montant négatif = avoir dû
+  createdAt        DateTime                @default(now())
 
   @@index([orderId])
   @@index([orderItemId])
@@ -1478,27 +1478,27 @@ model MessageAttachment {
 // ─────────────────────────────────────────────
 
 model Claim {
-  id             String           @id @default(cuid())
-  reference      String           @unique
-  type           ClaimType
-  status         ClaimStatus      @default(OPEN)
-  userId         String
-  user           User             @relation(fields: [userId], references: [id])
-  orderId        String?
-  order          Order?           @relation(fields: [orderId], references: [id])
-  description    String           @db.Text
-  adminNote      String?          @db.Text
-  resolution     ClaimResolution?
-  refundAmount   Decimal?         @db.Decimal(10, 2)
-  creditAmount   Decimal?         @db.Decimal(10, 2)
-  conversation   Conversation?
-  items          ClaimItem[]
-  images         ClaimImage[]
-  returnInfo     ClaimReturn?
-  reshipInfo     ClaimReship?
-  credits        Credit[]
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  id           String           @id @default(cuid())
+  reference    String           @unique
+  type         ClaimType
+  status       ClaimStatus      @default(OPEN)
+  userId       String
+  user         User             @relation(fields: [userId], references: [id])
+  orderId      String?
+  order        Order?           @relation(fields: [orderId], references: [id])
+  description  String           @db.Text
+  adminNote    String?          @db.Text
+  resolution   ClaimResolution?
+  refundAmount Decimal?         @db.Decimal(10, 2)
+  creditAmount Decimal?         @db.Decimal(10, 2)
+  conversation Conversation?
+  items        ClaimItem[]
+  images       ClaimImage[]
+  returnInfo   ClaimReturn?
+  reshipInfo   ClaimReship?
+  credits      Credit[]
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
   @@index([userId, status])
   @@index([status])
@@ -1530,29 +1530,29 @@ model ClaimImage {
 }
 
 model ClaimReturn {
-  id             String        @id @default(cuid())
-  claimId        String        @unique
-  claim          Claim         @relation(fields: [claimId], references: [id])
+  id             String         @id @default(cuid())
+  claimId        String         @unique
+  claim          Claim          @relation(fields: [claimId], references: [id])
   method         ShippingMethod
-  status         ReturnStatus  @default(PENDING)
+  status         ReturnStatus   @default(PENDING)
   trackingNumber String?
   shippingLabel  String?
-  adminNote      String?       @db.Text
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  adminNote      String?        @db.Text
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 }
 
 model ClaimReship {
-  id             String        @id @default(cuid())
-  claimId        String        @unique
-  claim          Claim         @relation(fields: [claimId], references: [id])
+  id             String         @id @default(cuid())
+  claimId        String         @unique
+  claim          Claim          @relation(fields: [claimId], references: [id])
   method         ShippingMethod
-  status         ReshipStatus  @default(PENDING)
+  status         ReshipStatus   @default(PENDING)
   trackingNumber String?
   shippingLabel  String?
-  adminNote      String?       @db.Text
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  adminNote      String?        @db.Text
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 }
 
 // ─────────────────────────────────────────────
@@ -1593,27 +1593,27 @@ model CreditUsage {
 // ─────────────────────────────────────────────
 
 model Promotion {
-  id              String              @id @default(cuid())
-  name            String
-  type            PromotionType
-  code            String?             @unique
-  discountKind    DiscountKind
-  discountValue   Decimal             @db.Decimal(10, 2)
-  minOrderAmount  Decimal?            @db.Decimal(10, 2)
-  maxUses         Int?
-  maxUsesPerUser  Int?
-  firstOrderOnly  Boolean             @default(false)
-  appliesToAll    Boolean             @default(true)
-  startsAt        DateTime
-  endsAt          DateTime?
-  isActive        Boolean             @default(true)
-  currentUses     Int                 @default(0)
-  categories      PromotionCategory[]
-  collections     PromotionCollection[]
-  products        PromotionProduct[]
-  usages          PromotionUsage[]
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  id             String                @id @default(cuid())
+  name           String
+  type           PromotionType
+  code           String?               @unique
+  discountKind   DiscountKind
+  discountValue  Decimal               @db.Decimal(10, 2)
+  minOrderAmount Decimal?              @db.Decimal(10, 2)
+  maxUses        Int?
+  maxUsesPerUser Int?
+  firstOrderOnly Boolean               @default(false)
+  appliesToAll   Boolean               @default(true)
+  startsAt       DateTime
+  endsAt         DateTime?
+  isActive       Boolean               @default(true)
+  currentUses    Int                   @default(0)
+  categories     PromotionCategory[]
+  collections    PromotionCollection[]
+  products       PromotionProduct[]
+  usages         PromotionUsage[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
 
   @@index([type, isActive])
   @@index([code])
@@ -1696,5 +1696,3 @@ model PriceHistory {
 
   @@index([productColorId, createdAt])
 }
-
-

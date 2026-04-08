@@ -7,6 +7,7 @@ export default function PfsRefreshWidget() {
   const ctx = usePfsRefresh();
   const queue = ctx?.queue ?? [];
   const clearCompleted = ctx?.clearCompleted ?? (() => {});
+  const cancelQueued = ctx?.cancelQueued ?? (() => {});
   const [minimized, setMinimized] = useState(false);
   const [visible, setVisible] = useState(false);
 
@@ -29,13 +30,14 @@ export default function PfsRefreshWidget() {
   if (!visible || queue.length === 0) return null;
 
   const inProgress = queue.filter((i) => i.status === "in_progress").length;
+  const queued = queue.filter((i) => i.status === "queued").length;
   const completed = queue.filter((i) => i.status === "success").length;
   const errors = queue.filter((i) => i.status === "error").length;
   const total = queue.length;
-  const allDone = inProgress === 0 && queue.every((i) => i.status !== "queued");
+  const allDone = inProgress === 0 && queued === 0;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-80 bg-bg-primary border border-border rounded-2xl shadow-lg overflow-hidden font-body">
+    <div className="fixed bottom-20 right-4 z-50 w-80 bg-bg-primary border border-border rounded-2xl shadow-lg overflow-hidden font-body">
       {/* Header */}
       <div
         className="flex items-center gap-2 px-4 py-3 bg-bg-secondary border-b border-border cursor-pointer select-none"
@@ -81,18 +83,30 @@ export default function PfsRefreshWidget() {
         </div>
       )}
 
-      {/* Footer: clear button when all done */}
-      {!minimized && allDone && (
-        <div className="px-4 py-2 border-t border-border flex justify-end">
-          <button
-            onClick={() => {
-              clearCompleted();
-              setVisible(false);
-            }}
-            className="text-xs text-text-muted hover:text-text-primary transition-colors"
-          >
-            Fermer
-          </button>
+      {/* Footer */}
+      {!minimized && (allDone || queued > 0) && (
+        <div className="px-4 py-2 border-t border-border flex items-center justify-between">
+          {queued > 0 ? (
+            <button
+              onClick={cancelQueued}
+              className="text-xs text-red-500 hover:text-red-600 font-medium transition-colors"
+            >
+              Stopper la file ({queued} en attente)
+            </button>
+          ) : (
+            <span />
+          )}
+          {allDone && (
+            <button
+              onClick={() => {
+                clearCompleted();
+                setVisible(false);
+              }}
+              className="text-xs text-text-muted hover:text-text-primary transition-colors"
+            >
+              Fermer
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -130,12 +144,17 @@ function QueueItem({ item }: { item: PfsRefreshItem }) {
       {/* Content */}
       <div className="flex-1 min-w-0">
         <p className="text-sm text-text-primary truncate">{item.reference}</p>
-        <p className="text-xs text-text-muted truncate">
-          {item.status === "queued" && "En attente..."}
-          {item.status === "in_progress" && (item.step || "En cours...")}
-          {item.status === "success" && "Terminé"}
-          {item.status === "error" && (item.error || "Erreur")}
-        </p>
+        {item.status === "error" ? (
+          <p className="text-xs text-red-500 break-words whitespace-pre-wrap">
+            {item.error || "Erreur"}
+          </p>
+        ) : (
+          <p className="text-xs text-text-muted truncate">
+            {item.status === "queued" && "En attente..."}
+            {item.status === "in_progress" && (item.step || "En cours...")}
+            {item.status === "success" && "Terminé"}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -89,17 +89,15 @@ describe("lib/pfs-api-write", () => {
       });
 
       const result = await pfsCreateProduct({
-        reference: "BJ-TEST-001",
         reference_code: "BJ-TEST-001",
-        gender: "WOMAN",
-        gender_label: "Femme",
+        gender_label: "WOMAN",
         brand_name: "BeliJolie",
         family: "fashionjewelry",
         category: "bagues",
         season_name: "PE2026",
         label: { fr: "Bague test" },
         description: { fr: "Description test" },
-        material_composition: "ACIER",
+        material_composition: [{ id: "ACIER", value: "100" }],
         country_of_manufacture: "FR",
       });
 
@@ -117,17 +115,15 @@ describe("lib/pfs-api-write", () => {
       });
 
       await expect(pfsCreateProduct({
-        reference: "DUPLICATE",
         reference_code: "DUPLICATE",
-        gender: "WOMAN",
-        gender_label: "Femme",
+        gender_label: "WOMAN",
         brand_name: "Test",
         family: "fashionjewelry",
         category: "bagues",
         season_name: "PE2026",
         label: { fr: "Test" },
         description: { fr: "Test" },
-        material_composition: "ACIER",
+        material_composition: [{ id: "ACIER", value: "100" }],
         country_of_manufacture: "FR",
       })).rejects.toThrow("reference: Reference already exists");
     });
@@ -143,17 +139,15 @@ describe("lib/pfs-api-write", () => {
       });
 
       await expect(pfsCreateProduct({
-        reference: "NO-ID",
         reference_code: "NO-ID",
-        gender: "WOMAN",
-        gender_label: "Femme",
+        gender_label: "WOMAN",
         brand_name: "Test",
         family: "fashionjewelry",
         category: "bagues",
         season_name: "PE2026",
         label: { fr: "Test" },
         description: { fr: "Test" },
-        material_composition: "ACIER",
+        material_composition: [{ id: "ACIER", value: "100" }],
         country_of_manufacture: "FR",
       })).rejects.toThrow("no ID returned");
     });

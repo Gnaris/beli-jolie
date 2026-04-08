@@ -243,12 +243,12 @@ describe("Entity CRUD (real DB)", () => {
       expect(season.pfsRef).toBe(`${TEST_PREFIX}AH2026`);
     });
 
-    it("should enforce unique pfsRef", async () => {
-      await expect(
-        prisma.season.create({
-          data: { name: `${TEST_PREFIX}AH2026bis`, pfsRef: `${TEST_PREFIX}AH2026` },
-        }),
-      ).rejects.toThrow();
+    it("should allow duplicate pfsRef (multiple seasons can share same ref)", async () => {
+      const season2 = await prisma.season.create({
+        data: { name: `${TEST_PREFIX}AH2026bis`, pfsRef: `${TEST_PREFIX}AH2026` },
+      });
+      expect(season2.pfsRef).toBe(`${TEST_PREFIX}AH2026`);
+      await prisma.season.delete({ where: { id: season2.id } });
     });
 
     it("should delete season", async () => {

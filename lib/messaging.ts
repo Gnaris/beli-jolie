@@ -114,9 +114,3 @@ export async function getUnreadCount(role: Role, userId?: string) {
   return prisma.message.count({ where });
 }
 
-/**
- * Generate short reference for email subject: CONV-XXXX
- */
-export function conversationRef(conversationId: string): string {
-  return `CONV-${conversationId.slice(-8).toUpperCase()}`;
-}

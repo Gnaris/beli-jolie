@@ -80,14 +80,6 @@ export const getCachedSizes = unstable_cache(
   { revalidate: 60, tags: ["sizes"] }
 );
 
-/** Get sizes for a specific category */
-export async function getCachedSizesByCategory(categoryId: string) {
-  const allSizes = await getCachedSizes();
-  return allSizes.filter((s) =>
-    s.categories.some((c) => c.categoryId === categoryId)
-  );
-}
-
 // ─── Saisons ────────────────────────────────────────────────────────────────
 export const getCachedSeasons = unstable_cache(
   async () =>

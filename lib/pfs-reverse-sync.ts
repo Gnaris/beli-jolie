@@ -349,46 +349,36 @@ async function createProductOnPfs(product: FullProduct): Promise<string> {
   const label = translated.productName;
   const description = translated.productDescription;
 
-  // Get first composition reference for POST (string format required)
-  const mainComposition = product.compositions[0]?.composition.pfsCompositionRef ?? "ACIERINOXYDABLE";
+  // Build composition array
+  const compositionArray = product.compositions
+    .filter((c) => c.composition.pfsCompositionRef)
+    .map((c) => ({ id: c.composition.pfsCompositionRef!, value: String(c.percentage) }));
+  if (compositionArray.length === 0) {
+    compositionArray.push({ id: "ACIERINOXYDABLE", value: "100" });
+  }
 
   // Use category's PFS gender/family if available, otherwise fallback to defaults
   const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
   const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;
 
-  // Map gender code to label
-  const genderLabels: Record<string, string> = { WOMAN: "Femme", MAN: "Homme", KID: "Enfant", SUPPLIES: "Fournitures" };
-  const genderLabel = genderLabels[gender] ?? PFS_DEFAULTS.gender_label;
-
   const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
   const brandName = shopNameInfo?.shopName || PFS_DEFAULTS.brand_name;
 
   const data: PfsProductCreateData = {
-    reference: product.reference,
     reference_code: product.reference,
-    gender,
-    gender_label: genderLabel,
+    gender_label: gender,
     brand_name: brandName,
     family,
     category: product.category.pfsCategoryId!,
     season_name: product.season?.pfsRef ?? PFS_DEFAULTS.season_name,
     label,
     description,
-    material_composition: mainComposition,
+    material_composition: compositionArray,
     country_of_manufacture: product.manufacturingCountry?.pfsCountryRef ?? product.manufacturingCountry?.isoCode ?? PFS_DEFAULTS.country_of_manufacture,
+    variants: [],
   };
 
   const { pfsProductId } = await pfsCreateProduct(data);
-
-  // If multiple compositions, update with array format (works on PATCH, not POST)
-  if (product.compositions.length > 1) {
-    const compositionArray = product.compositions
-      .filter((c) => c.composition.pfsCompositionRef)
-      .map((c) => ({ id: c.composition.pfsCompositionRef!, value: c.percentage }));
-    if (compositionArray.length > 0) {
-      await pfsUpdateProduct(pfsProductId, { material_composition: compositionArray });
-    }
-  }
 
   // Store pfsProductId
   await prisma.product.update({
@@ -646,7 +636,16 @@ async function syncVariants(
         if (id === v.id) pfsVariantBySkuKey.delete(key);
       }
     } catch (err) {
-      logger.warn(`[PFS Reverse Sync] Failed to delete variant ${v.id}`, { error: err instanceof Error ? err.message : String(err) });
+      const msg = err instanceof Error ? err.message : String(err);
+      // 404 = variant already gone on PFS, treat as success
+      if (msg.includes("404")) {
+        logger.info(`[PFS Reverse Sync] Variant ${v.id} already deleted on PFS, skipping`);
+        for (const [key, id] of pfsVariantBySkuKey) {
+          if (id === v.id) pfsVariantBySkuKey.delete(key);
+        }
+      } else {
+        logger.warn(`[PFS Reverse Sync] Failed to delete variant ${v.id}`, { error: msg });
+      }
     }
   }
 
