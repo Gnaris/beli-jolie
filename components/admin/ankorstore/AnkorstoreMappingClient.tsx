@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition, useCallback } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -10,8 +11,9 @@ import {
   removeAnkorstoreMatch,
   confirmAnkorstoreMatch,
   searchBjProducts,
+  type AnkorstoreMatchReportSerialized,
+  type AnkorstoreMatchResultSerialized,
 } from "@/app/actions/admin/ankorstore";
-import type { MatchReport, MatchResult } from "@/lib/ankorstore-match";
 import { getImageSrc } from "@/lib/image-utils";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -56,9 +58,10 @@ export default function AnkorstoreMappingClient({
   const { showLoading, hideLoading } = useLoadingOverlay();
 
   const [activeTab, setActiveTab] = useState<TabKey>("matches");
+  const router = useRouter();
   const [matches, setMatches] = useState<MatchedProduct[]>(initialMatches);
   const [matchedCount, setMatchedCount] = useState(initialMatchedCount);
-  const [report, setReport] = useState<MatchReport | null>(null);
+  const [report, setReport] = useState<AnkorstoreMatchReportSerialized | null>(null);
   const [isRunning, startRunning] = useTransition();
   const [isRemoving, startRemoving] = useTransition();
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
@@ -104,8 +107,8 @@ export default function AnkorstoreMappingClient({
             `${result.report.matched} match(es), ${result.report.ambiguous} ambigu(s), ${result.report.unmatched} non matche(s).`
           );
           setMatchedCount(result.report.matched);
-          // Reload to get fresh data
-          window.location.reload();
+          setReport(result.report);
+          router.refresh();
         } else {
           toast.error("Erreur", result.error ?? "Le matching a echoue.");
         }
@@ -158,8 +161,17 @@ export default function AnkorstoreMappingClient({
           setExpandedRow(null);
           setSearchQuery("");
           setSearchResults([]);
-          // Reload to get fresh data
-          window.location.reload();
+          // Remove from review items and refresh server data
+          if (report) {
+            setReport({
+              ...report,
+              reviewItems: report.reviewItems.filter(
+                (r) => r.ankorstoreProductId !== ankorstoreProductId
+              ),
+            });
+          }
+          setMatchedCount((prev) => prev + 1);
+          router.refresh();
         } else {
           toast.error("Erreur", result.error ?? "Une erreur est survenue.");
         }
@@ -171,8 +183,8 @@ export default function AnkorstoreMappingClient({
 
   // ─── Tab data from report ──────────────────────────────────────────
 
-  const reviewItems = report?.results.filter((r) => r.status === "ambiguous") ?? [];
-  const unmatchedItems = report?.results.filter((r) => r.status === "unmatched") ?? [];
+  const reviewItems = report?.reviewItems.filter((r) => r.status === "ambiguous") ?? [];
+  const unmatchedItems = report?.reviewItems.filter((r) => r.status === "unmatched") ?? [];
 
   // ─── Render ────────────────────────────────────────────────────────
 
@@ -353,7 +365,7 @@ function UnmatchedList({
   onSearch,
   onAssociate,
 }: {
-  items: MatchResult[];
+  items: AnkorstoreMatchResultSerialized[];
   emptyMessage: string;
   expandedRow: string | null;
   onToggleExpand: (id: string) => void;
@@ -375,21 +387,20 @@ function UnmatchedList({
   return (
     <div className="space-y-2">
       {items.map((item) => {
-        const isExpanded = expandedRow === item.ankorstoreProduct.id;
-        const firstImage = item.ankorstoreProduct.images[0];
+        const isExpanded = expandedRow === item.ankorstoreProductId;
 
         return (
           <div
-            key={item.ankorstoreProduct.id}
+            key={item.ankorstoreProductId}
             className="rounded-lg border border-border overflow-hidden"
           >
             <div
               className="flex items-center gap-3 p-3 hover:bg-bg-secondary/50 transition-colors cursor-pointer"
-              onClick={() => onToggleExpand(item.ankorstoreProduct.id)}
+              onClick={() => onToggleExpand(item.ankorstoreProductId)}
             >
-              {firstImage ? (
+              {item.ankorstoreImageUrl ? (
                 <img
-                  src={firstImage}
+                  src={item.ankorstoreImageUrl}
                   alt=""
                   className="w-10 h-10 rounded-lg object-cover border border-border shrink-0"
                 />
@@ -402,7 +413,7 @@ function UnmatchedList({
               )}
               <div className="min-w-0 flex-1">
                 <p className="font-body text-sm font-medium text-text-primary truncate">
-                  {item.ankorstoreProduct.name}
+                  {item.ankorstoreProductName}
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
                   {item.extractedRef && (
@@ -468,7 +479,7 @@ function UnmatchedList({
                         </div>
                         <button
                           type="button"
-                          onClick={() => onAssociate(item.ankorstoreProduct.id, result.id)}
+                          onClick={() => onAssociate(item.ankorstoreProductId, result.id)}
                           disabled={isAssociating}
                           className="h-7 px-3 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 shrink-0"
                         >

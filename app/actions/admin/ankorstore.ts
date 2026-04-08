@@ -19,10 +19,29 @@ async function requireAdmin() {
  * Fetch all Ankorstore products, match against BJ products by reference,
  * and persist associations to the database.
  */
+/** Serializable subset of MatchResult for the client UI */
+export interface AnkorstoreMatchResultSerialized {
+  ankorstoreProductId: string;
+  ankorstoreProductName: string;
+  ankorstoreImageUrl: string | null;
+  extractedRef: string | null;
+  status: "ambiguous" | "unmatched";
+  variantSkus: string[];
+}
+
+export interface AnkorstoreMatchReportSerialized {
+  matched: number;
+  ambiguous: number;
+  unmatched: number;
+  total: number;
+  /** Only ambiguous + unmatched results (matched are persisted to DB) */
+  reviewItems: AnkorstoreMatchResultSerialized[];
+}
+
 export async function runAnkorstoreAutoMatch(): Promise<{
   success: boolean;
   error?: string;
-  report?: { matched: number; ambiguous: number; unmatched: number; total: number };
+  report?: AnkorstoreMatchReportSerialized;
 }> {
   try {
     await requireAdmin();
@@ -48,7 +67,9 @@ export async function runAnkorstoreAutoMatch(): Promise<{
       id: p.id,
       name: p.name,
       reference: p.reference,
-      colors: p.colors.map((c) => ({ id: c.id, name: c.color.name })),
+      colors: p.colors
+        .filter((c) => c.color != null)
+        .map((c) => ({ id: c.id, name: c.color!.name })),
     }));
 
     // Run matching algorithm
@@ -88,6 +109,20 @@ export async function runAnkorstoreAutoMatch(): Promise<{
 
     revalidateTag("products", "default");
 
+    // Serialize ambiguous + unmatched results for the client UI
+    const reviewItems: AnkorstoreMatchResultSerialized[] = report.results
+      .filter((r) => r.status === "ambiguous" || r.status === "unmatched")
+      .map((r) => ({
+        ankorstoreProductId: r.ankorstoreProduct.id,
+        ankorstoreProductName: r.ankorstoreProduct.name,
+        ankorstoreImageUrl: r.ankorstoreProduct.images?.[0] ?? null,
+        extractedRef: r.extractedRef,
+        status: r.status as "ambiguous" | "unmatched",
+        variantSkus: r.ankorstoreProduct.variants
+          .map((v) => v.sku)
+          .filter((s): s is string => !!s),
+      }));
+
     return {
       success: true,
       report: {
@@ -95,6 +130,7 @@ export async function runAnkorstoreAutoMatch(): Promise<{
         ambiguous: report.ambiguous,
         unmatched: report.unmatched,
         total: report.total,
+        reviewItems,
       },
     };
   } catch (e) {

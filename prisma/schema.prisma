@@ -304,6 +304,8 @@ model Product {
   pfsSyncStatus          String? // null=jamais sync, "synced"=OK, "pending"=en cours, "failed"=échec
   pfsSyncError           String?               @db.Text // Dernier message d'erreur de sync PFS
   pfsSyncedAt            DateTime? // Dernière sync réussie vers PFS
+  ankorsProductId        String?               @unique // UUID produit Ankorstore
+  ankorsMatchedAt        DateTime?             // Date du matching Ankorstore
   name                   String
   description            String                @db.Text
   categoryId             String
@@ -434,6 +436,8 @@ model ProductColor {
   restockAlerts       RestockAlert[]
   stockMovements      StockMovement[]
   priceHistory        PriceHistory[]
+  sku                 String?                @unique // SKU universel: {ref}_{couleurs}_{UNIT|PACK}_{index}
+  ankorsVariantId     String?                @unique // UUID variante Ankorstore
   pfsColorRef         String? // Override couleur PFS pour variantes multi-couleur
   pfsVariantId        String? // ID variant sur PFS — pour reverse sync
   createdAt           DateTime               @default(now())
