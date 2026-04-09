@@ -333,34 +333,30 @@ async function MarketplacesTab() {
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
 
   return (
-    <div className="max-w-xl">
-      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
-        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Marketplaces</h3>
-        <p className="text-sm text-text-secondary font-body mb-4">Identifiants de connexion aux plateformes B2B.</p>
-        <MarketplaceConfig
-          hasPfsConfig={!!pfsConfig}
-          pfsEnabled={pfsEnabledRow?.value === "true"}
-          hasAnkorsConfig={!!ankorsConfig}
-          ankorsEnabled={ankorsEnabledRow?.value === "true"}
-          markupSettings={{
-            pfs: {
-              type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed") || "percent",
-              value: Number(markupMap.get("pfs_price_markup_value")) || 0,
-              rounding: (markupMap.get("pfs_price_rounding") as "none" | "down" | "up") || "none",
-            },
-            ankorstoreWholesale: {
-              type: (markupMap.get("ankorstore_wholesale_markup_type") as "percent" | "fixed") || "percent",
-              value: Number(markupMap.get("ankorstore_wholesale_markup_value")) || 0,
-              rounding: (markupMap.get("ankorstore_wholesale_rounding") as "none" | "down" | "up") || "none",
-            },
-            ankorstoreRetail: {
-              type: (markupMap.get("ankorstore_retail_markup_type") as "percent" | "fixed") || "percent",
-              value: Number(markupMap.get("ankorstore_retail_markup_value")) || 0,
-              rounding: (markupMap.get("ankorstore_retail_rounding") as "none" | "down" | "up") || "none",
-            },
-          }}
-        />
-      </div>
+    <div>
+      <MarketplaceConfig
+        hasPfsConfig={!!pfsConfig}
+        pfsEnabled={pfsEnabledRow?.value === "true"}
+        hasAnkorsConfig={!!ankorsConfig}
+        ankorsEnabled={ankorsEnabledRow?.value === "true"}
+        markupSettings={{
+          pfs: {
+            type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed") || "percent",
+            value: Number(markupMap.get("pfs_price_markup_value")) || 0,
+            rounding: (markupMap.get("pfs_price_rounding") as "none" | "down" | "up") || "none",
+          },
+          ankorstoreWholesale: {
+            type: (markupMap.get("ankorstore_wholesale_markup_type") as "percent" | "fixed") || "percent",
+            value: Number(markupMap.get("ankorstore_wholesale_markup_value")) || 0,
+            rounding: (markupMap.get("ankorstore_wholesale_rounding") as "none" | "down" | "up") || "none",
+          },
+          ankorstoreRetail: {
+            type: (markupMap.get("ankorstore_retail_markup_type") as "percent" | "fixed") || "percent",
+            value: Number(markupMap.get("ankorstore_retail_markup_value")) || 0,
+            rounding: (markupMap.get("ankorstore_retail_rounding") as "none" | "down" | "up") || "none",
+          },
+        }}
+      />
     </div>
   );
 }
