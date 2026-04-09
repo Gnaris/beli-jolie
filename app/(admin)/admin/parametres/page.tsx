@@ -312,16 +312,29 @@ async function LivraisonTab() {
    TAB : Marketplaces — PFS
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MarketplacesTab() {
-  const [pfsConfig, pfsEnabledRow, ankorsConfig, ankorsEnabledRow] = await Promise.all([
+  const [pfsConfig, pfsEnabledRow, ankorsConfig, ankorsEnabledRow, markupRows] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findUnique({ where: { key: "pfs_enabled" }, select: { value: true } }),
     prisma.siteConfig.findUnique({ where: { key: "ankors_client_id" }, select: { key: true } }),
     prisma.siteConfig.findUnique({ where: { key: "ankors_enabled" }, select: { value: true } }),
+    prisma.siteConfig.findMany({
+      where: {
+        key: {
+          in: [
+            "pfs_price_markup_type", "pfs_price_markup_value", "pfs_price_rounding",
+            "ankorstore_wholesale_markup_type", "ankorstore_wholesale_markup_value", "ankorstore_wholesale_rounding",
+            "ankorstore_retail_markup_type", "ankorstore_retail_markup_value", "ankorstore_retail_rounding",
+          ],
+        },
+      },
+    }),
   ]);
+
+  const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
 
   return (
     <div className="max-w-xl">
-      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
         <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Marketplaces</h3>
         <p className="text-sm text-text-secondary font-body mb-4">Identifiants de connexion aux plateformes B2B.</p>
         <MarketplaceConfig
@@ -329,6 +342,23 @@ async function MarketplacesTab() {
           pfsEnabled={pfsEnabledRow?.value === "true"}
           hasAnkorsConfig={!!ankorsConfig}
           ankorsEnabled={ankorsEnabledRow?.value === "true"}
+          markupSettings={{
+            pfs: {
+              type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed") || "percent",
+              value: Number(markupMap.get("pfs_price_markup_value")) || 0,
+              rounding: (markupMap.get("pfs_price_rounding") as "none" | "down" | "up") || "none",
+            },
+            ankorstoreWholesale: {
+              type: (markupMap.get("ankorstore_wholesale_markup_type") as "percent" | "fixed") || "percent",
+              value: Number(markupMap.get("ankorstore_wholesale_markup_value")) || 0,
+              rounding: (markupMap.get("ankorstore_wholesale_rounding") as "none" | "down" | "up") || "none",
+            },
+            ankorstoreRetail: {
+              type: (markupMap.get("ankorstore_retail_markup_type") as "percent" | "fixed") || "percent",
+              value: Number(markupMap.get("ankorstore_retail_markup_value")) || 0,
+              rounding: (markupMap.get("ankorstore_retail_rounding") as "none" | "down" | "up") || "none",
+            },
+          }}
         />
       </div>
     </div>

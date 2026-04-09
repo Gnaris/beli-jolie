@@ -8,15 +8,101 @@ import {
   updateAnkorstoreCredentials,
   validateAnkorstoreCredentials,
   toggleAnkorstoreEnabled,
+  updateMarketplaceMarkup,
 } from "@/app/actions/admin/site-config";
+import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
 import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+
+interface MarkupState {
+  type: MarkupType;
+  value: number;
+  rounding: RoundingMode;
+}
 
 interface Props {
   hasPfsConfig: boolean;
   pfsEnabled: boolean;
   hasAnkorsConfig: boolean;
   ankorsEnabled: boolean;
+  markupSettings: {
+    pfs: MarkupState;
+    ankorstoreWholesale: MarkupState;
+    ankorstoreRetail: MarkupState;
+  };
+}
+
+function MarkupRow({
+  label,
+  state,
+  onChange,
+}: {
+  label: string;
+  state: MarkupState;
+  onChange: (s: MarkupState) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="font-body text-xs font-medium text-text-secondary">{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          value={state.value}
+          onChange={(e) => onChange({ ...state, value: Number(e.target.value) || 0 })}
+          className="w-24 h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
+        />
+        <div className="flex rounded-lg border border-border overflow-hidden">
+          <button
+            type="button"
+            onClick={() => onChange({ ...state, type: "percent" })}
+            className={`h-9 px-3 text-sm font-body font-medium transition-colors ${
+              state.type === "percent"
+                ? "bg-bg-dark text-text-inverse"
+                : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
+            }`}
+          >
+            %
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({ ...state, type: "fixed" })}
+            className={`h-9 px-3 text-sm font-body font-medium transition-colors ${
+              state.type === "fixed"
+                ? "bg-bg-dark text-text-inverse"
+                : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
+            }`}
+          >
+            &euro;
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-body text-xs text-text-secondary">Arrondi :</span>
+        <div className="flex rounded-lg border border-border overflow-hidden">
+          {([
+            ["none", "Aucun"],
+            ["down", "Inférieur"],
+            ["up", "Supérieur"],
+          ] as const).map(([mode, lbl]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => onChange({ ...state, rounding: mode })}
+              className={`h-8 px-3 text-xs font-body font-medium transition-colors ${
+                state.rounding === mode
+                  ? "bg-bg-dark text-text-inverse"
+                  : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
+              }`}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function MarketplaceConfig({
@@ -24,6 +110,7 @@ export default function MarketplaceConfig({
   pfsEnabled: initialPfsEnabled,
   hasAnkorsConfig,
   ankorsEnabled: initialAnkorsEnabled,
+  markupSettings,
 }: Props) {
   // PFS state
   const [pfsEmail, setPfsEmail] = useState("");
@@ -48,6 +135,12 @@ export default function MarketplaceConfig({
   const [isSavingAnkors, startSavingAnkors] = useTransition();
   const [isValidatingAnkors, startValidatingAnkors] = useTransition();
   const [isTogglingAnkors, startTogglingAnkors] = useTransition();
+
+  // Markup state
+  const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
+  const [ankorsWholesaleMarkup, setAnkorsWholesaleMarkup] = useState<MarkupState>(markupSettings.ankorstoreWholesale);
+  const [ankorsRetailMarkup, setAnkorsRetailMarkup] = useState<MarkupState>(markupSettings.ankorstoreRetail);
+  const [isSavingMarkup, startSavingMarkup] = useTransition();
 
   const toast = useToast();
   const { showLoading, hideLoading } = useLoadingOverlay();
@@ -179,6 +272,26 @@ export default function MarketplaceConfig({
         );
       } else {
         toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      }
+    });
+  }
+
+  function handleSaveMarkup() {
+    showLoading();
+    startSavingMarkup(async () => {
+      try {
+        const result = await updateMarketplaceMarkup({
+          pfs: pfsMarkup,
+          ankorstoreWholesale: ankorsWholesaleMarkup,
+          ankorstoreRetail: ankorsRetailMarkup,
+        });
+        if (result.success) {
+          toast.success("Enregistré", "Majorations marketplace sauvegardées.");
+        } else {
+          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+        }
+      } finally {
+        hideLoading();
       }
     });
   }
@@ -414,6 +527,38 @@ export default function MarketplaceConfig({
             </div>
           </>
         )}
+      </div>
+
+      {/* ─── Majorations prix ───────────────────────────────────────── */}
+      <div className="border-t border-border pt-4 space-y-4">
+        <div>
+          <h4 className="font-heading text-sm font-semibold text-text-primary mb-1">Majorations prix</h4>
+          <p className="text-xs text-text-secondary font-body mb-3">
+            Ajoutez un supplément aux prix envoyés aux marketplaces. Par défaut : 0 (pas de majoration).
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-3">
+            <h5 className="font-body text-xs font-semibold text-text-primary uppercase tracking-wider">Paris Fashion Shops</h5>
+            <MarkupRow label="Prix HT" state={pfsMarkup} onChange={setPfsMarkup} />
+          </div>
+
+          <div className="border-t border-border pt-3 space-y-3">
+            <h5 className="font-body text-xs font-semibold text-text-primary uppercase tracking-wider">Ankorstore</h5>
+            <MarkupRow label="Prix wholesale (gros)" state={ankorsWholesaleMarkup} onChange={setAnkorsWholesaleMarkup} />
+            <MarkupRow label="Prix retail (détail)" state={ankorsRetailMarkup} onChange={setAnkorsRetailMarkup} />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleSaveMarkup}
+          disabled={isSavingMarkup}
+          className="h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+        >
+          {isSavingMarkup ? "Enregistrement..." : "Sauvegarder les majorations"}
+        </button>
       </div>
     </div>
   );
