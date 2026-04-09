@@ -7,7 +7,9 @@ import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 import { getCachedPfsEnabled } from "@/lib/cached-data";
 import PfsSyncButton from "@/components/pfs/PfsSyncButton";
+import AnkorstorePushButton from "@/components/admin/ankorstore/AnkorstorePushButton";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
+import { getCachedSiteConfig } from "@/lib/cached-data";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
@@ -24,7 +26,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes, hasPfsConfig] = await Promise.all([
+  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes, hasPfsConfig, ankorsEnabled] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -136,6 +138,7 @@ export default async function ModifierProduitPage({
       select: { id: true, name: true, categories: { select: { categoryId: true } } },
     }),
     getCachedPfsEnabled(),
+    getCachedSiteConfig("ankors_enabled"),
   ]);
 
   if (!product) notFound();
@@ -501,6 +504,12 @@ export default async function ModifierProduitPage({
                     pfsSyncError={product.pfsSyncError}
                     pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
                     mappingIssues={mappingIssues}
+                  />
+                )}
+                {ankorsEnabled?.value === "true" && (
+                  <AnkorstorePushButton
+                    productId={product.id}
+                    ankorsProductId={product.ankorsProductId}
                   />
                 )}
               </div>

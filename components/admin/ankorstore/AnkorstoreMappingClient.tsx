@@ -9,11 +9,19 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import {
   runAnkorstoreAutoMatch,
   removeAnkorstoreMatch,
+  updateAnkorstoreVariantStock,
+  pushProductsToAnkorstore,
   type AnkorstoreMatchReportSerialized,
   type AnkorstoreMatchResultSerialized,
 } from "@/app/actions/admin/ankorstore";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+interface MatchedVariant {
+  productColorId: string;
+  ankorsVariantId: string;
+  colorName: string;
+}
 
 interface MatchedProduct {
   id: string;
@@ -22,6 +30,7 @@ interface MatchedProduct {
   ankorsProductId: string;
   ankorsMatchedAt: string | null;
   variantMatchCount: number;
+  variants: MatchedVariant[];
 }
 
 interface Props {
@@ -82,13 +91,10 @@ export default function AnkorstoreMappingClient({
   // ─── Handlers ──────────────────────────────────────────────────────
 
   function handleAutoMatch() {
-    console.log("[Ankorstore] Auto-match button clicked");
     showLoading();
     startRunning(async () => {
       try {
-        console.log("[Ankorstore] Calling server action...");
         const result = await runAnkorstoreAutoMatch();
-        console.log("[Ankorstore] Server action result:", result);
         if (result.success && result.report) {
           toast.success(
             "Matching termine",
@@ -99,6 +105,26 @@ export default function AnkorstoreMappingClient({
           router.refresh();
         } else {
           toast.error("Erreur", result.error ?? "Le matching a echoue.");
+        }
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  function handlePush() {
+    showLoading();
+    startRunning(async () => {
+      try {
+        const result = await pushProductsToAnkorstore();
+        if (result.success && result.report) {
+          toast.success(
+            "Push termine",
+            `${result.report.succeeded} produit(s) envoye(s), ${result.report.failed} echec(s).`
+          );
+          router.refresh();
+        } else {
+          toast.error("Erreur", result.error ?? "Le push a echoue.");
         }
       } finally {
         hideLoading();
@@ -164,14 +190,24 @@ export default function AnkorstoreMappingClient({
               </>
             )}
           </div>
-          <button
-            type="button"
-            onClick={handleAutoMatch}
-            disabled={isRunning || !isEnabled}
-            className="h-10 px-5 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 shrink-0"
-          >
-            {isRunning ? "Matching en cours..." : "Lancer le matching automatique"}
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handlePush}
+              disabled={isRunning || !isEnabled}
+              className="h-10 px-5 rounded-lg border border-border text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+            >
+              {isRunning ? "En cours..." : "Pousser vers Ankorstore"}
+            </button>
+            <button
+              type="button"
+              onClick={handleAutoMatch}
+              disabled={isRunning || !isEnabled}
+              className="h-10 px-5 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+            >
+              {isRunning ? "En cours..." : "Lancer le matching"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -234,6 +270,8 @@ function MatchesTab({
   isRemoving: boolean;
   onRemove: (id: string, name: string) => void;
 }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   if (matches.length === 0) {
     return (
       <p className="font-body text-sm text-text-secondary text-center py-8">
@@ -245,40 +283,112 @@ function MatchesTab({
   return (
     <div className="space-y-2">
       {matches.map((match) => (
-        <div
-          key={match.id}
-          className="flex items-center justify-between gap-4 p-3 rounded-lg border border-border hover:bg-bg-secondary/50 transition-colors"
-        >
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="font-body text-sm font-medium text-text-primary truncate">
-                {match.name}
-              </p>
-              <span className="font-body text-xs text-text-muted shrink-0">
-                {match.reference}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 mt-1">
-              <span className="font-body text-xs text-text-secondary">
-                {match.variantMatchCount} variante{match.variantMatchCount !== 1 ? "s" : ""} associee{match.variantMatchCount !== 1 ? "s" : ""}
-              </span>
-              {match.ankorsMatchedAt && (
-                <span className="font-body text-xs text-text-muted">
-                  {new Date(match.ankorsMatchedAt).toLocaleDateString("fr-FR")}
+        <div key={match.id} className="rounded-lg border border-border hover:bg-bg-secondary/50 transition-colors">
+          <div className="flex items-center justify-between gap-4 p-3">
+            <button
+              type="button"
+              onClick={() => setExpandedId(expandedId === match.id ? null : match.id)}
+              className="min-w-0 flex-1 text-left"
+            >
+              <div className="flex items-center gap-2">
+                <svg
+                  className={`w-4 h-4 text-text-muted shrink-0 transition-transform ${expandedId === match.id ? "rotate-90" : ""}`}
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <p className="font-body text-sm font-medium text-text-primary truncate">
+                  {match.name}
+                </p>
+                <span className="font-body text-xs text-text-muted shrink-0">
+                  {match.reference}
                 </span>
-              )}
-            </div>
+              </div>
+              <div className="flex items-center gap-3 mt-1 ml-6">
+                <span className="font-body text-xs text-text-secondary">
+                  {match.variantMatchCount} variante{match.variantMatchCount !== 1 ? "s" : ""} associee{match.variantMatchCount !== 1 ? "s" : ""}
+                </span>
+                {match.ankorsMatchedAt && (
+                  <span className="font-body text-xs text-text-muted">
+                    {new Date(match.ankorsMatchedAt).toLocaleDateString("fr-FR")}
+                  </span>
+                )}
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => onRemove(match.id, match.name)}
+              disabled={isRemoving}
+              className="h-8 px-3 rounded-lg border border-border text-xs font-body font-medium text-text-secondary hover:text-[#EF4444] hover:border-[#EF4444]/30 transition-colors disabled:opacity-50 shrink-0"
+            >
+              Dissocier
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => onRemove(match.id, match.name)}
-            disabled={isRemoving}
-            className="h-8 px-3 rounded-lg border border-border text-xs font-body font-medium text-text-secondary hover:text-[#EF4444] hover:border-[#EF4444]/30 transition-colors disabled:opacity-50 shrink-0"
-          >
-            Dissocier
-          </button>
+          {expandedId === match.id && match.variants.length > 0 && (
+            <div className="border-t border-border px-3 py-3 space-y-2">
+              {match.variants.map((v) => (
+                <VariantStockRow key={v.productColorId} variant={v} />
+              ))}
+            </div>
+          )}
         </div>
       ))}
+    </div>
+  );
+}
+
+function VariantStockRow({ variant }: { variant: MatchedVariant }) {
+  const toast = useToast();
+  const [quantity, setQuantity] = useState("");
+  const [isSaving, startSaving] = useTransition();
+  const [lastResult, setLastResult] = useState<{ success: boolean; error?: string } | null>(null);
+
+  function handleUpdateStock() {
+    const qty = parseInt(quantity, 10);
+    if (isNaN(qty) || qty < 0) {
+      toast.error("Erreur", "Quantite invalide.");
+      return;
+    }
+    startSaving(async () => {
+      const result = await updateAnkorstoreVariantStock(variant.productColorId, qty);
+      setLastResult(result);
+      if (result.success) {
+        toast.success("Stock mis a jour", `${variant.colorName} → ${qty}`);
+      } else {
+        toast.error("Erreur", result.error ?? "Echec de la mise a jour.");
+      }
+    });
+  }
+
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <span className="font-body text-xs text-text-secondary min-w-[100px]">
+        {variant.colorName}
+      </span>
+      <span className="font-body text-[10px] text-text-muted truncate max-w-[140px]" title={variant.ankorsVariantId}>
+        {variant.ankorsVariantId.slice(0, 8)}...
+      </span>
+      <input
+        type="number"
+        min={0}
+        value={quantity}
+        onChange={(e) => setQuantity(e.target.value)}
+        placeholder="Qte"
+        className="w-20 h-7 px-2 rounded-md border border-border text-xs font-body text-text-primary bg-bg-primary focus:outline-none focus:ring-1 focus:ring-primary"
+      />
+      <button
+        type="button"
+        onClick={handleUpdateStock}
+        disabled={isSaving || !quantity}
+        className="h-7 px-3 rounded-md bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+      >
+        {isSaving ? "..." : "Tester stock"}
+      </button>
+      {lastResult && (
+        <span className={`badge ${lastResult.success ? "badge-success" : "badge-error"}`}>
+          {lastResult.success ? "OK" : "Echec"}
+        </span>
+      )}
     </div>
   );
 }

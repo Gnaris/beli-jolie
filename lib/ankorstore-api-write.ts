@@ -1,0 +1,333 @@
+/**
+ * Ankorstore API Write Client
+ *
+ * Handles mutations (PATCH, POST) on the Ankorstore API.
+ * - Stock updates (single variant)
+ * - Catalog push (bulk product import/update via operations API)
+ */
+
+import { ankorstoreFetch } from "@/lib/ankorstore-api";
+import { getAnkorstoreHeaders, ANKORSTORE_BASE_URL } from "@/lib/ankorstore-auth";
+import { logger } from "@/lib/logger";
+
+// ─────────────────────────────────────────────
+// Variant stock update
+// ─────────────────────────────────────────────
+
+/**
+ * Update the stock quantity of an Ankorstore product variant.
+ * PATCH /product-variants/{id}/stock
+ */
+export async function ankorstoreUpdateVariantStock(
+  variantId: string,
+  quantity: number
+): Promise<{ success: boolean; error?: string }> {
+  const url = `${ANKORSTORE_BASE_URL}/product-variants/${encodeURIComponent(variantId)}/stock`;
+
+  const body = JSON.stringify({
+    data: {
+      type: "productVariants",
+      id: variantId,
+      attributes: { stockQuantity: quantity },
+    },
+  });
+
+  try {
+    logger.info("[Ankorstore] Updating variant stock", { variantId, quantity });
+    await ankorstoreFetch(url, { method: "PATCH", body });
+    logger.info("[Ankorstore] Variant stock updated", { variantId, quantity });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Ankorstore] Stock update failed", { variantId, quantity, error: message });
+    return { success: false, error: message };
+  }
+}
+
+// ─────────────────────────────────────────────
+// Catalog push (bulk import/update)
+// ─────────────────────────────────────────────
+
+export interface AnkorstorePushVariant {
+  sku: string;
+  external_id: string;
+  stock_quantity: number;
+  wholesalePrice: number;
+  retailPrice: number;
+  originalWholesalePrice: number;
+  options: { name: "color" | "size" | "material" | "style"; value: string }[];
+  images?: { order: number; url: string }[];
+}
+
+export interface AnkorstorePushProduct {
+  external_id: string;
+  name: string;
+  description: string;
+  wholesale_price: number;
+  retail_price: number;
+  vat_rate: number;
+  main_image?: string;
+  images?: { order: number; url: string }[];
+  made_in_country?: string; // ISO Alpha-2 (e.g. "CN", "FR")
+  variants: AnkorstorePushVariant[];
+}
+
+export interface AnkorstorePushResult {
+  externalProductId: string;
+  status: "success" | "failure";
+  failureReason?: string;
+  issues?: { field: string; reason: string; message: string }[];
+}
+
+/**
+ * Delete product(s) from Ankorstore via catalog operations.
+ * 3 steps: create delete operation → add products → start.
+ *
+ * @param externalId The product reference (external_id on Ankorstore)
+ * @param variantSkus SKUs of variants to delete
+ */
+export async function ankorstoreDeleteProduct(
+  externalId: string,
+  variantSkus: string[]
+): Promise<{ success: boolean; error?: string }> {
+  const headers = await getAnkorstoreHeaders();
+  const jsonHeaders = { ...headers, "Content-Type": "application/vnd.api+json" };
+
+  try {
+    logger.info("[Ankorstore] Deleting product", { externalId, variantSkus });
+
+    // Step 1: Create delete operation
+    const createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        data: {
+          type: "catalog-integration-operation",
+          attributes: {
+            source: "other",
+            operationType: "delete",
+            callbackUrl: "https://example.com/ankorstore-callback",
+          },
+        },
+      }),
+    });
+
+    if (!createRes.ok) {
+      const err = await createRes.text();
+      throw new Error(`Create operation failed (${createRes.status}): ${err.slice(0, 300)}`);
+    }
+
+    const opId = (await createRes.json()).data?.id;
+    if (!opId) throw new Error("No operation ID");
+
+    // Step 2: Add product to delete
+    await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}/products`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        products: [{
+          id: externalId,
+          type: "catalog-integration-product",
+          attributes: {
+            external_id: externalId,
+            ...(variantSkus.length > 0
+              ? { variants: variantSkus.map((sku) => ({ sku })) }
+              : {}),
+          },
+        }],
+      }),
+    });
+
+    // Step 3: Start
+    await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`, {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        data: { type: "catalog-integration-operation", id: opId, attributes: { status: "started" } },
+      }),
+    });
+
+    logger.info("[Ankorstore] Delete operation started", { opId, externalId });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Ankorstore] Delete failed", { externalId, error: message });
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Push products to Ankorstore via the Catalog Integrations operations API.
+ * Creates an operation, adds products, starts processing, and polls for results.
+ *
+ * @param products Products to push (with variants)
+ * @param operationType "import" for new products, "update" for existing
+ * @param onProgress Optional progress callback
+ * @returns Results per product
+ */
+export async function ankorstorePushProducts(
+  products: AnkorstorePushProduct[],
+  operationType: "import" | "update" = "update",
+  onProgress?: (status: string, processed: number, total: number) => void
+): Promise<{ success: boolean; results: AnkorstorePushResult[]; error?: string }> {
+  const headers = await getAnkorstoreHeaders();
+  const jsonHeaders = { ...headers, "Content-Type": "application/vnd.api+json" };
+
+  try {
+    // Step 1: Create operation
+    logger.info("[Ankorstore] Creating catalog operation", { operationType, productCount: products.length });
+    const createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        data: {
+          type: "catalog-integration-operation",
+          attributes: {
+            source: "other",
+            operationType,
+            callbackUrl: "https://example.com/ankorstore-callback",
+          },
+        },
+      }),
+    });
+
+    if (!createRes.ok) {
+      const err = await createRes.text();
+      throw new Error(`Failed to create operation: ${err.slice(0, 300)}`);
+    }
+
+    const opId = (await createRes.json()).data?.id;
+    if (!opId) throw new Error("No operation ID returned");
+    logger.info("[Ankorstore] Operation created", { opId });
+
+    // Step 2: Add products in batches of 50
+    const batchSize = 50;
+    for (let i = 0; i < products.length; i += batchSize) {
+      const batch = products.slice(i, i + batchSize);
+      const payload = {
+        products: batch.map((p) => ({
+          id: p.external_id,
+          type: "catalog-integration-product",
+          attributes: {
+            external_id: p.external_id,
+            name: p.name,
+            description: p.description,
+            currency: "EUR",
+            vat_rate: p.vat_rate,
+            wholesale_price: p.wholesale_price,
+            retail_price: p.retail_price,
+            unit_multiplier: 1,
+            discount_rate: 0,
+            ...(p.main_image ? { main_image: p.main_image } : {}),
+            ...(p.made_in_country ? { made_in_country: p.made_in_country } : {}),
+            ...(p.images?.length ? { images: p.images } : {}),
+            variants: p.variants.map((v) => ({
+              sku: v.sku,
+              external_id: v.external_id,
+              stock_quantity: v.stock_quantity,
+              is_always_in_stock: false,
+              wholesale_price: v.wholesalePrice,
+              retail_price: v.retailPrice,
+              wholesalePrice: v.wholesalePrice,
+              retailPrice: v.retailPrice,
+              originalWholesalePrice: v.originalWholesalePrice,
+              discount_rate: 0,
+              options: v.options,
+              ...(v.images?.length ? { images: v.images } : {}),
+            })),
+          },
+        })),
+      };
+
+      const addRes = await fetch(
+        `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}/products`,
+        { method: "POST", headers: jsonHeaders, body: JSON.stringify(payload) }
+      );
+
+      if (!addRes.ok) {
+        const err = await addRes.text();
+        throw new Error(`Failed to add products batch ${i}: ${err.slice(0, 300)}`);
+      }
+
+      const addData = await addRes.json();
+      logger.info("[Ankorstore] Products added", {
+        batch: `${i + 1}-${i + batch.length}`,
+        total: addData.meta?.totalProductsCount,
+      });
+    }
+
+    // Step 3: Start processing
+    const startRes = await fetch(
+      `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          data: {
+            type: "catalog-integration-operation",
+            id: opId,
+            attributes: { status: "started" },
+          },
+        }),
+      }
+    );
+
+    if (!startRes.ok) {
+      const err = await startRes.text();
+      throw new Error(`Failed to start operation: ${err.slice(0, 300)}`);
+    }
+
+    logger.info("[Ankorstore] Operation started", { opId });
+    onProgress?.("started", 0, products.length);
+
+    // Step 4: Poll for completion (max 5 minutes)
+    const maxPolls = 100;
+    for (let i = 0; i < maxPolls; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+
+      const checkRes = await fetch(
+        `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`,
+        { headers }
+      );
+      const attrs = (await checkRes.json()).data?.attributes;
+      const status = attrs?.status;
+      const processed = attrs?.processedProductsCount ?? 0;
+      const total = attrs?.totalProductsCount ?? products.length;
+
+      onProgress?.(status, processed, total);
+
+      if (["succeeded", "completed", "failed", "partially_failed"].includes(status)) {
+        // Get results
+        const resultsRes = await fetch(
+          `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}/results`,
+          { headers }
+        );
+        const resultsData = await resultsRes.json();
+        const results: AnkorstorePushResult[] = (resultsData.data ?? []).map(
+          (r: { attributes: AnkorstorePushResult }) => r.attributes
+        );
+
+        const succeeded = results.filter((r) => r.status === "success").length;
+        const failed = results.filter((r) => r.status === "failure").length;
+
+        logger.info("[Ankorstore] Operation completed", { opId, status, succeeded, failed });
+
+        return {
+          success: status === "succeeded" || status === "completed",
+          results,
+        };
+      }
+
+      if (status === "skipped") {
+        logger.warn("[Ankorstore] Operation skipped", { opId });
+        return { success: false, results: [], error: "Operation was skipped by Ankorstore" };
+      }
+    }
+
+    return { success: false, results: [], error: "Timeout waiting for operation to complete" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Ankorstore] Push failed", { error: message });
+    return { success: false, results: [], error: message };
+  }
+}

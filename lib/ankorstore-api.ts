@@ -130,10 +130,12 @@ function buildIncludedMap(
 // Retry logic
 // ─────────────────────────────────────────────
 
-async function ankorstoreFetch(
+export async function ankorstoreFetch(
   url: string,
-  maxRetries = 3
+  options?: { method?: string; body?: string; maxRetries?: number }
 ): Promise<JsonApiResponse> {
+  const method = options?.method ?? "GET";
+  const maxRetries = options?.maxRetries ?? 3;
   let headers = await getAnkorstoreHeaders();
   let lastError: Error | null = null;
 
@@ -141,9 +143,14 @@ async function ankorstoreFetch(
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
+      const fetchHeaders: Record<string, string> = { ...headers };
+      if (options?.body) {
+        fetchHeaders["Content-Type"] = "application/vnd.api+json";
+      }
       const res = await fetch(url, {
-        method: "GET",
-        headers,
+        method,
+        headers: fetchHeaders,
+        body: options?.body,
         signal: controller.signal,
       });
       clearTimeout(timeout);

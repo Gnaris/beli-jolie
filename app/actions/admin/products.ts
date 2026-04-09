@@ -14,6 +14,49 @@ import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { generateSku } from "@/lib/sku";
 
+/**
+ * Fire-and-forget: push product to Ankorstore.
+ * If forceCreate=false (default), only syncs products already linked (ankorsProductId exists).
+ * If forceCreate=true, always pushes (used on product creation).
+ */
+function triggerAnkorstoreSync(productId: string, forceCreate = false) {
+  // Check if Ankorstore is enabled, then push
+  import("@/lib/cached-data").then(({ getCachedSiteConfig }) =>
+    getCachedSiteConfig("ankors_enabled").then((cfg) => {
+      if (cfg?.value !== "true") return;
+
+      if (forceCreate) {
+        // New product → always push
+        import("@/app/actions/admin/ankorstore").then(({ pushSingleProductToAnkorstore }) =>
+          pushSingleProductToAnkorstore(productId).catch((err) =>
+            logger.warn("[Ankorstore] Auto-sync failed", {
+              productId,
+              error: err instanceof Error ? err.message : String(err),
+            })
+          )
+        );
+        return;
+      }
+
+      // Existing product → only push if already linked
+      prisma.product.findUnique({
+        where: { id: productId },
+        select: { ankorsProductId: true },
+      }).then((prod) => {
+        if (!prod?.ankorsProductId) return;
+        import("@/app/actions/admin/ankorstore").then(({ pushSingleProductToAnkorstore }) =>
+          pushSingleProductToAnkorstore(productId).catch((err) =>
+            logger.warn("[Ankorstore] Auto-sync failed", {
+              productId,
+              error: err instanceof Error ? err.message : String(err),
+            })
+          )
+        );
+      });
+    })
+  ).catch(() => {});
+}
+
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") {
@@ -236,6 +279,16 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   const categoryExists = await prisma.category.findUnique({ where: { id: input.categoryId }, select: { id: true } });
   if (!categoryExists) throw new Error("La catégorie sélectionnée n'existe plus. Rechargez la page.");
 
+  // Vérifier les FK optionnelles
+  if (input.manufacturingCountryId) {
+    const countryExists = await prisma.manufacturingCountry.findUnique({ where: { id: input.manufacturingCountryId }, select: { id: true } });
+    if (!countryExists) throw new Error("Le pays de fabrication sélectionné n'existe plus. Rechargez la page.");
+  }
+  if (input.seasonId) {
+    const seasonExists = await prisma.season.findUnique({ where: { id: input.seasonId }, select: { id: true } });
+    if (!seasonExists) throw new Error("La saison sélectionnée n'existe plus. Rechargez la page.");
+  }
+
   // Upsert tags
   const tagRecords = await Promise.all(
     input.tagNames.map(async (n) => {
@@ -452,6 +505,11 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     triggerPfsSync(product.id);
   }
 
+  // Fire-and-forget push to Ankorstore (creates the product with all variants)
+  if (!input.isIncomplete) {
+    triggerAnkorstoreSync(product.id, true);
+  }
+
   return { id: product.id };
 }
 
@@ -490,6 +548,16 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   // Vérifier que la catégorie existe
   const categoryExists = await prisma.category.findUnique({ where: { id: input.categoryId }, select: { id: true } });
   if (!categoryExists) throw new Error("La catégorie sélectionnée n'existe plus. Rechargez la page.");
+
+  // Vérifier les FK optionnelles
+  if (input.manufacturingCountryId) {
+    const countryExists = await prisma.manufacturingCountry.findUnique({ where: { id: input.manufacturingCountryId }, select: { id: true } });
+    if (!countryExists) throw new Error("Le pays de fabrication sélectionné n'existe plus. Rechargez la page.");
+  }
+  if (input.seasonId) {
+    const seasonExists = await prisma.season.findUnique({ where: { id: input.seasonId }, select: { id: true } });
+    if (!seasonExists) throw new Error("La saison sélectionnée n'existe plus. Rechargez la page.");
+  }
 
   // Upsert tags
   const tagRecords = await Promise.all(
@@ -855,6 +923,11 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   if (!input.isIncomplete && !input.skipPfsSync) {
     triggerPfsSync(id);
   }
+
+  // Fire-and-forget sync to Ankorstore (price, color, variant changes)
+  if (!input.isIncomplete) {
+    triggerAnkorstoreSync(id);
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -897,7 +970,15 @@ export async function deleteProduct(id: string, deleteFromPfs = false) {
   await requireAdmin();
 
   // Check if product has any order items (legal: 10 years retention in France)
-  const product = await prisma.product.findUnique({ where: { id }, select: { reference: true, pfsProductId: true } });
+  const product = await prisma.product.findUnique({
+    where: { id },
+    select: {
+      reference: true,
+      pfsProductId: true,
+      ankorsProductId: true,
+      colors: { select: { sku: true } },
+    },
+  });
   if (!product) throw new Error("Produit introuvable.");
 
   const orderCount = await prisma.orderItem.count({ where: { productRef: product.reference } });
@@ -915,6 +996,16 @@ export async function deleteProduct(id: string, deleteFromPfs = false) {
     } catch (err) {
       logger.error(`[PFS] Failed to delete product ${id} from PFS`, { error: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  // Delete from Ankorstore if product is linked
+  if (product.ankorsProductId) {
+    const skus = product.colors.map((c) => c.sku).filter((s): s is string => !!s);
+    import("@/lib/ankorstore-api-write").then(({ ankorstoreDeleteProduct }) =>
+      ankorstoreDeleteProduct(product.reference, skus).catch((err) =>
+        logger.warn("[Ankorstore] Delete failed", { id, error: err instanceof Error ? err.message : String(err) })
+      )
+    );
   }
 
   await prisma.product.delete({ where: { id } });
@@ -957,6 +1048,7 @@ export async function unarchiveProduct(id: string) {
     });
   }
   triggerPfsSync(id);
+  triggerAnkorstoreSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -1057,9 +1149,10 @@ export async function bulkUpdateProductStatus(
     }
   }
 
-  // Fire-and-forget sync to PFS for each updated product
+  // Fire-and-forget sync to PFS + Ankorstore for each updated product
   for (const pid of success) {
     triggerPfsSync(pid);
+    triggerAnkorstoreSync(pid);
   }
 
   return { success, errors };
@@ -1075,7 +1168,7 @@ export async function bulkDeleteProducts(
   // Find products with orders — cannot be deleted
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
-    select: { id: true, reference: true, pfsProductId: true },
+    select: { id: true, reference: true, pfsProductId: true, ankorsProductId: true, colors: { select: { sku: true } } },
   });
 
   const refToId = new Map(products.map((p) => [p.reference, p.id]));
@@ -1114,6 +1207,19 @@ export async function bulkDeleteProducts(
     }
   }
 
+  // Delete from Ankorstore if products are linked
+  const ankorsProducts = products.filter((p) => deletableIds.includes(p.id) && p.ankorsProductId);
+  if (ankorsProducts.length > 0) {
+    import("@/lib/ankorstore-api-write").then(({ ankorstoreDeleteProduct }) => {
+      for (const p of ankorsProducts) {
+        const skus = p.colors.map((c) => c.sku).filter((s): s is string => !!s);
+        ankorstoreDeleteProduct(p.reference, skus).catch((err) =>
+          logger.warn("[Ankorstore] Bulk delete failed", { ref: p.reference, error: err instanceof Error ? err.message : String(err) })
+        );
+      }
+    });
+  }
+
   let deleted = 0;
   if (deletableIds.length > 0) {
     const result = await prisma.product.deleteMany({
@@ -1150,7 +1256,7 @@ export async function updateVariantQuick(
 
   const variant = await prisma.productColor.findUnique({
     where: { id: variantId },
-    select: { productId: true, stock: true },
+    select: { productId: true, stock: true, ankorsVariantId: true },
   });
   if (!variant) throw new Error("Variante introuvable.");
 
@@ -1169,6 +1275,20 @@ export async function updateVariantQuick(
   emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
 
   triggerPfsSync(variant.productId);
+
+  // Sync stock to Ankorstore if variant is linked
+  if (data.stock != null && variant.ankorsVariantId) {
+    import("@/lib/ankorstore-api-write")
+      .then(({ ankorstoreUpdateVariantStock }) =>
+        ankorstoreUpdateVariantStock(variant.ankorsVariantId!, data.stock!)
+      )
+      .catch((err) =>
+        logger.warn("[Ankorstore] Stock sync failed for variant %s", {
+          variantId,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      );
+  }
 }
 
 // ─────────────────────────────────────────────

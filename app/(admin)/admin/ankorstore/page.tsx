@@ -20,7 +20,7 @@ export default async function AnkorstorePage() {
     prisma.product.count({ where: { status: { not: "ARCHIVED" } } }),
   ]);
 
-  // Fetch recently matched products (top 50)
+  // Fetch recently matched products (top 50) with variant details
   const matchedProducts = await prisma.product.findMany({
     where: { ankorsProductId: { not: null } },
     orderBy: { ankorsMatchedAt: "desc" },
@@ -33,7 +33,11 @@ export default async function AnkorstorePage() {
       ankorsMatchedAt: true,
       colors: {
         where: { ankorsVariantId: { not: null } },
-        select: { id: true },
+        select: {
+          id: true,
+          ankorsVariantId: true,
+          color: { select: { name: true } },
+        },
       },
     },
   });
@@ -45,6 +49,11 @@ export default async function AnkorstorePage() {
     ankorsProductId: p.ankorsProductId!,
     ankorsMatchedAt: p.ankorsMatchedAt?.toISOString() ?? null,
     variantMatchCount: p.colors.length,
+    variants: p.colors.map((c) => ({
+      productColorId: c.id,
+      ankorsVariantId: c.ankorsVariantId!,
+      colorName: c.color?.name ?? "Sans nom",
+    })),
   }));
 
   return (

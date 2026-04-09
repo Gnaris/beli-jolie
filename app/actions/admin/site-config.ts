@@ -10,6 +10,7 @@ import type { DisplaySection, HomepageCarousel } from "@/lib/product-display-sha
 import Stripe from "stripe";
 import { invalidateStripeCache } from "@/lib/stripe";
 import { encryptIfSensitive } from "@/lib/encryption";
+import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -664,6 +665,50 @@ export async function deleteStripeConfig(): Promise<{ success: boolean; error?: 
       where: { key: { in: ["stripe_secret_key", "stripe_publishable_key", "stripe_webhook_secret"] } },
     });
     invalidateStripeCache();
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+// ─── Marketplace Markup Configuration ────────────────────────────────────────
+
+export interface MarketplaceMarkupSettings {
+  pfs: { type: MarkupType; value: number; rounding: RoundingMode };
+  ankorstoreWholesale: { type: MarkupType; value: number; rounding: RoundingMode };
+  ankorstoreRetail: { type: MarkupType; value: number; rounding: RoundingMode };
+}
+
+export async function updateMarketplaceMarkup(
+  settings: MarketplaceMarkupSettings
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+
+    const pairs: { key: string; value: string }[] = [
+      { key: "pfs_price_markup_type", value: settings.pfs.type },
+      { key: "pfs_price_markup_value", value: String(settings.pfs.value) },
+      { key: "pfs_price_rounding", value: settings.pfs.rounding },
+      { key: "ankorstore_wholesale_markup_type", value: settings.ankorstoreWholesale.type },
+      { key: "ankorstore_wholesale_markup_value", value: String(settings.ankorstoreWholesale.value) },
+      { key: "ankorstore_wholesale_rounding", value: settings.ankorstoreWholesale.rounding },
+      { key: "ankorstore_retail_markup_type", value: settings.ankorstoreRetail.type },
+      { key: "ankorstore_retail_markup_value", value: String(settings.ankorstoreRetail.value) },
+      { key: "ankorstore_retail_rounding", value: settings.ankorstoreRetail.rounding },
+    ];
+
+    await Promise.all(
+      pairs.map(({ key, value }) =>
+        prisma.siteConfig.upsert({
+          where: { key },
+          update: { value },
+          create: { key, value },
+        })
+      )
+    );
+
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     return { success: true };
