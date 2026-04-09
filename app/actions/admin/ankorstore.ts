@@ -6,6 +6,13 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { ankorstoreSearchVariants } from "@/lib/ankorstore-api";
+import {
+  ankorstoreUpdateVariantStock,
+  ankorstorePushProducts,
+  type AnkorstorePushProduct,
+  type AnkorstorePushResult,
+} from "@/lib/ankorstore-api-write";
+import { applyMarketplaceMarkup, loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -66,6 +73,8 @@ export async function runAnkorstoreAutoMatch(): Promise<{
         colors: {
           select: {
             id: true,
+            saleType: true,
+            packQuantity: true,
             color: { select: { name: true } },
           },
         },
@@ -133,21 +142,38 @@ export async function runAnkorstoreAutoMatch(): Promise<{
         continue;
       }
 
-      // Match variant colors to BJ colors
+      // Match Ankorstore variants to BJ colors (Unit + Pack)
+      // SKU format: {ref}_{color} = Unit, {ref}_{color}_Pack{qty} = Pack
+      const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
       const bjColors = bj.colors
         .filter((c) => c.color != null)
-        .map((c) => ({ id: c.id, name: c.color!.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") }));
+        .map((c) => ({
+          id: c.id,
+          name: norm(c.color!.name),
+          saleType: c.saleType,
+          packQuantity: c.packQuantity,
+        }));
 
       let variantMatchCount = 0;
       for (const av of relevantVariants) {
         if (!av.sku) continue;
         const parts = av.sku.split("_");
         if (parts.length < 2) continue;
-        const colorPart = parts[1].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-        const bjColor = bjColors.find((c) => c.name === colorPart || c.name.includes(colorPart) || colorPart.includes(c.name));
+        const colorPart = norm(parts[1]);
+        const isPack = parts.length >= 3 && parts[2].toLowerCase().startsWith("pack");
+
+        // Find BJ color matching this Ankorstore variant
+        const bjColor = bjColors.find((c) => {
+          const colorMatch = c.name === colorPart || c.name.includes(colorPart) || colorPart.includes(c.name);
+          if (!colorMatch) return false;
+          // Match sale type: pack variant → PACK color, otherwise → UNIT
+          if (isPack) return c.saleType === "PACK";
+          return c.saleType === "UNIT";
+        });
+
         if (bjColor) {
-          // Persist variant match
           await prisma.productColor.update({
             where: { id: bjColor.id },
             data: { ankorsVariantId: av.id },
@@ -302,6 +328,396 @@ export async function confirmAnkorstoreVariantMatch(
     revalidateTag("products", "default");
     return { success: true };
   } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+// ─── Stock update ─────────────────────────────────────────────────────────
+
+/**
+ * Update stock quantity for an Ankorstore variant linked to a BJ ProductColor.
+ * Looks up the ankorsVariantId from the ProductColor, then PATCHes Ankorstore.
+ */
+export async function updateAnkorstoreVariantStock(
+  productColorId: string,
+  quantity: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+
+    if (!productColorId) {
+      return { success: false, error: "ID variante manquant." };
+    }
+    if (quantity < 0 || !Number.isInteger(quantity)) {
+      return { success: false, error: "La quantite doit etre un entier positif." };
+    }
+
+    const productColor = await prisma.productColor.findUnique({
+      where: { id: productColorId },
+      select: { ankorsVariantId: true, color: { select: { name: true } } },
+    });
+
+    if (!productColor?.ankorsVariantId) {
+      return { success: false, error: "Cette variante n'est pas liee a Ankorstore." };
+    }
+
+    const result = await ankorstoreUpdateVariantStock(
+      productColor.ankorsVariantId,
+      quantity
+    );
+
+    if (result.success) {
+      logger.info("[Ankorstore] Stock updated via action", {
+        productColorId,
+        ankorsVariantId: productColor.ankorsVariantId,
+        colorName: productColor.color?.name,
+        quantity,
+      });
+    }
+
+    return result;
+  } catch (e) {
+    logger.error("[Ankorstore] Stock update action failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+// ─── Push single product to Ankorstore ──────────────────────────────────────
+
+/**
+ * Push a single BJ product to Ankorstore with Unit + Pack variants.
+ */
+export async function pushSingleProductToAnkorstore(
+  productId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+
+    const r2Url = process.env.R2_PUBLIC_URL || process.env.NEXT_PUBLIC_R2_URL || "";
+
+    const prod = await prisma.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true, name: true, reference: true, description: true,
+        manufacturingCountry: { select: { isoCode: true } },
+        compositions: {
+          include: { composition: { select: { name: true } } },
+          orderBy: { percentage: "desc" },
+        },
+        colors: {
+          select: {
+            id: true, saleType: true, stock: true, unitPrice: true,
+            packQuantity: true,
+            color: { select: { name: true } },
+            images: { take: 1, orderBy: { order: "asc" }, select: { path: true } },
+          },
+        },
+      },
+    });
+
+    if (!prod) return { success: false, error: "Produit introuvable." };
+
+    const markupConfigs = await loadMarketplaceMarkupConfigs();
+
+    // Group by color
+    const colorGroups = new Map<string, typeof prod.colors>();
+    for (const c of prod.colors) {
+      const name = c.color?.name ?? "Default";
+      const group = colorGroups.get(name) ?? [];
+      group.push(c);
+      colorGroups.set(name, group);
+    }
+
+    const variants: AnkorstorePushProduct["variants"] = [];
+    let mainImage: string | undefined;
+
+    for (const [colorName, colorVariants] of colorGroups) {
+      const unitVar = colorVariants.find((c) => c.saleType === "UNIT");
+      const packVar = colorVariants.find((c) => c.saleType === "PACK");
+      const unitPrice = Number(unitVar?.unitPrice ?? 0);
+      const imagePath = unitVar?.images[0]?.path ?? packVar?.images[0]?.path;
+      const imageUrl = imagePath && r2Url ? `${r2Url}${imagePath}` : undefined;
+      if (!mainImage && imageUrl) mainImage = imageUrl;
+
+      if (unitVar && unitPrice > 0) {
+        variants.push({
+          sku: `${prod.reference}_${colorName}`,
+          external_id: unitVar.id,
+          stock_quantity: unitVar.stock,
+          wholesalePrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale),
+          retailPrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail),
+          originalWholesalePrice: unitPrice,
+          options: [
+            { name: "color", value: colorName },
+            { name: "size", value: "Unite" },
+          ],
+          ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
+        });
+      }
+
+      if (packVar) {
+        const packQty = packVar.packQuantity ?? 12;
+        const packPrice = unitPrice * packQty;
+        if (packPrice > 0) {
+          variants.push({
+            sku: `${prod.reference}_${colorName}_Pack${packQty}`,
+            external_id: packVar.id,
+            stock_quantity: packVar.stock,
+            wholesalePrice: applyMarketplaceMarkup(packPrice, markupConfigs.ankorstoreWholesale),
+            retailPrice: applyMarketplaceMarkup(packPrice, markupConfigs.ankorstoreRetail),
+            originalWholesalePrice: packPrice,
+            options: [
+              { name: "color", value: colorName },
+              { name: "size", value: `Pack x${packQty}` },
+            ],
+            ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
+          });
+        }
+      }
+    }
+
+    if (variants.length === 0) {
+      return { success: false, error: "Aucune variante a pousser." };
+    }
+
+    const basePrice = Number(prod.colors.find((c) => c.saleType === "UNIT")?.unitPrice ?? 0);
+
+    // Title: {name} - {reference}
+    const title = `${prod.name} - ${prod.reference}`;
+
+    // Description: {description}\nComposition: ...\nRéférence: {reference}
+    const compositionText = prod.compositions.length > 0
+      ? prod.compositions.map((c) => `${c.composition.name} ${c.percentage}%`).join(", ")
+      : null;
+    let desc = prod.description ?? "";
+    if (compositionText) desc += `\nComposition : ${compositionText}`;
+    desc += `\nRéférence : ${prod.reference}`;
+    if (desc.length < 30) desc = `${prod.name}. ${desc}`;
+
+    const result = await ankorstorePushProducts(
+      [{
+        external_id: prod.reference,
+        name: title,
+        description: desc,
+        wholesale_price: applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreWholesale),
+        retail_price: applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreRetail),
+        vat_rate: 20,
+        main_image: mainImage,
+        made_in_country: prod.manufacturingCountry?.isoCode ?? undefined,
+        variants,
+      }],
+      "update"
+    );
+
+    if (!result.success) {
+      return { success: false, error: result.error ?? "Echec du push." };
+    }
+
+    const productResult = result.results[0];
+    if (productResult?.status === "failure") {
+      const issues = productResult.issues?.map((i) => `${i.field}: ${i.message}`).join("; ");
+      return { success: false, error: `Echec: ${issues ?? productResult.failureReason}` };
+    }
+
+    revalidateTag("products", "default");
+    return { success: true };
+  } catch (e) {
+    logger.error("[Ankorstore] Single push failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+// ─── Push products to Ankorstore (bulk) ─────────────────────────────────────
+
+export interface AnkorstorePushReport {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: AnkorstorePushResult[];
+}
+
+/**
+ * Push all non-archived BJ products to Ankorstore.
+ * Creates Unit + Pack variants for each color.
+ * Then re-runs matching to link the new variants.
+ */
+export async function pushProductsToAnkorstore(): Promise<{
+  success: boolean;
+  error?: string;
+  report?: AnkorstorePushReport;
+}> {
+  try {
+    await requireAdmin();
+
+    const r2Url = process.env.R2_PUBLIC_URL || process.env.NEXT_PUBLIC_R2_URL || "";
+
+    // Load all non-archived products with colors, compositions, country
+    const bjProducts = await prisma.product.findMany({
+      where: { status: { not: "ARCHIVED" } },
+      select: {
+        id: true,
+        name: true,
+        reference: true,
+        description: true,
+        manufacturingCountry: { select: { isoCode: true } },
+        compositions: {
+          include: { composition: { select: { name: true } } },
+          orderBy: { percentage: "desc" },
+        },
+        colors: {
+          select: {
+            id: true,
+            saleType: true,
+            stock: true,
+            unitPrice: true,
+            packQuantity: true,
+            color: { select: { name: true } },
+            images: { take: 1, orderBy: { order: "asc" }, select: { path: true } },
+          },
+        },
+      },
+      orderBy: { reference: "asc" },
+    });
+
+    logger.info("[Ankorstore] Preparing push for %d products", { count: bjProducts.length });
+
+    const markupConfigs = await loadMarketplaceMarkupConfigs();
+
+    // Build Ankorstore products
+    const pushProducts: AnkorstorePushProduct[] = [];
+
+    for (const prod of bjProducts) {
+      // Group colors by name
+      const colorGroups = new Map<string, typeof prod.colors>();
+      for (const c of prod.colors) {
+        const name = c.color?.name ?? "Default";
+        const group = colorGroups.get(name) ?? [];
+        group.push(c);
+        colorGroups.set(name, group);
+      }
+
+      const variants: AnkorstorePushProduct["variants"] = [];
+      let mainImage: string | undefined;
+
+      for (const [colorName, colorVariants] of colorGroups) {
+        const unitVar = colorVariants.find((c) => c.saleType === "UNIT");
+        const packVar = colorVariants.find((c) => c.saleType === "PACK");
+        const unitPrice = Number(unitVar?.unitPrice ?? 0);
+        const imagePath = unitVar?.images[0]?.path ?? packVar?.images[0]?.path;
+        const imageUrl = imagePath && r2Url ? `${r2Url}${imagePath}` : undefined;
+
+        if (!mainImage && imageUrl) mainImage = imageUrl;
+
+        // Unit variant
+        if (unitVar && unitPrice > 0) {
+          variants.push({
+            sku: `${prod.reference}_${colorName}`,
+            external_id: unitVar.id,
+            stock_quantity: unitVar.stock,
+            wholesalePrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale),
+            retailPrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail),
+            originalWholesalePrice: unitPrice,
+            options: [
+              { name: "color", value: colorName },
+              { name: "size", value: "Unite" },
+            ],
+            ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
+          });
+        }
+
+        // Pack variant
+        if (packVar) {
+          const packQty = packVar.packQuantity ?? 12;
+          const packPrice = unitPrice * packQty;
+          if (packPrice > 0) {
+            variants.push({
+              sku: `${prod.reference}_${colorName}_Pack${packQty}`,
+              external_id: packVar.id,
+              stock_quantity: packVar.stock,
+              wholesalePrice: applyMarketplaceMarkup(packPrice, markupConfigs.ankorstoreWholesale),
+              retailPrice: applyMarketplaceMarkup(packPrice, markupConfigs.ankorstoreRetail),
+              originalWholesalePrice: packPrice,
+              options: [
+                { name: "color", value: colorName },
+                { name: "size", value: `Pack x${packQty}` },
+              ],
+              ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
+            });
+          }
+        }
+      }
+
+      if (variants.length === 0) continue;
+
+      const basePrice = Number(prod.colors.find((c) => c.saleType === "UNIT")?.unitPrice ?? 0);
+
+      // Title: {name} - {reference}
+      const title = `${prod.name} - ${prod.reference}`;
+
+      // Description with composition + reference
+      const compositionText = prod.compositions.length > 0
+        ? prod.compositions.map((c) => `${c.composition.name} ${c.percentage}%`).join(", ")
+        : null;
+      let desc = prod.description ?? "";
+      if (compositionText) desc += `\nComposition : ${compositionText}`;
+      desc += `\nRéférence : ${prod.reference}`;
+      if (desc.length < 30) desc = `${prod.name}. ${desc}`;
+
+      pushProducts.push({
+        external_id: prod.reference,
+        name: title,
+        description: desc,
+        wholesale_price: applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreWholesale),
+        retail_price: applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreRetail),
+        vat_rate: 20,
+        main_image: mainImage,
+        made_in_country: prod.manufacturingCountry?.isoCode ?? undefined,
+        variants,
+      });
+    }
+
+    logger.info("[Ankorstore] Pushing products", {
+      products: pushProducts.length,
+      variants: pushProducts.reduce((acc, p) => acc + p.variants.length, 0),
+    });
+
+    // Push to Ankorstore
+    const result = await ankorstorePushProducts(pushProducts, "update");
+
+    const succeeded = result.results.filter((r) => r.status === "success").length;
+    const failed = result.results.filter((r) => r.status === "failure").length;
+
+    // Log failures
+    for (const r of result.results) {
+      if (r.status === "failure") {
+        logger.warn("[Ankorstore] Push failed for product", {
+          externalId: r.externalProductId,
+          reason: r.failureReason,
+          issues: r.issues?.map((i) => `${i.field}: ${i.message}`),
+        });
+      }
+    }
+
+    revalidateTag("products", "default");
+
+    return {
+      success: result.success,
+      error: result.error,
+      report: {
+        total: pushProducts.length,
+        succeeded,
+        failed,
+        results: result.results,
+      },
+    };
+  } catch (e) {
+    logger.error("[Ankorstore] Push action failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }
 }
