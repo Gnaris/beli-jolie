@@ -130,7 +130,7 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     if (!pfsProductId) {
       pfsProductId = await createProductOnPfs(product);
       // New product → full sync (create all variants, upload all images, set status)
-      await syncVariants(pfsProductId, product, null);
+      await syncVariants(pfsProductId, product, null, pfsMarkup);
       await syncImages(pfsProductId, product, null);
       await syncStatus(pfsProductId, product.status, null);
       // Mark as synced
@@ -155,7 +155,7 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     if (metadataChanged) apiCalls += metadataChanged;
 
     // 6. Diff variants
-    const variantCalls = await syncVariants(pfsProductId, product, pfsVariants);
+    const variantCalls = await syncVariants(pfsProductId, product, pfsVariants, pfsMarkup);
     apiCalls += variantCalls;
 
     // 6b. Set default_color only if needed
@@ -543,6 +543,7 @@ async function syncVariants(
   pfsProductId: string,
   product: FullProduct,
   existingPfsVariants: PfsVariantDetail[] | null,
+  pfsMarkup?: MarkupConfig,
 ): Promise<number> {
   let apiCalls = 0;
 
