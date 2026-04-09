@@ -29,21 +29,25 @@ import {
   type PfsStatus,
 } from "@/lib/pfs-api-write";
 import { pfsGetVariants, pfsCheckReference, type PfsCheckReferenceResponse, type PfsVariantDetail } from "@/lib/pfs-api";
+import { applyMarketplaceMarkup, loadMarketplaceMarkupConfigs, type MarkupConfig } from "@/lib/marketplace-pricing";
 import sharp from "sharp";
 // fs/promises and path no longer needed — images are on R2
-
-// Prices are sent as-is to PFS (no markup)
 
 /**
  * Get the per-unit price for PFS.
  * In the DB, PACK variants store unitPrice = totalPackPrice (unitPrice × totalQty).
  * PFS expects the per-unit price, so we divide back by total quantity for PACKs.
  */
-function getPfsUnitPrice(variant: FullProduct["colors"][number]): number {
+function getPfsUnitPrice(variant: FullProduct["colors"][number], markup?: MarkupConfig): number {
   const price = Number(variant.unitPrice);
-  if (variant.saleType !== "PACK") return price;
-  const totalQty = variant.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || variant.packQuantity || 1;
-  return Math.round((price / totalQty) * 100) / 100;
+  let unitPrice: number;
+  if (variant.saleType !== "PACK") {
+    unitPrice = price;
+  } else {
+    const totalQty = variant.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || variant.packQuantity || 1;
+    unitPrice = Math.round((price / totalQty) * 100) / 100;
+  }
+  return markup ? applyMarketplaceMarkup(unitPrice, markup) : unitPrice;
 }
 
 // Default values for PFS product creation
@@ -96,6 +100,9 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     // 1. Load product with all relations
     const product = await loadProductFull(productId);
     if (!product) throw new Error("Produit introuvable");
+
+    const markupConfigs = await loadMarketplaceMarkupConfigs();
+    const pfsMarkup = markupConfigs.pfs;
 
     // Vérification des mappings PFS (bloque la sync si une entité n'est pas mappée)
     validatePfsMappings(product);
@@ -674,7 +681,7 @@ async function syncVariants(
           try {
             await pfsPatchVariants([{
               variant_id: existingPfsId,
-              price_eur_ex_vat: getPfsUnitPrice(variant),
+              price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
               stock_qty: variant.stock ?? 0,
               weight: variant.weight,
               is_active: (variant.stock ?? 0) > 0,
@@ -692,7 +699,7 @@ async function syncVariants(
             type: "ITEM",
             color: colorRef,
             size: sizeRef,
-            price_eur_ex_vat: getPfsUnitPrice(variant),
+            price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
             is_active: (variant.stock ?? 0) > 0,
@@ -753,7 +760,7 @@ async function syncVariants(
           try {
             await pfsPatchVariants([{
               variant_id: existingPackPfsId,
-              price_eur_ex_vat: getPfsUnitPrice(variant),
+              price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
               stock_qty: variant.stock ?? 0,
               weight: variant.weight,
               is_active: (variant.stock ?? 0) > 0,
@@ -771,7 +778,7 @@ async function syncVariants(
             type: "PACK",
             color: mainColorRef,
             size: mainSizeRef,
-            price_eur_ex_vat: getPfsUnitPrice(variant),
+            price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
             is_active: (variant.stock ?? 0) > 0,
@@ -826,7 +833,7 @@ async function syncVariants(
       if (!v.pfsVariantId) continue;
 
       const pfsV = pfsVariantById.get(v.pfsVariantId);
-      const bjPrice = getPfsUnitPrice(v);
+      const bjPrice = getPfsUnitPrice(v, pfsMarkup);
       const bjStock = v.stock ?? 0;
       const bjWeight = v.weight;
       const bjActive = bjStock > 0;
