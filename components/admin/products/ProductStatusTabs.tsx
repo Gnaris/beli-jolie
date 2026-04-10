@@ -12,11 +12,11 @@ interface SectionCounts {
 }
 
 const SECTIONS = [
-  { key: "",         label: "Tous",       countKey: "all"      as const },
-  { key: "ONLINE",   label: "En ligne",   countKey: "online"   as const },
-  { key: "OFFLINE",  label: "Hors ligne", countKey: "offline"  as const },
-  { key: "DRAFT",    label: "Brouillons", countKey: "draft"    as const },
-  { key: "ARCHIVED", label: "Archivés",   countKey: "archived" as const },
+  { key: "",         label: "Tous",       countKey: "all"      as const, dotColor: "" },
+  { key: "ONLINE",   label: "En ligne",   countKey: "online"   as const, dotColor: "bg-[#22C55E]" },
+  { key: "OFFLINE",  label: "Hors ligne", countKey: "offline"  as const, dotColor: "bg-[#9CA3AF]" },
+  { key: "DRAFT",    label: "Brouillons", countKey: "draft"    as const, dotColor: "bg-[#8B5CF6]" },
+  { key: "ARCHIVED", label: "Archivés",   countKey: "archived" as const, dotColor: "bg-[#F59E0B]" },
 ] as const;
 
 export default function ProductStatusTabs({ counts }: { counts: SectionCounts }) {
@@ -40,7 +40,7 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
   }
 
   return (
-    <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: "none" }}>
+    <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: "none" }}>
       {SECTIONS.map((s) => {
         const isActive = current === s.key;
         const count = counts[s.countKey];
@@ -49,18 +49,21 @@ export default function ProductStatusTabs({ counts }: { counts: SectionCounts })
             key={s.key}
             type="button"
             onClick={() => handleClick(s.key)}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-body font-medium rounded-xl whitespace-nowrap transition-colors ${
+            className={`group flex items-center gap-2 px-4 py-2.5 text-[13px] font-body font-medium rounded-xl whitespace-nowrap transition-all duration-200 ${
               isActive
-                ? "bg-bg-dark text-text-inverse shadow-sm"
-                : "bg-bg-primary text-text-secondary border border-border hover:border-bg-dark hover:text-text-primary"
+                ? "bg-bg-dark text-text-inverse shadow-md"
+                : "bg-bg-primary text-text-secondary border border-border hover:border-border-dark hover:text-text-primary hover:shadow-sm"
             }`}
           >
+            {s.dotColor && (
+              <span className={`w-2 h-2 rounded-full ${s.dotColor} ${isActive ? "opacity-100" : "opacity-60 group-hover:opacity-100"} transition-opacity`} />
+            )}
             {s.label}
             <span
-              className={`text-[11px] px-1.5 py-0.5 rounded-full font-semibold min-w-[20px] text-center ${
+              className={`text-[11px] px-1.5 py-0.5 rounded-md font-semibold min-w-[22px] text-center tabular-nums transition-colors ${
                 isActive
                   ? "bg-white/20 text-text-inverse"
-                  : "bg-bg-secondary text-text-muted"
+                  : "bg-bg-tertiary text-text-muted group-hover:bg-bg-secondary"
               }`}
             >
               {count}

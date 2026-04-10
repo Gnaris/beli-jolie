@@ -18,6 +18,10 @@ let maintenanceCache: { value: boolean; timestamp: number } | null = null;
 const CACHE_TTL_MS = 60_000;
 
 async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
+  // Skip maintenance check in development — the self-referential fetch goes
+  // through the dev compiler, adding 500ms-2s per navigation.
+  if (process.env.NODE_ENV === "development") return false;
+
   const now = Date.now();
   if (maintenanceCache && now - maintenanceCache.timestamp < CACHE_TTL_MS) {
     return maintenanceCache.value;

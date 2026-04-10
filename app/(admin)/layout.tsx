@@ -14,9 +14,9 @@ import AdminChatBadge from "@/components/admin/AdminChatBadge";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
 import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
+import { MarketplaceSyncProvider } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
-import { getCachedSiteConfig, getCachedPfsEnabled } from "@/lib/cached-data";
-import { getAdminUnreadCount } from "@/app/actions/admin/messages";
+import { getCachedSiteConfig, getCachedPfsEnabled, getCachedAdminUnreadCount } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -30,9 +30,23 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     ? session.user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
     : "A";
 
-  const shopName = await getCachedShopName();
+  // Fetch all layout data in parallel (was 6 sequential awaits)
+  const [
+    shopName,
+    warnings,
+    deeplConfig,
+    autoTranslateConfig,
+    pfsEnabled,
+    unreadMessageCount,
+  ] = await Promise.all([
+    getCachedShopName(),
+    getCachedAdminWarnings(),
+    getCachedSiteConfig("deepl_api_key"),
+    getCachedSiteConfig("auto_translate_enabled"),
+    getCachedPfsEnabled(),
+    getCachedAdminUnreadCount(),
+  ]);
 
-  // Warning counts for sidebar badges (cached 5min)
   const {
     untranslatedCount,
     unusedColorsCount,
@@ -41,17 +55,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     untranslatedCategoriesCount,
     untranslatedSubCategoriesCount,
     pendingOrdersCount,
-  } = await getCachedAdminWarnings();
+  } = warnings;
 
-  const deeplConfig = await getCachedSiteConfig("deepl_api_key");
   const deeplEnabled = !!deeplConfig?.value;
-  const autoTranslateConfig = await getCachedSiteConfig("auto_translate_enabled");
   const autoTranslateEnabled = deeplEnabled && autoTranslateConfig?.value === "true";
-
-  const [pfsEnabled, unreadMessageCount] = await Promise.all([
-    getCachedPfsEnabled(),
-    getAdminUnreadCount(),
-  ]);
   const totalAttributeWarnings = untranslatedCount + unusedColorsCount + unusedCompositionsCount + unusedTagsCount + untranslatedCategoriesCount + untranslatedSubCategoriesCount;
 
   const warningCounts: Record<string, { count: number; tooltip: string } | undefined> = {
@@ -62,6 +69,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
+    <MarketplaceSyncProvider>
     <PfsWrapper>
     <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
 
@@ -189,6 +197,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <AdminChatWidgetLoader />
     </div>
     </PfsWrapper>
+    </MarketplaceSyncProvider>
     </DeeplConfigProvider>
   );
 }

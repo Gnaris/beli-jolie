@@ -6,7 +6,7 @@ import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, Ava
 import CompletenessChecklist from "./CompletenessChecklist";
 import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller } from "@/app/actions/admin/products";
 import { createSize, toggleSizePfsMapping, assignSizeToCategory } from "@/app/actions/admin/sizes";
-import { forcePfsSync } from "@/app/actions/admin/pfs-reverse-sync";
+
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
@@ -16,6 +16,8 @@ import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
+import type { MarketplaceId } from "@/lib/product-events";
 
 interface Category {
   id: string;
@@ -55,6 +57,7 @@ interface ProductFormProps {
   mode?: "create" | "edit";
   productId?: string;
   hasPfsConfig?: boolean;
+  hasAnkorstoreConfig?: boolean;
   initialData?: {
     reference: string;
     name: string;
@@ -309,10 +312,12 @@ export default function ProductForm({
   mode = "create",
   productId,
   hasPfsConfig = false,
+  hasAnkorstoreConfig = false,
   initialData,
 }: ProductFormProps) {
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
+  const { startSync } = useMarketplaceSync();
 
   // ── Local lists — allow modal creation to append items ───────────────
   const [localCategories,   setLocalCategories]   = useState(categories);
@@ -1075,9 +1080,12 @@ export default function ProductForm({
     const isIncomplete = completenessErrors.length > 0;
     const outOfStock = isOutOfStock();
 
-    // Warn: saving an ONLINE product with errors → auto downgrade to OFFLINE
+    // ── Marketplace sync state ──
     const shouldSyncPfs = { current: hasPfsConfig };
-    const showPfsCheckbox = hasPfsConfig && !isIncomplete && !hasVariantsWithMissingPriceWeightOrStock();
+    const shouldSyncAnkorstore = { current: hasAnkorstoreConfig };
+    const canShowMarketplaceCheckboxes = !isIncomplete && !hasVariantsWithMissingPriceWeightOrStock();
+    const showPfsCheckbox = hasPfsConfig && canShowMarketplaceCheckboxes;
+    const showAnkorstoreCheckbox = hasAnkorstoreConfig && canShowMarketplaceCheckboxes;
 
     // ── PFS pre-check: when finalizing a draft, check if product exists on PFS ──
     let pfsCheckResult: { existsOnPfs: boolean; canCreate: boolean; mappingIssues: string[] } | null = null;
@@ -1097,24 +1105,41 @@ export default function ProductForm({
     }
 
     const pfsCreationBlocked = pfsCheckResult && !pfsCheckResult.canCreate && !pfsCheckResult.existsOnPfs;
-    const pfsLabel = pfsCheckResult?.existsOnPfs
-      ? "Synchroniser avec Paris Fashion Shop (produit existant)"
-      : "Créer également sur Paris Fashion Shop";
-
-    const pfsCheckboxOption = showPfsCheckbox && !pfsCreationBlocked ? {
-      checkbox: {
-        label: mode === "edit"
-          ? "Synchroniser également les marketplaces (Paris Fashion Shop)"
-          : pfsLabel,
-        defaultChecked: true,
-        onChange: (v: boolean) => { shouldSyncPfs.current = v; },
-      },
-    } : {};
 
     // If PFS creation is blocked due to missing mappings, disable PFS sync
     if (pfsCreationBlocked) {
       shouldSyncPfs.current = false;
     }
+
+    // Build marketplace checkboxes array
+    const marketplaceCheckboxes: { id: string; label: string; defaultChecked: boolean; onChange: (v: boolean) => void }[] = [];
+
+    if (showPfsCheckbox && !pfsCreationBlocked) {
+      const pfsLabel = mode === "edit"
+        ? "Paris Fashion Shop"
+        : pfsCheckResult?.existsOnPfs
+          ? "Paris Fashion Shop (produit existant)"
+          : "Paris Fashion Shop";
+      marketplaceCheckboxes.push({
+        id: "pfs",
+        label: pfsLabel,
+        defaultChecked: true,
+        onChange: (v: boolean) => { shouldSyncPfs.current = v; },
+      });
+    }
+
+    if (showAnkorstoreCheckbox) {
+      marketplaceCheckboxes.push({
+        id: "ankorstore",
+        label: "Ankorstore",
+        defaultChecked: true,
+        onChange: (v: boolean) => { shouldSyncAnkorstore.current = v; },
+      });
+    }
+
+    const marketplaceCheckboxOption = marketplaceCheckboxes.length > 0
+      ? { checkboxes: marketplaceCheckboxes, checkboxesLabel: "Synchronisation marketplaces" }
+      : {};
 
     let downgradeConfirmed = false;
     if (productStatus === "ONLINE" && isIncomplete) {
@@ -1124,7 +1149,7 @@ export default function ProductForm({
         message: "Ce produit est actuellement en ligne mais certaines informations sont manquantes. Si vous confirmez, le produit sera mis hors ligne et passera en brouillon.",
         confirmLabel: "Enregistrer en brouillon",
         cancelLabel: "Annuler",
-        ...pfsCheckboxOption,
+        ...marketplaceCheckboxOption,
       });
       if (!okDowngrade) return;
       downgradeConfirmed = true;
@@ -1138,7 +1163,7 @@ export default function ProductForm({
         message: "Toutes les variantes de ce produit sont en rupture de stock. Le produit sera automatiquement mis hors ligne.",
         confirmLabel: "Enregistrer et mettre hors ligne",
         cancelLabel: "Annuler",
-        ...pfsCheckboxOption,
+        ...marketplaceCheckboxOption,
       });
       if (!okDowngrade) return;
       downgradeConfirmed = true;
@@ -1206,7 +1231,7 @@ export default function ProductForm({
         message: confirmMessage,
         confirmLabel,
         cancelLabel: "Annuler",
-        ...pfsCheckboxOption,
+        ...marketplaceCheckboxOption,
       });
       if (!okSave) return;
     }
@@ -1272,6 +1297,7 @@ export default function ProductForm({
       status: finalStatus,
       isIncomplete,
       skipPfsSync: !shouldSyncPfs.current,
+      skipAnkorstoreSync: !shouldSyncAnkorstore.current,
       dimensionLength:        dimLength        ? parseFloat(dimLength)        : null,
       dimensionWidth:         dimWidth         ? parseFloat(dimWidth)         : null,
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
@@ -1284,6 +1310,17 @@ export default function ProductForm({
         .map(([locale, t]) => ({ locale, name: t.name, description: t.description })),
     };
 
+    // Determine which marketplaces will be synced
+    const syncMarketplaces: MarketplaceId[] = [];
+    const willSync = !isIncomplete;
+    if (willSync && shouldSyncPfs.current && hasPfsConfig) syncMarketplaces.push("pfs");
+    if (willSync && shouldSyncAnkorstore.current && hasAnkorstoreConfig) syncMarketplaces.push("ankorstore");
+
+    // For edit mode: start SSE listener before server action so we don't miss early events
+    if (mode === "edit" && productId && syncMarketplaces.length > 0) {
+      startSync(productId, syncMarketplaces);
+    }
+
     showLoading();
     startTransition(async () => {
       try {
@@ -1292,12 +1329,18 @@ export default function ProductForm({
           // Draft continuation: redirect to product page after finalizing
           if (mode === "create") {
             isDirty.current = false;
+            if (syncMarketplaces.length > 0) {
+              startSync(productId, syncMarketplaces);
+            }
             router.push(`/admin/produits/${productId}/modifier`);
             return;
           }
         } else {
           const result = await createProduct(payload);
           if (result?.id) {
+            if (syncMarketplaces.length > 0) {
+              startSync(result.id, syncMarketplaces);
+            }
             router.push(`/admin/produits/${result.id}/modifier`);
             return;
           }
@@ -1306,18 +1349,6 @@ export default function ProductForm({
         // Reset dirty flag after successful save
         initialSnapshot.current = buildSnapshot();
         isDirty.current = false;
-
-        // ── After successful save: auto PFS sync if checkbox was checked ──
-        if (mode === "edit" && productId && shouldSyncPfs.current && showPfsCheckbox) {
-          try {
-            const result = await forcePfsSync(productId);
-            if (!result.success) {
-              setError(`Erreur de synchronisation Paris Fashion Shop : ${result.error}`);
-            }
-          } catch {
-            setError("Erreur lors de la synchronisation Paris Fashion Shop.");
-          }
-        }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
       } finally {

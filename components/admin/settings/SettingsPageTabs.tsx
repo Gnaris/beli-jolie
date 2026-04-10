@@ -66,11 +66,32 @@ const TABS = [
   },
 ] as const;
 
-interface Props {
-  activeTab: string;
+type TabKey = (typeof TABS)[number]["key"];
+
+interface TabGroup {
+  label: string;
+  keys: TabKey[];
 }
 
-export default function SettingsPageTabs({ activeTab }: Props) {
+const GROUPS: TabGroup[] = [
+  {
+    label: "Site",
+    keys: ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "horaires"],
+  },
+  {
+    label: "Intégrations",
+    keys: ["paiement", "email", "livraison", "marketplaces", "traduction"],
+  },
+];
+
+const TAB_MAP = new Map(TABS.map((t) => [t.key, t]));
+
+interface Props {
+  activeTab: string;
+  variant?: "desktop" | "mobile";
+}
+
+export default function SettingsPageTabs({ activeTab, variant = "desktop" }: Props) {
   const router = useRouter();
 
   const handleTabChange = useCallback((tabKey: string) => {
@@ -82,27 +103,61 @@ export default function SettingsPageTabs({ activeTab }: Props) {
     router.push(`/admin/parametres${qs ? `?${qs}` : ""}`, { scroll: false });
   }, [router]);
 
+  if (variant === "mobile") {
+    return (
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => handleTabChange(tab.key)}
+              className={`px-4 py-2.5 text-sm font-body rounded-full transition-colors whitespace-nowrap min-h-[44px] ${
+                isActive
+                  ? "bg-bg-dark text-text-inverse font-medium"
+                  : "bg-bg-secondary text-text-secondary hover:bg-bg-secondary/80"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-center gap-1 overflow-x-auto pb-1 -mb-px scrollbar-none">
-      {TABS.map((tab) => {
-        const isActive = activeTab === tab.key;
-        return (
-          <button
-            key={tab.key}
-            onClick={() => handleTabChange(tab.key)}
-            className={`flex items-center gap-2 px-3 py-2.5 text-sm font-body rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
-              isActive
-                ? "border-text-primary text-text-primary bg-bg-primary font-medium"
-                : "border-transparent text-text-muted hover:text-text-secondary hover:bg-bg-secondary/50"
-            }`}
-          >
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={tab.icon} />
-            </svg>
-            {tab.label}
-          </button>
-        );
-      })}
-    </div>
+    <nav className="flex flex-col gap-6">
+      {GROUPS.map((group) => (
+        <div key={group.label}>
+          <p className="text-[11px] font-heading font-semibold uppercase tracking-wider text-text-muted px-3 mb-2">
+            {group.label}
+          </p>
+          <div className="flex flex-col gap-0.5">
+            {group.keys.map((key) => {
+              const tab = TAB_MAP.get(key);
+              if (!tab) return null;
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => handleTabChange(tab.key)}
+                  className={`flex items-center gap-3 px-3 py-2.5 text-sm font-body rounded-xl transition-colors text-left min-h-[44px] w-full ${
+                    isActive
+                      ? "bg-bg-dark text-text-inverse font-medium"
+                      : "text-text-secondary hover:bg-bg-secondary"
+                  }`}
+                >
+                  <svg className="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={tab.icon} />
+                  </svg>
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </nav>
   );
 }

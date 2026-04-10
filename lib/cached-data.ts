@@ -444,3 +444,18 @@ export const getCachedActivePromotions = unstable_cache(
   ["active-promotions"],
   { revalidate: 300, tags: ["promotions"] }
 );
+
+// ─── Admin unread message count (cached 60s — was uncached, hitting DB every navigation) ─
+export const getCachedAdminUnreadCount = unstable_cache(
+  async () => {
+    return prisma.message.count({
+      where: {
+        senderRole: "CLIENT",
+        readAt: null,
+        conversation: { type: "SUPPORT" },
+      },
+    });
+  },
+  ["admin-unread-count"],
+  { revalidate: 60, tags: ["messages"] }
+);

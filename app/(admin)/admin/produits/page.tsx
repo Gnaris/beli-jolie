@@ -8,7 +8,7 @@ import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig } from "@/lib/cached-data";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -172,7 +172,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     where.colors = { ...where.colors, some: { ...where.colors?.some, stock: { lte: stockBelow } } };
   }
 
-  const [products, totalCount, categories, hasPfsConfig, sectionCounts] = await Promise.all([
+  const [products, totalCount, categories, hasPfsConfig, ankorsEnabled, sectionCounts] = await Promise.all([
     prisma.product.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -204,6 +204,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     prisma.product.count({ where }),
     prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     getCachedPfsEnabled(),
+    getCachedSiteConfig("ankors_enabled"),
     // Section counts for tabs (lightweight parallel queries)
     Promise.all([
       prisma.product.count(),
@@ -261,10 +262,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   return (
     <>
       {/* En-tête */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <h1 className="page-title">Produits</h1>
-          <p className="page-subtitle font-body">
+          <p className="page-subtitle font-body mt-1">
             {totalCount} produit{totalCount > 1 ? "s" : ""} au catalogue
           </p>
         </div>
@@ -284,22 +285,51 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         </div>
       </div>
 
-      <div className="mt-6" />
+      {/* Stats rapides */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+        <div className="bg-bg-primary border border-border rounded-xl px-4 py-3">
+          <p className="text-[11px] font-body text-text-muted uppercase tracking-wider font-medium">Total</p>
+          <p className="text-xl font-heading font-bold text-text-primary mt-0.5 tabular-nums">{sectionCounts.all}</p>
+        </div>
+        <div className="bg-bg-primary border border-border rounded-xl px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
+            <p className="text-[11px] font-body text-text-muted uppercase tracking-wider font-medium">En ligne</p>
+          </div>
+          <p className="text-xl font-heading font-bold text-[#15803D] mt-0.5 tabular-nums">{sectionCounts.online}</p>
+        </div>
+        <div className="bg-bg-primary border border-border rounded-xl px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-[#9CA3AF]" />
+            <p className="text-[11px] font-body text-text-muted uppercase tracking-wider font-medium">Hors ligne</p>
+          </div>
+          <p className="text-xl font-heading font-bold text-text-secondary mt-0.5 tabular-nums">{sectionCounts.offline}</p>
+        </div>
+        <div className="bg-bg-primary border border-border rounded-xl px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-[#8B5CF6]" />
+            <p className="text-[11px] font-body text-text-muted uppercase tracking-wider font-medium">Brouillons</p>
+          </div>
+          <p className="text-xl font-heading font-bold text-[#7C3AED] mt-0.5 tabular-nums">{sectionCounts.draft}</p>
+        </div>
+      </div>
 
       {/* Onglets de section */}
-      <Suspense>
-        <ProductStatusTabs counts={sectionCounts} />
-      </Suspense>
+      <div className="mt-5">
+        <Suspense>
+          <ProductStatusTabs counts={sectionCounts} />
+        </Suspense>
+      </div>
 
       {/* Filtres */}
-      <div className="bg-bg-primary rounded-2xl px-6 py-5 mt-4">
+      <div className="bg-bg-primary border border-border rounded-2xl px-6 py-5 mt-4 shadow-sm">
         <Suspense>
           <AdminProductsFilters totalCount={totalCount} categories={categories} />
         </Suspense>
       </div>
 
       {/* Tout traduire */}
-      <div className="py-3 flex items-center justify-end">
+      <div className="py-2 flex items-center justify-end">
         <ProductTranslateAllButton
           products={serializedProducts.map((p) => ({
             id: p.id,
@@ -310,13 +340,13 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       </div>
 
       {/* Tableau */}
-      <AdminProductsTable products={serializedProducts} totalCount={totalCount} hasPfsConfig={hasPfsConfig} />
+      <AdminProductsTable products={serializedProducts} totalCount={totalCount} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={ankorsEnabled?.value === "true"} />
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between px-1">
-          <p className="text-xs text-text-muted font-body">
-            {(currentPage - 1) * perPage + 1}–{Math.min(currentPage * perPage, totalCount)} sur {totalCount}
+        <div className="flex items-center justify-between px-2 py-2">
+          <p className="text-[11px] text-text-muted font-body tabular-nums">
+            Affichage de <span className="font-semibold text-text-secondary">{(currentPage - 1) * perPage + 1}–{Math.min(currentPage * perPage, totalCount)}</span> sur {totalCount}
           </p>
           <Suspense>
             <AdminPagination currentPage={currentPage} totalPages={totalPages} />

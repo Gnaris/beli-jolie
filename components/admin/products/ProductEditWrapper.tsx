@@ -50,13 +50,15 @@ export function ProductEditWrapper({
   return (
     <ProductFormHeaderProvider initial={initial}>
       <div className="max-w-[1600px] mx-auto space-y-8">
-        <div className="sticky top-0 z-20 bg-bg-secondary border-b border-border -mx-6 px-6 pt-2 pb-4">
+        <div className="sticky top-0 z-20 bg-bg-secondary/95 backdrop-blur-sm border-b border-border -mx-6 px-6 pt-3 pb-4">
           {staticHeader}
-          <div className="flex items-center gap-3 flex-wrap mt-3 pt-3 border-t border-border">
-            <h2 className="font-heading text-xl font-bold text-text-primary">
+          <div className="flex items-center gap-3 flex-wrap mt-4 pt-4 border-t border-border">
+            <h2 className="font-heading text-lg font-bold text-text-primary">
               Informations du produit
             </h2>
-            <HeaderBadges />
+            <div className="flex items-center gap-2">
+              <HeaderBadges />
+            </div>
           </div>
         </div>
         {children}

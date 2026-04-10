@@ -62,6 +62,7 @@ interface Props {
   products: AdminProduct[];
   totalCount: number;
   hasPfsConfig?: boolean;
+  hasAnkorstoreConfig?: boolean;
 }
 
 // ─── Variant Editor Row ────────────────────────────────────────────────────────
@@ -403,10 +404,10 @@ function ProductRow({
   return (
     <>
       <tr
-        className={`table-row transition-colors ${selected ? "bg-blue-50/40" : ""} ${expanded ? "border-b-0" : ""} ${isNew ? "animate-product-pop" : ""}`}
+        className={`table-row transition-all duration-150 ${selected ? "bg-[#EEF2FF]" : ""} ${expanded ? "border-b-0" : ""} ${isNew ? "animate-product-pop" : ""}`}
       >
         {/* Checkbox */}
-        <td className="px-3 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+        <td className="px-4 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
           <input
             type="checkbox"
             checked={selected}
@@ -416,16 +417,16 @@ function ProductRow({
         </td>
 
         {/* Photo — clickable for expand */}
-        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
+        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
           {product.firstImage ? (
             <img
               src={product.firstImage}
               alt={product.name}
-              className="w-10 h-10 object-cover rounded-lg border border-border"
+              className="w-12 h-12 object-cover rounded-xl border border-border shadow-sm"
             />
           ) : (
-            <div className="w-10 h-10 bg-bg-tertiary rounded-lg flex items-center justify-center border border-border">
-              <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 bg-bg-tertiary rounded-xl flex items-center justify-center border border-border">
+              <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M13.5 12h.008v.008H13.5V12zm0 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 9V7.5a2.25 2.25 0 012.25-2.25h15A2.25 2.25 0 0121 7.5v9a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 21z" />
               </svg>
             </div>
@@ -433,16 +434,16 @@ function ProductRow({
         </td>
 
         {/* Référence */}
-        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
-          <span className="font-mono text-xs bg-bg-tertiary px-2 py-0.5 rounded text-text-secondary whitespace-nowrap">
+        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+          <span className="font-mono text-[11px] bg-bg-tertiary px-2 py-1 rounded-md text-text-secondary whitespace-nowrap border border-border-light">
             {product.reference}
           </span>
         </td>
 
         {/* Nom + prix */}
-        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
+        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
           <div className="flex items-center gap-2">
-            <p className="font-medium text-text-primary text-sm whitespace-nowrap">{product.name}</p>
+            <p className="font-semibold text-text-primary text-sm whitespace-nowrap">{product.name}</p>
             {hasMissingTranslations && (
               <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[9px] font-bold shrink-0" title={`Traductions manquantes: ${missingLocales.join(", ")}`}>
                 ⓘ
@@ -450,21 +451,23 @@ function ProductRow({
             )}
           </div>
           {!isNaN(minPrice) && (
-            <p className="text-xs text-text-muted whitespace-nowrap">à partir de {minPrice.toFixed(2)} €</p>
+            <p className="text-[11px] text-text-muted whitespace-nowrap mt-0.5">
+              à partir de <span className="font-semibold text-text-secondary">{minPrice.toFixed(2)} €</span>
+            </p>
           )}
         </td>
 
         {/* Catégorie */}
-        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
-          <span className="text-xs text-text-secondary whitespace-nowrap">{product.categoryName}</span>
+        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+          <span className="text-xs font-medium text-text-secondary whitespace-nowrap">{product.categoryName}</span>
           {product.subCategoryName && (
-            <span className="text-xs text-text-muted whitespace-nowrap"> / {product.subCategoryName}</span>
+            <p className="text-[11px] text-text-muted whitespace-nowrap mt-0.5">{product.subCategoryName}</p>
           )}
         </td>
 
         {/* Couleurs */}
-        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
-          <div className="flex items-center gap-1.5 flex-nowrap">
+        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+          <div className="flex items-center gap-1 flex-nowrap">
             {uniqueColors.slice(0, 6).map((c) => {
               const mainHex = c.color.hex ?? "#9CA3AF";
               const subs = c.subColors?.filter(sc => sc.color.hex) ?? [];
@@ -514,72 +517,83 @@ function ProductRow({
         </td>
 
         {/* Statut */}
-        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
-          <div className="flex items-center gap-1.5 flex-nowrap">
-            {product.isIncomplete && product.status !== "ONLINE" ? (
-              <span
-                className="badge badge-purple text-[11px]"
-                title="Brouillon — produit en cours de création"
-              >
-                Brouillon
-              </span>
-            ) : (
-              <span className={`badge text-[11px] ${
-                product.status === "ONLINE"
-                  ? "badge-success"
-                  : product.status === "SYNCING"
-                  ? "badge-info"
-                  : product.status === "ARCHIVED"
-                  ? "badge-warning"
-                  : "badge-neutral"
-              }`}>
-                {product.status === "ONLINE" ? "En ligne" : product.status === "SYNCING" ? "Sync en cours" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
-              </span>
-            )}
-            {isFullyOutOfStock && (
-              <span
-                className="badge badge-error text-[10px]"
-                title="Toutes les variantes sont en rupture de stock"
-              >
-                Rupture
-              </span>
-            )}
-            {hasPartialOutOfStock && (
-              <span
-                className="badge badge-warning text-[10px]"
-                title="Certaines variantes sont en rupture de stock"
-              >
-                Rupture variantes
-              </span>
-            )}
-            {hasPfsConfig && product.pfsSyncStatus === "failed" && (
-              <span
-                className="badge badge-error text-[10px]"
-                title="Synchronisation Paris Fashion Shop échouée"
-              >
-                PFS
-              </span>
-            )}
-            {hasPfsConfig && product.pfsSyncStatus === "pending" && (
-              <span
-                className="badge badge-info text-[10px]"
-                title="Synchronisation Paris Fashion Shop en cours"
-              >
-                PFS
-              </span>
-            )}
+        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 flex-nowrap">
+              {product.isIncomplete && product.status !== "ONLINE" ? (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#F3E8FF] text-[#7C3AED] border border-[#DDD6FE]"
+                  title="Brouillon — produit en cours de création"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6]" />
+                  Brouillon
+                </span>
+              ) : (
+                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
+                  product.status === "ONLINE"
+                    ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
+                    : product.status === "SYNCING"
+                    ? "bg-blue-50 text-blue-700 border-blue-200"
+                    : product.status === "ARCHIVED"
+                    ? "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]"
+                    : "bg-bg-secondary text-text-secondary border-border"
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    product.status === "ONLINE" ? "bg-[#22C55E]"
+                    : product.status === "SYNCING" ? "bg-blue-500 animate-pulse"
+                    : product.status === "ARCHIVED" ? "bg-[#F59E0B]"
+                    : "bg-[#9CA3AF]"
+                  }`} />
+                  {product.status === "ONLINE" ? "En ligne" : product.status === "SYNCING" ? "Sync" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 flex-nowrap">
+              {isFullyOutOfStock && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]"
+                  title="Toutes les variantes sont en rupture de stock"
+                >
+                  Rupture
+                </span>
+              )}
+              {hasPartialOutOfStock && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA]"
+                  title="Certaines variantes sont en rupture de stock"
+                >
+                  Stock partiel
+                </span>
+              )}
+              {hasPfsConfig && product.pfsSyncStatus === "failed" && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]"
+                  title="Synchronisation Paris Fashion Shop échouée"
+                >
+                  PFS
+                </span>
+              )}
+              {hasPfsConfig && product.pfsSyncStatus === "pending" && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200"
+                  title="Synchronisation Paris Fashion Shop en cours"
+                >
+                  PFS
+                </span>
+              )}
+            </div>
           </div>
         </td>
 
         {/* Date de création */}
-        <td className="px-3 py-3 cursor-pointer" onClick={onExpandToggle}>
-          <span className="text-xs text-text-muted font-body whitespace-nowrap">
+        <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
+          <span className="text-[11px] text-text-muted font-body whitespace-nowrap">
             {new Date(product.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
           </span>
         </td>
 
         {/* Actions */}
-        <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+        <td className="px-3 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-1 justify-end">
             <Link
               href={`/produits/${product.id}`}
@@ -1156,7 +1170,7 @@ function TableWithTopScroll({
   }, []);
 
   return (
-    <div className="bg-bg-primary border-y border-border overflow-hidden">
+    <div className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
       {/* Top scrollbar */}
       <div ref={topScrollRef} className="overflow-x-auto" style={{ height: 12 }}>
         <div ref={topInnerRef} style={{ height: 1 }} />
@@ -1166,7 +1180,7 @@ function TableWithTopScroll({
         <table className="w-full text-sm font-body" style={{ minWidth: 800 }}>
           <thead>
             <tr className="table-header">
-              <th className="px-3 py-3 w-10">
+              <th className="px-4 py-3.5 w-10">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -1175,14 +1189,14 @@ function TableWithTopScroll({
                   title="Tout sélectionner"
                 />
               </th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Photo</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Réf.</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Nom</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Catégorie</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Couleurs</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Statut</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider">Créé le</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold text-text-secondary uppercase tracking-wider w-24"></th>
+              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Photo</th>
+              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Réf.</th>
+              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Produit</th>
+              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Catégorie</th>
+              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Couleurs</th>
+              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Statut</th>
+              <th className="px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Date</th>
+              <th className="px-3 py-3.5 text-right text-[10px] w-28"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border-light">
@@ -1210,7 +1224,7 @@ function TableWithTopScroll({
 
 // ─── Main Table ────────────────────────────────────────────────────────────────
 
-export default function AdminProductsTable({ products, totalCount: _totalCount, hasPfsConfig = false }: Props) {
+export default function AdminProductsTable({ products, totalCount: _totalCount, hasPfsConfig = false, hasAnkorstoreConfig = false }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
@@ -1328,6 +1342,25 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
   // ─── Bulk product actions ──
   const handleBulkStatus = useCallback(async (status: "ONLINE" | "OFFLINE" | "ARCHIVED") => {
     const ids = [...selectedIds];
+    const count = ids.length;
+    const statusLabels: Record<string, { verb: string; title: string; type: "info" | "warning" }> = {
+      ONLINE:   { verb: "mis en ligne", title: "Mettre en ligne", type: "info" },
+      OFFLINE:  { verb: "mis hors ligne", title: "Mettre hors ligne", type: "warning" },
+      ARCHIVED: { verb: "archivé(s)", title: "Archiver", type: "warning" },
+    };
+    const label = statusLabels[status];
+
+    const confirmed = await confirm({
+      type: label.type,
+      title: `${label.title} ${count} produit${count > 1 ? "s" : ""} ?`,
+      message: status === "ARCHIVED"
+        ? "Les produits archivés ne seront plus visibles en ligne."
+        : `${count} produit${count > 1 ? "s seront" : " sera"} ${label.verb}.`,
+      confirmLabel: label.title,
+      cancelLabel: "Annuler",
+    });
+    if (!confirmed) return;
+
     setBulkMessage(null);
     showLoading();
     startTransition(async () => {
@@ -1335,8 +1368,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
         const result = await bulkUpdateProductStatus(ids, status);
         const msgs: string[] = [];
         if (result.success.length > 0) {
-          const label = status === "ONLINE" ? "mis en ligne" : status === "ARCHIVED" ? "archivé(s)" : "mis hors ligne";
-          msgs.push(`${result.success.length} produit${result.success.length > 1 ? "s" : ""} ${label}`);
+          msgs.push(`${result.success.length} produit${result.success.length > 1 ? "s" : ""} ${label.verb}`);
         }
         if (result.errors.length > 0) {
           const refs = result.errors.map((e) => `${e.reference} (${e.reason})`).join(", ");
@@ -1353,14 +1385,20 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
         hideLoading();
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm]);
 
   const deleteFromPfsRef = useRef(true);
+  const deleteFromAnkorstoreRef = useRef(true);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
     const count = ids.length;
     deleteFromPfsRef.current = true;
+    deleteFromAnkorstoreRef.current = true;
+
+    const deleteCheckboxes: { id: string; label: string; defaultChecked: boolean; onChange: (v: boolean) => void }[] = [];
+    if (hasPfsConfig) deleteCheckboxes.push({ id: "pfs", label: "Supprimer sur Paris Fashion Shop", defaultChecked: true, onChange: (v) => { deleteFromPfsRef.current = v; } });
+    if (hasAnkorstoreConfig) deleteCheckboxes.push({ id: "ankorstore", label: "Supprimer sur Ankorstore", defaultChecked: true, onChange: (v) => { deleteFromAnkorstoreRef.current = v; } });
 
     const confirmed = await confirm({
       type: "danger",
@@ -1368,11 +1406,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       message: `Cette action est irréversible. Les produits sans commandes seront définitivement supprimés.`,
       confirmLabel: "Supprimer",
       cancelLabel: "Annuler",
-      checkbox: hasPfsConfig ? {
-        label: "Supprimer également sur Paris Fashion Shop",
-        defaultChecked: true,
-        onChange: (checked: boolean) => { deleteFromPfsRef.current = checked; },
-      } : undefined,
+      ...(deleteCheckboxes.length > 0 ? { checkboxes: deleteCheckboxes, checkboxesLabel: "Supprimer des marketplaces" } : {}),
     });
     if (!confirmed) return;
 
@@ -1380,13 +1414,16 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
     showLoading();
     startTransition(async () => {
       try {
-        const result = await bulkDeleteProducts(ids, deleteFromPfsRef.current);
+        const result = await bulkDeleteProducts(ids, deleteFromPfsRef.current, deleteFromAnkorstoreRef.current);
         const msgs: string[] = [];
         if (result.deleted > 0) {
           msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""}`);
         }
         if (result.pfsDeleted > 0) {
           msgs.push(`${result.pfsDeleted} supprimé${result.pfsDeleted > 1 ? "s" : ""} de PFS`);
+        }
+        if (result.ankorsDeleted > 0) {
+          msgs.push(`${result.ankorsDeleted} supprimé${result.ankorsDeleted > 1 ? "s" : ""} d'Ankorstore`);
         }
         if (result.protected.length > 0) {
           const refs = result.protected.map((p) => p.reference).join(", ");
@@ -1404,7 +1441,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, startTransition, showLoading, hideLoading, hasPfsConfig]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, hasPfsConfig, hasAnkorstoreConfig]);
 
   const handleBulkPfsRefresh = useCallback(() => {
     if (!pfsRefresh) return;
@@ -1471,14 +1508,14 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
 
   if (allProducts.length === 0) {
     return (
-      <div className="card p-12 text-center">
-        <div className="w-12 h-12 bg-bg-tertiary rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="bg-bg-primary border border-border rounded-2xl p-16 text-center">
+        <div className="w-16 h-16 bg-bg-tertiary rounded-2xl flex items-center justify-center mx-auto mb-5">
+          <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
           </svg>
         </div>
-        <p className="font-heading font-semibold text-text-primary mb-1">Aucun produit</p>
-        <p className="text-sm text-text-muted font-body">Aucun résultat pour ces critères.</p>
+        <p className="font-heading font-bold text-text-primary text-base mb-1.5">Aucun produit trouvé</p>
+        <p className="text-sm text-text-muted font-body max-w-xs mx-auto">Aucun résultat ne correspond à vos critères de recherche. Essayez de modifier vos filtres.</p>
       </div>
     );
   }
@@ -1490,8 +1527,8 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
 
       {/* Barre d'actions en masse (produits) */}
       {someSelected && (
-        <div className="flex items-center gap-3 bg-bg-dark text-text-inverse rounded-xl px-4 py-3 animate-fadeIn">
-          <span className="text-sm font-body font-medium">
+        <div className="flex items-center gap-3 bg-bg-dark text-text-inverse rounded-2xl px-5 py-3.5 animate-fadeIn shadow-lg">
+          <span className="text-sm font-body font-semibold tabular-nums">
             {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
           </span>
           <div className="h-4 w-px bg-bg-primary/20" />

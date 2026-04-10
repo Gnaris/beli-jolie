@@ -13,6 +13,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { emitProductEvent, type MarketplaceSyncProgress } from "@/lib/product-events";
 import {
   pfsCreateProduct,
   pfsUpdateProduct,
@@ -90,14 +91,20 @@ export function triggerPfsSync(productId: string): void {
  * Diff-based: only pushes changed fields to PFS.
  */
 export async function syncProductToPfs(productId: string): Promise<void> {
+  function emitPfs(p: Omit<MarketplaceSyncProgress, "marketplace">) {
+    emitProductEvent({ type: "MARKETPLACE_SYNC", productId, marketplaceSync: { marketplace: "pfs", ...p } });
+  }
+
   // Mark as pending
   await prisma.product.update({
     where: { id: productId },
     data: { pfsSyncStatus: "pending", pfsSyncError: null },
   });
+  emitPfs({ step: "Préparation de la synchronisation...", progress: 0, status: "in_progress" });
 
   try {
     // 1. Load product with all relations
+    emitPfs({ step: "Chargement du produit...", progress: 5, status: "in_progress" });
     const product = await loadProductFull(productId);
     if (!product) throw new Error("Produit introuvable");
 
@@ -108,6 +115,7 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     validatePfsMappings(product);
 
     // 2. If no pfsProductId, check if product already exists on PFS via reference
+    emitPfs({ step: "Vérification du produit sur PFS...", progress: 10, status: "in_progress" });
     let pfsProductId = product.pfsProductId;
     if (!pfsProductId) {
       try {
@@ -128,20 +136,26 @@ export async function syncProductToPfs(productId: string): Promise<void> {
 
     // 3. Create product on PFS if truly new — full sync required
     if (!pfsProductId) {
+      emitPfs({ step: "Création du produit sur PFS...", progress: 20, status: "in_progress" });
       pfsProductId = await createProductOnPfs(product);
       // New product → full sync (create all variants, upload all images, set status)
+      emitPfs({ step: "Création des variantes...", progress: 40, status: "in_progress" });
       await syncVariants(pfsProductId, product, null, pfsMarkup);
+      emitPfs({ step: "Upload des images...", progress: 65, status: "in_progress" });
       await syncImages(pfsProductId, product, null);
+      emitPfs({ step: "Mise à jour du statut...", progress: 90, status: "in_progress" });
       await syncStatus(pfsProductId, product.status, null);
       // Mark as synced
       await prisma.product.update({
         where: { id: productId },
         data: { pfsProductId, pfsSyncStatus: "synced", pfsSyncError: null, pfsSyncedAt: new Date() },
       });
+      emitPfs({ step: "Synchronisation terminée", progress: 100, status: "success" });
       return;
     }
 
     // 4. Existing product — fetch PFS state for diff (parallel)
+    emitPfs({ step: "Comparaison avec PFS...", progress: 15, status: "in_progress" });
     const [pfsRefData, pfsVariantsResp] = await Promise.all([
       pfsCheckReference(product.reference).catch(() => null),
       pfsGetVariants(pfsProductId).catch(() => ({ data: [] as PfsVariantDetail[] })),
@@ -151,10 +165,12 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     let apiCalls = 0;
 
     // 5. Diff product metadata — only update if changed
+    emitPfs({ step: "Mise à jour des métadonnées...", progress: 30, status: "in_progress" });
     const metadataChanged = await diffAndUpdateMetadata(pfsProductId, product, pfsRefData);
     if (metadataChanged) apiCalls += metadataChanged;
 
     // 6. Diff variants
+    emitPfs({ step: "Synchronisation des variantes...", progress: 45, status: "in_progress" });
     const variantCalls = await syncVariants(pfsProductId, product, pfsVariants, pfsMarkup);
     apiCalls += variantCalls;
 
@@ -172,10 +188,12 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     }
 
     // 7. Diff images
+    emitPfs({ step: "Synchronisation des images...", progress: 70, status: "in_progress" });
     const imageCalls = await syncImages(pfsProductId, product, pfsRefData);
     apiCalls += imageCalls;
 
     // 8. Diff status
+    emitPfs({ step: "Mise à jour du statut...", progress: 90, status: "in_progress" });
     const statusChanged = await syncStatus(pfsProductId, product.status, pfsRefData);
     if (statusChanged) apiCalls++;
 
@@ -189,10 +207,12 @@ export async function syncProductToPfs(productId: string): Promise<void> {
         pfsSyncedAt: new Date(),
       },
     });
+    emitPfs({ step: "Synchronisation terminée", progress: 100, status: "success" });
 
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     logger.error(`[PFS Reverse Sync] Product ${productId} failed`, { error: errorMsg });
+    emitPfs({ step: "Erreur de synchronisation", progress: 100, status: "error", error: errorMsg });
 
     await prisma.product.update({
       where: { id: productId },

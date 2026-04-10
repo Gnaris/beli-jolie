@@ -170,6 +170,13 @@ export async function toggleSizePfsMapping(sizeId: string, pfsSizeRef: string) {
 export async function assignSizeToCategory(sizeId: string, categoryId: string) {
   await requireAdmin();
 
+  const [size, category] = await Promise.all([
+    prisma.size.findUnique({ where: { id: sizeId }, select: { id: true } }),
+    prisma.category.findUnique({ where: { id: categoryId }, select: { id: true } }),
+  ]);
+  if (!size) return { success: false, error: "Taille introuvable" };
+  if (!category) return { success: false, error: "Catégorie introuvable" };
+
   const existing = await prisma.sizeCategoryLink.findUnique({
     where: { sizeId_categoryId: { sizeId, categoryId } },
   });

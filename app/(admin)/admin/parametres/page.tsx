@@ -39,22 +39,32 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         <p className="page-subtitle">Configuration générale du site.</p>
       </div>
 
-      <div className="border-b border-border">
-        <SettingsPageTabs activeTab={activeTab} />
-      </div>
+      <div className="flex gap-8">
+        <aside className="hidden lg:block w-60 shrink-0">
+          <div className="sticky top-6">
+            <SettingsPageTabs activeTab={activeTab} variant="desktop" />
+          </div>
+        </aside>
 
-      {activeTab === "general" && <GeneralTab />}
-      {activeTab === "societe" && <SocieteTab />}
-      {activeTab === "catalogue" && <CatalogueTab />}
-      {activeTab === "carrousels" && <CarrouselsTab />}
-      {activeTab === "stock" && <StockTab />}
-      {activeTab === "maintenance" && <MaintenanceTab />}
-      {activeTab === "paiement" && <PaiementTab />}
-      {activeTab === "email" && <EmailTab />}
-      {activeTab === "livraison" && <LivraisonTab />}
-      {activeTab === "marketplaces" && <MarketplacesTab />}
-      {activeTab === "horaires" && <HorairesTab />}
-      {activeTab === "traduction" && <TraductionTab />}
+        <div className="flex-1 min-w-0">
+          <div className="lg:hidden mb-6">
+            <SettingsPageTabs activeTab={activeTab} variant="mobile" />
+          </div>
+
+          {activeTab === "general" && <GeneralTab />}
+          {activeTab === "societe" && <SocieteTab />}
+          {activeTab === "catalogue" && <CatalogueTab />}
+          {activeTab === "carrousels" && <CarrouselsTab />}
+          {activeTab === "stock" && <StockTab />}
+          {activeTab === "maintenance" && <MaintenanceTab />}
+          {activeTab === "paiement" && <PaiementTab />}
+          {activeTab === "email" && <EmailTab />}
+          {activeTab === "livraison" && <LivraisonTab />}
+          {activeTab === "marketplaces" && <MarketplacesTab />}
+          {activeTab === "horaires" && <HorairesTab />}
+          {activeTab === "traduction" && <TraductionTab />}
+        </div>
+      </div>
     </div>
   );
 }
@@ -72,19 +82,19 @@ async function GeneralTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
         <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Bannière d&apos;accueil</h3>
         <p className="text-sm text-text-secondary font-body mb-4">Image en haut de la page d&apos;accueil.</p>
         <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
           <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Commande minimum</h3>
           <p className="text-sm text-text-secondary font-body mb-4"><strong>0</strong> pour désactiver.</p>
           <SettingsMinOrderForm currentValue={currentMinHT} />
         </div>
-        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
           <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Mot de passe admin</h3>
           <p className="text-sm text-text-secondary font-body mb-4">Réinitialisation par email.</p>
           <AdminPasswordResetButton />
@@ -101,7 +111,7 @@ async function SocieteTab() {
   const companyInfo = await prisma.companyInfo.findFirst();
 
   return (
-    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
       <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Informations société</h3>
       <p className="text-sm text-text-secondary font-body mb-4">Nom de la boutique, raison sociale et coordonnées. Également utilisé comme adresse expéditeur Easy-Express.</p>
       <CompanyInfoForm initialData={companyInfo ? {
@@ -143,7 +153,7 @@ async function CatalogueTab() {
   const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
 
   return (
-    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
       <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Affichage catalogue</h3>
       <p className="text-sm text-text-secondary font-body mb-4">Ordre d&apos;affichage sur la page produits.</p>
       <CatalogDisplayConfig
@@ -172,7 +182,7 @@ async function CarrouselsTab() {
   const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
 
   return (
-    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
       <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Carrousels d&apos;accueil</h3>
       <p className="text-sm text-text-secondary font-body mb-4">Ordre et visibilité des carrousels de la page d&apos;accueil.</p>
       <HomepageCarouselsConfig
@@ -199,12 +209,10 @@ async function StockTab() {
   const showOutOfStockProducts = stockProductsConfig?.value !== "false";
 
   return (
-    <div className="max-w-lg">
-      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Ruptures de stock</h3>
-        <p className="text-sm text-text-secondary font-body mb-4">Visibilité côté client.</p>
-        <StockDisplayConfig showOutOfStockVariants={showOutOfStockVariants} showOutOfStockProducts={showOutOfStockProducts} />
-      </div>
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Ruptures de stock</h3>
+      <p className="text-sm text-text-secondary font-body mb-4">Visibilité côté client.</p>
+      <StockDisplayConfig showOutOfStockVariants={showOutOfStockVariants} showOutOfStockProducts={showOutOfStockProducts} />
     </div>
   );
 }
@@ -220,29 +228,27 @@ async function MaintenanceTab() {
   const isAutoMaintenance = maintenanceValue === "auto";
 
   return (
-    <div className="max-w-lg">
-      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Mode maintenance</h3>
-        <p className="text-sm text-text-secondary font-body mb-4">Redirige les clients vers une page d&apos;information.</p>
-        {inMaintenance && (
-          <div className={`mb-4 rounded-lg px-4 py-3 flex items-start gap-2 text-sm ${
-            isAutoMaintenance
-              ? "bg-[#FEE2E2] border border-[#FECACA] text-[#B91C1C]"
-              : "bg-[#FEF3C7] border border-[#FDE68A] text-[#92400E]"
-          }`}>
-            <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isAutoMaintenance ? "text-[#EF4444]" : "text-[#D97706]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-            </svg>
-            <p className="font-body">
-              {isAutoMaintenance
-                ? <><strong>Maintenance automatique</strong> — Erreurs critiques détectées.</>
-                : <><strong>Maintenance active</strong> — Site inaccessible aux clients.</>
-              }
-            </p>
-          </div>
-        )}
-        <MaintenanceModeToggle currentValue={inMaintenance} isAuto={isAutoMaintenance} />
-      </div>
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Mode maintenance</h3>
+      <p className="text-sm text-text-secondary font-body mb-4">Redirige les clients vers une page d&apos;information.</p>
+      {inMaintenance && (
+        <div className={`mb-4 rounded-lg px-4 py-3 flex items-start gap-2 text-sm ${
+          isAutoMaintenance
+            ? "bg-red-50 border border-red-200 text-red-800"
+            : "bg-amber-50 border border-amber-200 text-amber-800"
+        }`}>
+          <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isAutoMaintenance ? "text-error" : "text-warning"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+          </svg>
+          <p className="font-body">
+            {isAutoMaintenance
+              ? <><strong>Maintenance automatique</strong> — Erreurs critiques détectées.</>
+              : <><strong>Maintenance active</strong> — Site inaccessible aux clients.</>
+            }
+          </p>
+        </div>
+      )}
+      <MaintenanceModeToggle currentValue={inMaintenance} isAuto={isAutoMaintenance} />
     </div>
   );
 }
@@ -260,16 +266,14 @@ async function PaiementTab() {
   const connectEnabled = isConnectEnabled();
 
   return (
-    <div className="max-w-xl">
-      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Paiement Stripe</h3>
-        <p className="text-sm text-text-secondary font-body mb-4">Connectez votre compte Stripe pour accepter les paiements.</p>
-        <StripeConfig
-          hasKeys={!!stripeKeyConfig}
-          hasConnect={!!stripeConnectConfig}
-          connectEnabled={connectEnabled}
-        />
-      </div>
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Paiement Stripe</h3>
+      <p className="text-sm text-text-secondary font-body mb-4">Connectez votre compte Stripe pour accepter les paiements.</p>
+      <StripeConfig
+        hasKeys={!!stripeKeyConfig}
+        hasConnect={!!stripeConnectConfig}
+        connectEnabled={connectEnabled}
+      />
     </div>
   );
 }
@@ -281,12 +285,10 @@ async function EmailTab() {
   const gmailConfig = await prisma.siteConfig.findUnique({ where: { key: "gmail_user" }, select: { key: true } });
 
   return (
-    <div className="max-w-xl">
-      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Notifications email</h3>
-        <p className="text-sm text-text-secondary font-body mb-4">Identifiants Gmail pour l&apos;envoi d&apos;emails (inscriptions, commandes, alertes).</p>
-        <GmailConfig hasConfig={!!gmailConfig} />
-      </div>
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Notifications email</h3>
+      <p className="text-sm text-text-secondary font-body mb-4">Identifiants Gmail pour l&apos;envoi d&apos;emails (inscriptions, commandes, alertes).</p>
+      <GmailConfig hasConfig={!!gmailConfig} />
     </div>
   );
 }
@@ -298,12 +300,10 @@ async function LivraisonTab() {
   const eeApiKeyConfig = await prisma.siteConfig.findUnique({ where: { key: "easy_express_api_key" }, select: { key: true } });
 
   return (
-    <div className="max-w-xl">
-      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Easy-Express</h3>
-        <p className="text-sm text-text-secondary font-body mb-4">Clé API pour les expéditions. L&apos;adresse expéditeur utilise les infos société.</p>
-        <EasyExpressApiKeyConfig hasKey={!!eeApiKeyConfig} />
-      </div>
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Easy-Express</h3>
+      <p className="text-sm text-text-secondary font-body mb-4">Clé API pour les expéditions. L&apos;adresse expéditeur utilise les infos société.</p>
+      <EasyExpressApiKeyConfig hasKey={!!eeApiKeyConfig} />
     </div>
   );
 }
@@ -372,9 +372,7 @@ async function HorairesTab() {
   }
 
   return (
-    <div className="max-w-2xl">
-      <BusinessHoursConfig initialSchedule={schedule} />
-    </div>
+    <BusinessHoursConfig initialSchedule={schedule} />
   );
 }
 
@@ -390,15 +388,15 @@ async function TraductionTab() {
   const hasDeeplKey = !!deeplKeyConfig;
 
   return (
-    <div className="max-w-xl space-y-6">
-      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+    <div className="space-y-6">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
         <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Traduction DeepL</h3>
         <p className="text-sm text-text-secondary font-body mb-4">Clé API pour la traduction automatique des fiches produit.</p>
         <DeeplApiKeyConfig hasKey={hasDeeplKey} />
       </div>
 
       {hasDeeplKey && (
-        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+        <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
           <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Traduction automatique</h3>
           <p className="text-sm text-text-secondary font-body mb-4">
             Traduit automatiquement en 6 langues lors de la création de produits, attributs et imports PFS.

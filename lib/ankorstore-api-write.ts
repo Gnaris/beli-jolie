@@ -55,6 +55,7 @@ export interface AnkorstorePushVariant {
   wholesalePrice: number;
   retailPrice: number;
   originalWholesalePrice: number;
+  unit_multiplier?: number; // 1 for single units, N for packs of N
   options: { name: "color" | "size" | "material" | "style"; value: string }[];
   images?: { order: number; url: string }[];
 }
@@ -66,6 +67,7 @@ export interface AnkorstorePushProduct {
   wholesale_price: number;
   retail_price: number;
   vat_rate: number;
+  unit_multiplier?: number; // Units per lot (default 1, e.g. 12 for packs)
   main_image?: string;
   images?: { order: number; url: string }[];
   made_in_country?: string; // ISO Alpha-2 (e.g. "CN", "FR")
@@ -114,14 +116,14 @@ export async function ankorstoreDeleteProduct(
 
     if (!createRes.ok) {
       const err = await createRes.text();
-      throw new Error(`Create operation failed (${createRes.status}): ${err.slice(0, 300)}`);
+      throw new Error(`Create delete operation failed (${createRes.status}): ${err.slice(0, 300)}`);
     }
 
     const opId = (await createRes.json()).data?.id;
-    if (!opId) throw new Error("No operation ID");
+    if (!opId) throw new Error("No operation ID returned");
 
     // Step 2: Add product to delete
-    await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}/products`, {
+    const addRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}/products`, {
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify({
@@ -138,8 +140,16 @@ export async function ankorstoreDeleteProduct(
       }),
     });
 
-    // Step 3: Start
-    await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`, {
+    if (!addRes.ok) {
+      const err = await addRes.text();
+      logger.error("[Ankorstore] Add product to delete operation failed", {
+        opId, externalId, status: addRes.status, response: err.slice(0, 500),
+      });
+      throw new Error(`Add product to delete failed (${addRes.status}): ${err.slice(0, 300)}`);
+    }
+
+    // Step 3: Start processing
+    const startRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`, {
       method: "PATCH",
       headers: jsonHeaders,
       body: JSON.stringify({
@@ -147,8 +157,58 @@ export async function ankorstoreDeleteProduct(
       }),
     });
 
-    logger.info("[Ankorstore] Delete operation started", { opId, externalId });
-    return { success: true };
+    if (!startRes.ok) {
+      const err = await startRes.text();
+      throw new Error(`Start delete operation failed (${startRes.status}): ${err.slice(0, 300)}`);
+    }
+
+    logger.info("[Ankorstore] Delete operation started, polling for result...", { opId, externalId });
+
+    // Step 4: Poll for completion (max 2 minutes)
+    for (let i = 0; i < 12; i++) {
+      await new Promise((r) => setTimeout(r, 10_000));
+
+      const checkRes = await fetch(
+        `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`,
+        { headers }
+      );
+      const checkData = await checkRes.json();
+      const status = checkData.data?.attributes?.status;
+
+      logger.info("[Ankorstore] Delete poll", { opId, poll: i, status });
+
+      if (["succeeded", "completed"].includes(status)) {
+        logger.info("[Ankorstore] Delete succeeded", { opId, externalId });
+        return { success: true };
+      }
+
+      if (["failed", "partially_failed"].includes(status)) {
+        // Fetch results for details
+        const resultsRes = await fetch(
+          `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}/results`,
+          { headers }
+        );
+        const resultsData = await resultsRes.json();
+        const failures = (resultsData.data ?? [])
+          .filter((r: { attributes?: { status?: string } }) => r.attributes?.status === "failure")
+          .map((r: { attributes?: { failureReason?: string; issues?: { field: string; message: string }[] } }) => {
+            const issues = r.attributes?.issues?.map((i) => `${i.field}: ${i.message}`).join("; ");
+            return issues || r.attributes?.failureReason || "Unknown";
+          });
+
+        const errorMsg = failures.length > 0 ? failures.join(" | ") : `Operation ${status}`;
+        logger.error("[Ankorstore] Delete failed", { opId, externalId, status, failures });
+        return { success: false, error: errorMsg };
+      }
+
+      if (status === "skipped") {
+        logger.warn("[Ankorstore] Delete operation skipped", { opId });
+        return { success: false, error: "Delete operation was skipped by Ankorstore" };
+      }
+    }
+
+    logger.warn("[Ankorstore] Delete timed out after polling", { opId, externalId });
+    return { success: false, error: "Timeout waiting for delete to complete" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("[Ankorstore] Delete failed", { externalId, error: message });
@@ -216,7 +276,7 @@ export async function ankorstorePushProducts(
             vat_rate: p.vat_rate,
             wholesale_price: p.wholesale_price,
             retail_price: p.retail_price,
-            unit_multiplier: 1,
+            unit_multiplier: p.unit_multiplier ?? 1,
             discount_rate: 0,
             ...(p.main_image ? { main_image: p.main_image } : {}),
             ...(p.made_in_country ? { made_in_country: p.made_in_country } : {}),
@@ -231,6 +291,7 @@ export async function ankorstorePushProducts(
               wholesalePrice: v.wholesalePrice,
               retailPrice: v.retailPrice,
               originalWholesalePrice: v.originalWholesalePrice,
+              unit_multiplier: v.unit_multiplier ?? 1,
               discount_rate: 0,
               options: v.options,
               ...(v.images?.length ? { images: v.images } : {}),
@@ -246,7 +307,13 @@ export async function ankorstorePushProducts(
 
       if (!addRes.ok) {
         const err = await addRes.text();
-        throw new Error(`Failed to add products batch ${i}: ${err.slice(0, 300)}`);
+        logger.error("[Ankorstore] Add products failed", {
+          opId,
+          status: addRes.status,
+          response: err.slice(0, 500),
+          payloadSample: JSON.stringify(payload).slice(0, 500),
+        });
+        throw new Error(`Failed to add products batch ${i} (HTTP ${addRes.status}): ${err.slice(0, 300)}`);
       }
 
       const addData = await addRes.json();
@@ -280,19 +347,24 @@ export async function ankorstorePushProducts(
     logger.info("[Ankorstore] Operation started", { opId });
     onProgress?.("started", 0, products.length);
 
-    // Step 4: Poll for completion (max 5 minutes)
-    const maxPolls = 100;
+    // Step 4: Poll for completion (max 15 minutes — Ankorstore processing can be slow)
+    const maxPolls = 90;
     for (let i = 0; i < maxPolls; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 10_000));
 
       const checkRes = await fetch(
         `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`,
         { headers }
       );
-      const attrs = (await checkRes.json()).data?.attributes;
+      const checkData = await checkRes.json();
+      const attrs = checkData.data?.attributes;
       const status = attrs?.status;
       const processed = attrs?.processedProductsCount ?? 0;
       const total = attrs?.totalProductsCount ?? products.length;
+
+      if (i % 3 === 0) {
+        logger.info("[Ankorstore] Polling", { opId, poll: i, status, processed, total });
+      }
 
       onProgress?.(status, processed, total);
 
@@ -311,6 +383,18 @@ export async function ankorstorePushProducts(
         const failed = results.filter((r) => r.status === "failure").length;
 
         logger.info("[Ankorstore] Operation completed", { opId, status, succeeded, failed });
+
+        // Log detailed failure info
+        for (const r of results) {
+          if (r.status === "failure") {
+            logger.warn("[Ankorstore] Product failed", {
+              opId,
+              externalProductId: r.externalProductId,
+              failureReason: r.failureReason,
+              issues: r.issues,
+            });
+          }
+        }
 
         return {
           success: status === "succeeded" || status === "completed",

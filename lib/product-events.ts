@@ -4,7 +4,22 @@
  * Next.js server actions, API routes, and middleware.
  */
 
-export type ProductEventType = "PRODUCT_ONLINE" | "PRODUCT_UPDATED" | "PRODUCT_OFFLINE" | "STOCK_CHANGED" | "BESTSELLER_CHANGED" | "PRODUCT_CREATED" | "IMPORT_PROGRESS";
+export type ProductEventType = "PRODUCT_ONLINE" | "PRODUCT_UPDATED" | "PRODUCT_OFFLINE" | "STOCK_CHANGED" | "BESTSELLER_CHANGED" | "PRODUCT_CREATED" | "IMPORT_PROGRESS" | "MARKETPLACE_SYNC";
+
+export type MarketplaceId = "pfs" | "ankorstore";
+
+export interface MarketplaceSyncProgress {
+  /** Which marketplace */
+  marketplace: MarketplaceId;
+  /** Current step label (displayed to user) */
+  step: string;
+  /** 0–100 progress percentage */
+  progress: number;
+  /** Overall status */
+  status: "pending" | "in_progress" | "success" | "error";
+  /** Error message if status is "error" */
+  error?: string;
+}
 
 export interface ProductEvent {
   type: ProductEventType;
@@ -19,6 +34,8 @@ export interface ProductEvent {
     errors: number;
     status: "PROCESSING" | "COMPLETED" | "FAILED";
   };
+  /** Marketplace sync progress (only for MARKETPLACE_SYNC events) */
+  marketplaceSync?: MarketplaceSyncProgress;
 }
 
 type Listener = (event: ProductEvent) => void;

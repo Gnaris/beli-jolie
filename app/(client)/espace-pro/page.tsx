@@ -31,18 +31,35 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> =
 function BarChart({ data }: { data: { label: string; value: number }[] }) {
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
-    <div className="flex items-end gap-1.5 h-24">
-      {data.map((d, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-          <div
-            className="w-full bg-accent rounded-t-sm transition-all duration-300 hover:bg-accent-dark"
-            style={{ height: `${Math.round((d.value / max) * 80)}px`, minHeight: d.value > 0 ? "4px" : "0" }}
-          />
-          <span className="text-[9px] font-body text-text-muted leading-none">
-            {d.label}
-          </span>
-        </div>
-      ))}
+    <div className="relative">
+      {/* Grid lines */}
+      <div className="absolute inset-0 flex flex-col justify-between pointer-events-none" style={{ bottom: "24px" }}>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="border-b border-border-light w-full" />
+        ))}
+      </div>
+      <div className="flex items-end gap-3 h-32 relative" role="img" aria-label="Orders per month chart">
+        {data.map((d, i) => {
+          const barHeight = Math.round((d.value / max) * 96);
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
+              {/* Value label */}
+              <span className="text-[10px] font-body font-semibold text-text-secondary leading-none">
+                {d.value > 0 ? d.value : ""}
+              </span>
+              <div
+                className="w-full max-w-[40px] bg-accent/80 rounded-md transition-all duration-300 hover:bg-accent"
+                style={{ height: `${barHeight}px`, minHeight: d.value > 0 ? "6px" : "0" }}
+                role="presentation"
+                aria-label={`${d.label}: ${d.value}`}
+              />
+              <span className="text-[10px] font-body text-text-muted leading-none capitalize">
+                {d.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -57,15 +74,15 @@ function StatCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="bg-gradient-to-br from-bg-primary to-bg-secondary rounded-xl border border-border p-5 flex items-start gap-4 transition-all duration-300 hover:shadow-[0_8px_16px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 hover:border-accent/30">
-      <div className="w-12 h-12 rounded-xl bg-accent/5 border border-accent/15 flex items-center justify-center text-accent shrink-0">
+    <div className="bg-bg-primary rounded-2xl border border-border p-6 flex items-start gap-4 transition-all duration-200 hover:shadow-md">
+      <div className="w-11 h-11 rounded-xl bg-bg-tertiary flex items-center justify-center text-accent shrink-0">
         {icon}
       </div>
       <div className="min-w-0">
         <p className="text-[11px] font-body text-text-muted uppercase tracking-wider font-bold">
           {label}
         </p>
-        <p className="font-heading text-2xl font-semibold text-text-primary mt-0.5">
+        <p className="font-heading text-2xl font-semibold text-text-primary mt-1">
           {value}
         </p>
         {sub && (
@@ -76,13 +93,50 @@ function StatCard({
   );
 }
 
+/* -- Empty state -- */
+function EmptyState({
+  icon,
+  title,
+  subtitle,
+  ctaLabel,
+  ctaHref,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  ctaLabel?: string;
+  ctaHref?: string;
+}) {
+  return (
+    <div className="py-10 px-6 flex flex-col items-center text-center">
+      <div className="w-14 h-14 rounded-full bg-bg-tertiary flex items-center justify-center text-text-muted mb-4">
+        {icon}
+      </div>
+      <p className="text-sm font-body font-medium text-text-secondary">{title}</p>
+      {subtitle && (
+        <p className="text-xs font-body text-text-muted mt-1 max-w-xs">{subtitle}</p>
+      )}
+      {ctaLabel && ctaHref && (
+        <Link
+          href={ctaHref}
+          className="inline-flex mt-4 justify-center text-xs px-5 py-2.5 bg-bg-dark text-text-inverse rounded-lg font-body font-medium hover:bg-primary-hover transition-colors"
+        >
+          {ctaLabel}
+        </Link>
+      )}
+    </div>
+  );
+}
+
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/connexion");
 
   const userId = session.user.id;
-  const t = await getTranslations("account");
-  const tOrders = await getTranslations("orders");
+  const [t, tOrders] = await Promise.all([
+    getTranslations("account"),
+    getTranslations("orders"),
+  ]);
 
   const [user, orders, favorites, cart, credits, availableCredit, ordersWithCreditNote] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
@@ -222,9 +276,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-4 md:p-6 lg:p-10 w-full relative overflow-hidden">
-      <div className="flex gap-6 relative">
+      <div className="flex gap-8 relative">
         {/* -- Colonne principale (gauche) -- */}
-        <div className="flex-1 min-w-0 space-y-6">
+        <div className="flex-1 min-w-0 space-y-8">
 
           {/* En-tete */}
           <div className="flex items-start justify-between gap-4">
@@ -232,7 +286,7 @@ export default async function DashboardPage() {
               <h1 className="font-heading text-xl font-semibold text-text-primary">
                 {t("greeting", { name: user.firstName })}
               </h1>
-              <p className="text-sm text-text-secondary font-body mt-0.5">
+              <p className="text-sm text-text-secondary font-body mt-1">
                 {user.company} — {t("memberSince", { date: formattedDate })}
               </p>
             </div>
@@ -241,7 +295,7 @@ export default async function DashboardPage() {
 
           {/* Bandeau statut si pas APPROVED */}
           {user.status !== "APPROVED" && (
-            <div className={`${user.status === "PENDING" ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-red-50 border-red-200 text-red-800"} border rounded-xl p-4 flex items-start gap-3`}>
+            <div className={`${user.status === "PENDING" ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-red-50 border-red-200 text-red-800"} border rounded-2xl p-5 flex items-start gap-3`}>
               <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${user.status === "PENDING" ? "bg-warning" : "bg-red-500"}`} />
               <div>
                 <p className="text-sm font-body font-semibold">
@@ -307,8 +361,8 @@ export default async function DashboardPage() {
           {/* -- Graphiques + Top produits -- */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Graphique commandes par mois */}
-            <div className="bg-bg-primary rounded-xl border border-border p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
-              <div className="flex items-center justify-between mb-4">
+            <div className="bg-bg-primary rounded-2xl border border-border p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
                 <h2 className="font-heading text-sm font-semibold text-text-primary">
                   {t("chartTitle")}
                 </h2>
@@ -320,8 +374,8 @@ export default async function DashboardPage() {
             </div>
 
             {/* Top produits commandes */}
-            <div className="bg-bg-primary rounded-xl border border-border p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
-              <div className="flex items-center justify-between mb-4">
+            <div className="bg-bg-primary rounded-2xl border border-border p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
                 <h2 className="font-heading text-sm font-semibold text-text-primary">
                   {t("topProducts")}
                 </h2>
@@ -330,11 +384,16 @@ export default async function DashboardPage() {
                 </Link>
               </div>
               {topProducts.length === 0 ? (
-                <p className="text-sm font-body text-text-muted py-6 text-center">
-                  {t("noOrdersYet")}
-                </p>
+                <EmptyState
+                  icon={
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                    </svg>
+                  }
+                  title={t("noOrdersYet")}
+                />
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {topProducts.map((p, i) => {
                     const pct = Math.round((p.count / topProducts[0].count) * 100);
                     return (
@@ -346,9 +405,9 @@ export default async function DashboardPage() {
                           <p className="text-sm font-body text-text-primary truncate">
                             {p.name}
                           </p>
-                          <div className="h-1.5 bg-[#F0F0F0] rounded-full mt-1">
+                          <div className="h-1.5 bg-bg-tertiary rounded-full mt-1.5">
                             <div
-                              className="h-1.5 bg-bg-dark rounded-full"
+                              className="h-1.5 bg-accent rounded-full transition-all duration-300"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
@@ -365,8 +424,8 @@ export default async function DashboardPage() {
           </div>
 
           {/* -- Commandes recentes -- */}
-          <div className="bg-bg-primary rounded-xl border border-border overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+          <div className="bg-bg-primary rounded-2xl border border-border overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h2 className="font-heading text-sm font-semibold text-text-primary">
                 {t("recentOrders")}
               </h2>
@@ -375,26 +434,64 @@ export default async function DashboardPage() {
               </Link>
             </div>
             {recentOrders.length === 0 ? (
-              <div className="p-8 text-center">
-                <p className="text-sm font-body text-text-muted">
-                  {t("noOrdersYet")}
-                </p>
-                <Link href="/produits" className="inline-flex mt-4 justify-center text-xs px-4 py-2 bg-bg-dark text-text-inverse rounded-lg font-body font-medium hover:bg-primary-hover transition-colors">
-                  {t("viewCatalogue")}
-                </Link>
-              </div>
+              <EmptyState
+                icon={
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                      d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+                  </svg>
+                }
+                title={t("noOrdersYet")}
+                ctaLabel={t("viewCatalogue")}
+                ctaHref="/produits"
+              />
             ) : (
-              <div className="divide-y divide-border-light">
-                {recentOrders.map((order) => {
-                  const cfg = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
-                  const date = new Date(order.createdAt).toLocaleDateString("fr-FR", {
-                    day: "numeric", month: "short", year: "numeric",
-                  });
-                  const totalQty = order.items.reduce((s, i) => s + i.quantity, 0);
-                  return (
-                    <div key={order.id} className="px-5 py-3.5 flex flex-wrap items-center gap-3 hover:bg-bg-secondary transition-colors">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
+              <>
+                {/* Desktop table view */}
+                <div className="hidden md:block divide-y divide-border-light">
+                  {recentOrders.map((order) => {
+                    const cfg = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
+                    const date = new Date(order.createdAt).toLocaleDateString("fr-FR", {
+                      day: "numeric", month: "short", year: "numeric",
+                    });
+                    const totalQty = order.items.reduce((s, i) => s + i.quantity, 0);
+                    return (
+                      <div key={order.id} className="px-6 py-4 flex items-center gap-4 hover:bg-bg-secondary/50 transition-colors">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="font-heading text-sm font-semibold text-text-primary">
+                              {order.orderNumber}
+                            </span>
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-body font-medium ${cfg.bg} ${cfg.text}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                              {tOrders(`statuses.${order.status}`)}
+                            </span>
+                          </div>
+                          <p className="text-xs font-body text-text-muted mt-1">
+                            {date} — {totalQty} {totalQty > 1 ? tOrders("items_plural") : tOrders("items")}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-heading text-sm font-semibold text-text-primary">
+                            {Number(order.totalTTC).toFixed(2)} {"\u20AC"}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Mobile card view */}
+                <div className="md:hidden divide-y divide-border-light">
+                  {recentOrders.map((order) => {
+                    const cfg = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
+                    const date = new Date(order.createdAt).toLocaleDateString("fr-FR", {
+                      day: "numeric", month: "short", year: "numeric",
+                    });
+                    const totalQty = order.items.reduce((s, i) => s + i.quantity, 0);
+                    return (
+                      <div key={order.id} className="px-5 py-4 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
                           <span className="font-heading text-sm font-semibold text-text-primary">
                             {order.orderNumber}
                           </span>
@@ -403,26 +500,30 @@ export default async function DashboardPage() {
                             {tOrders(`statuses.${order.status}`)}
                           </span>
                         </div>
-                        <p className="text-xs font-body text-text-muted mt-0.5">
-                          {date} — {totalQty} {totalQty > 1 ? tOrders("items_plural") : tOrders("items")}
-                        </p>
+                        <div className="flex items-center justify-between text-xs font-body">
+                          <span className="text-text-muted">{date}</span>
+                          <span className="text-text-muted">
+                            {totalQty} {totalQty > 1 ? tOrders("items_plural") : tOrders("items")}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-body text-text-muted">{tOrders("total")}</span>
+                          <span className="font-heading text-sm font-semibold text-text-primary">
+                            {Number(order.totalTTC).toFixed(2)} {"\u20AC"}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-heading text-sm font-semibold text-text-primary">
-                          {Number(order.totalTTC).toFixed(2)} {"\u20AC"}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
 
           {/* -- Avoirs -- */}
           {(credits.length > 0 || ordersWithCreditNote.length > 0) && (
-            <div className="bg-bg-primary rounded-xl border border-border overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+            <div className="bg-bg-primary rounded-2xl border border-border overflow-hidden shadow-sm">
+              <div className="px-6 py-4 border-b border-border flex items-center justify-between">
                 <h2 className="font-heading text-sm font-semibold text-text-primary">
                   {tOrders("creditNote")}
                 </h2>
@@ -434,12 +535,12 @@ export default async function DashboardPage() {
               </div>
               <div className="divide-y divide-border-light">
                 {ordersWithCreditNote.map((o) => (
-                  <div key={o.id} className="px-5 py-3.5 flex items-center justify-between gap-3">
+                  <div key={o.id} className="px-6 py-4 flex items-center justify-between gap-3">
                     <div>
                       <p className="font-body text-sm font-medium text-text-primary">
                         {tOrders("creditNote")} — {o.orderNumber}
                       </p>
-                      <p className="text-xs text-text-muted font-body mt-0.5">
+                      <p className="text-xs text-text-muted font-body mt-1">
                         {new Date(o.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
                       </p>
                     </div>
@@ -458,29 +559,39 @@ export default async function DashboardPage() {
                 {credits.map((credit) => {
                   const remaining = Number(credit.remainingAmount);
                   const total = Number(credit.amount);
+                  const usedPct = total > 0 ? Math.round(((total - remaining) / total) * 100) : 100;
                   const isExpired = credit.expiresAt && new Date(credit.expiresAt) < new Date();
                   return (
-                    <div key={credit.id} className="px-5 py-3.5 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-body text-sm font-medium text-text-primary">
-                          {total.toFixed(2)} {"\u20AC"}
-                          <span className="text-text-muted font-normal"> — {tOrders("remaining")} : {remaining.toFixed(2)} {"\u20AC"}</span>
-                        </p>
-                        {credit.claim && (
-                          <p className="text-xs text-text-muted font-body mt-0.5">
-                            {tOrders("claimRef")} {credit.claim.reference}
+                    <div key={credit.id} className="px-6 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-body text-sm font-medium text-text-primary">
+                            {total.toFixed(2)} {"\u20AC"}
+                            <span className="text-text-muted font-normal"> — {tOrders("remaining")} : {remaining.toFixed(2)} {"\u20AC"}</span>
                           </p>
-                        )}
+                          {credit.claim && (
+                            <p className="text-xs text-text-muted font-body mt-1">
+                              {tOrders("claimRef")} {credit.claim.reference}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className={`badge ${remaining > 0 && !isExpired ? "badge-success" : "badge-neutral"}`}>
+                            {isExpired ? tOrders("expired") : remaining > 0 ? tOrders("active") : tOrders("used")}
+                          </span>
+                          {credit.expiresAt && (
+                            <p className="text-[10px] text-text-muted font-body mt-1">
+                              {tOrders("expiresOn")} {new Date(credit.expiresAt).toLocaleDateString("fr-FR")}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <span className={`badge ${remaining > 0 && !isExpired ? "badge-success" : "badge-neutral"}`}>
-                          {isExpired ? tOrders("expired") : remaining > 0 ? tOrders("active") : tOrders("used")}
-                        </span>
-                        {credit.expiresAt && (
-                          <p className="text-[10px] text-text-muted font-body mt-1">
-                            {tOrders("expiresOn")} {new Date(credit.expiresAt).toLocaleDateString("fr-FR")}
-                          </p>
-                        )}
+                      {/* Credit usage progress bar */}
+                      <div className="mt-3 h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+                        <div
+                          className={`h-1.5 rounded-full transition-all duration-300 ${remaining > 0 && !isExpired ? "bg-success" : "bg-text-muted"}`}
+                          style={{ width: `${100 - usedPct}%` }}
+                        />
                       </div>
                     </div>
                   );
@@ -490,8 +601,8 @@ export default async function DashboardPage() {
           )}
 
           {/* -- Favoris recents -- */}
-          <div className="bg-bg-primary rounded-xl border border-border overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+          <div className="bg-bg-primary rounded-2xl border border-border overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h2 className="font-heading text-sm font-semibold text-text-primary">
                 {t("myFavorites")}
               </h2>
@@ -500,16 +611,18 @@ export default async function DashboardPage() {
               </Link>
             </div>
             {favorites.length === 0 ? (
-              <div className="p-8 text-center">
-                <p className="text-sm font-body text-text-muted">
-                  {t("noFavorites")}
-                </p>
-                <Link href="/produits" className="inline-flex mt-4 justify-center text-xs px-4 py-2 bg-bg-dark text-text-inverse rounded-lg font-body font-medium hover:bg-primary-hover transition-colors">
-                  {t("discoverCatalogue")}
-                </Link>
-              </div>
+              <EmptyState
+                icon={
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+                  </svg>
+                }
+                title={t("noFavorites")}
+                ctaLabel={t("discoverCatalogue")}
+                ctaHref="/produits"
+              />
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border-light">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4">
                 {favorites.map((fav) => {
                   const primaryColor = fav.product.colors[0];
                   const img = favFirstImageMap.get(fav.product.id);
@@ -517,10 +630,10 @@ export default async function DashboardPage() {
                     <Link
                       key={fav.id}
                       href={`/produits/${fav.product.id}`}
-                      className="p-4 hover:bg-bg-secondary transition-colors group"
+                      className="group rounded-xl overflow-hidden transition-all duration-200 hover:shadow-md"
                     >
                       {img ? (
-                        <div className="aspect-square bg-bg-tertiary rounded-xl overflow-hidden mb-2 relative">
+                        <div className="aspect-square bg-bg-tertiary rounded-xl overflow-hidden relative">
                           <Image
                             src={img}
                             alt={fav.product.name}
@@ -531,25 +644,103 @@ export default async function DashboardPage() {
                           />
                         </div>
                       ) : (
-                        <div className="aspect-square bg-bg-tertiary rounded-xl mb-2 flex items-center justify-center">
+                        <div className="aspect-square bg-bg-tertiary rounded-xl flex items-center justify-center">
                           <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
                           </svg>
                         </div>
                       )}
-                      <p className="text-xs font-body font-medium text-text-primary truncate">
-                        {fav.product.name}
-                      </p>
-                      {primaryColor && (
-                        <p className="text-xs font-body text-text-secondary mt-0.5">
-                          {Number(primaryColor.unitPrice).toFixed(2)} {"\u20AC"}
+                      <div className="p-3">
+                        <p className="text-xs font-body font-medium text-text-primary truncate">
+                          {fav.product.name}
                         </p>
-                      )}
+                        {primaryColor && (
+                          <p className="text-xs font-body text-text-secondary mt-0.5">
+                            {Number(primaryColor.unitPrice).toFixed(2)} {"\u20AC"}
+                          </p>
+                        )}
+                      </div>
                     </Link>
                   );
                 })}
               </div>
             )}
+          </div>
+
+          {/* -- Purchase history: mobile/tablet horizontal scroll -- */}
+          <div className="lg:hidden">
+            <div className="bg-bg-primary rounded-2xl border border-border overflow-hidden shadow-sm">
+              <div className="px-6 py-4 border-b border-border">
+                <h2 className="font-heading text-sm font-semibold text-text-primary">
+                  {t("purchaseHistory")}
+                </h2>
+                <p className="text-xs text-text-muted font-body mt-0.5">
+                  {allOrderedProducts.length > 1
+                    ? t("productsOrdered_plural", { count: allOrderedProducts.length })
+                    : t("productsOrdered", { count: allOrderedProducts.length })}
+                </p>
+              </div>
+
+              {allOrderedProducts.length === 0 ? (
+                <EmptyState
+                  icon={
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                    </svg>
+                  }
+                  title={t("noPurchases")}
+                />
+              ) : (
+                <div className="overflow-x-auto p-4">
+                  <div className="flex gap-3" style={{ minWidth: "max-content" }}>
+                    {allOrderedProducts.slice(0, 10).map((product, i) => (
+                      <Link
+                        key={i}
+                        href={`/produits?q=${encodeURIComponent(product.ref)}`}
+                        className="group w-36 shrink-0 bg-bg-secondary rounded-xl overflow-hidden hover:shadow-md transition-all"
+                      >
+                        <div className="aspect-square bg-bg-tertiary overflow-hidden relative">
+                          {product.image ? (
+                            <Image
+                              src={product.image}
+                              alt={product.name}
+                              fill
+                              sizes="144px"
+                              className="object-cover group-hover:scale-105 transition-transform duration-300"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-2.5">
+                          <p className="text-xs font-body font-medium text-text-primary truncate">
+                            {product.name}
+                          </p>
+                          <p className="text-[10px] text-text-muted font-mono truncate mt-0.5">
+                            {product.ref}
+                          </p>
+                          <div className="flex items-center justify-between mt-1.5">
+                            <span className="text-xs font-heading font-bold text-text-primary">
+                              x{product.totalQty}
+                            </span>
+                            <span className="text-[10px] text-text-muted font-body">
+                              {product.orderCount > 1
+                                ? t("orderCount_plural", { count: product.orderCount })
+                                : t("orderCount", { count: product.orderCount })}
+                            </span>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* -- Informations compte (editable) -- */}
@@ -566,13 +757,13 @@ export default async function DashboardPage() {
         </div>
 
         {/* -- Colonne droite : Historique des produits commandes -- */}
-        <aside className="hidden lg:block w-[460px] shrink-0">
-          <div className="bg-bg-primary rounded-xl border border-border overflow-hidden sticky top-24">
+        <aside className="hidden lg:block w-[380px] shrink-0">
+          <div className="bg-bg-primary rounded-2xl border border-border overflow-hidden shadow-sm sticky top-24">
             <div className="px-6 py-4 border-b border-border">
               <h2 className="font-heading text-base font-semibold text-text-primary">
                 {t("purchaseHistory")}
               </h2>
-              <p className="text-xs text-text-muted font-body mt-0.5">
+              <p className="text-xs text-text-muted font-body mt-1">
                 {allOrderedProducts.length > 1
                   ? t("productsOrdered_plural", { count: allOrderedProducts.length })
                   : t("productsOrdered", { count: allOrderedProducts.length })}
@@ -580,11 +771,14 @@ export default async function DashboardPage() {
             </div>
 
             {allOrderedProducts.length === 0 ? (
-              <div className="p-8 text-center">
-                <p className="text-sm text-text-muted font-body">
-                  {t("noPurchases")}
-                </p>
-              </div>
+              <EmptyState
+                icon={
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                  </svg>
+                }
+                title={t("noPurchases")}
+              />
             ) : (
               <div className="max-h-[calc(100vh-12rem)] overflow-y-auto p-4">
                 <div className="grid grid-cols-2 gap-3">
@@ -592,7 +786,7 @@ export default async function DashboardPage() {
                     <Link
                       key={i}
                       href={`/produits?q=${encodeURIComponent(product.ref)}`}
-                      className="group bg-bg-secondary rounded-xl overflow-hidden hover:shadow-md transition-all"
+                      className="group bg-bg-secondary rounded-xl overflow-hidden hover:shadow-md transition-all duration-200"
                     >
                       {/* Image large */}
                       <div className="aspect-square bg-bg-tertiary overflow-hidden relative">
@@ -601,7 +795,7 @@ export default async function DashboardPage() {
                             src={product.image}
                             alt={product.name}
                             fill
-                            sizes="(max-width: 1024px) 0vw, 220px"
+                            sizes="(max-width: 1024px) 0vw, 180px"
                             className="object-cover group-hover:scale-105 transition-transform duration-300"
                             loading="lazy"
                           />

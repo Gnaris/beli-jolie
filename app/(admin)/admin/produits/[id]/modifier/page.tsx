@@ -7,7 +7,7 @@ import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 import { getCachedPfsEnabled } from "@/lib/cached-data";
 import PfsSyncButton from "@/components/pfs/PfsSyncButton";
-import AnkorstorePushButton from "@/components/admin/ankorstore/AnkorstorePushButton";
+import AnkorstoreSyncBanner from "@/components/admin/ankorstore/AnkorstoreSyncBanner";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import { getCachedSiteConfig } from "@/lib/cached-data";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
@@ -381,13 +381,13 @@ export default async function ModifierProduitPage({
     return (
       <div className="max-w-[1600px] mx-auto space-y-8">
         <div>
-          <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-2">
+          <nav className="flex items-center gap-1.5 text-[13px] font-body text-text-muted mb-3">
             <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
-            <span>/</span>
-            <span className="text-text-secondary truncate max-w-xs">{product.name || "Brouillon"}</span>
-            <span>/</span>
+            <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            <span className="text-text-secondary font-medium truncate max-w-xs">{product.name || "Brouillon"}</span>
+            <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             <span className="text-text-secondary">Continuer</span>
-          </div>
+          </nav>
           <h1 className="page-title">Continuer le brouillon</h1>
           {product.reference && (
             <p className="text-base text-text-muted font-body mt-1">
@@ -407,6 +407,7 @@ export default async function ModifierProduitPage({
           mode="create"
           productId={product.id}
           hasPfsConfig={hasPfsConfig}
+          hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
           initialData={{
             reference:         product.reference,
             name:              product.name,
@@ -468,31 +469,40 @@ export default async function ModifierProduitPage({
       initial={initialHeaderState}
       staticHeader={
         <>
-          <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-2">
+          {ankorsEnabled?.value === "true" && (
+            <div className="mb-3">
+              <AnkorstoreSyncBanner
+                productId={product.id}
+                productReference={product.reference}
+                ankorsProductId={product.ankorsProductId}
+              />
+            </div>
+          )}
+          <nav className="flex items-center gap-1.5 text-[13px] font-body text-text-muted mb-3">
             <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
-            <span>/</span>
-            <span className="text-text-secondary truncate max-w-xs">{product.name}</span>
-            <span>/</span>
+            <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            <span className="text-text-secondary font-medium truncate max-w-xs">{product.name}</span>
+            <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             <span className="text-text-secondary">Modifier</span>
-          </div>
+          </nav>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="page-title">Modifier le produit</h1>
-              <div className="flex items-center gap-3 mt-1 flex-wrap">
-                <p className="text-base text-text-muted font-body">
-                  Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
-                </p>
+              <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] bg-bg-tertiary px-2.5 py-1 rounded-md text-text-secondary border border-border-light font-semibold">
+                  {product.reference}
+                </span>
                 <span className="hidden sm:block h-4 w-px bg-border" />
-                <p className="text-xs text-text-muted font-body">
+                <p className="text-[11px] text-text-muted font-body">
                   Créé le{" "}
-                  <span className="text-text-secondary">
+                  <span className="text-text-secondary font-medium">
                     {product.createdAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
                   </span>
                 </p>
                 <span className="hidden sm:block h-4 w-px bg-border" />
-                <p className="text-xs text-text-muted font-body">
+                <p className="text-[11px] text-text-muted font-body">
                   Modifié le{" "}
-                  <span className="text-text-secondary">
+                  <span className="text-text-secondary font-medium">
                     {product.updatedAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </p>
@@ -506,19 +516,13 @@ export default async function ModifierProduitPage({
                     mappingIssues={mappingIssues}
                   />
                 )}
-                {ankorsEnabled?.value === "true" && (
-                  <AnkorstorePushButton
-                    productId={product.id}
-                    ankorsProductId={product.ankorsProductId}
-                  />
-                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
               <Link
                 href={`/produits/${product.id}`}
                 target="_blank"
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-text-secondary bg-bg-primary border border-border rounded-lg hover:border-bg-dark hover:text-text-primary transition-colors font-body"
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-text-secondary bg-bg-primary border border-border rounded-xl hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm"
                 title="Voir côté client"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -550,6 +554,7 @@ export default async function ModifierProduitPage({
         mode="edit"
         productId={product.id}
         hasPfsConfig={hasPfsConfig}
+        hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
         initialData={{
           reference:         product.reference,
           name:              product.name,
