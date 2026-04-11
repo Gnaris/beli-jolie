@@ -335,8 +335,7 @@ export default function ProductForm({
   const [categoryId,      setCategoryId]      = useState(initialData?.categoryId      ?? "");
   const [subCategoryIds,  setSubCategoryIds]  = useState<string[]>(initialData?.subCategoryIds ?? []);
   const [variants, setVariants] = useState<VariantState[]>(
-    initialData?.variants ??
-    (availableColors.length > 0 ? [defaultVariant(availableColors)] : [])
+    initialData?.variants ?? []
   );
   const [colorImages, setColorImages] = useState<ColorImageState[]>(
     initialData?.colorImages ?? []
@@ -359,7 +358,7 @@ export default function ProductForm({
   const [error, setError] = useState("");
   const [onlineErrors, setOnlineErrors] = useState<string[]>([]);
   const [productStatus, setProductStatus] = useState<"OFFLINE" | "ONLINE" | "ARCHIVED">(
-    initialData?.status === "SYNCING" ? "OFFLINE" : (initialData?.status ?? "OFFLINE")
+    initialData?.status === "SYNCING" ? "OFFLINE" : (initialData?.status ?? "ONLINE")
   );
 
   // ── Touched fields for real-time validation ──────────────────────────
@@ -993,7 +992,7 @@ export default function ProductForm({
           isPrimary:     v.isPrimary,
           saleType:      v.saleType,
           packQuantity:  v.saleType === "PACK"
-            ? (v.sizeEntries.length > 1 ? v.sizeEntries.length : (parseInt(v.packQuantity) || 1))
+            ? (v.sizeEntries.reduce((sum, se) => sum + (parseInt(se.quantity) || 1), 0) || 1)
             : null,
           sizeEntries:   v.sizeEntries
             .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
@@ -1252,7 +1251,7 @@ export default function ProductForm({
         isPrimary:     v.isPrimary,
         saleType:      v.saleType,
         packQuantity:  v.saleType === "PACK"
-          ? (v.sizeEntries.length > 1 ? v.sizeEntries.length : (parseInt(v.packQuantity) || 1))
+          ? (v.sizeEntries.reduce((sum, se) => sum + (parseInt(se.quantity) || 1), 0) || 1)
           : null,
         sizeEntries:   v.sizeEntries
           .filter((se) => se.sizeId)

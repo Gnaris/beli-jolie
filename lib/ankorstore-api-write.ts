@@ -71,6 +71,11 @@ export interface AnkorstorePushProduct {
   main_image?: string;
   images?: { order: number; url: string }[];
   made_in_country?: string; // ISO Alpha-2 (e.g. "CN", "FR")
+  // Dimensions in mm, weight in grams
+  weight?: number;
+  height?: number;
+  width?: number;
+  length?: number;
   variants: AnkorstorePushVariant[];
 }
 
@@ -280,6 +285,10 @@ export async function ankorstorePushProducts(
             discount_rate: 0,
             ...(p.main_image ? { main_image: p.main_image } : {}),
             ...(p.made_in_country ? { made_in_country: p.made_in_country } : {}),
+            ...(p.weight ? { weight: p.weight } : {}),
+            ...(p.height ? { height: p.height } : {}),
+            ...(p.width ? { width: p.width } : {}),
+            ...(p.length ? { length: p.length } : {}),
             ...(p.images?.length ? { images: p.images } : {}),
             variants: p.variants.map((v) => ({
               sku: v.sku,

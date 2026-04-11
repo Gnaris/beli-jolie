@@ -23,6 +23,7 @@ import {
 } from "@/lib/pfs-sync";
 import { stripDimensionsSuffix } from "@/lib/pfs-reverse-sync";
 import { pfsGetCategories, pfsGetColors, type PfsAttributeCategory } from "@/lib/pfs-api-write";
+import { loadMarketplaceMarkupConfigs, applyMarketplaceMarkup } from "@/lib/marketplace-pricing";
 
 // ─────────────────────────────────────────────
 // GET — Fetch live PFS data for a product and compare with BJ
@@ -108,13 +109,17 @@ export async function GET(
     }
   }
 
-  // 3. Fetch PFS data (variants + reference details)
+  // 3. Fetch PFS data (variants + reference details) + markup config
   let variantDetails: PfsVariantDetail[] = [];
   let refDetails: PfsCheckReferenceResponse | null = null;
 
   let pfsAllCategories: PfsAttributeCategory[] = [];
   // Reference → French label map for all PFS colors (used to display friendly names)
   const pfsColorLabelMap = new Map<string, string>();
+
+  // Load PFS markup config for price comparison (BJ price + markup = expected PFS price)
+  const markupConfigs = await loadMarketplaceMarkupConfigs();
+  const pfsMarkup = markupConfigs.pfs;
 
   try {
     const [variantsResult, refResult, categoriesResult, colorsResult] = await Promise.allSettled([
@@ -466,6 +471,9 @@ export async function GET(
           }))
         : [];
 
+      // Price expected on PFS = BJ price + marketplace markup
+      const expectedPfsPrice = applyMarketplaceMarkup(displayUnitPrice, pfsMarkup);
+
       return {
         id: pc.id,
         colorId: effectiveColorId,
@@ -481,6 +489,7 @@ export async function GET(
               patternImage: sc.color.patternImage,
             })),
         unitPrice: displayUnitPrice,
+        expectedPfsPrice,
         weight: pc.weight,
         stock: pc.stock,
         saleType: pc.saleType,
@@ -697,7 +706,9 @@ export async function GET(
     if (!bjV) {
       differences.push({ field: `variant_new_${pfsV.colorName}_${pfsV.saleType}`, pfsValue: pfsV, bjValue: null });
     } else {
-      if (Math.abs(bjV.unitPrice - pfsV.unitPrice) > 0.01) {
+      // Compare using BJ expected PFS price (base + markup) vs actual PFS price
+      const bjExpected = bjV.expectedPfsPrice ?? bjV.unitPrice;
+      if (Math.abs(bjExpected - pfsV.unitPrice) > 0.01) {
         differences.push({ field: `price_${pfsV.colorName}_${pfsV.saleType}`, pfsValue: pfsV.unitPrice, bjValue: bjV.unitPrice });
       }
       if (bjV.stock !== pfsV.stock) {

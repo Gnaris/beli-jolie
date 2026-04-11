@@ -13,8 +13,10 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { usePfsRefresh } from "@/components/admin/pfs/PfsRefreshContext";
+import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import { useProductStream } from "@/hooks/useProductStream";
 import ImportProgressBanner from "@/components/admin/products/ImportProgressBanner";
+import type { MarketplaceId } from "@/lib/product-events";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1231,6 +1233,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
+  const { startSync } = useMarketplaceSync();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [confirmRefresh, setConfirmRefresh] = useState(false);
   const pfsRefresh = usePfsRefresh();
@@ -1366,6 +1369,15 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
     startTransition(async () => {
       try {
         const result = await bulkUpdateProductStatus(ids, status);
+
+        // Show marketplace sync overlay for successfully updated products
+        const marketplaces: MarketplaceId[] = [];
+        if (hasPfsConfig) marketplaces.push("pfs");
+        if (hasAnkorstoreConfig) marketplaces.push("ankorstore");
+        if (marketplaces.length > 0 && result.success.length > 0) {
+          startSync(result.success, marketplaces);
+        }
+
         const msgs: string[] = [];
         if (result.success.length > 0) {
           msgs.push(`${result.success.length} produit${result.success.length > 1 ? "s" : ""} ${label.verb}`);
@@ -1385,7 +1397,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
         hideLoading();
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, hasPfsConfig, hasAnkorstoreConfig, startSync]);
 
   const deleteFromPfsRef = useRef(true);
   const deleteFromAnkorstoreRef = useRef(true);
@@ -1410,8 +1422,18 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
     });
     if (!confirmed) return;
 
+    // Determine which marketplaces will be synced for deletion
+    const marketplaces: MarketplaceId[] = [];
+    if (deleteFromPfsRef.current && hasPfsConfig) marketplaces.push("pfs");
+    if (deleteFromAnkorstoreRef.current && hasAnkorstoreConfig) marketplaces.push("ankorstore");
+
+    // Show marketplace overlay before server action so we catch events emitted during deletion
+    if (marketplaces.length > 0) {
+      startSync(ids, marketplaces);
+    }
+
     setBulkMessage(null);
-    showLoading();
+    if (marketplaces.length === 0) showLoading();
     startTransition(async () => {
       try {
         const result = await bulkDeleteProducts(ids, deleteFromPfsRef.current, deleteFromAnkorstoreRef.current);
@@ -1437,11 +1459,11 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
       } finally {
-        hideLoading();
+        if (marketplaces.length === 0) hideLoading();
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, startTransition, showLoading, hideLoading, hasPfsConfig, hasAnkorstoreConfig]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, hasPfsConfig, hasAnkorstoreConfig, startSync]);
 
   const handleBulkPfsRefresh = useCallback(() => {
     if (!pfsRefresh) return;

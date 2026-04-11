@@ -6,7 +6,7 @@ import ProductForm from "@/components/admin/products/ProductForm";
 import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 import { getCachedPfsEnabled } from "@/lib/cached-data";
-import PfsSyncButton from "@/components/pfs/PfsSyncButton";
+import PfsSyncBanner from "@/components/pfs/PfsSyncBanner";
 import AnkorstoreSyncBanner from "@/components/admin/ankorstore/AnkorstoreSyncBanner";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import { getCachedSiteConfig } from "@/lib/cached-data";
@@ -478,6 +478,18 @@ export default async function ModifierProduitPage({
               />
             </div>
           )}
+          {hasPfsConfig && (
+            <div className="mb-3">
+              <PfsSyncBanner
+                productId={product.id}
+                pfsProductId={product.pfsProductId}
+                pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
+                pfsSyncError={product.pfsSyncError}
+                pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
+                mappingIssues={mappingIssues}
+              />
+            </div>
+          )}
           <nav className="flex items-center gap-1.5 text-[13px] font-body text-text-muted mb-3">
             <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
             <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -506,16 +518,6 @@ export default async function ModifierProduitPage({
                     {product.updatedAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </p>
-                {hasPfsConfig && (
-                  <PfsSyncButton
-                    productId={product.id}
-                    pfsProductId={product.pfsProductId}
-                    pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
-                    pfsSyncError={product.pfsSyncError}
-                    pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
-                    mappingIssues={mappingIssues}
-                  />
-                )}
               </div>
             </div>
             <div className="flex items-center gap-2">

@@ -28,6 +28,7 @@ interface VariantData {
   colorPatternImage?: string | null;
   subColors?: SubColorData[];
   unitPrice: number;
+  expectedPfsPrice?: number;
   weight: number;
   stock: number;
   saleType: "UNIT" | "PACK";
@@ -401,7 +402,14 @@ function VariantCard({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
         <div>
           <span className="text-text-secondary">Prix unitaire</span>
-          <p className="font-medium text-text-primary tabular-nums">{Number(variant.unitPrice).toFixed(2)}€</p>
+          <p className="font-medium text-text-primary tabular-nums">
+            {Number(variant.unitPrice).toFixed(2)}€
+            {side === "bj" && variant.expectedPfsPrice != null && Math.abs(variant.expectedPfsPrice - variant.unitPrice) > 0.01 && (
+              <span className="text-text-muted ml-1 font-normal">
+                (PFS : {variant.expectedPfsPrice.toFixed(2)}€)
+              </span>
+            )}
+          </p>
         </div>
         <div>
           <span className="text-text-secondary">Stock</span>
@@ -447,7 +455,10 @@ function variantIsDiff(bj: VariantData, pfs: VariantData): boolean {
   const pfsSizeEffective = pfs.sizeName ?? pfs.size;
   const sizeDiff = bjSizeEffective !== pfsSizeEffective;
 
-  return Math.abs(bj.unitPrice - pfs.unitPrice) > 0.01
+  // Price comparison: use expectedPfsPrice (base + markup) if available
+  const bjPriceForComparison = bj.expectedPfsPrice ?? bj.unitPrice;
+
+  return Math.abs(bjPriceForComparison - pfs.unitPrice) > 0.01
     || bj.stock !== pfs.stock
     || Math.abs(bj.weight - pfs.weight) > 0.01
     || bj.discountType !== pfs.discountType
@@ -859,11 +870,11 @@ export default function PfsLiveCompareModal({
     <>
       {/* ── Main overlay ── */}
       <div
-        className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4"
         onClick={onClose}
       >
         <div
-          className="relative w-full max-w-6xl my-4 mx-4 sm:my-8 rounded-2xl bg-bg-primary shadow-2xl"
+          className="relative w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-2xl bg-bg-primary shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           {/* ── Header ── */}

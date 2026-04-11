@@ -24,8 +24,8 @@ interface MarketplaceState {
 }
 
 interface MarketplaceSyncContextValue {
-  /** Start watching sync for a product. Call after save. */
-  startSync: (productId: string, marketplaces: MarketplaceId[]) => void;
+  /** Start watching sync for one or more products. Call after save. */
+  startSync: (productIds: string | string[], marketplaces: MarketplaceId[]) => void;
 }
 
 const MarketplaceSyncContext = createContext<MarketplaceSyncContextValue | null>(null);
@@ -199,6 +199,63 @@ function MarketplaceCard({ state }: { state: MarketplaceState }) {
 }
 
 // ─────────────────────────────────────────────
+// Aggregate helpers (multi-product)
+// ─────────────────────────────────────────────
+
+interface PerProductState {
+  status: "pending" | "in_progress" | "success" | "error";
+  progress: number;
+  step: string;
+  error?: string;
+}
+
+function computeAggregate(
+  marketplace: MarketplaceId,
+  perProduct: Map<string, Map<MarketplaceId, PerProductState>>,
+  total: number,
+): MarketplaceState {
+  let sumProgress = 0;
+  let inProgress = 0, success = 0, errors = 0;
+  let lastStep = "En attente...";
+  let lastError: string | undefined;
+
+  for (const [, mkStates] of perProduct) {
+    const s = mkStates.get(marketplace);
+    if (!s) continue;
+    sumProgress += s.progress;
+    if (s.status === "success") success++;
+    else if (s.status === "error") { errors++; lastError = s.error; }
+    else if (s.status === "in_progress") { inProgress++; lastStep = s.step; }
+  }
+
+  const avgProgress = total > 0 ? Math.round(sumProgress / total) : 0;
+  const allDone = success + errors === total;
+
+  let status: MarketplaceState["status"];
+  if (allDone) status = errors > 0 ? "error" : "success";
+  else if (inProgress > 0 || success > 0) status = "in_progress";
+  else status = "pending";
+
+  let step: string;
+  if (total === 1) {
+    // Single product — show actual step from server
+    const firstEntry = perProduct.values().next().value;
+    const s = firstEntry?.get(marketplace);
+    step = s?.step ?? lastStep;
+  } else {
+    if (allDone) {
+      step = errors > 0
+        ? `${success}/${total} réussi(s), ${errors} erreur(s)`
+        : `${total} produit${total > 1 ? "s" : ""} synchronisé${total > 1 ? "s" : ""}`;
+    } else {
+      step = `${success + errors}/${total} produit${total > 1 ? "s" : ""}...`;
+    }
+  }
+
+  return { marketplace, step, progress: avgProgress, status, error: lastError };
+}
+
+// ─────────────────────────────────────────────
 // Provider
 // ─────────────────────────────────────────────
 
@@ -207,39 +264,54 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
   const [fadeIn, setFadeIn] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [states, setStates] = useState<Map<MarketplaceId, MarketplaceState>>(new Map());
-  const [productId, setProductId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState(0);
   const eventSourceRef = useRef<EventSource | null>(null);
   const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Multi-product tracking
+  const trackedIdsRef = useRef<Set<string>>(new Set());
+  const trackedMarketplacesRef = useRef<MarketplaceId[]>([]);
+  const perProductRef = useRef<Map<string, Map<MarketplaceId, PerProductState>>>(new Map());
+
   useEffect(() => { setMounted(true); }, []);
 
-  // SSE listener
+  // SSE listener — reopens on new session
   useEffect(() => {
-    if (!productId) return;
+    if (sessionId === 0) return;
 
-    // Use the existing product stream SSE endpoint
     const es = new EventSource("/api/products/stream");
     eventSourceRef.current = es;
 
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type !== "MARKETPLACE_SYNC" || data.productId !== productId) return;
+        if (data.type !== "MARKETPLACE_SYNC") return;
+        if (!trackedIdsRef.current.has(data.productId)) return;
 
         const sync = data.marketplaceSync as MarketplaceSyncProgress;
         if (!sync) return;
 
-        setStates((prev) => {
-          const next = new Map(prev);
-          next.set(sync.marketplace, {
-            marketplace: sync.marketplace,
-            step: sync.step,
-            progress: sync.progress,
-            status: sync.status,
-            error: sync.error,
-          });
-          return next;
+        // Update per-product state
+        const pp = perProductRef.current;
+        let mkMap = pp.get(data.productId);
+        if (!mkMap) {
+          mkMap = new Map();
+          pp.set(data.productId, mkMap);
+        }
+        mkMap.set(sync.marketplace, {
+          status: sync.status,
+          progress: sync.progress,
+          step: sync.step,
+          error: sync.error,
         });
+
+        // Recompute aggregate for all tracked marketplaces
+        const total = trackedIdsRef.current.size;
+        const newStates = new Map<MarketplaceId, MarketplaceState>();
+        for (const m of trackedMarketplacesRef.current) {
+          newStates.set(m, computeAggregate(m, pp, total));
+        }
+        setStates(newStates);
       } catch { /* ignore malformed */ }
     };
 
@@ -247,7 +319,7 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
       es.close();
       eventSourceRef.current = null;
     };
-  }, [productId]);
+  }, [sessionId]);
 
   // Auto-dismiss when all marketplaces are done (success or error)
   useEffect(() => {
@@ -279,24 +351,39 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
     setFadeIn(false);
     setTimeout(() => {
       setVisible(false);
-      setProductId(null);
       setStates(new Map());
+      trackedIdsRef.current = new Set();
+      trackedMarketplacesRef.current = [];
+      perProductRef.current = new Map();
     }, 300);
   }
 
-  const startSync = useCallback((pid: string, marketplaces: MarketplaceId[]) => {
+  const startSync = useCallback((productIdOrIds: string | string[], marketplaces: MarketplaceId[]) => {
+    const ids = Array.isArray(productIdOrIds) ? productIdOrIds : [productIdOrIds];
+
+    // Setup tracking
+    trackedIdsRef.current = new Set(ids);
+    trackedMarketplacesRef.current = marketplaces;
+
+    // Init per-product state
+    const pp = new Map<string, Map<MarketplaceId, PerProductState>>();
+    for (const id of ids) {
+      const mkMap = new Map<MarketplaceId, PerProductState>();
+      for (const m of marketplaces) {
+        mkMap.set(m, { status: "pending", progress: 0, step: "En attente..." });
+      }
+      pp.set(id, mkMap);
+    }
+    perProductRef.current = pp;
+
+    // Init display states
     const initial = new Map<MarketplaceId, MarketplaceState>();
     for (const m of marketplaces) {
-      initial.set(m, {
-        marketplace: m,
-        step: "En attente...",
-        progress: 0,
-        status: "pending",
-      });
+      initial.set(m, { marketplace: m, step: "En attente...", progress: 0, status: "pending" });
     }
     setStates(initial);
-    setProductId(pid);
     setVisible(true);
+    setSessionId((prev) => prev + 1);
     requestAnimationFrame(() => setFadeIn(true));
   }, []);
 

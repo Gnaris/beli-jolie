@@ -19,7 +19,7 @@ export interface AllMarkupConfigs {
  * Apply a marketplace markup to a base price.
  * - percent: basePrice * (1 + value/100)
  * - fixed: basePrice + value
- * Then apply rounding to 1 decimal place.
+ * Then apply rounding to the nearest euro (integer).
  */
 export function applyMarketplaceMarkup(
   basePrice: number,
@@ -34,10 +34,10 @@ export function applyMarketplaceMarkup(
 
   switch (config.rounding) {
     case "down":
-      price = Math.floor(price * 10) / 10;
+      price = Math.floor(price);
       break;
     case "up":
-      price = Math.ceil(price * 10) / 10;
+      price = Math.ceil(price);
       break;
     case "none":
     default:

@@ -409,6 +409,7 @@ export async function pushProductToAnkorstoreInternal(
       select: {
         id: true, name: true, reference: true, description: true,
         ankorsProductId: true,
+        dimensionLength: true, dimensionWidth: true, dimensionHeight: true,
         manufacturingCountry: { select: { isoCode: true } },
         compositions: {
           include: { composition: { select: { name: true } } },
@@ -417,12 +418,16 @@ export async function pushProductToAnkorstoreInternal(
         colors: {
           select: {
             id: true, saleType: true, stock: true, unitPrice: true,
-            packQuantity: true,
+            packQuantity: true, weight: true,
             color: { select: { name: true } },
             images: { take: 1, orderBy: { order: "asc" }, select: { path: true } },
             packColorLines: {
               select: { colors: { select: { color: { select: { name: true } } }, orderBy: { position: "asc" } } },
               orderBy: { position: "asc" },
+            },
+            variantSizes: {
+              select: { size: { select: { name: true } }, quantity: true },
+              orderBy: { size: { position: "asc" } },
             },
           },
         },
@@ -442,6 +447,11 @@ export async function pushProductToAnkorstoreInternal(
     const variants: AnkorstorePushProduct["variants"] = [];
     let mainImage: string | undefined;
 
+    // Ankorstore SKU limit: 50 characters
+    function truncateSku(sku: string): string {
+      return sku.length > 50 ? sku.slice(0, 50) : sku;
+    }
+
     // Helper: derive a color label for a variant
     type ProdColor = NonNullable<typeof prod>["colors"][number];
     function variantColorLabel(c: ProdColor): string {
@@ -451,34 +461,47 @@ export async function pushProductToAnkorstoreInternal(
       return lineColors.length > 0 ? lineColors.join("-") : "Pack";
     }
 
+    // Helper: get size entries for a variant, fallback to [{ name: "TU", qty: 1 }]
+    function variantSizeEntries(c: ProdColor): { name: string; quantity: number }[] {
+      const entries = c.variantSizes?.map((vs) => ({ name: vs.size.name, quantity: vs.quantity })) ?? [];
+      return entries.length > 0 ? entries : [{ name: "TU", quantity: 1 }];
+    }
+
     for (const c of prod.colors) {
       const colorName = variantColorLabel(c);
+      const sizes = variantSizeEntries(c);
       const unitPrice = Number(c.unitPrice ?? 0);
       const imagePath = c.images[0]?.path;
       const imageUrl = imagePath && r2Url ? `${r2Url}${imagePath}` : undefined;
       if (!mainImage && imageUrl) mainImage = imageUrl;
 
       if (c.saleType === "UNIT" && unitPrice > 0) {
-        variants.push({
-          sku: `${prod.reference}_${colorName}`,
-          external_id: c.id,
-          stock_quantity: c.stock,
-          wholesalePrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale),
-          retailPrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail),
-          originalWholesalePrice: unitPrice,
-          options: [
-            { name: "color", value: colorName },
-            { name: "size", value: "Unite" },
-          ],
-          ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
-        });
+        // One Ankorstore variant per size
+        for (const sz of sizes) {
+          variants.push({
+            sku: truncateSku(`${prod.reference}_${colorName}_${sz.name}`),
+            external_id: c.id,
+            stock_quantity: c.stock,
+            wholesalePrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale),
+            retailPrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail),
+            originalWholesalePrice: unitPrice,
+            options: [
+              { name: "color", value: colorName },
+              { name: "size", value: sz.name },
+            ],
+            ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
+          });
+        }
       }
 
       if (c.saleType === "PACK") {
         const packQty = c.packQuantity ?? 12;
-        // PACK unitPrice is the per-unit price; total = unitPrice * packQty
-        const packPrice = unitPrice * packQty;
-        if (packPrice > 0) {
+        // PACK: apply markup on unit price first, then multiply by pack quantity
+        const markedUpUnitPrice = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale);
+        const markedUpRetailUnit = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail);
+        const packWholesale = Math.round(markedUpUnitPrice * packQty * 100) / 100;
+        const packRetail = Math.round(markedUpRetailUnit * packQty * 100) / 100;
+        if (unitPrice > 0) {
           // For PACK image: use own images, or fall back to a UNIT variant of same product
           const packImageUrl = imageUrl
             ?? (() => {
@@ -487,20 +510,23 @@ export async function pushProductToAnkorstoreInternal(
             })();
           if (!mainImage && packImageUrl) mainImage = packImageUrl;
 
-          variants.push({
-            sku: `${prod.reference}_${colorName}_Pack${packQty}`,
-            external_id: c.id,
-            stock_quantity: c.stock,
-            wholesalePrice: applyMarketplaceMarkup(packPrice, markupConfigs.ankorstoreWholesale),
-            retailPrice: applyMarketplaceMarkup(packPrice, markupConfigs.ankorstoreRetail),
-            originalWholesalePrice: packPrice,
-            unit_multiplier: packQty,
-            options: [
-              { name: "color", value: colorName },
-              { name: "size", value: `Pack x${packQty}` },
-            ],
-            ...(packImageUrl ? { images: [{ order: 1, url: packImageUrl }] } : {}),
-          });
+          // One Ankorstore variant per size (e.g. Sx6, Mx4, Lx2)
+          for (const sz of sizes) {
+            variants.push({
+              sku: truncateSku(`${prod.reference}_${colorName}_Pack${packQty}_${sz.name}`),
+              external_id: c.id,
+              stock_quantity: c.stock,
+              wholesalePrice: packWholesale,
+              retailPrice: packRetail,
+              originalWholesalePrice: Math.round(unitPrice * packQty * 100) / 100,
+              unit_multiplier: 1,
+              options: [
+                { name: "color", value: colorName },
+                { name: "size", value: `${sz.name}x${sz.quantity}` },
+              ],
+              ...(packImageUrl ? { images: [{ order: 1, url: packImageUrl }] } : {}),
+            });
+          }
         }
       }
     }
@@ -547,6 +573,10 @@ export async function pushProductToAnkorstoreInternal(
         .map((c) => c.packQuantity!)
     );
 
+    // Weight: use max weight across variants (in grams for Ankorstore)
+    const maxWeightKg = Math.max(0, ...prod.colors.map((c) => c.weight ?? 0));
+    const weightGrams = maxWeightKg > 0 ? Math.round(maxWeightKg * 1000) : undefined;
+
     const pushPayload: AnkorstorePushProduct = {
       external_id: prod.reference,
       name: title,
@@ -557,6 +587,11 @@ export async function pushProductToAnkorstoreInternal(
       unit_multiplier: maxPackQty,
       main_image: mainImage,
       made_in_country: prod.manufacturingCountry?.isoCode ?? undefined,
+      // Dimensions in mm (from DB), weight in grams
+      ...(weightGrams ? { weight: weightGrams } : {}),
+      ...(prod.dimensionHeight ? { height: prod.dimensionHeight } : {}),
+      ...(prod.dimensionWidth ? { width: prod.dimensionWidth } : {}),
+      ...(prod.dimensionLength ? { length: prod.dimensionLength } : {}),
       variants,
     };
 
@@ -741,6 +776,7 @@ export async function pushProductsToAnkorstore(): Promise<{
         name: true,
         reference: true,
         description: true,
+        dimensionLength: true, dimensionWidth: true, dimensionHeight: true,
         manufacturingCountry: { select: { isoCode: true } },
         compositions: {
           include: { composition: { select: { name: true } } },
@@ -753,11 +789,16 @@ export async function pushProductsToAnkorstore(): Promise<{
             stock: true,
             unitPrice: true,
             packQuantity: true,
+            weight: true,
             color: { select: { name: true } },
             images: { take: 1, orderBy: { order: "asc" }, select: { path: true } },
             packColorLines: {
               select: { colors: { select: { color: { select: { name: true } } }, orderBy: { position: "asc" } } },
               orderBy: { position: "asc" },
+            },
+            variantSizes: {
+              select: { size: { select: { name: true } }, quantity: true },
+              orderBy: { size: { position: "asc" } },
             },
           },
         },
@@ -783,33 +824,51 @@ export async function pushProductsToAnkorstore(): Promise<{
         return lineColors.length > 0 ? lineColors.join("-") : "Pack";
       }
 
+      // Helper: get size entries for a variant, fallback to [{ name: "TU", qty: 1 }]
+      function bulkSizeEntries(c: typeof prod.colors[number]): { name: string; quantity: number }[] {
+        const entries = c.variantSizes?.map((vs) => ({ name: vs.size.name, quantity: vs.quantity })) ?? [];
+        return entries.length > 0 ? entries : [{ name: "TU", quantity: 1 }];
+      }
+
+      // Ankorstore SKU limit: 50 characters
+      function bulkTruncateSku(sku: string): string {
+        return sku.length > 50 ? sku.slice(0, 50) : sku;
+      }
+
       for (const c of prod.colors) {
         const colorName = bulkColorLabel(c);
+        const sizes = bulkSizeEntries(c);
         const unitPrice = Number(c.unitPrice ?? 0);
         const imagePath = c.images[0]?.path;
         const imageUrl = imagePath && r2Url ? `${r2Url}${imagePath}` : undefined;
         if (!mainImage && imageUrl) mainImage = imageUrl;
 
         if (c.saleType === "UNIT" && unitPrice > 0) {
-          variants.push({
-            sku: `${prod.reference}_${colorName}`,
-            external_id: c.id,
-            stock_quantity: c.stock,
-            wholesalePrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale),
-            retailPrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail),
-            originalWholesalePrice: unitPrice,
-            options: [
-              { name: "color", value: colorName },
-              { name: "size", value: "Unite" },
-            ],
-            ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
-          });
+          for (const sz of sizes) {
+            variants.push({
+              sku: bulkTruncateSku(`${prod.reference}_${colorName}_${sz.name}`),
+              external_id: c.id,
+              stock_quantity: c.stock,
+              wholesalePrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale),
+              retailPrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail),
+              originalWholesalePrice: unitPrice,
+              options: [
+                { name: "color", value: colorName },
+                { name: "size", value: sz.name },
+              ],
+              ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
+            });
+          }
         }
 
         if (c.saleType === "PACK") {
           const packQty = c.packQuantity ?? 12;
-          const packPrice = unitPrice * packQty;
-          if (packPrice > 0) {
+          // PACK: apply markup on unit price first, then multiply by pack quantity
+          const bulkMarkedUpUnit = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale);
+          const bulkMarkedUpRetail = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail);
+          const bulkPackWholesale = Math.round(bulkMarkedUpUnit * packQty * 100) / 100;
+          const bulkPackRetail = Math.round(bulkMarkedUpRetail * packQty * 100) / 100;
+          if (unitPrice > 0) {
             const packImageUrl = imageUrl
               ?? (() => {
                 const unitFallback = prod.colors.find((u) => u.saleType === "UNIT" && u.images[0]?.path);
@@ -817,20 +876,22 @@ export async function pushProductsToAnkorstore(): Promise<{
               })();
             if (!mainImage && packImageUrl) mainImage = packImageUrl;
 
-            variants.push({
-              sku: `${prod.reference}_${colorName}_Pack${packQty}`,
-              external_id: c.id,
-              stock_quantity: c.stock,
-              wholesalePrice: applyMarketplaceMarkup(packPrice, markupConfigs.ankorstoreWholesale),
-              retailPrice: applyMarketplaceMarkup(packPrice, markupConfigs.ankorstoreRetail),
-              originalWholesalePrice: packPrice,
-              unit_multiplier: packQty,
-              options: [
-                { name: "color", value: colorName },
-                { name: "size", value: `Pack x${packQty}` },
-              ],
-              ...(packImageUrl ? { images: [{ order: 1, url: packImageUrl }] } : {}),
-            });
+            for (const sz of sizes) {
+              variants.push({
+                sku: bulkTruncateSku(`${prod.reference}_${colorName}_Pack${packQty}_${sz.name}`),
+                external_id: c.id,
+                stock_quantity: c.stock,
+                wholesalePrice: bulkPackWholesale,
+                retailPrice: bulkPackRetail,
+                originalWholesalePrice: Math.round(unitPrice * packQty * 100) / 100,
+                unit_multiplier: 1,
+                options: [
+                  { name: "color", value: colorName },
+                  { name: "size", value: `${sz.name}x${sz.quantity}` },
+                ],
+                ...(packImageUrl ? { images: [{ order: 1, url: packImageUrl }] } : {}),
+              });
+            }
           }
         }
       }
@@ -862,6 +923,10 @@ export async function pushProductsToAnkorstore(): Promise<{
           .map((c) => c.packQuantity!)
       );
 
+      // Weight: use max weight across variants (in grams for Ankorstore)
+      const bulkMaxWeightKg = Math.max(0, ...prod.colors.map((c) => c.weight ?? 0));
+      const bulkWeightGrams = bulkMaxWeightKg > 0 ? Math.round(bulkMaxWeightKg * 1000) : undefined;
+
       pushProducts.push({
         external_id: prod.reference,
         name: title,
@@ -872,6 +937,10 @@ export async function pushProductsToAnkorstore(): Promise<{
         unit_multiplier: bulkMaxPackQty,
         main_image: mainImage,
         made_in_country: prod.manufacturingCountry?.isoCode ?? undefined,
+        ...(bulkWeightGrams ? { weight: bulkWeightGrams } : {}),
+        ...(prod.dimensionHeight ? { height: prod.dimensionHeight } : {}),
+        ...(prod.dimensionWidth ? { width: prod.dimensionWidth } : {}),
+        ...(prod.dimensionLength ? { length: prod.dimensionLength } : {}),
         variants,
       });
     }

@@ -1016,9 +1016,17 @@ export async function deleteProduct(id: string, deleteFromPfs = false, deleteFro
       ankorsProductId: true,
       colors: {
         select: {
+          sku: true,
           saleType: true,
           packQuantity: true,
           color: { select: { name: true } },
+          packColorLines: {
+            select: { colors: { select: { color: { select: { name: true } } }, orderBy: { position: "asc" } } },
+            orderBy: { position: "asc" },
+          },
+          variantSizes: {
+            select: { size: { select: { name: true } } },
+          },
         },
       },
     },
@@ -1032,38 +1040,58 @@ export async function deleteProduct(id: string, deleteFromPfs = false, deleteFro
     );
   }
 
-  // Delete from PFS if requested and product is synced
+  // Delete from PFS if requested and product is synced — check existence first
   if (deleteFromPfs && product.pfsProductId) {
     try {
-      await pfsDeleteProduct(product.pfsProductId);
-      logger.info(`[PFS] Product ${id} deleted from PFS (${product.pfsProductId})`);
+      const { pfsCheckReference } = await import("@/lib/pfs-api");
+      const exists = await pfsCheckReference(product.reference).catch(() => null);
+      if (exists) {
+        await pfsDeleteProduct(product.pfsProductId);
+        logger.info(`[PFS] Product ${id} deleted from PFS (${product.pfsProductId})`);
+      } else {
+        logger.info(`[PFS] Product ${id} not found on PFS, skipping delete`, { reference: product.reference });
+      }
     } catch (err) {
       logger.error(`[PFS] Failed to delete product ${id} from PFS`, { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
-  // Delete from Ankorstore if requested — await the result so we know if it worked
+  // Delete from Ankorstore if requested — fetch real SKUs from Ankorstore API
   if (deleteFromAnkorstore) {
-    const skus: string[] = [];
-    for (const c of product.colors) {
-      const colorName = c.color?.name ?? "Default";
-      if (c.saleType === "UNIT") {
-        skus.push(`${product.reference}_${colorName}`);
-      } else if (c.saleType === "PACK") {
-        skus.push(`${product.reference}_${colorName}_Pack${c.packQuantity ?? 12}`);
-      }
-    }
     try {
+      const { ankorstoreSearchVariants } = await import("@/lib/ankorstore-api");
       const { ankorstoreDeleteProduct } = await import("@/lib/ankorstore-api-write");
-      const result = await ankorstoreDeleteProduct(product.reference, skus);
-      if (result.success) {
-        logger.info("[Ankorstore] Product deleted", { id, reference: product.reference });
+
+      // Search Ankorstore for variants matching this product reference
+      const ankorsVariants = await ankorstoreSearchVariants({ skuOrName: product.reference });
+      const skus = ankorsVariants
+        .map((v) => v.sku)
+        .filter((s): s is string => !!s && s.startsWith(product.reference));
+
+      if (skus.length === 0) {
+        logger.info("[Ankorstore] No variants found on Ankorstore, skipping delete", { reference: product.reference });
       } else {
-        logger.warn("[Ankorstore] Delete returned failure", { id, reference: product.reference, error: result.error });
+        const result = await ankorstoreDeleteProduct(product.reference, skus);
+        if (result.success) {
+          logger.info("[Ankorstore] Product deleted", { id, reference: product.reference, skus });
+        } else {
+          logger.warn("[Ankorstore] Delete returned failure", { id, reference: product.reference, error: result.error });
+        }
       }
     } catch (err) {
       logger.warn("[Ankorstore] Delete failed", { id, error: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  // Clean up CartItems referencing this product's variants (no cascade on CartItem.variant)
+  const variantIds = await prisma.productColor.findMany({
+    where: { productId: id },
+    select: { id: true },
+  });
+  if (variantIds.length > 0) {
+    await prisma.cartItem.deleteMany({
+      where: { variantId: { in: variantIds.map((v) => v.id) } },
+    });
   }
 
   await prisma.product.delete({ where: { id } });
@@ -1251,17 +1279,43 @@ export async function bulkDeleteProducts(
     return prod && !protectedRefs.has(prod.reference);
   });
 
+  // Emit marketplace sync events for protected products (they won't be deleted)
+  for (const pp of protectedProducts) {
+    if (deleteFromPfs) {
+      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: pp.id, marketplaceSync: { marketplace: "pfs", step: "Protégé (commandes)", progress: 100, status: "success" } });
+    }
+    if (deleteFromAnkorstore) {
+      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: pp.id, marketplaceSync: { marketplace: "ankorstore", step: "Protégé (commandes)", progress: 100, status: "success" } });
+    }
+  }
+
   // Delete from PFS if requested
   let pfsDeleted = 0;
   if (deleteFromPfs && deletableIds.length > 0) {
     const pfsProducts = products.filter((p) => deletableIds.includes(p.id) && p.pfsProductId);
+    const nonPfsProducts = products.filter((p) => deletableIds.includes(p.id) && !p.pfsProductId);
+    // Products not linked to PFS — emit immediate success
+    for (const p of nonPfsProducts) {
+      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Non lié à PFS", progress: 100, status: "success" } });
+    }
+    const { pfsCheckReference } = await import("@/lib/pfs-api");
     for (const p of pfsProducts) {
+      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Suppression de PFS...", progress: 30, status: "in_progress" } });
       try {
-        await pfsDeleteProduct(p.pfsProductId!);
-        pfsDeleted++;
-        logger.info(`[PFS] Product ${p.id} deleted from PFS (${p.pfsProductId})`);
+        const exists = await pfsCheckReference(p.reference).catch(() => null);
+        if (exists) {
+          await pfsDeleteProduct(p.pfsProductId!);
+          pfsDeleted++;
+          logger.info(`[PFS] Product ${p.id} deleted from PFS (${p.pfsProductId})`);
+          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Supprimé de PFS", progress: 100, status: "success" } });
+        } else {
+          logger.info(`[PFS] Product ${p.id} not found on PFS, skipping delete`, { reference: p.reference });
+          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Non trouvé sur PFS", progress: 100, status: "success" } });
+        }
       } catch (err) {
-        logger.error(`[PFS] Failed to delete product ${p.id} from PFS`, { error: err instanceof Error ? err.message : String(err) });
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.error(`[PFS] Failed to delete product ${p.id} from PFS`, { error: errMsg });
+        emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Erreur de suppression", progress: 100, status: "error", error: errMsg } });
       }
     }
   }
@@ -1270,15 +1324,35 @@ export async function bulkDeleteProducts(
   let ankorsDeleted = 0;
   if (deleteFromAnkorstore && deletableIds.length > 0) {
     const ankorsProducts = products.filter((p) => deletableIds.includes(p.id) && p.ankorsProductId);
+    const nonAnkorsProducts = products.filter((p) => deletableIds.includes(p.id) && !p.ankorsProductId);
+    // Products not linked to Ankorstore — emit immediate success
+    for (const p of nonAnkorsProducts) {
+      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Non lié à Ankorstore", progress: 100, status: "success" } });
+    }
     if (ankorsProducts.length > 0) {
+      const { ankorstoreSearchVariants } = await import("@/lib/ankorstore-api");
       const { ankorstoreDeleteProduct } = await import("@/lib/ankorstore-api-write");
       for (const p of ankorsProducts) {
+        emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Suppression d'Ankorstore...", progress: 30, status: "in_progress" } });
         try {
-          const skus = p.colors.map((c) => c.sku).filter((s): s is string => !!s);
+          // Fetch real SKUs from Ankorstore API
+          const ankorsVariants = await ankorstoreSearchVariants({ skuOrName: p.reference });
+          const skus = ankorsVariants
+            .map((v) => v.sku)
+            .filter((s): s is string => !!s && s.startsWith(p.reference));
+
+          if (skus.length === 0) {
+            logger.info("[Ankorstore] No variants found on Ankorstore, skipping delete", { reference: p.reference });
+            emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Non trouvé sur Ankorstore", progress: 100, status: "success" } });
+            continue;
+          }
           await ankorstoreDeleteProduct(p.reference, skus);
           ankorsDeleted++;
+          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Supprimé d'Ankorstore", progress: 100, status: "success" } });
         } catch (err) {
-          logger.warn("[Ankorstore] Bulk delete failed", { ref: p.reference, error: err instanceof Error ? err.message : String(err) });
+          const errMsg = err instanceof Error ? err.message : String(err);
+          logger.warn("[Ankorstore] Bulk delete failed", { ref: p.reference, error: errMsg });
+          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Erreur de suppression", progress: 100, status: "error", error: errMsg } });
         }
       }
     }
@@ -1286,6 +1360,17 @@ export async function bulkDeleteProducts(
 
   let deleted = 0;
   if (deletableIds.length > 0) {
+    // Clean up CartItems referencing variants of products to delete (no cascade on CartItem.variant)
+    const variantIds = await prisma.productColor.findMany({
+      where: { productId: { in: deletableIds } },
+      select: { id: true },
+    });
+    if (variantIds.length > 0) {
+      await prisma.cartItem.deleteMany({
+        where: { variantId: { in: variantIds.map((v) => v.id) } },
+      });
+    }
+
     const result = await prisma.product.deleteMany({
       where: { id: { in: deletableIds } },
     });
