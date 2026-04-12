@@ -14,9 +14,11 @@ import AdminChatBadge from "@/components/admin/AdminChatBadge";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
 import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
+import { AnkorstoreRefreshProvider } from "@/components/admin/ankorstore/AnkorstoreRefreshContext";
+import AnkorstoreRefreshWidget from "@/components/admin/ankorstore/AnkorstoreRefreshWidget";
 import { MarketplaceSyncProvider } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
-import { getCachedSiteConfig, getCachedPfsEnabled, getCachedAdminUnreadCount } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedPfsEnabled, getCachedAnkorstoreEnabled, getCachedAdminUnreadCount } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -37,6 +39,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     deeplConfig,
     autoTranslateConfig,
     pfsEnabled,
+    ankorsEnabled,
     unreadMessageCount,
   ] = await Promise.all([
     getCachedShopName(),
@@ -44,6 +47,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     getCachedSiteConfig("deepl_api_key"),
     getCachedSiteConfig("auto_translate_enabled"),
     getCachedPfsEnabled(),
+    getCachedAnkorstoreEnabled(),
     getCachedAdminUnreadCount(),
   ]);
 
@@ -66,11 +70,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   };
 
   const PfsWrapper = pfsEnabled ? PfsRefreshProvider : React.Fragment;
+  const AnkorsWrapper = ankorsEnabled ? AnkorstoreRefreshProvider : React.Fragment;
 
   return (
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
     <MarketplaceSyncProvider>
     <PfsWrapper>
+    <AnkorsWrapper>
     <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
 
       {/* ===== SIDEBAR - fixed left (desktop) ===== */}
@@ -194,8 +200,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </div>
 
       {pfsEnabled && <PfsRefreshWidget />}
+      {ankorsEnabled && <AnkorstoreRefreshWidget />}
       <AdminChatWidgetLoader />
     </div>
+    </AnkorsWrapper>
     </PfsWrapper>
     </MarketplaceSyncProvider>
     </DeeplConfigProvider>
