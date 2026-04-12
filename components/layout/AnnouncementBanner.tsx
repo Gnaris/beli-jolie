@@ -6,12 +6,13 @@ interface AnnouncementBannerProps {
   messages: string[];
   bgColor: string;
   textColor: string;
+  preview?: boolean;
 }
 
-export default function AnnouncementBanner({ messages, bgColor, textColor }: AnnouncementBannerProps) {
+export default function AnnouncementBanner({ messages, bgColor, textColor, preview }: AnnouncementBannerProps) {
   const pathname = usePathname();
   if (messages.length === 0) return null;
-  if (pathname.startsWith("/admin")) return null;
+  if (!preview && pathname.startsWith("/admin")) return null;
 
   // Duplicate messages to create seamless loop
   const repeated = [...messages, ...messages];

@@ -132,6 +132,7 @@ export default function AnnouncementBannerConfig({
               messages={activeMessages}
               bgColor={bgColor}
               textColor={textColor}
+              preview
             />
           </div>
         </div>
