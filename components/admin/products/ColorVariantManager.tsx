@@ -2099,6 +2099,7 @@ function QuickAddModal({
         discountType,
         discountValue,
         pfsColorRef: line.pfsColorRef || "",
+        sku: "",
       };
     });
     onConfirm(newVariants);

@@ -53,7 +53,7 @@ export default function AnkorstoreMappingClient({
   initialMatches,
 }: Props) {
   const toast = useToast();
-  const confirm = useConfirm();
+  const { confirm } = useConfirm();
   const { showLoading, hideLoading } = useLoadingOverlay();
 
   const [activeTab, setActiveTab] = useState<TabKey>("matches");
@@ -132,24 +132,23 @@ export default function AnkorstoreMappingClient({
     });
   }
 
-  function handleRemoveMatch(productId: string, productName: string) {
-    confirm({
+  async function handleRemoveMatch(productId: string, productName: string) {
+    const ok = await confirm({
       title: "Dissocier le produit",
       message: `Supprimer le lien Ankorstore pour "${productName}" ?`,
       confirmLabel: "Dissocier",
-      variant: "danger",
-      onConfirm: () => {
-        startRemoving(async () => {
-          const result = await removeAnkorstoreMatch(productId);
-          if (result.success) {
-            setMatches((prev) => prev.filter((m) => m.id !== productId));
-            setMatchedCount((prev) => prev - 1);
-            toast.success("Dissocié", "Le lien Ankorstore a ete supprime.");
-          } else {
-            toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-          }
-        });
-      },
+      type: "danger",
+    });
+    if (!ok) return;
+    startRemoving(async () => {
+      const result = await removeAnkorstoreMatch(productId);
+      if (result.success) {
+        setMatches((prev) => prev.filter((m) => m.id !== productId));
+        setMatchedCount((prev) => prev - 1);
+        toast.success("Dissocié", "Le lien Ankorstore a ete supprime.");
+      } else {
+        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
+      }
     });
   }
 
