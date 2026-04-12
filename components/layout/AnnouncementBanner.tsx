@@ -55,7 +55,7 @@ export default function AnnouncementBanner({ messages, bgColor, textColor, speed
         {repeated.map((msg, i) => (
           <span
             key={i}
-            className="shrink-0 text-center"
+            className="shrink-0 text-center font-semibold"
             style={{ width: `${100 / repeated.length}%` }}
           >
             {msg}
