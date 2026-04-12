@@ -117,40 +117,25 @@ export async function syncProductToPfs(productId: string, { forceCreate = false 
     // 2. ALWAYS verify by reference on PFS — never trust stored ID
     emitPfs({ step: "Vérification du produit sur PFS...", progress: 10, status: "in_progress" });
     let pfsProductId: string | null = null;
-    try {
-      const refCheck = await pfsCheckReference(product.reference);
-      logger.info(`[PFS Reverse Sync] checkReference result for ${product.reference}`, {
-        exists: refCheck?.exists,
-        hasProduct: !!refCheck?.product,
-        productId: refCheck?.product?.id ?? null,
-        productStatus: refCheck?.product?.status ?? null,
-        productReference: refCheck?.product?.reference ?? null,
-      });
-      if (refCheck?.product?.id) {
-        pfsProductId = refCheck.product.id;
-        logger.info(`[PFS Reverse Sync] Product ${product.reference} found on PFS (id=${pfsProductId}, status=${refCheck.product.status ?? "unknown"})`);
-      } else {
-        logger.info(`[PFS Reverse Sync] Product ${product.reference} NOT found on PFS`);
-      }
-    } catch (err) {
-      logger.warn(`[PFS Reverse Sync] checkReference failed for ${product.reference}`, {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
 
-    // Reference not found on PFS → never auto-create, always ask user first
-    if (!pfsProductId) {
-      // Clear stale link if any
-      if (product.pfsProductId) {
-        await prisma.product.update({
-          where: { id: productId },
-          data: { pfsSyncStatus: null, pfsProductId: null },
-        });
-        logger.warn(`[PFS Reverse Sync] Reference ${product.reference} not found on PFS, cleared stale pfsProductId`);
-      }
+    const refCheck = await pfsCheckReference(product.reference);
+    logger.info(`[PFS Reverse Sync] checkReference for ${product.reference}`, {
+      exists: refCheck?.exists, productId: refCheck?.product?.id ?? null,
+    });
+
+    if (refCheck?.exists && refCheck?.product?.id) {
+      pfsProductId = refCheck.product.id;
+    } else {
+      // Reference does NOT exist on PFS
+      logger.info(`[PFS Reverse Sync] Reference ${product.reference} NOT found on PFS (exists=${refCheck?.exists})`);
+
+      // Clear stale data in DB
+      await prisma.product.update({
+        where: { id: productId },
+        data: { pfsSyncStatus: null, pfsProductId: null, pfsSyncError: null },
+      });
 
       if (!forceCreate) {
-        // Block creation — user must explicitly click "Créer"
         throw new Error("PFS_PRODUCT_NOT_FOUND");
       }
     }
