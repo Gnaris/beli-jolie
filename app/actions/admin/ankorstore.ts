@@ -529,14 +529,14 @@ export async function pushProductToAnkorstoreInternal(
             productId, ankorsId: found.id, reference: prod.reference,
           });
         }
-      } else if (prod.ankorsSyncStatus === "synced") {
-        // Was previously synced but no longer on Ankorstore → inform user
+      } else if (prod.ankorsProductId) {
+        // DB has an ID but reference not found on Ankorstore → stale link, inform user
         await prisma.product.update({
           where: { id: productId },
           data: { ankorsSyncStatus: null, ankorsProductId: null, ankorsMatchedAt: null },
         });
-        logger.warn("[Ankorstore] Product no longer found on Ankorstore", {
-          productId, reference: prod.reference,
+        logger.warn("[Ankorstore] Reference not found on Ankorstore, cleared stale link", {
+          productId, reference: prod.reference, staleId: prod.ankorsProductId,
         });
         return { success: false, error: "ANKORSTORE_PRODUCT_NOT_FOUND" };
       }

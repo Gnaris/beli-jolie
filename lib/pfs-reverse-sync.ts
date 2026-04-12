@@ -130,13 +130,13 @@ export async function syncProductToPfs(productId: string): Promise<void> {
       logger.warn(`[PFS Reverse Sync] checkReference failed for ${product.reference}, will attempt create`);
     }
 
-    // If reference not found on PFS and was previously synced → inform user
-    if (!pfsProductId && product.pfsSyncStatus === "synced") {
+    // If reference not found on PFS but DB still has a pfsProductId → stale link, inform user
+    if (!pfsProductId && product.pfsProductId) {
       await prisma.product.update({
         where: { id: productId },
         data: { pfsSyncStatus: null, pfsProductId: null },
       });
-      logger.warn(`[PFS Reverse Sync] Product ${product.reference} not found on PFS`);
+      logger.warn(`[PFS Reverse Sync] Reference ${product.reference} not found on PFS, cleared stale pfsProductId ${product.pfsProductId}`);
       throw new Error("PFS_PRODUCT_NOT_FOUND");
     }
 
