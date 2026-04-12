@@ -1079,6 +1079,11 @@ async function syncStatus(
     return false;
   }
 
+  // Don't change PFS status if product is archived on PFS — respect PFS state
+  if (currentPfsStatus === "ARCHIVED") {
+    return false;
+  }
+
   await pfsUpdateStatus([{ id: pfsProductId, status: pfsStatus }]);
   return true;
 }
