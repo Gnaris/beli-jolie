@@ -482,6 +482,7 @@ export default async function ModifierProduitPage({
                 ankorsProductId={product.ankorsProductId}
                 ankorsSyncStatus={product.ankorsSyncStatus as "synced" | "pending" | "failed" | null}
                 ankorsSyncError={product.ankorsSyncError}
+                ankorsSyncedAt={product.ankorsSyncedAt?.toISOString() ?? null}
               />
             </div>
           )}
