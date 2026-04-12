@@ -13,7 +13,8 @@ import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
 import AccessCodeTracker from "@/components/layout/AccessCodeTracker";
 import GuestBanner from "@/components/layout/GuestBanner";
 import HeartbeatTracker from "@/components/layout/HeartbeatTracker";
-import { getCachedShopName, getCachedBusinessHours } from "@/lib/cached-data";
+import { getCachedShopName, getCachedBusinessHours, getCachedSiteConfig } from "@/lib/cached-data";
+import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import "./globals.css";
@@ -77,13 +78,24 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const [locale, messages, shopName, businessHours, session] = await Promise.all([
+  const [locale, messages, shopName, businessHours, session, announcementRow] = await Promise.all([
     getLocale(),
     getMessages(),
     getCachedShopName(),
     getCachedBusinessHours(),
     getServerSession(authOptions),
+    getCachedSiteConfig("announcement_banner"),
   ]);
+
+  let announcement: { messages: string[]; bgColor: string; textColor: string } | null = null;
+  if (announcementRow?.value) {
+    try {
+      const parsed = JSON.parse(announcementRow.value);
+      if (parsed.messages?.length > 0) {
+        announcement = parsed;
+      }
+    } catch { /* ignore invalid JSON */ }
+  }
 
   const isRTL = RTL_LOCALES.includes(locale as "ar");
 
@@ -108,6 +120,13 @@ export default async function RootLayout({
             }),
           }}
         />
+        {announcement && (
+          <AnnouncementBanner
+            messages={announcement.messages}
+            bgColor={announcement.bgColor}
+            textColor={announcement.textColor}
+          />
+        )}
         <NextIntlClientProvider messages={messages}>
           <SessionProvider session={session}>
             <ToastProvider>
