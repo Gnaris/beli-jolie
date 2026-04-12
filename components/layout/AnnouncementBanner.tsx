@@ -14,7 +14,7 @@ interface AnnouncementBannerProps {
 export default function AnnouncementBanner({ messages, bgColor, textColor, speed = 8, preview }: AnnouncementBannerProps) {
   const pathname = usePathname();
   const ref = useRef<HTMLDivElement>(null);
-  const isHidden = messages.length === 0 || (!preview && pathname.startsWith("/admin"));
+  const isHidden = messages.length === 0 || (!preview && pathname !== "/");
 
   // Set CSS variable so the fixed header can offset itself
   useEffect(() => {
