@@ -22,9 +22,15 @@ export default function AnnouncementBanner({ messages, bgColor, textColor, previ
       className="w-full overflow-hidden py-2 text-sm font-body relative z-[60]"
       style={{ backgroundColor: bgColor, color: textColor }}
     >
-      <div className="animate-marquee flex whitespace-nowrap">
+      <div
+        className="animate-marquee flex"
+        style={{ animationDuration: `${messages.length * 8}s` }}
+      >
         {repeated.map((msg, i) => (
-          <span key={i} className="mx-8 inline-block">
+          <span
+            key={i}
+            className="w-full shrink-0 text-center"
+          >
             {msg}
           </span>
         ))}
