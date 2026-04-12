@@ -18,6 +18,7 @@ import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
+import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -73,15 +74,39 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
    TAB : Général — Bannière, commande min, mot de passe, apparence
    ═══════════════════════════════════════════════════════════════════════════ */
 async function GeneralTab() {
-  const [minConfig, bannerImageConfig] = await Promise.all([
+  const [minConfig, bannerImageConfig, announcementConfig] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
     prisma.siteConfig.findUnique({ where: { key: "banner_image" } }),
+    prisma.siteConfig.findUnique({ where: { key: "announcement_banner" } }),
   ]);
 
   const currentMinHT = minConfig ? parseFloat(minConfig.value) : 0;
 
+  // Parse announcement config
+  let announcementMessages: string[] = [];
+  let announcementBgColor = "#1a1a1a";
+  let announcementTextColor = "#ffffff";
+  if (announcementConfig?.value) {
+    try {
+      const parsed = JSON.parse(announcementConfig.value);
+      announcementMessages = parsed.messages || [];
+      announcementBgColor = parsed.bgColor || "#1a1a1a";
+      announcementTextColor = parsed.textColor || "#ffffff";
+    } catch { /* ignore */ }
+  }
+
   return (
     <div className="space-y-6">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Bandeau d&apos;annonces</h3>
+        <p className="text-sm text-text-secondary font-body mb-4">Messages defilants en haut du site.</p>
+        <AnnouncementBannerConfig
+          initialMessages={announcementMessages}
+          initialBgColor={announcementBgColor}
+          initialTextColor={announcementTextColor}
+        />
+      </div>
+
       <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
         <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Bannière d&apos;accueil</h3>
         <p className="text-sm text-text-secondary font-body mb-4">Image en haut de la page d&apos;accueil.</p>
