@@ -716,3 +716,39 @@ export async function updateMarketplaceMarkup(
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }
 }
+
+// ─── Announcement Banner ──────────────────────────────────────────────────────
+
+export interface AnnouncementBannerData {
+  messages: string[];
+  bgColor: string;
+  textColor: string;
+}
+
+export async function updateAnnouncementBanner(
+  data: AnnouncementBannerData
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+
+    const messages = data.messages.map((m) => m.trim()).filter((m) => m.length > 0);
+
+    if (messages.length === 0) {
+      await prisma.siteConfig.deleteMany({ where: { key: "announcement_banner" } });
+    } else {
+      const payload = { messages, bgColor: data.bgColor, textColor: data.textColor };
+      await prisma.siteConfig.upsert({
+        where: { key: "announcement_banner" },
+        update: { value: JSON.stringify(payload) },
+        create: { key: "announcement_banner", value: JSON.stringify(payload) },
+      });
+    }
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
