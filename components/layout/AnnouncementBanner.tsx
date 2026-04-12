@@ -1,5 +1,7 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+
 interface AnnouncementBannerProps {
   messages: string[];
   bgColor: string;
@@ -7,7 +9,9 @@ interface AnnouncementBannerProps {
 }
 
 export default function AnnouncementBanner({ messages, bgColor, textColor }: AnnouncementBannerProps) {
+  const pathname = usePathname();
   if (messages.length === 0) return null;
+  if (pathname.startsWith("/admin")) return null;
 
   // Duplicate messages to create seamless loop
   const repeated = [...messages, ...messages];
