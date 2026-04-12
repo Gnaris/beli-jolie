@@ -16,16 +16,32 @@ export default function AnnouncementBanner({ messages, bgColor, textColor, speed
   const ref = useRef<HTMLDivElement>(null);
   const isHidden = messages.length === 0 || (!preview && pathname !== "/");
 
-  // Set CSS variable so the fixed header can offset itself
+  // Set CSS variable so the fixed header can offset itself.
+  // When the banner scrolls out of view, reset to 0 so the header slides up.
   useEffect(() => {
-    if (preview) return;
-    if (isHidden) {
-      document.documentElement.style.setProperty("--announcement-height", "0px");
-    } else if (ref.current) {
-      const h = ref.current.offsetHeight;
-      document.documentElement.style.setProperty("--announcement-height", `${h}px`);
+    if (preview || isHidden) {
+      if (!preview) document.documentElement.style.setProperty("--announcement-height", "0px");
+      return;
     }
+    const el = ref.current;
+    if (!el) return;
+
+    const h = el.offsetHeight;
+    document.documentElement.style.setProperty("--announcement-height", `${h}px`);
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        document.documentElement.style.setProperty(
+          "--announcement-height",
+          entry.isIntersecting ? `${h}px` : "0px"
+        );
+      },
+      { threshold: 0 }
+    );
+    observer.observe(el);
+
     return () => {
+      observer.disconnect();
       document.documentElement.style.setProperty("--announcement-height", "0px");
     };
   }, [isHidden, preview, messages]);
