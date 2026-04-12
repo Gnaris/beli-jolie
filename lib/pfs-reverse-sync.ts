@@ -90,7 +90,7 @@ export function triggerPfsSync(productId: string): void {
  * Core sync logic. Call via triggerPfsSync() for non-blocking behavior.
  * Diff-based: only pushes changed fields to PFS.
  */
-export async function syncProductToPfs(productId: string): Promise<void> {
+export async function syncProductToPfs(productId: string, { forceCreate = false }: { forceCreate?: boolean } = {}): Promise<void> {
   function emitPfs(p: Omit<MarketplaceSyncProgress, "marketplace">) {
     emitProductEvent({ type: "MARKETPLACE_SYNC", productId, marketplaceSync: { marketplace: "pfs", ...p } });
   }
@@ -130,17 +130,24 @@ export async function syncProductToPfs(productId: string): Promise<void> {
       logger.warn(`[PFS Reverse Sync] checkReference failed for ${product.reference}, will attempt create`);
     }
 
-    // If reference not found on PFS but DB still has a pfsProductId → stale link, inform user
-    if (!pfsProductId && product.pfsProductId) {
-      await prisma.product.update({
-        where: { id: productId },
-        data: { pfsSyncStatus: null, pfsProductId: null },
-      });
-      logger.warn(`[PFS Reverse Sync] Reference ${product.reference} not found on PFS, cleared stale pfsProductId ${product.pfsProductId}`);
-      throw new Error("PFS_PRODUCT_NOT_FOUND");
+    // Reference not found on PFS → never auto-create, always ask user first
+    if (!pfsProductId) {
+      // Clear stale link if any
+      if (product.pfsProductId) {
+        await prisma.product.update({
+          where: { id: productId },
+          data: { pfsSyncStatus: null, pfsProductId: null },
+        });
+        logger.warn(`[PFS Reverse Sync] Reference ${product.reference} not found on PFS, cleared stale pfsProductId`);
+      }
+
+      if (!forceCreate) {
+        // Block creation — user must explicitly click "Créer"
+        throw new Error("PFS_PRODUCT_NOT_FOUND");
+      }
     }
 
-    // 3. Create product on PFS if not found — full sync required
+    // 3. Create product on PFS — only when user explicitly requested creation
     if (!pfsProductId) {
       emitPfs({ step: "Création du produit sur PFS...", progress: 20, status: "in_progress" });
       pfsProductId = await createProductOnPfs(product);

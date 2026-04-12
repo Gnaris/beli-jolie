@@ -456,7 +456,7 @@ export async function updateAnkorstoreVariantStock(
 export async function pushProductToAnkorstoreInternal(
   productId: string,
   operationType: "import" | "update" = "update",
-  options?: { skipRevalidation?: boolean }
+  options?: { skipRevalidation?: boolean; forceCreate?: boolean }
 ): Promise<{ success: boolean; error?: string }> {
   function emitAnkors(p: Omit<MarketplaceSyncProgress, "marketplace">) {
     emitProductEvent({ type: "MARKETPLACE_SYNC", productId, marketplaceSync: { marketplace: "ankorstore", ...p } });
@@ -518,32 +518,38 @@ export async function pushProductToAnkorstoreInternal(
       const foundProducts = await ankorstoreSearchProductsByRef(prod.reference);
       if (foundProducts.length > 0) {
         const found = foundProducts[0];
-        // Skip archived products — treat as non-existent
         if (found.archived) {
-          logger.warn("[Ankorstore] Product found but archived, will create new", {
-            productId, reference: prod.reference,
-          });
+          logger.warn("[Ankorstore] Product found but archived", { productId, reference: prod.reference });
         } else {
           effectiveOp = "update";
           logger.info("[Ankorstore] Product found on Ankorstore via reference", {
             productId, ankorsId: found.id, reference: prod.reference,
           });
         }
-      } else if (prod.ankorsProductId) {
-        // DB has an ID but reference not found on Ankorstore → stale link, inform user
+      }
+    } catch (err) {
+      logger.warn("[Ankorstore] Reference verification failed", {
+        reference: prod.reference, error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Reference not found on Ankorstore → never auto-create, always ask user first
+    if (effectiveOp === "import") {
+      // Clear stale link if any
+      if (prod.ankorsProductId) {
         await prisma.product.update({
           where: { id: productId },
           data: { ankorsSyncStatus: null, ankorsProductId: null, ankorsMatchedAt: null },
         });
-        logger.warn("[Ankorstore] Reference not found on Ankorstore, cleared stale link", {
-          productId, reference: prod.reference, staleId: prod.ankorsProductId,
+        logger.warn("[Ankorstore] Reference not found, cleared stale link", {
+          productId, reference: prod.reference,
         });
+      }
+
+      if (!options?.forceCreate) {
+        // Block creation — user must explicitly click "Créer"
         return { success: false, error: "ANKORSTORE_PRODUCT_NOT_FOUND" };
       }
-    } catch (err) {
-      logger.warn("[Ankorstore] Reference verification failed, will attempt import", {
-        reference: prod.reference, error: err instanceof Error ? err.message : String(err),
-      });
     }
 
     const markupConfigs = await loadMarketplaceMarkupConfigs();
@@ -851,10 +857,11 @@ export async function pushProductToAnkorstoreInternal(
  * Use this from UI (button clicks). For fire-and-forget, use pushProductToAnkorstoreInternal directly.
  */
 export async function pushSingleProductToAnkorstore(
-  productId: string
+  productId: string,
+  { forceCreate = false }: { forceCreate?: boolean } = {},
 ): Promise<{ success: boolean; error?: string }> {
   await requireAdmin();
-  return pushProductToAnkorstoreInternal(productId);
+  return pushProductToAnkorstoreInternal(productId, "update", { forceCreate });
 }
 
 

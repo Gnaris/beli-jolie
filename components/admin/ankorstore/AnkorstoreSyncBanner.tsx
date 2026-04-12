@@ -30,6 +30,7 @@ export default function AnkorstoreSyncBanner({
   });
   const [error, setError] = useState<string | null>(ankorsSyncError);
 
+  // Re-publier = update only, blocks if not found
   const handlePush = useCallback(async () => {
     setStatus("pushing");
     setError(null);
@@ -39,13 +40,33 @@ export default function AnkorstoreSyncBanner({
         setStatus("synced");
         toast.success("Ankorstore", "Produit publié sur Ankorstore avec succès.");
       } else if (result.error === "ANKORSTORE_PRODUCT_NOT_FOUND") {
-        setError("Le produit n'existe plus sur Ankorstore. Vous pouvez le recréer.");
+        setError("Le produit n'existe pas sur Ankorstore. Vous pouvez le créer.");
         setStatus("not_found");
         toast.error("Ankorstore", "Produit introuvable sur Ankorstore.");
       } else {
         setError(result.error ?? "Échec de la publication");
         setStatus("error");
         toast.error("Ankorstore", result.error ?? "Échec de la publication sur Ankorstore.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+      setStatus("error");
+    }
+  }, [productId, toast]);
+
+  // Créer = explicit creation, user chose to create
+  const handleCreate = useCallback(async () => {
+    setStatus("pushing");
+    setError(null);
+    try {
+      const result = await pushSingleProductToAnkorstore(productId, { forceCreate: true });
+      if (result.success) {
+        setStatus("synced");
+        toast.success("Ankorstore", "Produit créé sur Ankorstore avec succès.");
+      } else {
+        setError(result.error ?? "Échec de la création");
+        setStatus("error");
+        toast.error("Ankorstore", result.error ?? "Échec de la création sur Ankorstore.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -107,7 +128,7 @@ export default function AnkorstoreSyncBanner({
           </div>
           <button
             type="button"
-            onClick={handlePush}
+            onClick={handleCreate}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[#1A1A1A] hover:bg-black rounded-lg transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

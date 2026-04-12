@@ -17,11 +17,12 @@ async function requireAdmin() {
  */
 export async function forcePfsSync(
   productId: string,
+  { forceCreate = false }: { forceCreate?: boolean } = {},
 ): Promise<{ success: boolean; error?: string }> {
   await requireAdmin();
 
   try {
-    await syncProductToPfs(productId);
+    await syncProductToPfs(productId, { forceCreate });
     return { success: true };
   } catch (err) {
     return {

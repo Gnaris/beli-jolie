@@ -36,7 +36,7 @@ export default function PfsSyncBanner({
     setStatus("creating");
     setError(null);
     try {
-      const result = await forcePfsSync(productId);
+      const result = await forcePfsSync(productId, { forceCreate: true });
       if (result.success) {
         setStatus("synced");
         toast.success("Paris Fashion Shop", "Produit créé avec succès.");
