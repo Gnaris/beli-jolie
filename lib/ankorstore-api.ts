@@ -35,6 +35,15 @@ export interface AnkorstoreProduct {
   active: boolean;
   archived: boolean;
   variants: AnkorstoreVariant[];
+  // Extended fields for diff detection (may not be returned by all endpoints)
+  wholesalePrice: number | null;
+  retailPrice: number | null;
+  weight: number | null;          // grams
+  height: number | null;          // mm
+  width: number | null;           // mm
+  length: number | null;          // mm
+  madeInCountry: string | null;   // ISO Alpha-2
+  vatRate: number | null;
 }
 
 // ─────────────────────────────────────────────
@@ -111,6 +120,14 @@ function parseProduct(
     active: (attrs.active as boolean) ?? (attrs.is_active as boolean) ?? true,
     archived: (attrs.archived as boolean) ?? (attrs.is_archived as boolean) ?? false,
     variants,
+    wholesalePrice: (attrs.wholesale_price as number) ?? (attrs.wholesalePrice as number) ?? null,
+    retailPrice: (attrs.retail_price as number) ?? (attrs.retailPrice as number) ?? null,
+    weight: (attrs.weight as number) ?? null,
+    height: (attrs.height as number) ?? null,
+    width: (attrs.width as number) ?? null,
+    length: (attrs.length as number) ?? null,
+    madeInCountry: (attrs.made_in_country as string) ?? (attrs.madeInCountry as string) ?? null,
+    vatRate: (attrs.vat_rate as number) ?? (attrs.vatRate as number) ?? null,
   };
 }
 
@@ -372,6 +389,14 @@ export async function ankorstoreSearchProductsByRef(
           active: true,
           archived: false,
           variants: vars,
+          wholesalePrice: null,
+          retailPrice: null,
+          weight: null,
+          height: null,
+          width: null,
+          length: null,
+          madeInCountry: null,
+          vatRate: null,
         });
       }
     }
@@ -387,6 +412,14 @@ export async function ankorstoreSearchProductsByRef(
       active: true,
       archived: false,
       variants,
+      wholesalePrice: null,
+      retailPrice: null,
+      weight: null,
+      height: null,
+      width: null,
+      length: null,
+      madeInCountry: null,
+      vatRate: null,
     }];
   }
 }
