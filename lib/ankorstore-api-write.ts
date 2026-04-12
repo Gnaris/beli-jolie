@@ -11,6 +11,16 @@ import { getAnkorstoreHeaders, ANKORSTORE_BASE_URL } from "@/lib/ankorstore-auth
 import { logger } from "@/lib/logger";
 
 // ─────────────────────────────────────────────
+// Adaptive polling delays
+// 5 fast polls at 3s, then increasing: 5s, 8s, 12s, 18s, 25s, 35s, 45s...
+// ─────────────────────────────────────────────
+function getPollingDelay(attempt: number): number {
+  if (attempt < 5) return 3_000;
+  const extra = attempt - 5;
+  return Math.min(5_000 * Math.pow(1.5, extra), 45_000);
+}
+
+// ─────────────────────────────────────────────
 // Variant stock update
 // ─────────────────────────────────────────────
 
@@ -169,9 +179,9 @@ export async function ankorstoreDeleteProduct(
 
     logger.info("[Ankorstore] Delete operation started, polling for result...", { opId, externalId });
 
-    // Step 4: Poll for completion (max 2 minutes)
+    // Step 4: Poll for completion (adaptive: 5×3s then increasing, max 12 polls)
     for (let i = 0; i < 12; i++) {
-      await new Promise((r) => setTimeout(r, 10_000));
+      await new Promise((r) => setTimeout(r, getPollingDelay(i)));
 
       const checkRes = await fetch(
         `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`,
@@ -356,10 +366,10 @@ export async function ankorstorePushProducts(
     logger.info("[Ankorstore] Operation started", { opId });
     onProgress?.("started", 0, products.length);
 
-    // Step 4: Poll for completion (max 15 minutes — Ankorstore processing can be slow)
-    const maxPolls = 90;
+    // Step 4: Poll for completion (adaptive: 5×3s then increasing, max 12 polls)
+    const maxPolls = 12;
     for (let i = 0; i < maxPolls; i++) {
-      await new Promise((r) => setTimeout(r, 10_000));
+      await new Promise((r) => setTimeout(r, getPollingDelay(i)));
 
       const checkRes = await fetch(
         `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`,

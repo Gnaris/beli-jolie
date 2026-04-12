@@ -41,6 +41,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# playwright mcp logs
+.playwright-mcp/
+
 # uploads (fichiers utilisateurs)
 /private/uploads/
 /public/uploads/

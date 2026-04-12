@@ -1316,11 +1316,16 @@ export default function ProductForm({
     if (willSync && shouldSyncAnkorstore.current && hasAnkorstoreConfig) syncMarketplaces.push("ankorstore");
 
     // For edit mode: start SSE listener before server action so we don't miss early events
-    if (mode === "edit" && productId && syncMarketplaces.length > 0) {
+    const hasSyncOverlay = syncMarketplaces.length > 0;
+    if (mode === "edit" && productId && hasSyncOverlay) {
       startSync(productId, syncMarketplaces);
     }
 
-    showLoading();
+    // Skip loading overlay when sync overlay is active — the sync overlay
+    // provides its own visual feedback and sits at z-[9999]. Showing the
+    // loading overlay (z-[9998]) underneath causes the page to be blocked
+    // if the user minimizes the sync overlay before the save completes.
+    if (!hasSyncOverlay) showLoading();
     startTransition(async () => {
       try {
         if (productId) {
@@ -1351,7 +1356,7 @@ export default function ProductForm({
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
       } finally {
-        hideLoading();
+        if (!hasSyncOverlay) hideLoading();
       }
     });
   }

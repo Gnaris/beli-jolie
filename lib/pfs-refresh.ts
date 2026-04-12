@@ -116,7 +116,6 @@ const getSizeRef = (vs: { size: { name: string; pfsMappings: { pfsSizeRef: strin
 
 interface FullVariant {
   id: string;
-  colorId: string | null;
   pfsColorRef: string | null;
   pfsVariantId: string | null;
   unitPrice: number;
@@ -126,15 +125,12 @@ interface FullVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   variantSizes: { size: { name: string; pfsMappings: { pfsSizeRef: string }[] }; quantity: number }[];
-  discountType: "PERCENT" | "AMOUNT" | null;
-  discountValue: number | null;
-  color: { id: string; name: string; pfsColorRef: string | null };
-  subColors: { color: { id: string; name: string; pfsColorRef: string | null }; position: number }[];
+  color: { pfsColorRef: string | null } | null;
   packColorLines: {
     position: number;
-    colors: { color: { id: string; name: string; pfsColorRef: string | null }; position: number }[];
+    colors: { color: { pfsColorRef: string | null }; position: number }[];
   }[];
-  images: { id: string; path: string; order: number }[];
+  images: { path: string; order: number }[];
 }
 
 interface FullProduct {
@@ -149,15 +145,14 @@ interface FullProduct {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
-  category: { id: string; name: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null };
+  category: { pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null };
   colors: FullVariant[];
   compositions: {
-    compositionId: string;
     percentage: number;
-    composition: { id: string; name: string; pfsCompositionRef: string | null };
+    composition: { pfsCompositionRef: string | null };
   }[];
-  manufacturingCountry: { id: string; name: string; isoCode: string | null; pfsCountryRef: string | null } | null;
-  season: { id: string; name: string; pfsRef: string | null } | null;
+  manufacturingCountry: { isoCode: string | null; pfsCountryRef: string | null } | null;
+  season: { pfsRef: string | null } | null;
 }
 
 const PFS_DEFAULTS = {
@@ -184,11 +179,10 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
-      category: { select: { id: true, name: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true } },
+      category: { select: { pfsCategoryId: true, pfsGender: true, pfsFamilyId: true } },
       colors: {
         select: {
           id: true,
-          colorId: true,
           pfsColorRef: true,
           pfsVariantId: true,
           unitPrice: true,
@@ -198,35 +192,29 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           saleType: true,
           packQuantity: true,
           variantSizes: { select: { size: { select: { name: true, pfsMappings: { select: { pfsSizeRef: true } } } }, quantity: true } },
-          discountType: true,
-          discountValue: true,
-          color: { select: { id: true, name: true, pfsColorRef: true } },
-          subColors: {
-            select: { color: { select: { id: true, name: true, pfsColorRef: true } }, position: true },
-            orderBy: { position: "asc" as const },
-          },
+          color: { select: { pfsColorRef: true } },
           packColorLines: {
             select: {
               position: true,
               colors: {
-                select: { color: { select: { id: true, name: true, pfsColorRef: true } }, position: true },
+                select: { color: { select: { pfsColorRef: true } }, position: true },
                 orderBy: { position: "asc" as const },
               },
             },
             orderBy: { position: "asc" as const },
           },
           images: {
-            select: { id: true, path: true, order: true },
+            select: { path: true, order: true },
             orderBy: { order: "asc" as const },
           },
         },
         orderBy: { createdAt: "asc" as const },
       },
       compositions: {
-        select: { compositionId: true, percentage: true, composition: { select: { id: true, name: true, pfsCompositionRef: true } } },
+        select: { percentage: true, composition: { select: { pfsCompositionRef: true } } },
       },
-      manufacturingCountry: { select: { id: true, name: true, isoCode: true, pfsCountryRef: true } },
-      season: { select: { id: true, name: true, pfsRef: true } },
+      manufacturingCountry: { select: { isoCode: true, pfsCountryRef: true } },
+      season: { select: { pfsRef: true } },
     },
   }) as unknown as FullProduct | null;
 }
@@ -253,6 +241,7 @@ function buildDimensionsSuffix(product: Pick<FullProduct, "dimensionLength" | "d
 export async function pfsRefreshProduct(
   productId: string,
   onProgress?: ProgressCallback,
+  options?: { skipRevalidation?: boolean },
 ): Promise<{ success: boolean; error?: string; newPfsProductId?: string }> {
   const product = await loadProductFull(productId);
   if (!product) return { success: false, error: "Produit introuvable" };
@@ -562,7 +551,9 @@ export async function pfsRefreshProduct(
     }
 
     // ── Step 7: Invalidate caches & notify clients ──
-    revalidateTag("products", "default");
+    if (!options?.skipRevalidation) {
+      revalidateTag("products", "default");
+    }
     emitProductEvent({
       type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
       productId,

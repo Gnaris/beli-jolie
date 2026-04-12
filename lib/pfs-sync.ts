@@ -1095,77 +1095,101 @@ async function syncSingleProduct(
         );
       }
 
-      // Run independent DB operations in parallel
-      await Promise.all([
-        prisma.product.update({
-          where: { id: productId },
-          data: { name: nameFr, description: descriptionFr, pfsProductId: pfsProduct.id, categoryId, manufacturingCountryId, seasonId, status: "SYNCING" },
-        }),
-        prisma.productComposition.deleteMany({ where: { productId } }),
-        prisma.productColorImage.deleteMany({ where: { productId } }),
-        prisma.productColor.deleteMany({ where: { productId } }),
-        prisma.productTranslation.deleteMany({ where: { productId } }),
-      ]);
-
-      // Compositions + translations in parallel
-      const dbOps: Promise<unknown>[] = [];
-      if (compositions.length > 0) {
-        dbOps.push(prisma.productComposition.createMany({
-          data: compositions.map((c) => ({ productId, ...c })),
-          skipDuplicates: true,
-        }));
-      }
-      if (translations.length > 0) {
-        dbOps.push(prisma.productTranslation.createMany({
-          data: translations.map((t) => ({ productId, ...t })),
-          skipDuplicates: true,
-        }));
-      }
-
-      // Create variants (sequential for IDs)
-      const createdVariants: { id: string; colorId: string | null; colorRef: string }[] = [];
+      // Pre-resolve all size records outside the transaction (may create new sizes)
+      const resolvedSizesUpdate = new Map<string, { id: string; name: string }>();
       for (const v of variants) {
-        const created = await prisma.productColor.create({
-          data: {
-            productId,
-            colorId: v.colorId,
-            unitPrice: v.unitPrice,
-            weight: v.weight,
-            stock: v.stock,
-            isPrimary: v.isPrimary,
-            saleType: v.saleType,
-            packQuantity: v.packQuantity,
-            discountType: v.discountType,
-            discountValue: v.discountValue,
-          },
-          select: { id: true, colorId: true },
-        });
-        createdVariants.push({ ...created, colorRef: v.colorRef });
-
-        // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
         if (v.sizeEntries?.length) {
           for (const entry of v.sizeEntries) {
-            const sizeRecord = await resolveSizeRecord(entry.name, categoryId);
-            await prisma.variantSize.create({
-              data: {
-                productColorId: created.id,
-                sizeId: sizeRecord.id,
-                quantity: entry.qty,
-                pricePerUnit: entry.pricePerUnit,
-              },
-            });
+            if (!resolvedSizesUpdate.has(entry.name)) {
+              resolvedSizesUpdate.set(entry.name, await resolveSizeRecord(entry.name, categoryId));
+            }
           }
         } else {
           const sizes = v.sizeNames?.length ? v.sizeNames : (v.sizeName ? [v.sizeName] : []);
           for (const sizeName of sizes) {
-            const sizeRecord = await resolveSizeRecord(sizeName, categoryId);
-            await prisma.variantSize.create({
-              data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
-            });
+            if (!resolvedSizesUpdate.has(sizeName)) {
+              resolvedSizesUpdate.set(sizeName, await resolveSizeRecord(sizeName, categoryId));
+            }
           }
         }
       }
-      await Promise.all(dbOps);
+
+      // Run all DB writes in a single transaction (atomic: rolls back if any step fails)
+      const createdVariants = await prisma.$transaction(async (tx) => {
+        // Clean up old data + update product atomically
+        await Promise.all([
+          tx.product.update({
+            where: { id: productId },
+            data: { name: nameFr, description: descriptionFr, pfsProductId: pfsProduct.id, categoryId, manufacturingCountryId, seasonId, status: "SYNCING" },
+          }),
+          tx.productComposition.deleteMany({ where: { productId } }),
+          tx.productColorImage.deleteMany({ where: { productId } }),
+          tx.productColor.deleteMany({ where: { productId } }),
+          tx.productTranslation.deleteMany({ where: { productId } }),
+        ]);
+
+        // Create compositions + translations
+        const seedOps: Promise<unknown>[] = [];
+        if (compositions.length > 0) {
+          seedOps.push(tx.productComposition.createMany({
+            data: compositions.map((c) => ({ productId, ...c })),
+            skipDuplicates: true,
+          }));
+        }
+        if (translations.length > 0) {
+          seedOps.push(tx.productTranslation.createMany({
+            data: translations.map((t) => ({ productId, ...t })),
+            skipDuplicates: true,
+          }));
+        }
+        await Promise.all(seedOps);
+
+        // Create all variants + sizes
+        const txCreatedVariants: { id: string; colorId: string | null; colorRef: string }[] = [];
+        for (const v of variants) {
+          const created = await tx.productColor.create({
+            data: {
+              productId,
+              colorId: v.colorId,
+              unitPrice: v.unitPrice,
+              weight: v.weight,
+              stock: v.stock,
+              isPrimary: v.isPrimary,
+              saleType: v.saleType,
+              packQuantity: v.packQuantity,
+              discountType: v.discountType,
+              discountValue: v.discountValue,
+            },
+            select: { id: true, colorId: true },
+          });
+          txCreatedVariants.push({ ...created, colorRef: v.colorRef });
+
+          // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
+          if (v.sizeEntries?.length) {
+            await tx.variantSize.createMany({
+              data: v.sizeEntries.map((entry) => ({
+                productColorId: created.id,
+                sizeId: resolvedSizesUpdate.get(entry.name)!.id,
+                quantity: entry.qty,
+                pricePerUnit: entry.pricePerUnit,
+              })),
+            });
+          } else {
+            const sizes = v.sizeNames?.length ? v.sizeNames : (v.sizeName ? [v.sizeName] : []);
+            if (sizes.length > 0) {
+              await tx.variantSize.createMany({
+                data: sizes.map((sizeName) => ({
+                  productColorId: created.id,
+                  sizeId: resolvedSizesUpdate.get(sizeName)!.id,
+                  quantity: 1,
+                })),
+              });
+            }
+          }
+        }
+
+        return txCreatedVariants;
+      });
 
       // Auto-translate product name/description for missing locales
       const pfsLocalesUpdate = translations.map((t) => t.locale);
@@ -1178,103 +1202,125 @@ async function syncSingleProduct(
       return { action: "updated", reference: bjRef, productId, imageTask: imgTask, bjStatus };
     } else {
       // ── CREATE new product ──
-      const product = await prisma.product.create({
-        data: {
-          reference: bjRef,
-          pfsProductId: pfsProduct.id,
-          name: nameFr,
-          description: descriptionFr,
-          categoryId,
-          manufacturingCountryId,
-          seasonId,
-          status: "SYNCING",
-          isBestSeller: pfsProduct.is_star === 1,
-          compositions: {
-            create: compositions.map((c) => ({
-              compositionId: c.compositionId,
-              percentage: c.percentage,
-            })),
-          },
-        },
-      });
 
-      // Create variants (sequential — need IDs for images)
-      const createdVariants: { id: string; colorId: string | null; colorRef: string }[] = [];
+      // Pre-resolve all size records outside the transaction (may create new sizes)
+      const resolvedSizesCreate = new Map<string, { id: string; name: string }>();
       for (const v of variants) {
-        const created = await prisma.productColor.create({
-          data: {
-            productId: product.id,
-            colorId: v.colorId,
-            unitPrice: v.unitPrice,
-            weight: v.weight,
-            stock: v.stock,
-            isPrimary: v.isPrimary,
-            saleType: v.saleType,
-            packQuantity: v.packQuantity,
-            discountType: v.discountType,
-            discountValue: v.discountValue,
-          },
-          select: { id: true, colorId: true },
-        });
-        createdVariants.push({ ...created, colorRef: v.colorRef });
-
-        // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
         if (v.sizeEntries?.length) {
           for (const entry of v.sizeEntries) {
-            const sizeRecord = await resolveSizeRecord(entry.name, categoryId);
-            await prisma.variantSize.create({
-              data: {
-                productColorId: created.id,
-                sizeId: sizeRecord.id,
-                quantity: entry.qty,
-                pricePerUnit: entry.pricePerUnit,
-              },
-            });
+            if (!resolvedSizesCreate.has(entry.name)) {
+              resolvedSizesCreate.set(entry.name, await resolveSizeRecord(entry.name, categoryId));
+            }
           }
         } else {
           const sizes = v.sizeNames?.length ? v.sizeNames : (v.sizeName ? [v.sizeName] : []);
           for (const sizeName of sizes) {
-            const sizeRecord = await resolveSizeRecord(sizeName, categoryId);
-            await prisma.variantSize.create({
-              data: { productColorId: created.id, sizeId: sizeRecord.id, quantity: 1 },
-            });
+            if (!resolvedSizesCreate.has(sizeName)) {
+              resolvedSizesCreate.set(sizeName, await resolveSizeRecord(sizeName, categoryId));
+            }
           }
         }
       }
 
-      // Translations + pendingSimilar in parallel (fast DB ops)
-      const dbOps: Promise<unknown>[] = [];
+      // Run all DB writes in a single transaction (atomic: rolls back if any step fails)
+      const { product, createdVariants } = await prisma.$transaction(async (tx) => {
+        const txProduct = await tx.product.create({
+          data: {
+            reference: bjRef,
+            pfsProductId: pfsProduct.id,
+            name: nameFr,
+            description: descriptionFr,
+            categoryId,
+            manufacturingCountryId,
+            seasonId,
+            status: "SYNCING",
+            isBestSeller: pfsProduct.is_star === 1,
+            compositions: {
+              create: compositions.map((c) => ({
+                compositionId: c.compositionId,
+                percentage: c.percentage,
+              })),
+            },
+          },
+        });
 
-      if (translations.length > 0) {
-        dbOps.push(prisma.productTranslation.createMany({
-          data: translations.map((t) => ({ productId: product.id, ...t })),
-          skipDuplicates: true,
-        }));
-      }
+        // Create all variants + sizes
+        const txCreatedVariants: { id: string; colorId: string | null; colorRef: string }[] = [];
+        for (const v of variants) {
+          const created = await tx.productColor.create({
+            data: {
+              productId: txProduct.id,
+              colorId: v.colorId,
+              unitPrice: v.unitPrice,
+              weight: v.weight,
+              stock: v.stock,
+              isPrimary: v.isPrimary,
+              saleType: v.saleType,
+              packQuantity: v.packQuantity,
+              discountType: v.discountType,
+              discountValue: v.discountValue,
+            },
+            select: { id: true, colorId: true },
+          });
+          txCreatedVariants.push({ ...created, colorRef: v.colorRef });
 
-      dbOps.push(
-        prisma.pendingSimilar.findMany({ where: { similarRef: bjRef } }).then(async (pending) => {
-          if (pending.length === 0) return;
-          for (const p of pending) {
-            const sourceProduct = await prisma.product.findUnique({
-              where: { reference: p.productRef },
-              select: { id: true },
+          // Create VariantSize records — support multiple sizes with qty + price (PACK variants)
+          if (v.sizeEntries?.length) {
+            await tx.variantSize.createMany({
+              data: v.sizeEntries.map((entry) => ({
+                productColorId: created.id,
+                sizeId: resolvedSizesCreate.get(entry.name)!.id,
+                quantity: entry.qty,
+                pricePerUnit: entry.pricePerUnit,
+              })),
             });
-            if (sourceProduct) {
-              await prisma.productSimilar.createMany({
-                data: [
-                  { productId: sourceProduct.id, similarId: product.id },
-                  { productId: product.id, similarId: sourceProduct.id },
-                ],
-                skipDuplicates: true,
+          } else {
+            const sizes = v.sizeNames?.length ? v.sizeNames : (v.sizeName ? [v.sizeName] : []);
+            if (sizes.length > 0) {
+              await tx.variantSize.createMany({
+                data: sizes.map((sizeName) => ({
+                  productColorId: created.id,
+                  sizeId: resolvedSizesCreate.get(sizeName)!.id,
+                  quantity: 1,
+                })),
               });
             }
           }
-          await prisma.pendingSimilar.deleteMany({ where: { similarRef: bjRef } });
-        }),
-      );
+        }
 
-      await Promise.all(dbOps);
+        // Translations inside the transaction
+        if (translations.length > 0) {
+          await tx.productTranslation.createMany({
+            data: translations.map((t) => ({ productId: txProduct.id, ...t })),
+            skipDuplicates: true,
+          });
+        }
+
+        return { product: txProduct, createdVariants: txCreatedVariants };
+      });
+
+      // PendingSimilar resolution (outside transaction — non-critical, uses main prisma client)
+      prisma.pendingSimilar.findMany({ where: { similarRef: bjRef } }).then(async (pending) => {
+        if (pending.length === 0) return;
+        for (const p of pending) {
+          const sourceProduct = await prisma.product.findUnique({
+            where: { reference: p.productRef },
+            select: { id: true },
+          });
+          if (sourceProduct) {
+            await prisma.productSimilar.createMany({
+              data: [
+                { productId: sourceProduct.id, similarId: product.id },
+                { productId: product.id, similarId: sourceProduct.id },
+              ],
+              skipDuplicates: true,
+            });
+          }
+        }
+        await prisma.pendingSimilar.deleteMany({ where: { similarRef: bjRef } });
+      }).catch((err) => {
+        logger.warn(`[PFS_SYNC] PendingSimilar resolution failed for ${bjRef}`, { error: err });
+      });
 
       // Auto-translate product name/description for missing locales
       const pfsLocales = translations.map((t) => t.locale);

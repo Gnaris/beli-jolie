@@ -15,7 +15,7 @@ function makeProduct(overrides?: Partial<FullProduct>): FullProduct {
     dimensionHeight: null,
     dimensionDiameter: null,
     dimensionCircumference: null,
-    category: { id: "cat-1", name: "Bijoux", pfsCategoryId: "PFS_CAT", pfsGender: null, pfsFamilyId: null },
+    category: { name: "Bijoux", pfsCategoryId: "PFS_CAT", pfsGender: null, pfsFamilyId: null },
     colors: [],
     compositions: [],
     manufacturingCountry: null,
@@ -27,7 +27,6 @@ function makeProduct(overrides?: Partial<FullProduct>): FullProduct {
 function makeVariant(overrides?: Partial<FullProduct["colors"][number]>): FullProduct["colors"][number] {
   return {
     id: "var-1",
-    colorId: "col-1",
     pfsColorRef: null,
     pfsVariantId: null,
     unitPrice: 10,
@@ -57,7 +56,7 @@ describe("validatePfsMappings", () => {
 
   it("throws for unmapped category", () => {
     const product = makeProduct({
-      category: { id: "cat-1", name: "Bijoux", pfsCategoryId: null, pfsGender: null, pfsFamilyId: null },
+      category: { name: "Bijoux", pfsCategoryId: null, pfsGender: null, pfsFamilyId: null },
     });
     expect(() => validatePfsMappings(product)).toThrow(/Catégorie.*sans correspondance/);
   });
@@ -102,7 +101,6 @@ describe("validatePfsMappings", () => {
       colors: [
         makeVariant({
           saleType: "PACK",
-          colorId: null,
           color: { id: "col-1", name: "Multi", pfsColorRef: null },
           pfsColorRef: null,
           subColors: [],
@@ -126,7 +124,6 @@ describe("validatePfsMappings", () => {
       colors: [
         makeVariant({
           saleType: "PACK",
-          colorId: null,
           pfsColorRef: "BLUE_GREEN",
           subColors: [],
           packColorLines: [
@@ -150,7 +147,6 @@ describe("validatePfsMappings", () => {
       colors: [
         makeVariant({
           saleType: "PACK",
-          colorId: null,
           color: null,
           pfsColorRef: null,
           subColors: [],
@@ -171,7 +167,7 @@ describe("validatePfsMappings", () => {
   it("throws for unmapped composition", () => {
     const product = makeProduct({
       compositions: [
-        { compositionId: "comp-1", percentage: 100, composition: { id: "comp-1", name: "Coton", pfsCompositionRef: null } },
+        { percentage: 100, composition: { name: "Coton", pfsCompositionRef: null } },
       ],
     });
     expect(() => validatePfsMappings(product)).toThrow(/Composition.*Coton.*sans correspondance/);

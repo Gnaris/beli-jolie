@@ -43,7 +43,6 @@ export async function ankorstoreRefreshProduct(
   });
 
   if (!product) return { success: false, error: "Produit introuvable" };
-  if (!product.ankorsProductId) return { success: false, error: "Produit non synchronisé avec Ankorstore" };
 
   const progress: AnkorstoreRefreshProgress = {
     productId,
@@ -103,7 +102,7 @@ export async function ankorstoreRefreshProduct(
 
     // ── Step 4: Re-push as new import ──
     report("Re-création sur Ankorstore...");
-    const pushResult = await pushProductToAnkorstoreInternal(productId, "import", { skipRevalidation: true });
+    const pushResult = await pushProductToAnkorstoreInternal(productId, "import", { skipRevalidation: true, forceCreate: true });
 
     if (!pushResult.success) {
       throw new Error(pushResult.error || "Échec de la re-création sur Ankorstore");

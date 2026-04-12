@@ -456,7 +456,7 @@ export async function updateAnkorstoreVariantStock(
 export async function pushProductToAnkorstoreInternal(
   productId: string,
   operationType: "import" | "update" = "update",
-  options?: { skipRevalidation?: boolean; forceCreate?: boolean }
+  options?: { skipRevalidation?: boolean; forceCreate?: boolean; zeroStock?: boolean }
 ): Promise<{ success: boolean; error?: string }> {
   function emitAnkors(p: Omit<MarketplaceSyncProgress, "marketplace">) {
     emitProductEvent({ type: "MARKETPLACE_SYNC", productId, marketplaceSync: { marketplace: "ankorstore", ...p } });
@@ -609,7 +609,7 @@ export async function pushProductToAnkorstoreInternal(
           variants.push({
             sku: truncateSku(`${prod.reference}_${colorName}_${sz.name}`),
             external_id: c.id,
-            stock_quantity: c.stock,
+            stock_quantity: options?.zeroStock ? 0 : c.stock,
             wholesalePrice: unitWholesale,
             retailPrice: unitRetail,
             originalWholesalePrice: unitPrice,
@@ -648,7 +648,7 @@ export async function pushProductToAnkorstoreInternal(
             variants.push({
               sku: truncateSku(`${prod.reference}_${colorName}_Pack${packQty}_${sz.name}`),
               external_id: c.id,
-              stock_quantity: c.stock,
+              stock_quantity: options?.zeroStock ? 0 : c.stock,
               wholesalePrice: packWholesale,
               retailPrice: packRetail,
               originalWholesalePrice: unitPrice,

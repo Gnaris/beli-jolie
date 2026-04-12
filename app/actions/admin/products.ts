@@ -26,7 +26,7 @@ function emitAnkors(productId: string, p: Omit<MarketplaceSyncProgress, "marketp
   emitProductEvent({ type: "MARKETPLACE_SYNC", productId, marketplaceSync: { marketplace: "ankorstore", ...p } });
 }
 
-function triggerAnkorstoreSync(productId: string, forceCreate = false) {
+function triggerAnkorstoreSync(productId: string, forceCreate = false, skipRevalidation = false) {
   logger.info("[Ankorstore] triggerAnkorstoreSync called", { productId, forceCreate });
   emitAnkors(productId, { step: "Vérification de la configuration...", progress: 0, status: "in_progress" });
 
@@ -46,17 +46,17 @@ function triggerAnkorstoreSync(productId: string, forceCreate = false) {
         import("@/app/actions/admin/ankorstore").then(({ pushProductToAnkorstoreInternal }) => {
           logger.info("[Ankorstore] Calling pushProductToAnkorstoreInternal", { productId });
           emitAnkors(productId, { step: "Envoi vers Ankorstore...", progress: 30, status: "in_progress" });
-          return pushProductToAnkorstoreInternal(productId).then((result) => {
+          return pushProductToAnkorstoreInternal(productId, undefined, { skipRevalidation }).then((result) => {
             logger.info("[Ankorstore] Auto-sync result", { productId, result });
             if (result.success) {
-              emitAnkors(productId, { step: "Synchronisation terminée", progress: 100, status: "success" });
+              emitAnkors(productId, { step: "Publication terminée", progress: 100, status: "success" });
             } else {
-              emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: result.error });
+              emitAnkors(productId, { step: "Erreur de publication", progress: 100, status: "error", error: result.error });
             }
           }).catch(async (err) => {
             const errMsg = err instanceof Error ? err.message : String(err);
             logger.warn("[Ankorstore] Auto-sync failed", { productId, error: errMsg });
-            emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: errMsg });
+            emitAnkors(productId, { step: "Erreur de publication", progress: 100, status: "error", error: errMsg });
             // Persist error
             await prisma.product.update({
               where: { id: productId },
@@ -70,37 +70,50 @@ function triggerAnkorstoreSync(productId: string, forceCreate = false) {
       // Existing product → only push if already linked
       prisma.product.findUnique({
         where: { id: productId },
-        select: { ankorsProductId: true },
-      }).then((prod) => {
+        select: { ankorsProductId: true, status: true },
+      }).then(async (prod) => {
         if (!prod?.ankorsProductId) {
           emitAnkors(productId, { step: "Produit non lié", progress: 100, status: "success" });
           return;
         }
+
+        // OFFLINE → push update with all stocks at 0 (Ankorstore has no disable endpoint)
+        if (prod.status === "OFFLINE") {
+          emitAnkors(productId, { step: "Mise en rupture sur Ankorstore...", progress: 30, status: "in_progress" });
+          const { pushProductToAnkorstoreInternal } = await import("@/app/actions/admin/ankorstore");
+          const result = await pushProductToAnkorstoreInternal(productId, undefined, {
+            skipRevalidation, zeroStock: true,
+          });
+          if (result.success) {
+            emitAnkors(productId, { step: "Stock mis à 0 sur Ankorstore", progress: 100, status: "success" });
+          } else {
+            emitAnkors(productId, { step: "Erreur mise en rupture", progress: 100, status: "error", error: result.error });
+          }
+          return;
+        }
+
         emitAnkors(productId, { step: "Envoi vers Ankorstore...", progress: 30, status: "in_progress" });
-        import("@/app/actions/admin/ankorstore").then(({ pushProductToAnkorstoreInternal }) =>
-          pushProductToAnkorstoreInternal(productId).then((result) => {
-            if (result.success) {
-              emitAnkors(productId, { step: "Synchronisation terminée", progress: 100, status: "success" });
-            } else {
-              emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: result.error });
-            }
-          }).catch(async (err) => {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            logger.warn("[Ankorstore] Auto-sync failed", { productId, error: errMsg });
-            emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: errMsg });
-            // Persist error
-            await prisma.product.update({
-              where: { id: productId },
-              data: { ankorsSyncStatus: "failed", ankorsSyncError: errMsg.slice(0, 5000) },
-            }).catch(() => {});
-          })
-        );
+        const { pushProductToAnkorstoreInternal } = await import("@/app/actions/admin/ankorstore");
+        const result = await pushProductToAnkorstoreInternal(productId, undefined, { skipRevalidation });
+        if (result.success) {
+          emitAnkors(productId, { step: "Publication terminée", progress: 100, status: "success" });
+        } else {
+          emitAnkors(productId, { step: "Erreur de publication", progress: 100, status: "error", error: result.error });
+        }
+      }).catch(async (err) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.error("[Ankorstore] Product sync failed", { productId, error: errMsg });
+        emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: errMsg });
+        await prisma.product.update({
+          where: { id: productId },
+          data: { ankorsSyncStatus: "failed", ankorsSyncError: errMsg.slice(0, 5000) },
+        }).catch(() => {});
       });
     })
   ).catch(async (err) => {
     const errMsg = err instanceof Error ? err.message : String(err);
     logger.error("[Ankorstore] triggerAnkorstoreSync chain failed", { productId, error: errMsg });
-    emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: errMsg });
+    emitAnkors(productId, { step: "Erreur de publication", progress: 100, status: "error", error: errMsg });
     // Persist error
     await prisma.product.update({
       where: { id: productId },
@@ -898,7 +911,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
 
     return oldStockMap;
-  });
+  }, { timeout: 30000 });
 
   // Traductions : remplacer toutes les traductions existantes
   if (input.translations !== undefined) {
@@ -1268,9 +1281,10 @@ export async function bulkUpdateProductStatus(
   }
 
   // Fire-and-forget sync to PFS + Ankorstore for each updated product
+  // skipRevalidation=true because we already called revalidateTag("products", "default") above
   for (const pid of success) {
     triggerPfsSync(pid);
-    triggerAnkorstoreSync(pid);
+    triggerAnkorstoreSync(pid, false, true);
   }
 
   return { success, errors };
