@@ -117,35 +117,26 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     // 2. ALWAYS verify by reference on PFS — never trust stored ID
     emitPfs({ step: "Vérification du produit sur PFS...", progress: 10, status: "in_progress" });
     let pfsProductId: string | null = null;
-    let pfsProductStatus: string | null = null;
     try {
       const refCheck = await pfsCheckReference(product.reference);
       if (refCheck?.product?.id) {
-        pfsProductStatus = refCheck.product.status ?? null;
-        // Treat archived/deleted products as non-existent — need to recreate
-        const isActive = pfsProductStatus && !["ARCHIVED", "DELETED"].includes(pfsProductStatus.toUpperCase());
-        if (isActive) {
-          pfsProductId = refCheck.product.id;
-          logger.info(`[PFS Reverse Sync] Product ${product.reference} found on PFS (id=${pfsProductId}, status=${pfsProductStatus})`);
-        } else {
-          logger.warn(`[PFS Reverse Sync] Product ${product.reference} found on PFS but status=${pfsProductStatus} — treating as non-existent`);
-        }
+        // Reference exists on PFS (active, archived, or any status) → use this ID
+        // Archived products must be updated (not recreated) to avoid duplicate reference errors
+        pfsProductId = refCheck.product.id;
+        const pfsStatus = refCheck.product.status ?? "unknown";
+        logger.info(`[PFS Reverse Sync] Product ${product.reference} found on PFS (id=${pfsProductId}, status=${pfsStatus})`);
       }
     } catch {
       logger.warn(`[PFS Reverse Sync] checkReference failed for ${product.reference}, will attempt create`);
     }
 
-    // If product was previously synced but no longer active on PFS → inform user
+    // If reference not found on PFS and was previously synced → inform user
     if (!pfsProductId && product.pfsSyncStatus === "synced") {
-      // Clear stale sync state
       await prisma.product.update({
         where: { id: productId },
         data: { pfsSyncStatus: null, pfsProductId: null },
       });
-      const reason = pfsProductStatus
-        ? `Le produit a été ${pfsProductStatus.toLowerCase()} sur Paris Fashion Shop.`
-        : "Le produit n'existe plus sur Paris Fashion Shop.";
-      logger.warn(`[PFS Reverse Sync] Product ${product.reference} no longer active on PFS: ${reason}`);
+      logger.warn(`[PFS Reverse Sync] Product ${product.reference} not found on PFS`);
       throw new Error("PFS_PRODUCT_NOT_FOUND");
     }
 
