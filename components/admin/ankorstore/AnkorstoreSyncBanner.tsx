@@ -25,7 +25,7 @@ export default function AnkorstoreSyncBanner({
   const toast = useToast();
   const [status, setStatus] = useState<BannerStatus>(() => {
     if (ankorsSyncStatus === "failed") return "error";
-    if (ankorsProductId) return "synced";
+    if (ankorsSyncStatus === "synced") return "synced";
     return "not_found";
   });
   const [error, setError] = useState<string | null>(ankorsSyncError);

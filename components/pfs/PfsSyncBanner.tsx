@@ -27,7 +27,7 @@ export default function PfsSyncBanner({
   const [status, setStatus] = useState<BannerStatus>(() => {
     if (mappingIssues && mappingIssues.length > 0) return "mapping_issues";
     if (pfsSyncStatus === "failed") return "error";
-    if (pfsProductId) return "synced";
+    if (pfsSyncStatus === "synced") return "synced";
     return "not_on_pfs";
   });
   const [error, setError] = useState<string | null>(pfsSyncError);

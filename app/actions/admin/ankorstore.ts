@@ -476,7 +476,7 @@ export async function pushProductToAnkorstoreInternal(
       where: { id: productId },
       select: {
         id: true, name: true, reference: true, description: true,
-        ankorsProductId: true,
+        ankorsProductId: true, ankorsSyncStatus: true,
         dimensionLength: true, dimensionWidth: true, dimensionHeight: true,
         dimensionDiameter: true, dimensionCircumference: true,
         manufacturingCountry: { select: { isoCode: true } },
@@ -512,39 +512,38 @@ export async function pushProductToAnkorstoreInternal(
 
     emitAnkors({ step: "Vérification sur Ankorstore...", progress: 20, status: "in_progress" });
 
-    // ALWAYS verify by reference on Ankorstore (DB ID is just a cache, not source of truth)
+    // ALWAYS verify by reference on Ankorstore — never trust stored ID
     let effectiveOp: "import" | "update" = "import";
     try {
       const foundProducts = await ankorstoreSearchProductsByRef(prod.reference);
       if (foundProducts.length > 0) {
-        effectiveOp = "update";
-        const foundId = foundProducts[0].id;
-        // Update DB if ID changed or was missing
-        if (prod.ankorsProductId !== foundId) {
-          await prisma.product.update({
-            where: { id: productId },
-            data: { ankorsProductId: foundId, ankorsMatchedAt: new Date() },
+        const found = foundProducts[0];
+        // Skip archived products — treat as non-existent
+        if (found.archived) {
+          logger.warn("[Ankorstore] Product found but archived, will create new", {
+            productId, reference: prod.reference,
           });
-          logger.info("[Ankorstore] Product linked via reference verification", {
-            productId, ankorsProductId: foundId, reference: prod.reference,
+        } else {
+          effectiveOp = "update";
+          logger.info("[Ankorstore] Product found on Ankorstore via reference", {
+            productId, ankorsId: found.id, reference: prod.reference,
           });
         }
-      } else if (prod.ankorsProductId) {
-        // DB had an ID but product no longer exists on Ankorstore → clear stale link
+      } else if (prod.ankorsSyncStatus === "synced") {
+        // Was previously synced but no longer on Ankorstore → inform user
         await prisma.product.update({
           where: { id: productId },
-          data: { ankorsProductId: null, ankorsMatchedAt: null },
+          data: { ankorsSyncStatus: null, ankorsProductId: null, ankorsMatchedAt: null },
         });
-        logger.warn("[Ankorstore] Product not found on Ankorstore, cleared stale link", {
-          productId, reference: prod.reference, staleId: prod.ankorsProductId,
+        logger.warn("[Ankorstore] Product no longer found on Ankorstore", {
+          productId, reference: prod.reference,
         });
         return { success: false, error: "ANKORSTORE_PRODUCT_NOT_FOUND" };
       }
     } catch (err) {
-      logger.warn("[Ankorstore] Reference verification failed, will attempt based on DB state", {
+      logger.warn("[Ankorstore] Reference verification failed, will attempt import", {
         reference: prod.reference, error: err instanceof Error ? err.message : String(err),
       });
-      effectiveOp = prod.ankorsProductId ? "update" : "import";
     }
 
     const markupConfigs = await loadMarketplaceMarkupConfigs();

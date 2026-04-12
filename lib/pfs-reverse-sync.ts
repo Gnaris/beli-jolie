@@ -114,39 +114,42 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     // Vérification des mappings PFS (bloque la sync si une entité n'est pas mappée)
     validatePfsMappings(product);
 
-    // 2. ALWAYS verify by reference on PFS (DB ID is just a cache, not source of truth)
+    // 2. ALWAYS verify by reference on PFS — never trust stored ID
     emitPfs({ step: "Vérification du produit sur PFS...", progress: 10, status: "in_progress" });
     let pfsProductId: string | null = null;
+    let pfsProductStatus: string | null = null;
     try {
       const refCheck = await pfsCheckReference(product.reference);
       if (refCheck?.product?.id) {
-        pfsProductId = refCheck.product.id;
-        // Update DB if ID changed or was missing
-        if (product.pfsProductId !== pfsProductId) {
-          await prisma.product.update({
-            where: { id: productId },
-            data: { pfsProductId },
-          });
-          logger.info(`[PFS Reverse Sync] Product ${productId} linked to PFS product ${pfsProductId} via reference ${product.reference}`);
+        pfsProductStatus = refCheck.product.status ?? null;
+        // Treat archived/deleted products as non-existent — need to recreate
+        const isActive = pfsProductStatus && !["ARCHIVED", "DELETED"].includes(pfsProductStatus.toUpperCase());
+        if (isActive) {
+          pfsProductId = refCheck.product.id;
+          logger.info(`[PFS Reverse Sync] Product ${product.reference} found on PFS (id=${pfsProductId}, status=${pfsProductStatus})`);
+        } else {
+          logger.warn(`[PFS Reverse Sync] Product ${product.reference} found on PFS but status=${pfsProductStatus} — treating as non-existent`);
         }
       }
     } catch {
-      // checkReference failed — cannot verify, will attempt create
       logger.warn(`[PFS Reverse Sync] checkReference failed for ${product.reference}, will attempt create`);
     }
 
-    // If DB had a pfsProductId but product no longer exists on PFS → clear stale link
-    if (!pfsProductId && product.pfsProductId) {
+    // If product was previously synced but no longer active on PFS → inform user
+    if (!pfsProductId && product.pfsSyncStatus === "synced") {
+      // Clear stale sync state
       await prisma.product.update({
         where: { id: productId },
-        data: { pfsProductId: null },
+        data: { pfsSyncStatus: null, pfsProductId: null },
       });
-      logger.warn(`[PFS Reverse Sync] Product ${product.reference} not found on PFS, cleared stale pfsProductId ${product.pfsProductId}`);
-      // Throw a specific error so the banner can show "not found" + "Créer" button
+      const reason = pfsProductStatus
+        ? `Le produit a été ${pfsProductStatus.toLowerCase()} sur Paris Fashion Shop.`
+        : "Le produit n'existe plus sur Paris Fashion Shop.";
+      logger.warn(`[PFS Reverse Sync] Product ${product.reference} no longer active on PFS: ${reason}`);
       throw new Error("PFS_PRODUCT_NOT_FOUND");
     }
 
-    // 3. Create product on PFS if truly new — full sync required
+    // 3. Create product on PFS if not found — full sync required
     if (!pfsProductId) {
       emitPfs({ step: "Création du produit sur PFS...", progress: 20, status: "in_progress" });
       pfsProductId = await createProductOnPfs(product);
@@ -244,6 +247,7 @@ export interface FullProduct {
   id: string;
   reference: string;
   pfsProductId: string | null;
+  pfsSyncStatus: string | null;
   name: string;
   description: string;
   status: string;
@@ -289,6 +293,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       id: true,
       reference: true,
       pfsProductId: true,
+      pfsSyncStatus: true,
       name: true,
       description: true,
       status: true,
