@@ -547,6 +547,7 @@ export default async function ModifierProduitPage({
                 productName={product.name}
                 productReference={product.reference}
                 hasPfsConfig={hasPfsConfig}
+                hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
               />
             </div>
           </div>
