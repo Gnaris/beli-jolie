@@ -34,6 +34,9 @@ export default function AnnouncementBanner({ messages, bgColor, textColor, speed
 
   // Duplicate messages to create seamless loop
   const repeated = [...messages, ...messages];
+  // Total width = number of items × 100% of container
+  // translateX(-50%) of total = exactly the original messages set
+  const totalWidthPercent = repeated.length * 100;
 
   return (
     <div
@@ -42,13 +45,18 @@ export default function AnnouncementBanner({ messages, bgColor, textColor, speed
       style={{ backgroundColor: bgColor, color: textColor }}
     >
       <div
-        className="animate-marquee flex"
-        style={{ animationDuration: `${messages.length * speed}s` }}
+        className="animate-marquee"
+        style={{
+          display: "flex",
+          width: `${totalWidthPercent}%`,
+          animationDuration: `${messages.length * speed}s`,
+        }}
       >
         {repeated.map((msg, i) => (
           <span
             key={i}
-            className="w-full shrink-0 text-center"
+            className="shrink-0 text-center"
+            style={{ width: `${100 / repeated.length}%` }}
           >
             {msg}
           </span>
