@@ -9,18 +9,21 @@ interface AnnouncementBannerConfigProps {
   initialMessages: string[];
   initialBgColor: string;
   initialTextColor: string;
+  initialSpeed: number;
 }
 
 export default function AnnouncementBannerConfig({
   initialMessages,
   initialBgColor,
   initialTextColor,
+  initialSpeed,
 }: AnnouncementBannerConfigProps) {
   const [messages, setMessages] = useState<string[]>(
     initialMessages.length > 0 ? initialMessages : [""]
   );
   const [bgColor, setBgColor] = useState(initialBgColor);
   const [textColor, setTextColor] = useState(initialTextColor);
+  const [speed, setSpeed] = useState(initialSpeed);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
@@ -43,6 +46,7 @@ export default function AnnouncementBannerConfig({
         messages,
         bgColor,
         textColor,
+        speed,
       });
       if (result.success) {
         toast({ type: "success", title: "Succes", message: "Bandeau mis a jour." });
@@ -123,6 +127,21 @@ export default function AnnouncementBannerConfig({
         </div>
       </div>
 
+      {/* Speed slider */}
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-body text-text-secondary whitespace-nowrap">Vitesse :</label>
+        <input
+          type="range"
+          min={3}
+          max={15}
+          step={1}
+          value={speed}
+          onChange={(e) => setSpeed(Number(e.target.value))}
+          className="flex-1 max-w-48 accent-primary"
+        />
+        <span className="text-xs font-mono text-text-secondary w-12">{speed}s</span>
+      </div>
+
       {/* Live preview */}
       {activeMessages.length > 0 && (
         <div>
@@ -132,6 +151,7 @@ export default function AnnouncementBannerConfig({
               messages={activeMessages}
               bgColor={bgColor}
               textColor={textColor}
+              speed={speed}
               preview
             />
           </div>

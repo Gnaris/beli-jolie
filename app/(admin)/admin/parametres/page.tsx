@@ -86,12 +86,14 @@ async function GeneralTab() {
   let announcementMessages: string[] = [];
   let announcementBgColor = "#1a1a1a";
   let announcementTextColor = "#ffffff";
+  let announcementSpeed = 8;
   if (announcementConfig?.value) {
     try {
       const parsed = JSON.parse(announcementConfig.value);
       announcementMessages = parsed.messages || [];
       announcementBgColor = parsed.bgColor || "#1a1a1a";
       announcementTextColor = parsed.textColor || "#ffffff";
+      announcementSpeed = parsed.speed || 8;
     } catch { /* ignore */ }
   }
 
@@ -104,6 +106,7 @@ async function GeneralTab() {
           initialMessages={announcementMessages}
           initialBgColor={announcementBgColor}
           initialTextColor={announcementTextColor}
+          initialSpeed={announcementSpeed}
         />
       </div>
 

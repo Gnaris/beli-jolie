@@ -288,7 +288,8 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     <>
       {/* ===== TOP NAVBAR - fixed ===== */}
       <header
-        className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-border shadow-sm transition-all duration-200"
+        className="fixed left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-border shadow-sm transition-all duration-200"
+        style={{ top: "var(--announcement-height, 0px)" }}
       >
         {/* Row 1: Logo — Search — Actions */}
         <div className="container-site h-16 flex lg:grid lg:grid-cols-[1fr_minmax(0,2fr)_1fr] items-center gap-4">

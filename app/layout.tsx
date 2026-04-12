@@ -87,7 +87,7 @@ export default async function RootLayout({
     getCachedSiteConfig("announcement_banner"),
   ]);
 
-  let announcement: { messages: string[]; bgColor: string; textColor: string } | null = null;
+  let announcement: { messages: string[]; bgColor: string; textColor: string; speed?: number } | null = null;
   if (announcementRow?.value) {
     try {
       const parsed = JSON.parse(announcementRow.value);
@@ -125,6 +125,7 @@ export default async function RootLayout({
             messages={announcement.messages}
             bgColor={announcement.bgColor}
             textColor={announcement.textColor}
+            speed={announcement.speed}
           />
         )}
         <NextIntlClientProvider messages={messages}>

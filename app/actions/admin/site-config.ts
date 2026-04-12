@@ -723,6 +723,7 @@ export interface AnnouncementBannerData {
   messages: string[];
   bgColor: string;
   textColor: string;
+  speed: number; // seconds per message
 }
 
 export async function updateAnnouncementBanner(
@@ -736,7 +737,7 @@ export async function updateAnnouncementBanner(
     if (messages.length === 0) {
       await prisma.siteConfig.deleteMany({ where: { key: "announcement_banner" } });
     } else {
-      const payload = { messages, bgColor: data.bgColor, textColor: data.textColor };
+      const payload = { messages, bgColor: data.bgColor, textColor: data.textColor, speed: data.speed || 8 };
       await prisma.siteConfig.upsert({
         where: { key: "announcement_banner" },
         update: { value: JSON.stringify(payload) },
