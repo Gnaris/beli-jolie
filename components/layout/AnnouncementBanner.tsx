@@ -14,7 +14,7 @@ export default function AnnouncementBanner({ messages, bgColor, textColor }: Ann
 
   return (
     <div
-      className="w-full overflow-hidden py-2 text-sm font-body"
+      className="w-full overflow-hidden py-2 text-sm font-body relative z-[60]"
       style={{ backgroundColor: bgColor, color: textColor }}
     >
       <div className="animate-marquee flex whitespace-nowrap">
