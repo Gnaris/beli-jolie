@@ -864,6 +864,42 @@ export async function pushSingleProductToAnkorstore(
   return pushProductToAnkorstoreInternal(productId, "update", { forceCreate });
 }
 
+/**
+ * Check if a product reference exists on Ankorstore.
+ * If not found, clears stale DB state and returns exists=false.
+ */
+export async function checkAnkorstoreProductExists(
+  productId: string,
+): Promise<{ exists: boolean; error?: string }> {
+  await requireAdmin();
+
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { reference: true },
+    });
+    if (!product) return { exists: false, error: "Produit introuvable" };
+
+    const foundProducts = await ankorstoreSearchProductsByRef(product.reference);
+    const found = foundProducts.find((p) => !p.archived);
+    logger.info(`[Ankorstore] checkAnkorstoreProductExists for ${product.reference}`, { exists: !!found });
+
+    if (found) {
+      return { exists: true };
+    }
+
+    // Not found — clear stale DB state
+    await prisma.product.update({
+      where: { id: productId },
+      data: { ankorsSyncStatus: null, ankorsProductId: null, ankorsMatchedAt: null, ankorsSyncError: null },
+    });
+
+    return { exists: false };
+  } catch (err) {
+    return { exists: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 
 /**
  * Check if a product exists on Ankorstore by searching for its reference.

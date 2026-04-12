@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useToast } from "@/components/ui/Toast";
-import { forcePfsSync } from "@/app/actions/admin/pfs-reverse-sync";
+import { forcePfsSync, checkPfsProductExists } from "@/app/actions/admin/pfs-reverse-sync";
 
 interface Props {
   productId: string;
@@ -56,14 +56,20 @@ export default function PfsSyncBanner({
     setStatus("pushing");
     setError(null);
     try {
+      // Step 1: Check if product exists on PFS
+      const check = await checkPfsProductExists(productId);
+      if (!check.exists) {
+        setError("Le produit n'existe pas sur Paris Fashion Shop. Vous pouvez le créer.");
+        setStatus("not_on_pfs");
+        toast.error("Paris Fashion Shop", "Produit introuvable sur PFS.");
+        return;
+      }
+
+      // Step 2: Product exists → sync
       const result = await forcePfsSync(productId);
       if (result.success) {
         setStatus("synced");
         toast.success("Paris Fashion Shop", "Produit publié avec succès.");
-      } else if (result.error === "PFS_PRODUCT_NOT_FOUND") {
-        setError("Le produit n'existe plus sur Paris Fashion Shop. Vous pouvez le recréer.");
-        setStatus("not_on_pfs");
-        toast.error("Paris Fashion Shop", "Produit introuvable sur PFS.");
       } else {
         setError(result.error ?? "Échec de la publication");
         setStatus("error");

@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useToast } from "@/components/ui/Toast";
-import { pushSingleProductToAnkorstore } from "@/app/actions/admin/ankorstore";
+import { pushSingleProductToAnkorstore, checkAnkorstoreProductExists } from "@/app/actions/admin/ankorstore";
 
 interface Props {
   productId: string;
@@ -30,19 +30,25 @@ export default function AnkorstoreSyncBanner({
   });
   const [error, setError] = useState<string | null>(ankorsSyncError);
 
-  // Re-publier = update only, blocks if not found
+  // Re-publier = check existence first, then sync only if exists
   const handlePush = useCallback(async () => {
     setStatus("pushing");
     setError(null);
     try {
+      // Step 1: Check if product exists on Ankorstore
+      const check = await checkAnkorstoreProductExists(productId);
+      if (!check.exists) {
+        setError("Le produit n'existe pas sur Ankorstore. Vous pouvez le créer.");
+        setStatus("not_found");
+        toast.error("Ankorstore", "Produit introuvable sur Ankorstore.");
+        return;
+      }
+
+      // Step 2: Product exists → sync
       const result = await pushSingleProductToAnkorstore(productId);
       if (result.success) {
         setStatus("synced");
         toast.success("Ankorstore", "Produit publié sur Ankorstore avec succès.");
-      } else if (result.error === "ANKORSTORE_PRODUCT_NOT_FOUND") {
-        setError("Le produit n'existe pas sur Ankorstore. Vous pouvez le créer.");
-        setStatus("not_found");
-        toast.error("Ankorstore", "Produit introuvable sur Ankorstore.");
       } else {
         setError(result.error ?? "Échec de la publication");
         setStatus("error");
