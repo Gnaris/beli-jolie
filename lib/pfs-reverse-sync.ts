@@ -119,15 +119,23 @@ export async function syncProductToPfs(productId: string, { forceCreate = false 
     let pfsProductId: string | null = null;
     try {
       const refCheck = await pfsCheckReference(product.reference);
+      logger.info(`[PFS Reverse Sync] checkReference result for ${product.reference}`, {
+        exists: refCheck?.exists,
+        hasProduct: !!refCheck?.product,
+        productId: refCheck?.product?.id ?? null,
+        productStatus: refCheck?.product?.status ?? null,
+        productReference: refCheck?.product?.reference ?? null,
+      });
       if (refCheck?.product?.id) {
-        // Reference exists on PFS (active, archived, or any status) → use this ID
-        // Archived products must be updated (not recreated) to avoid duplicate reference errors
         pfsProductId = refCheck.product.id;
-        const pfsStatus = refCheck.product.status ?? "unknown";
-        logger.info(`[PFS Reverse Sync] Product ${product.reference} found on PFS (id=${pfsProductId}, status=${pfsStatus})`);
+        logger.info(`[PFS Reverse Sync] Product ${product.reference} found on PFS (id=${pfsProductId}, status=${refCheck.product.status ?? "unknown"})`);
+      } else {
+        logger.info(`[PFS Reverse Sync] Product ${product.reference} NOT found on PFS`);
       }
-    } catch {
-      logger.warn(`[PFS Reverse Sync] checkReference failed for ${product.reference}, will attempt create`);
+    } catch (err) {
+      logger.warn(`[PFS Reverse Sync] checkReference failed for ${product.reference}`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     // Reference not found on PFS → never auto-create, always ask user first
