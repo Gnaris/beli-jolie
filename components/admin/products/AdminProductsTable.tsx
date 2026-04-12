@@ -1437,6 +1437,47 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
     startTransition(async () => {
       try {
         const result = await bulkDeleteProducts(ids, deleteFromPfsRef.current, deleteFromAnkorstoreRef.current);
+
+        // If marketplace errors occurred, ask user if they want to force local delete
+        if (result.marketplaceErrors.length > 0) {
+          const errorLines = result.marketplaceErrors.map(
+            (e) => `• ${e.reference} (${e.marketplace}) : ${e.error}`
+          );
+          const forceConfirmed = await confirm({
+            type: "warning",
+            title: "Échec de suppression sur les marketplaces",
+            message: `La suppression a échoué sur certaines marketplaces :\n\n${errorLines.join("\n")}\n\nVoulez-vous quand même supprimer ${ids.length > 1 ? "ces produits" : "ce produit"} de l'application ? ${ids.length > 1 ? "Ils resteront" : "Il restera"} présent${ids.length > 1 ? "s" : ""} sur les marketplaces concernées.`,
+            confirmLabel: "Supprimer localement",
+            cancelLabel: "Annuler",
+          });
+
+          if (!forceConfirmed) {
+            setBulkMessage({
+              type: "error",
+              text: `Suppression annulée — échec marketplace pour ${result.marketplaceErrors.map((e) => e.reference).join(", ")}`,
+            });
+            return;
+          }
+
+          // Force local delete (skip marketplace)
+          const forceResult = await bulkDeleteProducts(ids, false, false, true);
+          const msgs: string[] = [];
+          if (forceResult.deleted > 0) {
+            msgs.push(`${forceResult.deleted} produit${forceResult.deleted > 1 ? "s" : ""} supprimé${forceResult.deleted > 1 ? "s" : ""} localement`);
+          }
+          msgs.push(`⚠ ${result.marketplaceErrors.length} produit(s) encore présent(s) sur les marketplaces`);
+          if (forceResult.protected.length > 0) {
+            const refs = forceResult.protected.map((p) => p.reference).join(", ");
+            msgs.push(`${forceResult.protected.length} protégé(s) (commandes existantes) : ${refs} — utilisez l'archivage`);
+          }
+          setBulkMessage({
+            type: "error",
+            text: msgs.join(" — "),
+          });
+          setSelectedIds(new Set());
+          return;
+        }
+
         const msgs: string[] = [];
         if (result.deleted > 0) {
           msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""}`);

@@ -1,33 +1,34 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
- * Lightweight SSE client that shows the number of currently online clients
- * as a small green badge. Used in both desktop sidebar and mobile nav.
+ * Lightweight polling client that shows the number of currently online clients
+ * as a small green badge. Uses polling instead of SSE to avoid consuming
+ * a persistent HTTP connection (browser limits to 6 per origin in HTTP/1.1).
  */
 export default function LiveCountBadge() {
   const [count, setCount] = useState<number>(0);
-  const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    const es = new EventSource("/api/admin/live-clients");
-    esRef.current = es;
+    let alive = true;
 
-    es.onmessage = (event) => {
+    async function poll() {
       try {
-        const data = JSON.parse(event.data);
-        if (data.type === "update" && Array.isArray(data.clients)) {
-          setCount(data.clients.length);
+        const res = await fetch("/api/admin/live-clients/count");
+        if (res.ok && alive) {
+          const data = await res.json();
+          setCount(data.count ?? 0);
         }
-      } catch {
-        /* skip */
-      }
-    };
+      } catch { /* ignore */ }
+    }
+
+    poll();
+    const interval = setInterval(poll, 30_000); // Poll every 30s
 
     return () => {
-      es.close();
-      esRef.current = null;
+      alive = false;
+      clearInterval(interval);
     };
   }, []);
 

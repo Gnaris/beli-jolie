@@ -130,6 +130,18 @@ function MarkupRow({
           >
             &euro;
           </button>
+          <button
+            type="button"
+            title="Coefficient multiplicateur (ex: 300 = ×3)"
+            onClick={() => onChange({ ...state, type: "multiplier" })}
+            className={`h-8 px-2.5 text-xs font-body font-medium transition-colors ${
+              state.type === "multiplier"
+                ? "bg-bg-dark text-text-inverse"
+                : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
+            }`}
+          >
+            &times;
+          </button>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="font-body text-xs text-text-secondary">Arrondi</span>

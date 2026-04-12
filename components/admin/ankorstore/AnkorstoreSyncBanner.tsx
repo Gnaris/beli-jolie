@@ -11,6 +11,8 @@ interface Props {
   productId: string;
   productReference: string;
   ankorsProductId: string | null;
+  ankorsSyncStatus: "synced" | "pending" | "failed" | null;
+  ankorsSyncError: string | null;
 }
 
 type SyncStatus =
@@ -27,11 +29,16 @@ export default function AnkorstoreSyncBanner({
   productId,
   productReference,
   ankorsProductId: initialAnkorsId,
+  ankorsSyncStatus,
+  ankorsSyncError,
 }: Props) {
   const toast = useToast();
-  const [status, setStatus] = useState<SyncStatus>(initialAnkorsId ? "linked" : "checking");
+  const [status, setStatus] = useState<SyncStatus>(() => {
+    if (ankorsSyncStatus === "failed") return "push_error";
+    return initialAnkorsId ? "linked" : "checking";
+  });
   const [variantCount, setVariantCount] = useState(0);
-  const [pushError, setPushError] = useState<string | null>(null);
+  const [pushError, setPushError] = useState<string | null>(ankorsSyncError);
   const [ankorsId, setAnkorsId] = useState(initialAnkorsId);
   const [isPushing, startPush] = useTransition();
 
@@ -59,10 +66,10 @@ export default function AnkorstoreSyncBanner({
   }, [productId]);
 
   useEffect(() => {
-    if (!initialAnkorsId) {
+    if (!initialAnkorsId && ankorsSyncStatus !== "failed") {
       runCheck();
     }
-  }, [initialAnkorsId, runCheck]);
+  }, [initialAnkorsId, ankorsSyncStatus, runCheck]);
 
   function handlePush() {
     setStatus("pushing");

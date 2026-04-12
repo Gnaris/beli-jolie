@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-export type MarkupType = "percent" | "fixed";
+export type MarkupType = "percent" | "fixed" | "multiplier";
 export type RoundingMode = "none" | "down" | "up";
 
 export interface MarkupConfig {
@@ -27,17 +27,26 @@ export function applyMarketplaceMarkup(
 ): number {
   if (config.value === 0) return basePrice;
 
-  let price =
-    config.type === "percent"
-      ? basePrice * (1 + config.value / 100)
-      : basePrice + config.value;
+  let price: number;
+  switch (config.type) {
+    case "percent":
+      price = basePrice * (1 + config.value / 100);
+      break;
+    case "multiplier":
+      price = basePrice * config.value;
+      break;
+    case "fixed":
+    default:
+      price = basePrice + config.value;
+      break;
+  }
 
   switch (config.rounding) {
     case "down":
-      price = Math.floor(price);
+      price = Math.floor(price * 10) / 10;
       break;
     case "up":
-      price = Math.ceil(price);
+      price = Math.ceil(price * 10) / 10;
       break;
     case "none":
     default:
@@ -56,13 +65,13 @@ export async function loadMarketplaceMarkupConfigs(): Promise<AllMarkupConfigs> 
   const keys = [
     "pfs_price_markup_type",
     "pfs_price_markup_value",
-    "pfs_price_rounding",
+    "pfs_price_markup_rounding",
     "ankorstore_wholesale_markup_type",
     "ankorstore_wholesale_markup_value",
-    "ankorstore_wholesale_rounding",
+    "ankorstore_wholesale_markup_rounding",
     "ankorstore_retail_markup_type",
     "ankorstore_retail_markup_value",
-    "ankorstore_retail_rounding",
+    "ankorstore_retail_markup_rounding",
   ];
 
   const rows = await prisma.siteConfig.findMany({

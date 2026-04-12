@@ -26,7 +26,9 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, categories, colors, compositions, tags, existingTranslations, colorImagesDb, manufacturingCountries, seasons, sizes, hasPfsConfig, ankorsEnabled] = await Promise.all([
+  // Split queries into two batches to avoid exhausting Prisma connection pool
+  // during concurrent marketplace sync operations
+  const [product, existingTranslations, colorImagesDb, hasPfsConfig, ankorsEnabled] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -109,7 +111,22 @@ export default async function ModifierProduitPage({
         tags:            { include: { tag: true } },
       },
     }),
-    // Direct Prisma queries (no cache) — ensures fresh data after import
+    prisma.productTranslation.findMany({
+      where:  { productId: id },
+      select: { locale: true, name: true, description: true },
+    }),
+    prisma.productColorImage.findMany({
+      where:   { productId: id },
+      orderBy: { order: "asc" },
+    }),
+    getCachedPfsEnabled(),
+    getCachedSiteConfig("ankors_enabled"),
+  ]);
+
+  if (!product) notFound();
+
+  // Second batch: catalog data (independent of product, can use cached results)
+  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes] = await Promise.all([
     prisma.category.findMany({
       orderBy: { name: "asc" },
       include: { subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } } },
@@ -120,14 +137,6 @@ export default async function ModifierProduitPage({
     }),
     prisma.composition.findMany({ orderBy: { name: "asc" } }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.productTranslation.findMany({
-      where:  { productId: id },
-      select: { locale: true, name: true, description: true },
-    }),
-    prisma.productColorImage.findMany({
-      where:   { productId: id },
-      orderBy: { order: "asc" },
-    }),
     prisma.manufacturingCountry.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, isoCode: true },
@@ -137,11 +146,7 @@ export default async function ModifierProduitPage({
       orderBy: { position: "asc" },
       select: { id: true, name: true, categories: { select: { categoryId: true } } },
     }),
-    getCachedPfsEnabled(),
-    getCachedSiteConfig("ankors_enabled"),
   ]);
-
-  if (!product) notFound();
 
   // Draft detection: incomplete + OFFLINE → show creation UI with pre-filled data
   const isDraft = product.isIncomplete && product.status === "OFFLINE";
@@ -475,6 +480,8 @@ export default async function ModifierProduitPage({
                 productId={product.id}
                 productReference={product.reference}
                 ankorsProductId={product.ankorsProductId}
+                ankorsSyncStatus={product.ankorsSyncStatus as "synced" | "pending" | "failed" | null}
+                ankorsSyncError={product.ankorsSyncError}
               />
             </div>
           )}

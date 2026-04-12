@@ -87,12 +87,12 @@ export default function PfsSyncBanner({
       const result = await forcePfsSync(productId);
       if (result.success) {
         setStatus("synced");
-        toast.success("Paris Fashion Shop", "Produit cr\u00e9\u00e9 avec succ\u00e8s.");
+        toast.success("Paris Fashion Shop", "Produit créé avec succès.");
         window.location.reload();
       } else {
-        setError(result.error ?? "Erreur lors de la cr\u00e9ation");
+        setError(result.error ?? "Erreur lors de la création");
         setStatus("error");
-        toast.error("Paris Fashion Shop", result.error ?? "\u00c9chec de la cr\u00e9ation.");
+        toast.error("Paris Fashion Shop", result.error ?? "Échec de la création.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -108,11 +108,11 @@ export default function PfsSyncBanner({
       if (result.success) {
         setStatus("synced");
         cachedData.current = null;
-        toast.success("Paris Fashion Shop", "Produit synchronis\u00e9 avec succ\u00e8s.");
+        toast.success("Paris Fashion Shop", "Produit synchronisé avec succès.");
       } else {
-        setError(result.error ?? "\u00c9chec de la synchronisation");
+        setError(result.error ?? "Échec de la synchronisation");
         setStatus("error");
-        toast.error("Paris Fashion Shop", result.error ?? "\u00c9chec de la synchronisation.");
+        toast.error("Paris Fashion Shop", result.error ?? "Échec de la synchronisation.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -152,7 +152,7 @@ export default function PfsSyncBanner({
           <div>
             <span className="text-amber-800">Synchronisation Paris Fashion Shop impossible</span>
             <span className="text-amber-600 text-xs ml-2">
-              {mappingIssues.length} entit{mappingIssues.length > 1 ? "\u00e9s" : "\u00e9"} sans correspondance
+              {mappingIssues.length} entit{mappingIssues.length > 1 ? "és" : "é"} sans correspondance
             </span>
           </div>
         </div>
@@ -168,7 +168,7 @@ export default function PfsSyncBanner({
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
         </svg>
-        <span className="text-text-secondary">V\u00e9rification du statut Paris Fashion Shop...</span>
+        <span className="text-text-secondary">Vérification du statut Paris Fashion Shop...</span>
       </div>
     );
   }
@@ -181,7 +181,7 @@ export default function PfsSyncBanner({
           <svg className="w-4.5 h-4.5 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span className="text-emerald-800">Produit synchronis\u00e9 sur Paris Fashion Shop</span>
+          <span className="text-emerald-800">Produit synchronisé sur Paris Fashion Shop</span>
         </div>
         <button
           type="button"
@@ -206,7 +206,7 @@ export default function PfsSyncBanner({
             <svg className="w-4.5 h-4.5 text-amber-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
             </svg>
-            <span className="text-amber-800">Des diff\u00e9rences d\u00e9tect\u00e9es avec Paris Fashion Shop</span>
+            <span className="text-amber-800">Des différences détectées avec Paris Fashion Shop</span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -218,7 +218,7 @@ export default function PfsSyncBanner({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              Voir les diff\u00e9rences
+              Voir les différences
             </button>
             <button
               type="button"
@@ -262,7 +262,7 @@ export default function PfsSyncBanner({
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
-            Cr\u00e9er sur Paris Fashion Shop
+            Créer sur Paris Fashion Shop
           </button>
           {pfsProductId && (
             <button
@@ -273,7 +273,7 @@ export default function PfsSyncBanner({
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
               </svg>
-              V\u00e9rifier
+              Vérifier
             </button>
           )}
         </div>
@@ -289,7 +289,7 @@ export default function PfsSyncBanner({
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
         </svg>
-        <span className="text-blue-800">Cr\u00e9ation sur Paris Fashion Shop en cours...</span>
+        <span className="text-blue-800">Création sur Paris Fashion Shop en cours...</span>
       </div>
     );
   }
@@ -316,7 +316,7 @@ export default function PfsSyncBanner({
             <svg className="w-4.5 h-4.5 text-red-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
             </svg>
-            <span className="text-red-800">\u00c9chec de la synchronisation Paris Fashion Shop</span>
+            <span className="text-red-800">Échec de la synchronisation Paris Fashion Shop</span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -327,7 +327,7 @@ export default function PfsSyncBanner({
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
               </svg>
-              R\u00e9essayer
+              Réessayer
             </button>
           </div>
         </div>

@@ -450,7 +450,7 @@ function PfsColorDropdown({
 // MultiColorSelect — modal-based multi-select (first = main, rest = sub-colors)
 // With drag & drop reordering + remove in the selection zone
 // ─────────────────────────────────────────────
-function MultiColorSelect({ selected, options, onChange, existingVariants, editingGroupKey, pfsColorRef, pfsColorRefLabel, onPfsColorRefChange, usedPfsColorRefs, onCreateColor, onColorAdded }: {
+function MultiColorSelect({ selected, options, onChange, existingVariants, editingGroupKey, pfsColorRef, pfsColorRefLabel, onPfsColorRefChange, usedPfsColorRefs, onCreateColor, onColorAdded, mappedCombos }: {
   selected: { colorId: string; colorName: string; colorHex: string }[];
   options: AvailableColor[];
   onChange: (colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) => void;
@@ -467,6 +467,8 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
   onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
   /** Notify parent that a color was created inline (so it can update its own list) */
   onColorAdded?: (color: AvailableColor) => void;
+  /** Mapped multi-color combinations from DB: sortedColorIds → pfsColorRef */
+  mappedCombos?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -504,6 +506,53 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.length]);
+
+  // Track the combo key to detect changes
+  const draftComboKey = draft.length > 1 ? draft.map((c) => c.colorId).sort().join("+") : "";
+  const prevComboKeyRef = useRef(draftComboKey);
+
+  // Auto-resolve PFS color ref when draft multi-color combination changes
+  useEffect(() => {
+    if (draft.length <= 1) return;
+    const comboChanged = prevComboKeyRef.current !== draftComboKey;
+    prevComboKeyRef.current = draftComboKey;
+    // Only auto-resolve on combo change, or initial load when no PFS ref
+    if (!comboChanged && draftPfsColorRef) return;
+
+    // Collect PFS refs already used by other variants in this product
+    const usedRefs = new Set<string>();
+    if (existingVariants) {
+      for (const ov of existingVariants) {
+        if (ov.pfsColorRef) usedRefs.add(ov.pfsColorRef);
+      }
+    }
+
+    // 1. Check same-product variants for a matching combo
+    if (existingVariants) {
+      for (const ov of existingVariants) {
+        if (!ov.pfsColorRef) continue;
+        if (ov.colorId && ov.subColors.length > 0) {
+          const vIds = [ov.colorId, ...ov.subColors.map((sc) => sc.colorId)].sort().join("+");
+          if (vIds === draftComboKey) { setDraftPfsColorRef(ov.pfsColorRef); return; }
+        }
+        if (ov.saleType === "PACK" && ov.packColorLines[0]) {
+          const vIds = ov.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
+          if (vIds === draftComboKey) { setDraftPfsColorRef(ov.pfsColorRef); return; }
+        }
+      }
+    }
+    // 2. Check cross-product mapped combinations from DB
+    const dbRef = mappedCombos?.[draftComboKey];
+    if (dbRef && !usedRefs.has(dbRef)) {
+      setDraftPfsColorRef(dbRef);
+      return;
+    }
+    // 3. No match found — clear the PFS ref if combo changed
+    if (comboChanged) {
+      setDraftPfsColorRef("");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftComboKey]);
 
   async function loadPfsData() {
     if (pfsData) { setShowMapping(true); return; }
@@ -2114,6 +2163,7 @@ function QuickAddModal({
                     onColorAdded={onColorAdded}
                     pfsColorRef={line.pfsColorRef}
                     pfsColorRefLabel={line.pfsColorRef ? (pfsColorLabels.get(line.pfsColorRef) ?? undefined) : undefined}
+                    mappedCombos={pfsAttrData?.mappedCombos}
                   />
                 </div>
                 {colorLines.length > 1 && (
@@ -2495,7 +2545,6 @@ export default function ColorVariantManager({
   }
 
   async function removeVariant(tempId: string) {
-    if (variants.length <= 1) return;
     const target = variants.find((v) => v.tempId === tempId);
     const label = target ? `${target.saleType === "PACK" ? "Pack" : "Unité"} ${target.colorName || ""}`.trim() : "cette variante";
     const ok = await confirmDialog({ title: "Supprimer la variante ?", message: `Voulez-vous supprimer « ${label} » ?`, confirmLabel: "Supprimer", type: "danger" });
@@ -2520,6 +2569,7 @@ export default function ColorVariantManager({
     let resolvedRef = pfsColorRefOverride;
     if (resolvedRef === undefined && colors.length > 1) {
       const sortedIds = colors.map((c) => c.colorId).sort().join("+");
+      // 1. Check same-product variants first
       for (const ov of variants) {
         if (!tempIds.has(ov.tempId) && ov.pfsColorRef) {
           if (ov.colorId && ov.subColors.length > 0) {
@@ -2532,20 +2582,51 @@ export default function ColorVariantManager({
           }
         }
       }
+      // 2. Check cross-product mapped combinations from DB (skip if already used by another variant)
+      if (resolvedRef === undefined && pfsAttrData?.mappedCombos?.[sortedIds]) {
+        const candidate = pfsAttrData.mappedCombos[sortedIds];
+        const alreadyUsed = variants.some((ov) => !tempIds.has(ov.tempId) && ov.pfsColorRef === candidate);
+        if (!alreadyUsed) resolvedRef = candidate;
+      }
     }
+    // Compute the final combo key for sibling detection
+    const finalComboSortedIds = colors.map((c) => c.colorId).sort().join("+");
+    const finalPfsRef = resolvedRef;
+
     onChange(variants.map((v) => {
-      if (!tempIds.has(v.tempId)) return v;
-      // Check if color combination actually changed — if so, clear pfsColorRef override
-      const oldKey = variantGroupKeyFromState(v);
-      const newKey = rest.length === 0 ? main.colorId : `${main.colorId}::${rest.map((c) => c.colorName).join(",")}`;
-      const combinationChanged = oldKey !== newKey;
-      return {
-        ...v,
-        colorId: main.colorId, colorName: main.colorName, colorHex: main.colorHex,
-        subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
-        // Use explicit override if provided, auto-resolved, otherwise clear if combination changed
-        pfsColorRef: resolvedRef !== undefined ? resolvedRef : (combinationChanged ? "" : v.pfsColorRef),
-      };
+      if (tempIds.has(v.tempId)) {
+        // Check if color combination actually changed — if so, clear pfsColorRef override
+        const oldKey = variantGroupKeyFromState(v);
+        const newKey = rest.length === 0 ? main.colorId : `${main.colorId}::${rest.map((c) => c.colorName).join(",")}`;
+        const combinationChanged = oldKey !== newKey;
+        return {
+          ...v,
+          colorId: main.colorId, colorName: main.colorName, colorHex: main.colorHex,
+          subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
+          // Use explicit override if provided, auto-resolved, otherwise clear if combination changed
+          pfsColorRef: finalPfsRef !== undefined ? finalPfsRef : (combinationChanged ? "" : v.pfsColorRef),
+        };
+      }
+      // Auto-propagate to sibling variants with same color combination
+      // When override is explicit (user chose), propagate to ALL siblings; when auto-resolved, only unmapped ones
+      if (finalPfsRef && colors.length > 1 && (pfsColorRefOverride !== undefined || !v.pfsColorRef)) {
+        if (v.colorId && v.subColors.length > 0) {
+          const vIds = [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+");
+          if (vIds === finalComboSortedIds) {
+            // Also save to DB if the sibling has a dbId
+            if (v.dbId) { updateProductColorPfsRef(v.dbId, finalPfsRef).catch(() => {}); }
+            return { ...v, pfsColorRef: finalPfsRef };
+          }
+        }
+        if (v.saleType === "PACK" && v.packColorLines[0]) {
+          const vIds = v.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
+          if (vIds === finalComboSortedIds) {
+            if (v.dbId) { updateProductColorPfsRef(v.dbId, finalPfsRef).catch(() => {}); }
+            return { ...v, pfsColorRef: finalPfsRef };
+          }
+        }
+      }
+      return v;
     }));
   }
 
@@ -2562,6 +2643,7 @@ export default function ColorVariantManager({
     // Auto-resolve from existing variant with same color combination
     if (resolvedRef === undefined && colors.length > 1) {
       const sortedIds = colors.map((c) => c.colorId).sort().join("+");
+      // 1. Check same-product variants first
       for (const ov of variants) {
         if (ov.tempId === variantTempId || !ov.pfsColorRef) continue;
         if (ov.colorId && ov.subColors.length > 0) {
@@ -2572,6 +2654,12 @@ export default function ColorVariantManager({
           const vIds = ov.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
           if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
         }
+      }
+      // 2. Check cross-product mapped combinations from DB (skip if already used by another variant)
+      if (resolvedRef === undefined && pfsAttrData?.mappedCombos?.[sortedIds]) {
+        const candidate = pfsAttrData.mappedCombos[sortedIds];
+        const alreadyUsed = variants.some((ov) => ov.tempId !== variantTempId && ov.pfsColorRef === candidate);
+        if (!alreadyUsed) resolvedRef = candidate;
       }
     }
     if (resolvedRef !== undefined) {
@@ -2673,6 +2761,40 @@ export default function ColorVariantManager({
   }
 
   // ── Render helper: used PFS color refs (for conflict display) ──────────
+  // Save PFS color ref for a variant AND propagate DB saves to siblings with same color combination
+  // Note: local state propagation is handled by handleMultiColorChange, this only handles DB persistence
+  async function handlePfsRefChangeAndPropagate(variant: VariantState, ref: string) {
+    const pfsRef = ref || null;
+    // Save to DB for the target variant
+    if (variant.dbId) {
+      try { await updateProductColorPfsRef(variant.dbId, pfsRef); } catch (err) { console.error("[PFS] Failed to save pfsColorRef:", err); }
+    }
+    if (!pfsRef) return;
+    // Compute the color combo key for this variant
+    let targetIds = "";
+    if (variant.saleType === "UNIT" && variant.colorId && variant.subColors.length > 0) {
+      targetIds = [variant.colorId, ...variant.subColors.map((sc) => sc.colorId)].sort().join("+");
+    } else if (variant.saleType === "PACK" && variant.packColorLines[0]?.colors.length > 1) {
+      targetIds = variant.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
+    }
+    if (!targetIds) return;
+    // Find siblings with same combo (propagate to ALL siblings)
+    const siblings = variants.filter((v) => {
+      if (v.tempId === variant.tempId) return false;
+      if (v.saleType === "UNIT" && v.colorId && v.subColors.length > 0) {
+        return [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+") === targetIds;
+      }
+      if (v.saleType === "PACK" && v.packColorLines[0]?.colors.length > 1) {
+        return v.packColorLines[0].colors.map((c) => c.colorId).sort().join("+") === targetIds;
+      }
+      return false;
+    });
+    // Save siblings to DB (local state is handled by handleMultiColorChange via confirm())
+    if (siblings.length > 0) {
+      await Promise.all(siblings.filter((s) => s.dbId).map((s) => updateProductColorPfsRef(s.dbId!, pfsRef).catch(() => {})));
+    }
+  }
+
   function getUsedPfsColorRefs(excludeTempId: string): Map<string, string> {
     const map = new Map<string, string>();
     for (const ov of variants) {
@@ -2795,14 +2917,12 @@ export default function ColorVariantManager({
                       </svg>
                       {imgCount}/5
                     </span>
-                    {variants.length > 1 && (
-                      <button type="button" onClick={() => removeVariant(v.tempId)} title="Supprimer"
+                                          <button type="button" onClick={() => removeVariant(v.tempId)} title="Supprimer"
                         className="p-1 text-text-muted hover:text-[#EF4444] transition-colors">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
-                    )}
                   </div>
 
                   {/* SKU */}
@@ -2822,12 +2942,11 @@ export default function ColorVariantManager({
                       editingGroupKey={variantGroupKeyFromState(v)}
                       pfsColorRef={v.pfsColorRef}
                       pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                      onPfsColorRefChange={async (ref) => {
-                        if (v.dbId) { try { await updateProductColorPfsRef(v.dbId, ref || null); } catch (err) { console.error("[PFS] Failed to save pfsColorRef:", err); } }
-                      }}
+                      onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
                       usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                       onCreateColor={onQuickCreateColor}
                       onColorAdded={onColorAdded}
+                      mappedCombos={pfsAttrData?.mappedCombos}
                     />
                   ) : (
                     <MultiColorSelect
@@ -2836,12 +2955,11 @@ export default function ColorVariantManager({
                       onChange={(colors, pfsRef) => updatePackColorLine(v.tempId, colors, pfsRef)}
                       pfsColorRef={v.pfsColorRef}
                       pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                      onPfsColorRefChange={async (ref) => {
-                        if (v.dbId) { try { await updateProductColorPfsRef(v.dbId, ref || null); } catch (err) { console.error("[PFS] Failed to save pfsColorRef:", err); } }
-                      }}
+                      onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
                       usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                       onCreateColor={onQuickCreateColor}
                       onColorAdded={onColorAdded}
+                      mappedCombos={pfsAttrData?.mappedCombos}
                     />
                   )}
                   {pfsMissing && (
@@ -3101,20 +3219,11 @@ export default function ColorVariantManager({
                               editingGroupKey={variantGroupKeyFromState(v)}
                               pfsColorRef={v.pfsColorRef}
                               pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                              onPfsColorRefChange={async (ref) => {
-                                // Immediate DB save for existing variants (dbId present)
-                                if (v.dbId) {
-                                  try {
-                                    await updateProductColorPfsRef(v.dbId, ref || null);
-                                  } catch (err) {
-                                    console.error("[PFS] Failed to save pfsColorRef:", err);
-                                  }
-                                }
-                                // React state is already updated via onChange -> handleMultiColorChange
-                              }}
+                              onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
                               usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                               onCreateColor={onQuickCreateColor}
                               onColorAdded={onColorAdded}
+                              mappedCombos={pfsAttrData?.mappedCombos}
                             />
                           ) : (
                             <MultiColorSelect
@@ -3123,18 +3232,11 @@ export default function ColorVariantManager({
                               onChange={(colors, pfsRef) => updatePackColorLine(v.tempId, colors, pfsRef)}
                               pfsColorRef={v.pfsColorRef}
                               pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                              onPfsColorRefChange={async (ref) => {
-                                if (v.dbId) {
-                                  try {
-                                    await updateProductColorPfsRef(v.dbId, ref || null);
-                                  } catch (err) {
-                                    console.error("[PFS] Failed to save pfsColorRef:", err);
-                                  }
-                                }
-                              }}
+                              onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
                               usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                               onCreateColor={onQuickCreateColor}
                               onColorAdded={onColorAdded}
+                              mappedCombos={pfsAttrData?.mappedCombos}
                             />
                           )}
                           {pfsMissingD && (
@@ -3244,14 +3346,12 @@ export default function ColorVariantManager({
                               </svg>
                               {imgCountD}
                             </span>
-                            {variants.length > 1 && (
                               <button type="button" onClick={() => removeVariant(v.tempId)}
                                 title="Supprimer" className="p-1 text-text-muted hover:text-[#EF4444] transition-colors">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                               </button>
-                            )}
                           </div>
                         </td>
                       </tr>

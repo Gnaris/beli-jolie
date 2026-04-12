@@ -306,6 +306,9 @@ model Product {
   pfsSyncedAt            DateTime? // Dernière sync réussie vers PFS
   ankorsProductId        String?               @unique // UUID produit Ankorstore
   ankorsMatchedAt        DateTime?             // Date du matching Ankorstore
+  ankorsSyncStatus       String? // null=jamais sync, "synced"=OK, "pending"=en cours, "failed"=echec
+  ankorsSyncError        String?               @db.Text // Dernier message d'erreur de sync Ankorstore
+  ankorsSyncedAt         DateTime? // Derniere sync reussie vers Ankorstore
   name                   String
   description            String                @db.Text
   categoryId             String

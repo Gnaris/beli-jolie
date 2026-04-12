@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { subscribeSSE } from "@/lib/shared-sse";
 
 export type ProductEventType = "PRODUCT_ONLINE" | "PRODUCT_UPDATED" | "PRODUCT_OFFLINE" | "STOCK_CHANGED" | "BESTSELLER_CHANGED" | "PRODUCT_CREATED" | "IMPORT_PROGRESS";
 
@@ -20,8 +21,9 @@ export interface ProductEvent {
 }
 
 /**
- * Subscribe to real-time product events via SSE.
- * Calls `onEvent` for each incoming event. Auto-reconnects on disconnect.
+ * Subscribe to real-time product events via shared SSE.
+ * Calls `onEvent` for each incoming event. Uses a shared EventSource
+ * to avoid exhausting the browser's connection limit.
  */
 export function useProductStream(onEvent: (event: ProductEvent) => void) {
   const onEventRef = useRef(onEvent);
@@ -31,33 +33,13 @@ export function useProductStream(onEvent: (event: ProductEvent) => void) {
   });
 
   useEffect(() => {
-    let es: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout>;
-    let alive = true;
+    const unsubscribe = subscribeSSE((data) => {
+      const event = data as ProductEvent;
+      if (event.type && event.productId) {
+        onEventRef.current(event);
+      }
+    });
 
-    function connect() {
-      if (!alive) return;
-      es = new EventSource("/api/products/stream");
-
-      es.onmessage = (msg) => {
-        try {
-          const event: ProductEvent = JSON.parse(msg.data);
-          onEventRef.current(event);
-        } catch { /* ignore malformed */ }
-      };
-
-      es.onerror = () => {
-        es?.close();
-        if (alive) reconnectTimer = setTimeout(connect, 5000);
-      };
-    }
-
-    connect();
-
-    return () => {
-      alive = false;
-      clearTimeout(reconnectTimer);
-      es?.close();
-    };
+    return unsubscribe;
   }, []);
 }

@@ -401,6 +401,12 @@ export async function pushProductToAnkorstoreInternal(
   }
 
   try {
+    // Mark as pending
+    await prisma.product.update({
+      where: { id: productId },
+      data: { ankorsSyncStatus: "pending", ankorsSyncError: null },
+    });
+
     emitAnkors({ step: "Chargement du produit...", progress: 40, status: "in_progress" });
     const r2Url = process.env.R2_PUBLIC_URL || process.env.NEXT_PUBLIC_R2_URL || "";
 
@@ -410,17 +416,19 @@ export async function pushProductToAnkorstoreInternal(
         id: true, name: true, reference: true, description: true,
         ankorsProductId: true,
         dimensionLength: true, dimensionWidth: true, dimensionHeight: true,
+        dimensionDiameter: true, dimensionCircumference: true,
         manufacturingCountry: { select: { isoCode: true } },
         compositions: {
           include: { composition: { select: { name: true } } },
           orderBy: { percentage: "desc" },
         },
         colors: {
+          orderBy: { isPrimary: "desc" },
           select: {
             id: true, saleType: true, stock: true, unitPrice: true,
             packQuantity: true, weight: true,
             color: { select: { name: true } },
-            images: { take: 1, orderBy: { order: "asc" }, select: { path: true } },
+            images: { orderBy: { order: "asc" }, select: { path: true } },
             packColorLines: {
               select: { colors: { select: { color: { select: { name: true } } }, orderBy: { position: "asc" } } },
               orderBy: { position: "asc" },
@@ -467,48 +475,64 @@ export async function pushProductToAnkorstoreInternal(
       return entries.length > 0 ? entries : [{ name: "TU", quantity: 1 }];
     }
 
+    // Helper: build images array for Ankorstore from a color's images
+    function buildVariantImages(images: { path: string }[]): { order: number; url: string }[] {
+      if (!r2Url) return [];
+      return images
+        .filter((img) => img.path)
+        .map((img, idx) => ({ order: idx + 1, url: `${r2Url}${img.path}` }));
+    }
+
     for (const c of prod.colors) {
       const colorName = variantColorLabel(c);
       const sizes = variantSizeEntries(c);
       const unitPrice = Number(c.unitPrice ?? 0);
-      const imagePath = c.images[0]?.path;
-      const imageUrl = imagePath && r2Url ? `${r2Url}${imagePath}` : undefined;
-      if (!mainImage && imageUrl) mainImage = imageUrl;
+      const variantImages = buildVariantImages(c.images);
+      const firstImageUrl = variantImages[0]?.url;
+      if (!mainImage && firstImageUrl) mainImage = firstImageUrl;
 
       if (c.saleType === "UNIT" && unitPrice > 0) {
+        const unitWholesale = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale);
+        // Retail markup applies on top of wholesale price
+        const unitRetail = applyMarketplaceMarkup(unitWholesale, markupConfigs.ankorstoreRetail);
         // One Ankorstore variant per size
         for (const sz of sizes) {
           variants.push({
             sku: truncateSku(`${prod.reference}_${colorName}_${sz.name}`),
             external_id: c.id,
             stock_quantity: c.stock,
-            wholesalePrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale),
-            retailPrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail),
+            wholesalePrice: unitWholesale,
+            retailPrice: unitRetail,
             originalWholesalePrice: unitPrice,
             options: [
               { name: "color", value: colorName },
               { name: "size", value: sz.name },
             ],
-            ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
+            ...(variantImages.length > 0 ? { images: variantImages } : {}),
           });
         }
       }
 
       if (c.saleType === "PACK") {
         const packQty = c.packQuantity ?? 12;
-        // PACK: apply markup on unit price first, then multiply by pack quantity
-        const markedUpUnitPrice = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale);
-        const markedUpRetailUnit = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail);
-        const packWholesale = Math.round(markedUpUnitPrice * packQty * 100) / 100;
-        const packRetail = Math.round(markedUpRetailUnit * packQty * 100) / 100;
+        // PACK: unitPrice in DB is the total pack price (perUnit × totalQty)
+        // Apply markup on the per-unit price first (with rounding), then multiply by qty
+        const totalQty = c.variantSizes?.reduce((sum, vs) => sum + vs.quantity, 0) || packQty;
+        const perUnitPrice = Math.round((unitPrice / totalQty) * 100) / 100;
+        const markedUpUnit = applyMarketplaceMarkup(perUnitPrice, markupConfigs.ankorstoreWholesale);
+        const packWholesale = Math.round(markedUpUnit * totalQty * 100) / 100;
+        // Retail markup applies on top of the wholesale price
+        const packRetail = applyMarketplaceMarkup(packWholesale, markupConfigs.ankorstoreRetail);
         if (unitPrice > 0) {
           // For PACK image: use own images, or fall back to a UNIT variant of same product
-          const packImageUrl = imageUrl
-            ?? (() => {
-              const unitFallback = prod.colors.find((u) => u.saleType === "UNIT" && u.images[0]?.path);
-              return unitFallback?.images[0]?.path && r2Url ? `${r2Url}${unitFallback.images[0].path}` : undefined;
+          const packImages = variantImages.length > 0
+            ? variantImages
+            : (() => {
+              const unitFallback = prod.colors.find((u) => u.saleType === "UNIT" && u.images.length > 0);
+              return unitFallback ? buildVariantImages(unitFallback.images) : [];
             })();
-          if (!mainImage && packImageUrl) mainImage = packImageUrl;
+          const packFirstUrl = packImages[0]?.url;
+          if (!mainImage && packFirstUrl) mainImage = packFirstUrl;
 
           // One Ankorstore variant per size (e.g. Sx6, Mx4, Lx2)
           for (const sz of sizes) {
@@ -518,13 +542,13 @@ export async function pushProductToAnkorstoreInternal(
               stock_quantity: c.stock,
               wholesalePrice: packWholesale,
               retailPrice: packRetail,
-              originalWholesalePrice: Math.round(unitPrice * packQty * 100) / 100,
+              originalWholesalePrice: unitPrice,
               unit_multiplier: 1,
               options: [
                 { name: "color", value: colorName },
                 { name: "size", value: `${sz.name}x${sz.quantity}` },
               ],
-              ...(packImageUrl ? { images: [{ order: 1, url: packImageUrl }] } : {}),
+              ...(packImages.length > 0 ? { images: packImages } : {}),
             });
           }
         }
@@ -545,12 +569,23 @@ export async function pushProductToAnkorstoreInternal(
     // Title: {name} - {reference}
     const title = `${prod.name} - ${prod.reference}`;
 
-    // Description: {description}\nComposition: ...\nRéférence: {reference}
+    // Description: {description}\nComposition: ...\nDimensions: ...\nRéférence: {reference}
     const compositionText = prod.compositions.length > 0
       ? prod.compositions.map((c) => `${c.composition.name} ${c.percentage}%`).join(", ")
       : null;
+    const dimParts: string[] = [];
+    if (prod.dimensionLength) dimParts.push(`Longueur ${prod.dimensionLength} mm`);
+    if (prod.dimensionWidth) dimParts.push(`Largeur ${prod.dimensionWidth} mm`);
+    if (prod.dimensionHeight) dimParts.push(`Hauteur ${prod.dimensionHeight} mm`);
+    if (prod.dimensionDiameter) dimParts.push(`Diamètre ${prod.dimensionDiameter} mm`);
+    if (prod.dimensionCircumference) dimParts.push(`Circonférence ${prod.dimensionCircumference} mm`);
+    const dimensionText = dimParts.length > 0 ? dimParts.join(" × ") : null;
+    const maxWeightForDesc = Math.max(0, ...prod.colors.map((c) => c.weight ?? 0));
+
     let desc = prod.description ?? "";
     if (compositionText) desc += `\nComposition : ${compositionText}`;
+    if (dimensionText) desc += `\nDimensions : ${dimensionText}`;
+    if (maxWeightForDesc > 0) desc += `\nPoids : ${maxWeightForDesc} kg`;
     desc += `\nRéférence : ${prod.reference}`;
     if (desc.length < 30) desc = `${prod.name}. ${desc}`;
 
@@ -582,7 +617,10 @@ export async function pushProductToAnkorstoreInternal(
       name: title,
       description: desc,
       wholesale_price: applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreWholesale),
-      retail_price: applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreRetail),
+      retail_price: applyMarketplaceMarkup(
+        applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreWholesale),
+        markupConfigs.ankorstoreRetail
+      ),
       vat_rate: 20,
       unit_multiplier: maxPackQty,
       main_image: mainImage,
@@ -674,12 +712,30 @@ export async function pushProductToAnkorstoreInternal(
     // (e.g. triggerAnkorstoreSync during page render). That's OK — the
     // caller (createProduct/updateProduct) already revalidates.
     try { revalidateTag("products", "default"); } catch { /* fire-and-forget context */ }
+
+    // Mark as synced
+    await prisma.product.update({
+      where: { id: productId },
+      data: { ankorsSyncStatus: "synced", ankorsSyncError: null, ankorsSyncedAt: new Date() },
+    });
+
     return { success: true };
   } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
     logger.error("[Ankorstore] Single push failed", {
-      error: e instanceof Error ? e.message : String(e),
+      error: errorMsg,
     });
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+
+    // Persist error to DB
+    await prisma.product.update({
+      where: { id: productId },
+      data: {
+        ankorsSyncStatus: "failed",
+        ankorsSyncError: errorMsg.slice(0, 5000),
+      },
+    }).catch(() => {}); // Don't throw on cleanup failure
+
+    return { success: false, error: errorMsg };
   }
 }
 
@@ -777,12 +833,14 @@ export async function pushProductsToAnkorstore(): Promise<{
         reference: true,
         description: true,
         dimensionLength: true, dimensionWidth: true, dimensionHeight: true,
+        dimensionDiameter: true, dimensionCircumference: true,
         manufacturingCountry: { select: { isoCode: true } },
         compositions: {
           include: { composition: { select: { name: true } } },
           orderBy: { percentage: "desc" },
         },
         colors: {
+          orderBy: { isPrimary: "desc" },
           select: {
             id: true,
             saleType: true,
@@ -791,7 +849,7 @@ export async function pushProductsToAnkorstore(): Promise<{
             packQuantity: true,
             weight: true,
             color: { select: { name: true } },
-            images: { take: 1, orderBy: { order: "asc" }, select: { path: true } },
+            images: { orderBy: { order: "asc" }, select: { path: true } },
             packColorLines: {
               select: { colors: { select: { color: { select: { name: true } } }, orderBy: { position: "asc" } } },
               orderBy: { position: "asc" },
@@ -809,6 +867,14 @@ export async function pushProductsToAnkorstore(): Promise<{
     logger.info("[Ankorstore] Preparing push", { count: bjProducts.length });
 
     const markupConfigs = await loadMarketplaceMarkupConfigs();
+
+    // Helper: build images array for Ankorstore from a color's images
+    function bulkBuildVariantImages(images: { path: string }[]): { order: number; url: string }[] {
+      if (!r2Url) return [];
+      return images
+        .filter((img) => img.path)
+        .map((img, idx) => ({ order: idx + 1, url: `${r2Url}${img.path}` }));
+    }
 
     // Build Ankorstore products
     const pushProducts: AnkorstorePushProduct[] = [];
@@ -839,42 +905,49 @@ export async function pushProductsToAnkorstore(): Promise<{
         const colorName = bulkColorLabel(c);
         const sizes = bulkSizeEntries(c);
         const unitPrice = Number(c.unitPrice ?? 0);
-        const imagePath = c.images[0]?.path;
-        const imageUrl = imagePath && r2Url ? `${r2Url}${imagePath}` : undefined;
-        if (!mainImage && imageUrl) mainImage = imageUrl;
+        const variantImages = bulkBuildVariantImages(c.images);
+        const firstImageUrl = variantImages[0]?.url;
+        if (!mainImage && firstImageUrl) mainImage = firstImageUrl;
 
         if (c.saleType === "UNIT" && unitPrice > 0) {
+          const bulkUnitWholesale = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale);
+          const bulkUnitRetail = applyMarketplaceMarkup(bulkUnitWholesale, markupConfigs.ankorstoreRetail);
           for (const sz of sizes) {
             variants.push({
               sku: bulkTruncateSku(`${prod.reference}_${colorName}_${sz.name}`),
               external_id: c.id,
               stock_quantity: c.stock,
-              wholesalePrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale),
-              retailPrice: applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail),
+              wholesalePrice: bulkUnitWholesale,
+              retailPrice: bulkUnitRetail,
               originalWholesalePrice: unitPrice,
               options: [
                 { name: "color", value: colorName },
                 { name: "size", value: sz.name },
               ],
-              ...(imageUrl ? { images: [{ order: 1, url: imageUrl }] } : {}),
+              ...(variantImages.length > 0 ? { images: variantImages } : {}),
             });
           }
         }
 
         if (c.saleType === "PACK") {
           const packQty = c.packQuantity ?? 12;
-          // PACK: apply markup on unit price first, then multiply by pack quantity
-          const bulkMarkedUpUnit = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale);
-          const bulkMarkedUpRetail = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreRetail);
-          const bulkPackWholesale = Math.round(bulkMarkedUpUnit * packQty * 100) / 100;
-          const bulkPackRetail = Math.round(bulkMarkedUpRetail * packQty * 100) / 100;
+          // PACK: unitPrice in DB is the total pack price (perUnit × totalQty)
+          // Apply markup on per-unit price first (with rounding), then multiply by qty
+          const bulkTotalQty = c.variantSizes?.reduce((sum, vs) => sum + vs.quantity, 0) || packQty;
+          const bulkPerUnitPrice = Math.round((unitPrice / bulkTotalQty) * 100) / 100;
+          const bulkMarkedUpUnit = applyMarketplaceMarkup(bulkPerUnitPrice, markupConfigs.ankorstoreWholesale);
+          const bulkPackWholesale = Math.round(bulkMarkedUpUnit * bulkTotalQty * 100) / 100;
+          // Retail markup applies on top of the wholesale price
+          const bulkPackRetail = applyMarketplaceMarkup(bulkPackWholesale, markupConfigs.ankorstoreRetail);
           if (unitPrice > 0) {
-            const packImageUrl = imageUrl
-              ?? (() => {
-                const unitFallback = prod.colors.find((u) => u.saleType === "UNIT" && u.images[0]?.path);
-                return unitFallback?.images[0]?.path && r2Url ? `${r2Url}${unitFallback.images[0].path}` : undefined;
+            const packImages = variantImages.length > 0
+              ? variantImages
+              : (() => {
+                const unitFallback = prod.colors.find((u) => u.saleType === "UNIT" && u.images.length > 0);
+                return unitFallback ? bulkBuildVariantImages(unitFallback.images) : [];
               })();
-            if (!mainImage && packImageUrl) mainImage = packImageUrl;
+            const packFirstUrl = packImages[0]?.url;
+            if (!mainImage && packFirstUrl) mainImage = packFirstUrl;
 
             for (const sz of sizes) {
               variants.push({
@@ -883,13 +956,13 @@ export async function pushProductsToAnkorstore(): Promise<{
                 stock_quantity: c.stock,
                 wholesalePrice: bulkPackWholesale,
                 retailPrice: bulkPackRetail,
-                originalWholesalePrice: Math.round(unitPrice * packQty * 100) / 100,
+                originalWholesalePrice: unitPrice,
                 unit_multiplier: 1,
                 options: [
                   { name: "color", value: colorName },
                   { name: "size", value: `${sz.name}x${sz.quantity}` },
                 ],
-                ...(packImageUrl ? { images: [{ order: 1, url: packImageUrl }] } : {}),
+                ...(packImages.length > 0 ? { images: packImages } : {}),
               });
             }
           }
@@ -907,12 +980,23 @@ export async function pushProductsToAnkorstore(): Promise<{
       // Title: {name} - {reference}
       const title = `${prod.name} - ${prod.reference}`;
 
-      // Description with composition + reference
+      // Description with composition + dimensions + reference
       const compositionText = prod.compositions.length > 0
         ? prod.compositions.map((c) => `${c.composition.name} ${c.percentage}%`).join(", ")
         : null;
+      const bulkDimParts: string[] = [];
+      if (prod.dimensionLength) bulkDimParts.push(`Longueur ${prod.dimensionLength} mm`);
+      if (prod.dimensionWidth) bulkDimParts.push(`Largeur ${prod.dimensionWidth} mm`);
+      if (prod.dimensionHeight) bulkDimParts.push(`Hauteur ${prod.dimensionHeight} mm`);
+      if (prod.dimensionDiameter) bulkDimParts.push(`Diamètre ${prod.dimensionDiameter} mm`);
+      if (prod.dimensionCircumference) bulkDimParts.push(`Circonférence ${prod.dimensionCircumference} mm`);
+      const bulkDimensionText = bulkDimParts.length > 0 ? bulkDimParts.join(" × ") : null;
+      const bulkMaxWeightForDesc = Math.max(0, ...prod.colors.map((c) => c.weight ?? 0));
+
       let desc = prod.description ?? "";
       if (compositionText) desc += `\nComposition : ${compositionText}`;
+      if (bulkDimensionText) desc += `\nDimensions : ${bulkDimensionText}`;
+      if (bulkMaxWeightForDesc > 0) desc += `\nPoids : ${bulkMaxWeightForDesc} kg`;
       desc += `\nRéférence : ${prod.reference}`;
       if (desc.length < 30) desc = `${prod.name}. ${desc}`;
 
@@ -932,7 +1016,10 @@ export async function pushProductsToAnkorstore(): Promise<{
         name: title,
         description: desc,
         wholesale_price: applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreWholesale),
-        retail_price: applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreRetail),
+        retail_price: applyMarketplaceMarkup(
+          applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreWholesale),
+          markupConfigs.ankorstoreRetail
+        ),
         vat_rate: 20,
         unit_multiplier: bulkMaxPackQty,
         main_image: mainImage,

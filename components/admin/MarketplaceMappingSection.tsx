@@ -63,6 +63,8 @@ interface PfsData {
   families: PfsFamily[];
   genders: PfsGender[];
   sizes: PfsSize[];
+  /** Mapped multi-color combinations: sortedColorIds (id+id+id) → pfsColorRef */
+  mappedCombos?: Record<string, string>;
   pfsDisabled?: boolean;
 }
 

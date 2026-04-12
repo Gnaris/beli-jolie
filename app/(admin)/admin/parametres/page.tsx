@@ -321,9 +321,9 @@ async function MarketplacesTab() {
       where: {
         key: {
           in: [
-            "pfs_price_markup_type", "pfs_price_markup_value", "pfs_price_rounding",
-            "ankorstore_wholesale_markup_type", "ankorstore_wholesale_markup_value", "ankorstore_wholesale_rounding",
-            "ankorstore_retail_markup_type", "ankorstore_retail_markup_value", "ankorstore_retail_rounding",
+            "pfs_price_markup_type", "pfs_price_markup_value", "pfs_price_markup_rounding",
+            "ankorstore_wholesale_markup_type", "ankorstore_wholesale_markup_value", "ankorstore_wholesale_markup_rounding",
+            "ankorstore_retail_markup_type", "ankorstore_retail_markup_value", "ankorstore_retail_markup_rounding",
           ],
         },
       },
@@ -341,19 +341,19 @@ async function MarketplacesTab() {
         ankorsEnabled={ankorsEnabledRow?.value === "true"}
         markupSettings={{
           pfs: {
-            type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed") || "percent",
+            type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
             value: Number(markupMap.get("pfs_price_markup_value")) || 0,
-            rounding: (markupMap.get("pfs_price_rounding") as "none" | "down" | "up") || "none",
+            rounding: (markupMap.get("pfs_price_markup_rounding") as "none" | "down" | "up") || "none",
           },
           ankorstoreWholesale: {
-            type: (markupMap.get("ankorstore_wholesale_markup_type") as "percent" | "fixed") || "percent",
+            type: (markupMap.get("ankorstore_wholesale_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
             value: Number(markupMap.get("ankorstore_wholesale_markup_value")) || 0,
-            rounding: (markupMap.get("ankorstore_wholesale_rounding") as "none" | "down" | "up") || "none",
+            rounding: (markupMap.get("ankorstore_wholesale_markup_rounding") as "none" | "down" | "up") || "none",
           },
           ankorstoreRetail: {
-            type: (markupMap.get("ankorstore_retail_markup_type") as "percent" | "fixed") || "percent",
+            type: (markupMap.get("ankorstore_retail_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
             value: Number(markupMap.get("ankorstore_retail_markup_value")) || 0,
-            rounding: (markupMap.get("ankorstore_retail_rounding") as "none" | "down" | "up") || "none",
+            rounding: (markupMap.get("ankorstore_retail_markup_rounding") as "none" | "down" | "up") || "none",
           },
         }}
       />

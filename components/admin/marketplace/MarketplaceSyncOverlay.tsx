@@ -9,7 +9,9 @@ import {
   useRef,
 } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
 import type { MarketplaceId, MarketplaceSyncProgress } from "@/lib/product-events";
+import { subscribeSSE } from "@/lib/shared-sse";
 
 // ─────────────────────────────────────────────
 // Types
@@ -26,6 +28,8 @@ interface MarketplaceState {
 interface MarketplaceSyncContextValue {
   /** Start watching sync for one or more products. Call after save. */
   startSync: (productIds: string | string[], marketplaces: MarketplaceId[]) => void;
+  /** Product IDs currently being synced */
+  syncingProductIds: Set<string>;
 }
 
 const MarketplaceSyncContext = createContext<MarketplaceSyncContextValue | null>(null);
@@ -256,16 +260,160 @@ function computeAggregate(
 }
 
 // ─────────────────────────────────────────────
+// Mini widget (bottom-right, visible only on syncing product page)
+// ─────────────────────────────────────────────
+
+function MiniSyncWidget({
+  states,
+  syncingProductIds,
+  onExpand,
+  onDismiss,
+}: {
+  states: Map<MarketplaceId, MarketplaceState>;
+  syncingProductIds: Set<string>;
+  onExpand: () => void;
+  onDismiss: () => void;
+}) {
+  const pathname = usePathname();
+  const [widgetFadeIn, setWidgetFadeIn] = useState(false);
+
+  useEffect(() => {
+    requestAnimationFrame(() => setWidgetFadeIn(true));
+  }, []);
+
+  // Only show on the product page being synced
+  // URL pattern: /admin/produits/{id}/modifier
+  const isOnSyncingProductPage = (() => {
+    if (syncingProductIds.size === 0) return false;
+    const match = pathname.match(/\/admin\/produits\/([^/]+)\/modifier/);
+    if (match) return syncingProductIds.has(match[1]);
+    // Also show on /admin/produits (list page) for bulk syncs
+    if (pathname === "/admin/produits" && syncingProductIds.size > 1) return true;
+    return false;
+  })();
+
+  if (!isOnSyncingProductPage) return null;
+
+  const allDone = Array.from(states.values()).every(
+    (s) => s.status === "success" || s.status === "error"
+  );
+  const hasError = Array.from(states.values()).some((s) => s.status === "error");
+  const allSuccess = allDone && !hasError;
+
+  // Compute overall progress
+  const totalProgress = states.size > 0
+    ? Math.round(Array.from(states.values()).reduce((sum, s) => sum + s.progress, 0) / states.size)
+    : 0;
+
+  return (
+    <div
+      className={`
+        fixed bottom-4 right-4 z-[9998] transition-all duration-300
+        ${widgetFadeIn ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"}
+      `}
+    >
+      <div
+        className={`
+          bg-bg-primary rounded-xl border shadow-lg overflow-hidden cursor-pointer
+          hover:shadow-xl transition-shadow duration-200
+          ${allSuccess ? "border-emerald-300" : hasError ? "border-red-300" : "border-border-dark"}
+        `}
+        style={{ width: 280 }}
+        onClick={onExpand}
+      >
+        {/* Compact header */}
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5">
+          {allSuccess ? (
+            <SuccessIcon />
+          ) : hasError ? (
+            <ErrorIcon />
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="shrink-0 animate-spin" style={{ animationDuration: "2s" }}>
+              <circle cx="12" cy="12" r="10" stroke="var(--color-accent)" strokeWidth="2.5" opacity="0.2" />
+              <path d="M12 2a10 10 0 0 1 10 10" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-text-primary truncate">
+              {allSuccess
+                ? "Synchronisation terminée"
+                : hasError
+                  ? "Erreurs de synchronisation"
+                  : "Synchronisation en cours..."}
+            </p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              {Array.from(states.values()).map((s) => {
+                const meta = MARKETPLACE_META[s.marketplace];
+                return (
+                  <span
+                    key={s.marketplace}
+                    className={`
+                      inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full
+                      ${s.status === "success" ? "bg-emerald-100 text-emerald-700"
+                        : s.status === "error" ? "bg-red-100 text-red-700"
+                        : "bg-gray-100 text-gray-600"}
+                    `}
+                  >
+                    {meta.icon}
+                    {s.status === "success" ? "✓" : s.status === "error" ? "✗" : `${s.progress}%`}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+          {allDone ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+              className="p-1 rounded-lg hover:bg-bg-tertiary transition-colors"
+              title="Fermer"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); onExpand(); }}
+              className="p-1 rounded-lg hover:bg-bg-tertiary transition-colors"
+              title="Agrandir"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Mini progress bar (only when not done) */}
+        {!allDone && (
+          <div className="h-1 bg-bg-tertiary">
+            <div
+              className="h-full transition-all duration-700 ease-out"
+              style={{
+                width: `${totalProgress}%`,
+                background: "linear-gradient(90deg, var(--color-accent), var(--color-accent-dark, var(--color-accent)))",
+              }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // Provider
 // ─────────────────────────────────────────────
 
 export function MarketplaceSyncProvider({ children }: { children: React.ReactNode }) {
   const [visible, setVisible] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [fadeIn, setFadeIn] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [states, setStates] = useState<Map<MarketplaceId, MarketplaceState>>(new Map());
   const [sessionId, setSessionId] = useState(0);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const [syncingProductIds, setSyncingProductIds] = useState<Set<string>>(new Set());
+  const sseUnsubRef = useRef<(() => void) | null>(null);
   const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Multi-product tracking
@@ -275,51 +423,66 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
 
   useEffect(() => { setMounted(true); }, []);
 
-  // SSE listener — reopens on new session
+  // SSE listener via shared connection — subscribes/unsubscribes on session change
   useEffect(() => {
     if (sessionId === 0) return;
 
-    const es = new EventSource("/api/products/stream");
-    eventSourceRef.current = es;
+    const unsubscribe = subscribeSSE((data) => {
+      const event = data as { type?: string; productId?: string; marketplaceSync?: MarketplaceSyncProgress };
+      if (event.type !== "MARKETPLACE_SYNC") return;
+      if (!event.productId || !trackedIdsRef.current.has(event.productId)) return;
 
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type !== "MARKETPLACE_SYNC") return;
-        if (!trackedIdsRef.current.has(data.productId)) return;
+      const sync = event.marketplaceSync;
+      if (!sync) return;
 
-        const sync = data.marketplaceSync as MarketplaceSyncProgress;
-        if (!sync) return;
+      // Update per-product state
+      const pp = perProductRef.current;
+      let mkMap = pp.get(event.productId);
+      if (!mkMap) {
+        mkMap = new Map();
+        pp.set(event.productId, mkMap);
+      }
+      mkMap.set(sync.marketplace, {
+        status: sync.status,
+        progress: sync.progress,
+        step: sync.step,
+        error: sync.error,
+      });
 
-        // Update per-product state
-        const pp = perProductRef.current;
-        let mkMap = pp.get(data.productId);
-        if (!mkMap) {
-          mkMap = new Map();
-          pp.set(data.productId, mkMap);
-        }
-        mkMap.set(sync.marketplace, {
-          status: sync.status,
-          progress: sync.progress,
-          step: sync.step,
-          error: sync.error,
-        });
-
-        // Recompute aggregate for all tracked marketplaces
-        const total = trackedIdsRef.current.size;
-        const newStates = new Map<MarketplaceId, MarketplaceState>();
-        for (const m of trackedMarketplacesRef.current) {
-          newStates.set(m, computeAggregate(m, pp, total));
-        }
-        setStates(newStates);
-      } catch { /* ignore malformed */ }
-    };
+      // Recompute aggregate for all tracked marketplaces
+      const total = trackedIdsRef.current.size;
+      const newStates = new Map<MarketplaceId, MarketplaceState>();
+      for (const m of trackedMarketplacesRef.current) {
+        newStates.set(m, computeAggregate(m, pp, total));
+      }
+      setStates(newStates);
+    });
+    sseUnsubRef.current = unsubscribe;
 
     return () => {
-      es.close();
-      eventSourceRef.current = null;
+      unsubscribe();
+      sseUnsubRef.current = null;
     };
   }, [sessionId]);
+
+  function dismiss() {
+    setFadeIn(false);
+    setMinimized(false);
+    setTimeout(() => {
+      setVisible(false);
+      setStates(new Map());
+      setSyncingProductIds(new Set());
+      trackedIdsRef.current = new Set();
+      trackedMarketplacesRef.current = [];
+      perProductRef.current = new Map();
+      // Unsubscribe from shared SSE (closes connection if no other subscribers)
+      if (sseUnsubRef.current) {
+        sseUnsubRef.current();
+        sseUnsubRef.current = null;
+      }
+      setSessionId(0);
+    }, 300);
+  }
 
   // Auto-dismiss when all marketplaces are done (success or error)
   useEffect(() => {
@@ -330,7 +493,7 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
     );
     const hasError = Array.from(states.values()).some((s) => s.status === "error");
 
-    if (allDone) {
+    if (allDone && !minimized) {
       // If no errors, auto-dismiss after 2.5s. If errors, stay open.
       if (!hasError) {
         autoDismissTimerRef.current = setTimeout(() => {
@@ -339,23 +502,36 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
       }
     }
 
+    // When minimized and all done with no errors, auto-dismiss widget after 5s
+    if (allDone && minimized && !hasError) {
+      autoDismissTimerRef.current = setTimeout(() => {
+        dismiss();
+      }, 5000);
+    }
+
     return () => {
       if (autoDismissTimerRef.current) {
         clearTimeout(autoDismissTimerRef.current);
         autoDismissTimerRef.current = null;
       }
     };
-  }, [states, visible]);
+  }, [states, visible, minimized]);
 
-  function dismiss() {
+  function minimize() {
+    // Cancel auto-dismiss timer if any
+    if (autoDismissTimerRef.current) {
+      clearTimeout(autoDismissTimerRef.current);
+      autoDismissTimerRef.current = null;
+    }
     setFadeIn(false);
     setTimeout(() => {
-      setVisible(false);
-      setStates(new Map());
-      trackedIdsRef.current = new Set();
-      trackedMarketplacesRef.current = [];
-      perProductRef.current = new Map();
+      setMinimized(true);
     }, 300);
+  }
+
+  function expand() {
+    setMinimized(false);
+    requestAnimationFrame(() => setFadeIn(true));
   }
 
   const startSync = useCallback((productIdOrIds: string | string[], marketplaces: MarketplaceId[]) => {
@@ -364,6 +540,7 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
     // Setup tracking
     trackedIdsRef.current = new Set(ids);
     trackedMarketplacesRef.current = marketplaces;
+    setSyncingProductIds(new Set(ids));
 
     // Init per-product state
     const pp = new Map<string, Map<MarketplaceId, PerProductState>>();
@@ -383,6 +560,7 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
     }
     setStates(initial);
     setVisible(true);
+    setMinimized(false);
     setSessionId((prev) => prev + 1);
     requestAnimationFrame(() => setFadeIn(true));
   }, []);
@@ -394,13 +572,14 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
   const hasError = Array.from(states.values()).some((s) => s.status === "error");
   const activeCount = Array.from(states.values()).filter((s) => s.status === "in_progress").length;
 
-  const ctx: MarketplaceSyncContextValue = { startSync };
+  const ctx: MarketplaceSyncContextValue = { startSync, syncingProductIds };
 
   return (
     <MarketplaceSyncContext.Provider value={ctx}>
       {children}
 
-      {mounted && visible && createPortal(
+      {/* Full overlay (when not minimized) */}
+      {mounted && visible && !minimized && createPortal(
         <div
           className={`fixed inset-0 z-[9999] flex items-center justify-center transition-all duration-300 ${
             fadeIn
@@ -462,7 +641,7 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
               ))}
             </div>
 
-            {/* Footer — only show close button when done */}
+            {/* Footer */}
             <div className="px-6 pb-6 pt-3">
               {allDone ? (
                 <button
@@ -478,13 +657,30 @@ export function MarketplaceSyncProvider({ children }: { children: React.ReactNod
                   {hasError ? "Fermer" : "OK"}
                 </button>
               ) : (
-                <p className="text-center text-xs text-text-tertiary">
-                  Veuillez patienter, ne fermez pas cette page...
-                </p>
+                <button
+                  onClick={minimize}
+                  className="w-full py-2.5 rounded-xl text-sm font-medium transition-all duration-200 bg-bg-secondary text-text-secondary hover:bg-bg-tertiary border border-border flex items-center justify-center gap-2"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3" />
+                  </svg>
+                  Mettre en arrière-plan
+                </button>
               )}
             </div>
           </div>
         </div>,
+        document.body
+      )}
+
+      {/* Mini widget (when minimized) */}
+      {mounted && visible && minimized && createPortal(
+        <MiniSyncWidget
+          states={states}
+          syncingProductIds={syncingProductIds}
+          onExpand={expand}
+          onDismiss={dismiss}
+        />,
         document.body
       )}
 

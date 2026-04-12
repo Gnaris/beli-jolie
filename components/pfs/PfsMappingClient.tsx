@@ -287,16 +287,42 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
     setSaving(null);
   }, []);
 
+  // Helper: compute a combination key from a multi-color variant (main color + sorted sub-colors)
+  const getComboKey = useCallback((v: BjMultiColorVariant) => {
+    const subIds = v.subColors.map((sc) => sc.color.id).sort();
+    return `${v.color.id}::${subIds.join(",")}`;
+  }, []);
+
   const handleSaveMultiColorRef = useCallback(async (productColorId: string, pfsRef: string | null) => {
     setSaving(productColorId);
     try {
       await updateProductColorPfsRef(productColorId, pfsRef || null);
-      setMultiColorVariants((prev) => prev.map((v) => (v.id === productColorId ? { ...v, pfsColorRef: pfsRef } : v)));
+
+      // Find the variant being mapped to get its combo key
+      const target = multiColorVariants.find((v) => v.id === productColorId);
+      if (target && pfsRef) {
+        const targetKey = getComboKey(target);
+        // Find siblings with same color combination that aren't mapped yet
+        const siblings = multiColorVariants.filter(
+          (v) => v.id !== productColorId && !v.pfsColorRef && getComboKey(v) === targetKey
+        );
+        // Auto-map siblings in parallel
+        await Promise.all(siblings.map((s) => updateProductColorPfsRef(s.id, pfsRef)));
+        setMultiColorVariants((prev) =>
+          prev.map((v) => {
+            if (v.id === productColorId) return { ...v, pfsColorRef: pfsRef };
+            if (siblings.some((s) => s.id === v.id)) return { ...v, pfsColorRef: pfsRef };
+            return v;
+          })
+        );
+      } else {
+        setMultiColorVariants((prev) => prev.map((v) => (v.id === productColorId ? { ...v, pfsColorRef: pfsRef } : v)));
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : "Erreur");
     }
     setSaving(null);
-  }, []);
+  }, [multiColorVariants, getComboKey]);
 
   // Auto-map sizes: if Boutique size name matches a PFS size reference exactly and has no mappings yet
   const [sizeAutoMapDone, setSizeAutoMapDone] = useState(false);
@@ -311,6 +337,36 @@ export default function PfsMappingClient({ colors: initialColors, categories: in
     }
     setSizeAutoMapDone(true);
   }, [pfsSizes, sizes, sizeAutoMapDone, handleToggleSizeMapping]);
+
+  // Auto-map combinations: if an unmapped variant has the same color combination as an already-mapped one
+  const [comboAutoMapDone, setComboAutoMapDone] = useState(false);
+  useEffect(() => {
+    if (multiColorVariants.length === 0 || comboAutoMapDone) return;
+    // Build a map: comboKey → pfsColorRef (from already-mapped variants)
+    const mappedByKey = new Map<string, string>();
+    for (const v of multiColorVariants) {
+      if (v.pfsColorRef) {
+        const key = getComboKey(v);
+        if (!mappedByKey.has(key)) mappedByKey.set(key, v.pfsColorRef);
+      }
+    }
+    // Find unmapped variants whose combo key has a known mapping
+    const toAutoMap = multiColorVariants.filter((v) => !v.pfsColorRef && mappedByKey.has(getComboKey(v)));
+    if (toAutoMap.length > 0) {
+      Promise.all(toAutoMap.map((v) => updateProductColorPfsRef(v.id, mappedByKey.get(getComboKey(v))!))).then(() => {
+        setMultiColorVariants((prev) =>
+          prev.map((v) => {
+            if (!v.pfsColorRef) {
+              const ref = mappedByKey.get(getComboKey(v));
+              if (ref) return { ...v, pfsColorRef: ref };
+            }
+            return v;
+          })
+        );
+      });
+    }
+    setComboAutoMapDone(true);
+  }, [multiColorVariants, comboAutoMapDone, getComboKey]);
 
   const tabs: { key: Tab; label: string; count: number; mapped: number }[] = [
     { key: "colors", label: "Couleurs", count: colors.length, mapped: colors.filter((c) => c.pfsColorRef).length },

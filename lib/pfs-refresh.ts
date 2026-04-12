@@ -29,6 +29,7 @@ import {
   type PfsVariantCreateData,
   type PfsVariantUpdateData,
 } from "@/lib/pfs-api-write";
+import { applyMarketplaceMarkup, loadMarketplaceMarkupConfigs, type MarkupConfig } from "@/lib/marketplace-pricing";
 import { randomUUID } from "crypto";
 import sharp from "sharp";
 import { revalidateTag } from "next/cache";
@@ -94,11 +95,16 @@ function getEffectiveColorRef(variant: FullVariant): string | null {
   return variant.pfsColorRef || variant.color?.pfsColorRef || null;
 }
 
-function getPfsUnitPrice(variant: FullVariant): number {
+function getPfsUnitPrice(variant: FullVariant, markup?: MarkupConfig): number {
   const price = Number(variant.unitPrice);
-  if (variant.saleType !== "PACK") return price;
-  const totalQty = variant.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || variant.packQuantity || 1;
-  return Math.round((price / totalQty) * 100) / 100;
+  let unitPrice: number;
+  if (variant.saleType !== "PACK") {
+    unitPrice = price;
+  } else {
+    const totalQty = variant.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || variant.packQuantity || 1;
+    unitPrice = Math.round((price / totalQty) * 100) / 100;
+  }
+  return markup ? applyMarketplaceMarkup(unitPrice, markup) : unitPrice;
 }
 
 const getSizeRef = (vs: { size: { name: string; pfsMappings: { pfsSizeRef: string }[] } }) =>
@@ -252,6 +258,9 @@ export async function pfsRefreshProduct(
   if (!product) return { success: false, error: "Produit introuvable" };
   if (!product.pfsProductId) return { success: false, error: "Produit non synchronisé avec PFS" };
 
+  const markupConfigs = await loadMarketplaceMarkupConfigs();
+  const pfsMarkup = markupConfigs.pfs;
+
   const oldPfsProductId = product.pfsProductId;
   let newPfsProductId: string | null = null;
   let oldProductRenamed = false;
@@ -335,7 +344,7 @@ export async function pfsRefreshProduct(
             type: "ITEM",
             color: colorRef,
             size: sizeRef,
-            price_eur_ex_vat: getPfsUnitPrice(variant),
+            price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
             is_active: (variant.stock ?? 0) > 0,
@@ -378,7 +387,7 @@ export async function pfsRefreshProduct(
             type: "PACK",
             color: packColors[0].ref,
             size: variantSizes[0] ? getSizeRef(variantSizes[0]) : "TU",
-            price_eur_ex_vat: getPfsUnitPrice(variant),
+            price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
             is_active: (variant.stock ?? 0) > 0,

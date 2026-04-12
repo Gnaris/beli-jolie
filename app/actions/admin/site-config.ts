@@ -690,13 +690,13 @@ export async function updateMarketplaceMarkup(
     const pairs: { key: string; value: string }[] = [
       { key: "pfs_price_markup_type", value: settings.pfs.type },
       { key: "pfs_price_markup_value", value: String(settings.pfs.value) },
-      { key: "pfs_price_rounding", value: settings.pfs.rounding },
+      { key: "pfs_price_markup_rounding", value: settings.pfs.rounding },
       { key: "ankorstore_wholesale_markup_type", value: settings.ankorstoreWholesale.type },
       { key: "ankorstore_wholesale_markup_value", value: String(settings.ankorstoreWholesale.value) },
-      { key: "ankorstore_wholesale_rounding", value: settings.ankorstoreWholesale.rounding },
+      { key: "ankorstore_wholesale_markup_rounding", value: settings.ankorstoreWholesale.rounding },
       { key: "ankorstore_retail_markup_type", value: settings.ankorstoreRetail.type },
       { key: "ankorstore_retail_markup_value", value: String(settings.ankorstoreRetail.value) },
-      { key: "ankorstore_retail_rounding", value: settings.ankorstoreRetail.rounding },
+      { key: "ankorstore_retail_markup_rounding", value: settings.ankorstoreRetail.rounding },
     ];
 
     await Promise.all(

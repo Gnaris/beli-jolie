@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getCachedPfsEnabled } from "@/lib/cached-data";
 import { pfsGetColors, pfsGetCategories, pfsGetCompositions, pfsGetCountries, pfsGetCollections, pfsGetFamilies, pfsGetGenders, pfsGetSizes } from "@/lib/pfs-api-write";
+import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
 /**
@@ -48,6 +49,32 @@ export async function GET() {
     safe(pfsGetSizes, "sizes"),
   ]);
 
+  // Fetch mapped multi-color combinations from DB (comboKey → pfsColorRef)
+  // so the product form can auto-resolve cross-product
+  const mappedCombos: Record<string, string> = {};
+  try {
+    const multiColorVariants = await prisma.productColor.findMany({
+      where: {
+        pfsColorRef: { not: null },
+        saleType: "UNIT",
+        subColors: { some: {} },
+        colorId: { not: null },
+      },
+      select: {
+        pfsColorRef: true,
+        colorId: true,
+        subColors: { select: { colorId: true } },
+      },
+    });
+    for (const v of multiColorVariants) {
+      if (!v.pfsColorRef || !v.colorId) continue;
+      const ids = [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+");
+      if (!mappedCombos[ids]) mappedCombos[ids] = v.pfsColorRef;
+    }
+  } catch (err) {
+    logger.error("[PFS attributes] mappedCombos query failed", { error: err instanceof Error ? err.message : String(err) });
+  }
+
   // If ALL attributes failed, return 500 with details
   const totalItems = colors.length + categories.length + compositions.length + countries.length + collections.length + families.length + genders.length + sizes.length;
   if (totalItems === 0 && errors.length > 0) {
@@ -56,6 +83,7 @@ export async function GET() {
 
   return NextResponse.json({
     colors, categories, compositions, countries, collections, families, genders, sizes,
+    mappedCombos,
     ...(errors.length > 0 ? { warnings: errors } : {}),
   });
 }

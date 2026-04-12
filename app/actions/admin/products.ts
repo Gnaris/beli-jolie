@@ -53,10 +53,15 @@ function triggerAnkorstoreSync(productId: string, forceCreate = false) {
             } else {
               emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: result.error });
             }
-          }).catch((err) => {
+          }).catch(async (err) => {
             const errMsg = err instanceof Error ? err.message : String(err);
             logger.warn("[Ankorstore] Auto-sync failed", { productId, error: errMsg });
             emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: errMsg });
+            // Persist error
+            await prisma.product.update({
+              where: { id: productId },
+              data: { ankorsSyncStatus: "failed", ankorsSyncError: errMsg.slice(0, 5000) },
+            }).catch(() => {});
           });
         });
         return;
@@ -79,18 +84,28 @@ function triggerAnkorstoreSync(productId: string, forceCreate = false) {
             } else {
               emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: result.error });
             }
-          }).catch((err) => {
+          }).catch(async (err) => {
             const errMsg = err instanceof Error ? err.message : String(err);
             logger.warn("[Ankorstore] Auto-sync failed", { productId, error: errMsg });
             emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: errMsg });
+            // Persist error
+            await prisma.product.update({
+              where: { id: productId },
+              data: { ankorsSyncStatus: "failed", ankorsSyncError: errMsg.slice(0, 5000) },
+            }).catch(() => {});
           })
         );
       });
     })
-  ).catch((err) => {
+  ).catch(async (err) => {
     const errMsg = err instanceof Error ? err.message : String(err);
     logger.error("[Ankorstore] triggerAnkorstoreSync chain failed", { productId, error: errMsg });
     emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: errMsg });
+    // Persist error
+    await prisma.product.update({
+      where: { id: productId },
+      data: { ankorsSyncStatus: "failed", ankorsSyncError: errMsg.slice(0, 5000) },
+    }).catch(() => {});
   });
 }
 
@@ -1004,7 +1019,12 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
 // Supprimer un produit (bloqué si commandes existent)
 // ─────────────────────────────────────────────
 
-export async function deleteProduct(id: string, deleteFromPfs = false, deleteFromAnkorstore = true) {
+export async function deleteProduct(
+  id: string,
+  deleteFromPfs = false,
+  deleteFromAnkorstore = true,
+  forceLocalDelete = false,
+): Promise<{ success: true } | { success: false; marketplaceErrors: { marketplace: string; error: string }[] }> {
   await requireAdmin();
 
   // Check if product has any order items (legal: 10 years retention in France)
@@ -1040,8 +1060,10 @@ export async function deleteProduct(id: string, deleteFromPfs = false, deleteFro
     );
   }
 
+  const marketplaceErrors: { marketplace: string; error: string }[] = [];
+
   // Delete from PFS if requested and product is synced — check existence first
-  if (deleteFromPfs && product.pfsProductId) {
+  if (deleteFromPfs && product.pfsProductId && !forceLocalDelete) {
     try {
       const { pfsCheckReference } = await import("@/lib/pfs-api");
       const exists = await pfsCheckReference(product.reference).catch(() => null);
@@ -1052,12 +1074,14 @@ export async function deleteProduct(id: string, deleteFromPfs = false, deleteFro
         logger.info(`[PFS] Product ${id} not found on PFS, skipping delete`, { reference: product.reference });
       }
     } catch (err) {
-      logger.error(`[PFS] Failed to delete product ${id} from PFS`, { error: err instanceof Error ? err.message : String(err) });
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error(`[PFS] Failed to delete product ${id} from PFS`, { error: errMsg });
+      marketplaceErrors.push({ marketplace: "Paris Fashion Shop", error: errMsg });
     }
   }
 
   // Delete from Ankorstore if requested — fetch real SKUs from Ankorstore API
-  if (deleteFromAnkorstore) {
+  if (deleteFromAnkorstore && !forceLocalDelete) {
     try {
       const { ankorstoreSearchVariants } = await import("@/lib/ankorstore-api");
       const { ankorstoreDeleteProduct } = await import("@/lib/ankorstore-api-write");
@@ -1076,11 +1100,19 @@ export async function deleteProduct(id: string, deleteFromPfs = false, deleteFro
           logger.info("[Ankorstore] Product deleted", { id, reference: product.reference, skus });
         } else {
           logger.warn("[Ankorstore] Delete returned failure", { id, reference: product.reference, error: result.error });
+          marketplaceErrors.push({ marketplace: "Ankorstore", error: result.error ?? "Échec de suppression" });
         }
       }
     } catch (err) {
-      logger.warn("[Ankorstore] Delete failed", { id, error: err instanceof Error ? err.message : String(err) });
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.warn("[Ankorstore] Delete failed", { id, error: errMsg });
+      marketplaceErrors.push({ marketplace: "Ankorstore", error: errMsg });
     }
+  }
+
+  // If marketplace errors and not forcing — return errors, let caller decide
+  if (marketplaceErrors.length > 0 && !forceLocalDelete) {
+    return { success: false, marketplaceErrors };
   }
 
   // Clean up CartItems referencing this product's variants (no cascade on CartItem.variant)
@@ -1248,7 +1280,14 @@ export async function bulkDeleteProducts(
   productIds: string[],
   deleteFromPfs = false,
   deleteFromAnkorstore = true,
-): Promise<{ deleted: number; protected: { id: string; reference: string; orderCount: number }[]; pfsDeleted: number; ankorsDeleted: number }> {
+  forceLocalDelete = false,
+): Promise<{
+  deleted: number;
+  protected: { id: string; reference: string; orderCount: number }[];
+  pfsDeleted: number;
+  ankorsDeleted: number;
+  marketplaceErrors: { productId: string; reference: string; marketplace: string; error: string }[];
+}> {
   await requireAdmin();
   if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
 
@@ -1289,9 +1328,12 @@ export async function bulkDeleteProducts(
     }
   }
 
-  // Delete from PFS if requested
+  // Track marketplace errors
+  const marketplaceErrors: { productId: string; reference: string; marketplace: string; error: string }[] = [];
+
+  // Delete from PFS if requested (skip if forceLocalDelete)
   let pfsDeleted = 0;
-  if (deleteFromPfs && deletableIds.length > 0) {
+  if (deleteFromPfs && deletableIds.length > 0 && !forceLocalDelete) {
     const pfsProducts = products.filter((p) => deletableIds.includes(p.id) && p.pfsProductId);
     const nonPfsProducts = products.filter((p) => deletableIds.includes(p.id) && !p.pfsProductId);
     // Products not linked to PFS — emit immediate success
@@ -1316,13 +1358,14 @@ export async function bulkDeleteProducts(
         const errMsg = err instanceof Error ? err.message : String(err);
         logger.error(`[PFS] Failed to delete product ${p.id} from PFS`, { error: errMsg });
         emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Erreur de suppression", progress: 100, status: "error", error: errMsg } });
+        marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Paris Fashion Shop", error: errMsg });
       }
     }
   }
 
-  // Delete from Ankorstore if requested and products are linked
+  // Delete from Ankorstore if requested and products are linked (skip if forceLocalDelete)
   let ankorsDeleted = 0;
-  if (deleteFromAnkorstore && deletableIds.length > 0) {
+  if (deleteFromAnkorstore && deletableIds.length > 0 && !forceLocalDelete) {
     const ankorsProducts = products.filter((p) => deletableIds.includes(p.id) && p.ankorsProductId);
     const nonAnkorsProducts = products.filter((p) => deletableIds.includes(p.id) && !p.ankorsProductId);
     // Products not linked to Ankorstore — emit immediate success
@@ -1353,9 +1396,15 @@ export async function bulkDeleteProducts(
           const errMsg = err instanceof Error ? err.message : String(err);
           logger.warn("[Ankorstore] Bulk delete failed", { ref: p.reference, error: errMsg });
           emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Erreur de suppression", progress: 100, status: "error", error: errMsg } });
+          marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Ankorstore", error: errMsg });
         }
       }
     }
+  }
+
+  // If marketplace errors occurred and not forcing local delete — stop here, let user decide
+  if (marketplaceErrors.length > 0 && !forceLocalDelete) {
+    return { deleted: 0, protected: protectedProducts, pfsDeleted, ankorsDeleted, marketplaceErrors };
   }
 
   let deleted = 0;
@@ -1380,7 +1429,7 @@ export async function bulkDeleteProducts(
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
-  return { deleted, protected: protectedProducts, pfsDeleted, ankorsDeleted };
+  return { deleted, protected: protectedProducts, pfsDeleted, ankorsDeleted, marketplaceErrors: [] };
 }
 
 // ─────────────────────────────────────────────

@@ -45,7 +45,15 @@ Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib
 
 ### PFS sync (bidirectional)
 
-`lib/pfs-reverse-sync.ts` (local→PFS push), `lib/pfs-sync.ts` (PFS→local import), `lib/pfs-api.ts` (read), `lib/pfs-api-write.ts` (write). Auth via `lib/pfs-auth.ts` (token cache).
+`lib/pfs-reverse-sync.ts` (local→PFS push), `lib/pfs-sync.ts` (PFS→local import), `lib/pfs-api.ts` (read), `lib/pfs-api-write.ts` (write). Auth via `lib/pfs-auth.ts` (token cache). PFS Refresh (`lib/pfs-refresh.ts`) also applies markup.
+
+### Marketplace pricing (`lib/marketplace-pricing.ts`)
+
+Configurable markup per marketplace via SiteConfig keys. Three markup types: `percent` (+X%), `fixed` (+X€), `multiplier` (×X). Three rounding modes: `none`, `up` (ceil to 0.1€), `down` (floor to 0.1€). SiteConfig keys follow the pattern `{marketplace}_markup_{type|value|rounding}` — e.g. `pfs_price_markup_type`, `ankorstore_wholesale_markup_value`, `ankorstore_retail_markup_rounding`. PACK pricing: markup applies to **per-unit price** (with rounding), then multiply by pack quantity. Retail markup on Ankorstore applies **on top of wholesale** (not base price).
+
+### Marketplace sync overlay (`components/admin/marketplace/MarketplaceSyncOverlay.tsx`)
+
+Full-screen overlay during marketplace sync with per-marketplace progress cards. Users can click "Mettre en arrière-plan" to minimize to a compact widget (bottom-right). The widget is **only visible on the product page being synced** (URL matching via `usePathname`). Auto-dismisses on success.
 
 ### Auth
 
@@ -135,7 +143,8 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 - **`Color.patternImage`** prioritaire sur `Color.hex` pour le rendu
 - **groupKey** : toujours `colorId + sub-colors tries` pour identifier couleurs. Jamais `colorId` seul ni `variantTempId`. Helper: `variantGroupKeyFromState()`
 - **Couleurs completes** : toujours afficher TOUTES les couleurs d'une composition, jamais juste la principale
-- **PACK** : `colorId` = null, couleurs dans `PackColorLine[]`. `unitPrice` = `computeTotalPrice(v)`, jamais set manuellement. `packQuantity >= 1`
+- **PACK** : `colorId` = null, couleurs dans `PackColorLine[]`. `unitPrice` = `computeTotalPrice(v)` (prix total du pack en BDD, pas unitaire). `packQuantity >= 1`
+- **PACK pricing Ankorstore** : markup s'applique au prix unitaire (total ÷ qty), arrondi, puis × qty. Jamais markup sur le total directement
 - **UNIT** : max 1 taille. Tailles = description du contenu, pas selection client
 - **handleMultiColorChange** : un seul `onChange` avec `Set<string>`, jamais `updateVariant` en boucle
 - **PendingSimilar** : verifier a la creation produit
