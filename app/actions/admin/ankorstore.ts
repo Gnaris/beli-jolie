@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { emitProductEvent, type MarketplaceSyncProgress } from "@/lib/product-events";
-import { ankorstoreSearchVariants } from "@/lib/ankorstore-api";
+import { ankorstoreSearchVariants, ankorstoreSearchProductsByRef } from "@/lib/ankorstore-api";
 import {
   ankorstoreUpdateVariantStock,
   ankorstorePushProducts,
@@ -510,8 +510,42 @@ export async function pushProductToAnkorstoreInternal(
 
     if (!prod) return { success: false, error: "Produit introuvable." };
 
-    // Auto-detect operation type: import if not yet linked, update if linked
-    const effectiveOp = prod.ankorsProductId ? "update" : "import";
+    emitAnkors({ step: "Vérification sur Ankorstore...", progress: 20, status: "in_progress" });
+
+    // ALWAYS verify by reference on Ankorstore (DB ID is just a cache, not source of truth)
+    let effectiveOp: "import" | "update" = "import";
+    try {
+      const foundProducts = await ankorstoreSearchProductsByRef(prod.reference);
+      if (foundProducts.length > 0) {
+        effectiveOp = "update";
+        const foundId = foundProducts[0].id;
+        // Update DB if ID changed or was missing
+        if (prod.ankorsProductId !== foundId) {
+          await prisma.product.update({
+            where: { id: productId },
+            data: { ankorsProductId: foundId, ankorsMatchedAt: new Date() },
+          });
+          logger.info("[Ankorstore] Product linked via reference verification", {
+            productId, ankorsProductId: foundId, reference: prod.reference,
+          });
+        }
+      } else if (prod.ankorsProductId) {
+        // DB had an ID but product no longer exists on Ankorstore → clear stale link
+        await prisma.product.update({
+          where: { id: productId },
+          data: { ankorsProductId: null, ankorsMatchedAt: null },
+        });
+        logger.warn("[Ankorstore] Product not found on Ankorstore, cleared stale link", {
+          productId, reference: prod.reference, staleId: prod.ankorsProductId,
+        });
+        return { success: false, error: "ANKORSTORE_PRODUCT_NOT_FOUND" };
+      }
+    } catch (err) {
+      logger.warn("[Ankorstore] Reference verification failed, will attempt based on DB state", {
+        reference: prod.reference, error: err instanceof Error ? err.message : String(err),
+      });
+      effectiveOp = prod.ankorsProductId ? "update" : "import";
+    }
 
     const markupConfigs = await loadMarketplaceMarkupConfigs();
 

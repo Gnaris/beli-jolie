@@ -60,6 +60,10 @@ export default function PfsSyncBanner({
       if (result.success) {
         setStatus("synced");
         toast.success("Paris Fashion Shop", "Produit publié avec succès.");
+      } else if (result.error === "PFS_PRODUCT_NOT_FOUND") {
+        setError("Le produit n'existe plus sur Paris Fashion Shop. Vous pouvez le recréer.");
+        setStatus("not_on_pfs");
+        toast.error("Paris Fashion Shop", "Produit introuvable sur PFS.");
       } else {
         setError(result.error ?? "Échec de la publication");
         setStatus("error");

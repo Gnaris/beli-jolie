@@ -114,24 +114,36 @@ export async function syncProductToPfs(productId: string): Promise<void> {
     // Vérification des mappings PFS (bloque la sync si une entité n'est pas mappée)
     validatePfsMappings(product);
 
-    // 2. If no pfsProductId, check if product already exists on PFS via reference
+    // 2. ALWAYS verify by reference on PFS (DB ID is just a cache, not source of truth)
     emitPfs({ step: "Vérification du produit sur PFS...", progress: 10, status: "in_progress" });
-    let pfsProductId = product.pfsProductId;
-    if (!pfsProductId) {
-      try {
-        const refCheck = await pfsCheckReference(product.reference);
-        if (refCheck?.product?.id) {
-          // Product already exists on PFS — link it instead of creating a duplicate
-          pfsProductId = refCheck.product.id;
+    let pfsProductId: string | null = null;
+    try {
+      const refCheck = await pfsCheckReference(product.reference);
+      if (refCheck?.product?.id) {
+        pfsProductId = refCheck.product.id;
+        // Update DB if ID changed or was missing
+        if (product.pfsProductId !== pfsProductId) {
           await prisma.product.update({
             where: { id: productId },
             data: { pfsProductId },
           });
-          logger.info(`[PFS Reverse Sync] Product ${productId} linked to existing PFS product ${pfsProductId} via reference ${product.reference}`);
+          logger.info(`[PFS Reverse Sync] Product ${productId} linked to PFS product ${pfsProductId} via reference ${product.reference}`);
         }
-      } catch {
-        // checkReference failed — will proceed to create
       }
+    } catch {
+      // checkReference failed — cannot verify, will attempt create
+      logger.warn(`[PFS Reverse Sync] checkReference failed for ${product.reference}, will attempt create`);
+    }
+
+    // If DB had a pfsProductId but product no longer exists on PFS → clear stale link
+    if (!pfsProductId && product.pfsProductId) {
+      await prisma.product.update({
+        where: { id: productId },
+        data: { pfsProductId: null },
+      });
+      logger.warn(`[PFS Reverse Sync] Product ${product.reference} not found on PFS, cleared stale pfsProductId ${product.pfsProductId}`);
+      // Throw a specific error so the banner can show "not found" + "Créer" button
+      throw new Error("PFS_PRODUCT_NOT_FOUND");
     }
 
     // 3. Create product on PFS if truly new — full sync required
@@ -240,10 +252,9 @@ export interface FullProduct {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
-  category: { id: string; name: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null };
+  category: { name: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null };
   colors: {
     id: string;
-    colorId: string | null; // null for PACK variants
     pfsColorRef: string | null; // Override couleur PFS pour variantes multi-couleur
     pfsVariantId: string | null;
     unitPrice: number;
@@ -255,21 +266,20 @@ export interface FullProduct {
     variantSizes: { size: { name: string; pfsMappings: { pfsSizeRef: string }[] }; quantity: number }[];
     discountType: "PERCENT" | "AMOUNT" | null;
     discountValue: number | null;
-    color: { id: string; name: string; pfsColorRef: string | null };
+    color: { id: string; name: string; pfsColorRef: string | null } | null;
     subColors: { color: { id: string; name: string; pfsColorRef: string | null }; position: number }[];
     packColorLines: {
       position: number;
       colors: { color: { id: string; name: string; pfsColorRef: string | null }; position: number }[];
     }[];
-    images: { id: string; path: string; order: number }[];
+    images: { path: string; order: number }[];
   }[];
   compositions: {
-    compositionId: string;
     percentage: number;
-    composition: { id: string; name: string; pfsCompositionRef: string | null };
+    composition: { name: string; pfsCompositionRef: string | null };
   }[];
-  manufacturingCountry: { id: string; name: string; isoCode: string | null; pfsCountryRef: string | null } | null;
-  season: { id: string; name: string; pfsRef: string | null } | null;
+  manufacturingCountry: { name: string; isoCode: string | null; pfsCountryRef: string | null } | null;
+  season: { name: string; pfsRef: string | null } | null;
 }
 
 async function loadProductFull(productId: string): Promise<FullProduct | null> {
@@ -287,11 +297,10 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
-      category: { select: { id: true, name: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true } },
+      category: { select: { name: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true } },
       colors: {
         select: {
           id: true,
-          colorId: true,
           pfsColorRef: true,
           pfsVariantId: true,
           unitPrice: true,
@@ -319,17 +328,17 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
             orderBy: { position: "asc" as const },
           },
           images: {
-            select: { id: true, path: true, order: true },
+            select: { path: true, order: true },
             orderBy: { order: "asc" as const },
           },
         },
         orderBy: { createdAt: "asc" as const },
       },
       compositions: {
-        select: { compositionId: true, percentage: true, composition: { select: { id: true, name: true, pfsCompositionRef: true } } },
+        select: { percentage: true, composition: { select: { name: true, pfsCompositionRef: true } } },
       },
-      manufacturingCountry: { select: { id: true, name: true, isoCode: true, pfsCountryRef: true } },
-      season: { select: { id: true, name: true, pfsRef: true } },
+      manufacturingCountry: { select: { name: true, isoCode: true, pfsCountryRef: true } },
+      season: { select: { name: true, pfsRef: true } },
     },
   }) as unknown as FullProduct | null;
 }
