@@ -30,6 +30,10 @@ interface CustomSelectProps {
   "aria-label"?: string;
   /** Show a search input inside the dropdown */
   searchable?: boolean;
+  /** Show a loading spinner inside the dropdown when opened */
+  loading?: boolean;
+  /** Message shown when there are no options (excluding placeholder) */
+  emptyMessage?: string;
 }
 
 // ─────────────────────────────────────────────
@@ -48,6 +52,8 @@ export default function CustomSelect({
   id,
   "aria-label": ariaLabel,
   searchable = false,
+  loading = false,
+  emptyMessage,
 }: CustomSelectProps) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -124,6 +130,17 @@ export default function CustomSelect({
     }
     return -1; // all disabled
   }, [displayedOptions]);
+
+  // Close on page scroll (not inside the dropdown menu itself)
+  useEffect(() => {
+    if (!open) return;
+    function onScroll(e: Event) {
+      if (menuRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    }
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [open]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -221,7 +238,17 @@ export default function CustomSelect({
             </div>
           )}
           <div className="py-1 max-h-[268px] overflow-auto" role="listbox">
-            {displayedOptions.length === 0 ? (
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 px-3.5 py-4">
+                <svg className="w-4 h-4 animate-spin text-text-muted" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span className="text-[11px] text-text-muted font-body">Chargement…</span>
+              </div>
+            ) : !loading && emptyMessage && displayedOptions.filter(o => o.value !== "").length === 0 ? (
+              <p className="px-3.5 py-3 text-[11px] text-text-muted text-center">{emptyMessage}</p>
+            ) : displayedOptions.length === 0 ? (
               <p className="px-3.5 py-3 text-[11px] text-text-muted text-center">Aucun résultat</p>
             ) : (
               displayedOptions.map((opt, idx) => {

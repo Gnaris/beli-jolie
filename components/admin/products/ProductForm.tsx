@@ -4,7 +4,7 @@ import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, packDisplayName, packDisplayHex, computeTotalPrice } from "./ColorVariantManager";
 import CompletenessChecklist from "./CompletenessChecklist";
-import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller } from "@/app/actions/admin/products";
+import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller, fetchProductFormAttributes } from "@/app/actions/admin/products";
 import { createSize, toggleSizePfsMapping, assignSizeToCategory } from "@/app/actions/admin/sizes";
 
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
@@ -18,6 +18,9 @@ import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import type { MarketplaceId } from "@/lib/product-events";
+import dynamic from "next/dynamic";
+
+const DevRandomFillButton = dynamic(() => import("./DevRandomFillButton"), { ssr: false });
 
 interface Category {
   id: string;
@@ -47,10 +50,10 @@ interface TranslationState {
 }
 
 interface ProductFormProps {
-  categories: Category[];
-  availableColors: AvailableColor[];
-  availableSizes: AvailableSize[];
-  availableCompositions: AvailableComposition[];
+  categories?: Category[];
+  availableColors?: AvailableColor[];
+  availableSizes?: AvailableSize[];
+  availableCompositions?: AvailableComposition[];
   availableCountries?: { id: string; name: string; isoCode: string | null }[];
   availableSeasons?: { id: string; name: string }[];
   availableTags?: { id: string; name: string }[];
@@ -58,6 +61,8 @@ interface ProductFormProps {
   productId?: string;
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
+  /** True when a marketplace sync is already in progress (from DB status on page load) */
+  initialSyncing?: boolean;
   initialData?: {
     reference: string;
     name: string;
@@ -121,6 +126,7 @@ function TagsDropdown({
   setIsBestSeller,
   productId,
   mode,
+  loading = false,
 }: {
   localTags: { id: string; name: string }[];
   tagNames: string[];
@@ -130,6 +136,7 @@ function TagsDropdown({
   setIsBestSeller: (v: boolean) => void;
   productId?: string;
   mode?: "create" | "edit";
+  loading?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -249,7 +256,15 @@ function TagsDropdown({
 
             {/* Options list */}
             <div className="max-h-48 overflow-y-auto" role="listbox" aria-label="Mots-clés disponibles">
-              {filtered.length > 0 ? filtered.map((t) => {
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 px-3 py-4">
+                  <svg className="w-4 h-4 animate-spin text-text-muted" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span className="text-xs text-text-muted font-body">Chargement…</span>
+                </div>
+              ) : filtered.length > 0 ? filtered.map((t) => {
                 const selected = tagNames.includes(t.name);
                 return (
                   <button key={t.id} type="button"
@@ -270,7 +285,11 @@ function TagsDropdown({
                     {t.name}
                   </button>
                 );
-              }) : (
+              }) : localTags.length === 0 ? (
+                <p className="px-3 py-3 text-xs text-text-secondary font-body">
+                  Aucun mot-clé n&apos;est créé.
+                </p>
+              ) : (
                 <p className="px-3 py-3 text-xs text-text-secondary font-body">
                   Aucun mot-clé trouvé.
                 </p>
@@ -302,31 +321,54 @@ function TagsDropdown({
 }
 
 export default function ProductForm({
-  categories,
-  availableColors,
-  availableSizes,
-  availableCompositions,
-  availableCountries = [],
-  availableSeasons = [],
-  availableTags = [],
+  categories: _initialCategories,
+  availableColors: _initialColors,
+  availableSizes: _initialSizes,
+  availableCompositions: _initialCompositions,
+  availableCountries: _initialCountries,
+  availableSeasons: _initialSeasons,
+  availableTags: _initialTags,
   mode = "create",
   productId,
   hasPfsConfig = false,
   hasAnkorstoreConfig = false,
+  initialSyncing = false,
   initialData,
 }: ProductFormProps) {
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
-  const { startSync } = useMarketplaceSync();
+  const { startSync, syncingProductIds } = useMarketplaceSync();
 
-  // ── Local lists — allow modal creation to append items ───────────────
-  const [localCategories,   setLocalCategories]   = useState(categories);
-  const [localCompositions, setLocalCompositions] = useState(availableCompositions);
-  const [localColors,       setLocalColors]       = useState(availableColors);
-  const [localSizes,        setLocalSizes]        = useState(availableSizes);
-  const [localTags,         setLocalTags]         = useState(availableTags);
-  const [localCountries,    setLocalCountries]    = useState(availableCountries);
-  const [localSeasons,      setLocalSeasons]      = useState(availableSeasons);
+  // ── Marketplace sync lock ──────────────────────────────────────────────
+  // Combines DB status (survives refresh) + SSE real-time tracking
+  const isSyncLocked = initialSyncing || (!!productId && syncingProductIds.has(productId));
+
+  // ── Local lists — fetched from DB on mount (no cache) ────────────────
+  const [localCategories,   setLocalCategories]   = useState<Category[]>(_initialCategories ?? []);
+  const [localCompositions, setLocalCompositions] = useState<AvailableComposition[]>(_initialCompositions ?? []);
+  const [localColors,       setLocalColors]       = useState<AvailableColor[]>(_initialColors ?? []);
+  const [localSizes,        setLocalSizes]        = useState<AvailableSize[]>(_initialSizes ?? []);
+  const [localTags,         setLocalTags]         = useState<{ id: string; name: string }[]>(_initialTags ?? []);
+  const [localCountries,    setLocalCountries]    = useState<{ id: string; name: string; isoCode: string | null }[]>(_initialCountries ?? []);
+  const [localSeasons,      setLocalSeasons]      = useState<{ id: string; name: string }[]>(_initialSeasons ?? []);
+  const [attributesLoaded,  setAttributesLoaded]  = useState(false);
+
+  // Fetch all attributes from DB on mount (background, no cache)
+  useEffect(() => {
+    let cancelled = false;
+    fetchProductFormAttributes().then((data) => {
+      if (cancelled) return;
+      setLocalCategories(data.categories);
+      setLocalColors(data.colors);
+      setLocalSizes(data.sizes);
+      setLocalCompositions(data.compositions);
+      setLocalTags(data.tags);
+      setLocalCountries(data.manufacturingCountries);
+      setLocalSeasons(data.seasons);
+      setAttributesLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Form fields ──────────────────────────────────────────────────────
   const [reference,       setReference]       = useState(initialData?.reference       ?? "");
@@ -358,7 +400,7 @@ export default function ProductForm({
   const [error, setError] = useState("");
   const [onlineErrors, setOnlineErrors] = useState<string[]>([]);
   const [productStatus, setProductStatus] = useState<"OFFLINE" | "ONLINE" | "ARCHIVED">(
-    initialData?.status === "SYNCING" ? "OFFLINE" : (initialData?.status ?? "ONLINE")
+    initialData?.status === "SYNCING" ? "OFFLINE" : (initialData?.status ?? "OFFLINE")
   );
 
   // ── Touched fields for real-time validation ──────────────────────────
@@ -375,7 +417,7 @@ export default function ProductForm({
   }, []);
 
   // ── Sync header badges via context ────────────────────────────────────
-  const { updateHeader } = useProductFormHeader();
+  const { updateHeader, registerStatusToggle } = useProductFormHeader();
   const headerStockState = useMemo((): "ok" | "partial_out" | "all_out" => {
     const withStock = variants.filter(v => v.stock !== "" && v.stock !== undefined);
     const outOfStock = withStock.filter(v => parseInt(v.stock) === 0);
@@ -931,6 +973,18 @@ export default function ProductForm({
     return withStock.length > 0 && withStock.every(v => parseInt(v.stock) === 0);
   }
 
+  // ── Register toggle callbacks for header toggle ──────────────────────
+  useEffect(() => {
+    registerStatusToggle({
+      getCompletenessErrors,
+      isOutOfStock,
+      setProductStatus,
+      setOnlineErrors,
+      setError,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registerStatusToggle, reference, name, description, categoryId, compositions, variants, colorImages]);
+
   // Variante avec prix, poids ou stock manquant → bloque la synchro PFS
   function hasVariantsWithMissingPriceWeightOrStock(): boolean {
     return variants.some(v => {
@@ -943,6 +997,7 @@ export default function ProductForm({
 
   // ── Save as draft (minimal validation) ───────────────────────────────
   async function handleSaveDraft(navigateTo?: string) {
+    if (isSyncLocked) return;
     setError("");
     setOnlineErrors([]);
 
@@ -1071,6 +1126,7 @@ export default function ProductForm({
 
   // ── Submit ───────────────────────────────────────────────────────────
   async function handleSave() {
+    if (isSyncLocked) return;
     setError("");
     setOnlineErrors([]);
 
@@ -1361,8 +1417,49 @@ export default function ProductForm({
     });
   }
 
+  // ── Dev random fill handler ──────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleDevRandomFill = useCallback((data: any) => {
+    // Replace local entity lists (not append) so re-clicks start clean
+    if (data.newCategory) setLocalCategories([data.newCategory]);
+    if (data.newColors?.length) setLocalColors(data.newColors);
+    if (data.newCompositions?.length) setLocalCompositions(data.newCompositions);
+    if (data.newSizes?.length) setLocalSizes(data.newSizes);
+    if (data.newCountry) setLocalCountries([data.newCountry]);
+    if (data.newSeason) setLocalSeasons([data.newSeason]);
+    if (data.newTags?.length) setLocalTags(data.newTags);
+
+    // Reset + fill all form fields
+    setReference(data.reference);
+    setName(data.name);
+    setDescription(data.description);
+    setCategoryId(data.categoryId);
+    setSubCategoryIds(data.subCategoryIds);
+    setVariants(data.variants);
+    setColorImages(data.colorImages);
+    setCompositions(data.compositions);
+    setTagNames(data.tagNames);
+    setIsBestSeller(data.isBestSeller);
+    setDimLength(data.dimLength);
+    setDimWidth(data.dimWidth);
+    setDimHeight(data.dimHeight);
+    setDimDiameter(data.dimDiameter);
+    setDimCircumference(data.dimCircumference);
+    setManufacturingCountryId(data.manufacturingCountryId);
+    setSeasonId(data.seasonId);
+    setSimilarProductIds([]);
+    setBundleChildIds([]);
+    setError("");
+    setOnlineErrors([]);
+    setProductStatus("ONLINE");
+    setTouchedFields(new Set(["reference", "name", "description", "category"]));
+  }, []);
+
   return (
     <>
+      {mode === "create" && process.env.NODE_ENV !== "production" && (
+        <DevRandomFillButton onFill={handleDevRandomFill} />
+      )}
       <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-8">
 
         {/* ── Indicateur de complétude ── */}
@@ -1493,6 +1590,8 @@ export default function ProductForm({
                         ...localCategories.map((cat) => ({ value: cat.id, label: cat.name })),
                       ]}
                       placeholder="— Sélectionner —"
+                      loading={!attributesLoaded}
+                      emptyMessage="Aucune catégorie n'est créée"
                     />
                   </div>
                 </div>
@@ -1553,6 +1652,8 @@ export default function ProductForm({
                       ...localCountries.map((c) => ({ value: c.id, label: c.isoCode ? `${c.name} (${c.isoCode})` : c.name })),
                     ]}
                     placeholder="— Aucun —"
+                    loading={!attributesLoaded}
+                    emptyMessage="Aucun pays n'est créé"
                   />
                 </div>
 
@@ -1573,6 +1674,8 @@ export default function ProductForm({
                       ...localSeasons.map((s) => ({ value: s.id, label: s.name })),
                     ]}
                     placeholder="— Aucune —"
+                    loading={!attributesLoaded}
+                    emptyMessage="Aucune saison n'est créée"
                   />
                 </div>
               </div>
@@ -1609,6 +1712,7 @@ export default function ProductForm({
               setIsBestSeller={setIsBestSeller}
               productId={productId}
               mode={mode}
+              loading={!attributesLoaded}
             />
           </div>
 
@@ -1664,30 +1768,30 @@ export default function ProductForm({
                 >+ Créer un matériau</button>
               </div>
 
-              {localCompositions.length > 0 && (
-                <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-                  <div className="flex-1">
-                    <CustomSelect
-                      value={newCompId}
-                      onChange={(v) => setNewCompId(v)}
-                      options={[
-                        { value: "", label: "— Choisir un matériau —" },
-                        ...localCompositions
-                          .filter((c) => !compositions.some((x) => x.compositionId === c.id))
-                          .map((c) => ({ value: c.id, label: c.name })),
-                      ]}
-                      placeholder="— Choisir un matériau —"
-                    />
-                  </div>
-                  <button type="button" onClick={addComposition} disabled={!newCompId}
-                    className="px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-medium rounded-lg hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-body"
-                  >Ajouter</button>
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+                <div className="flex-1">
+                  <CustomSelect
+                    value={newCompId}
+                    onChange={(v) => setNewCompId(v)}
+                    options={[
+                      { value: "", label: "— Choisir un matériau —" },
+                      ...localCompositions
+                        .filter((c) => !compositions.some((x) => x.compositionId === c.id))
+                        .map((c) => ({ value: c.id, label: c.name })),
+                    ]}
+                    placeholder="— Choisir un matériau —"
+                    loading={!attributesLoaded}
+                    emptyMessage="Aucune composition n'est créée"
+                  />
                 </div>
-              )}
+                <button type="button" onClick={addComposition} disabled={!newCompId}
+                  className="px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-medium rounded-lg hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-body"
+                >Ajouter</button>
+              </div>
 
-              {localCompositions.length === 0 && (
+              {attributesLoaded && localCompositions.length === 0 && (
                 <p className="text-xs text-text-muted font-body">
-                  Aucun matériau — cliquez sur &ldquo;+ Créer un matériau&rdquo; pour en ajouter.
+                  Aucune composition n&apos;est créée.
                 </p>
               )}
 
@@ -1752,7 +1856,7 @@ export default function ProductForm({
             onQuickCreateColor={handleQuickCreateColor}
             onColorAdded={(color) => setLocalColors((prev) => prev.some((c) => c.id === color.id) ? prev : [...prev, color])}
             categoryId={categoryId}
-            allCategories={categories.map((c) => ({ id: c.id, name: c.name }))}
+            allCategories={localCategories.map((c) => ({ id: c.id, name: c.name }))}
             onQuickCreateSize={handleQuickCreateSize}
             onAssignSizeToCategory={handleAssignSizeToCategory}
             variantErrors={variantErrors}
@@ -1829,54 +1933,23 @@ export default function ProductForm({
               </div>
             )}
 
+            {/* ── Sync lock indicator ── */}
+            {isSyncLocked && (
+              <div className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#FFF7ED] border border-[#FED7AA] rounded-xl text-[#C2410C] text-sm font-medium font-body">
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Publication marketplace en cours — modifications désactivées
+              </div>
+            )}
+
             {/* ── Boutons d'action ── */}
             <div className="flex items-center justify-center flex-wrap gap-3">
-              {/* Mettre en ligne / hors ligne (toggle local, enregistrer séparément) */}
-              {productStatus === "OFFLINE" ? (
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => {
-                    const errors = getCompletenessErrors();
-                    if (errors.length > 0) {
-                      setOnlineErrors(errors);
-                      setError("Ce produit ne peut pas être mis en ligne. Corrigez les erreurs ci-dessus.");
-                      return;
-                    }
-                    if (isOutOfStock()) {
-                      setOnlineErrors(["Toutes les variantes sont en rupture de stock"]);
-                      setError("Ce produit ne peut pas être mis en ligne car aucune variante n'a de stock.");
-                      return;
-                    }
-                    setOnlineErrors([]);
-                    setError("");
-                    setProductStatus("ONLINE");
-                  }}
-                  className="flex items-center gap-2 px-6 py-3.5 bg-[#22C55E] hover:bg-[#16A34A] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Mettre en ligne
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => setProductStatus("OFFLINE")}
-                  className="flex items-center gap-2 px-6 py-3.5 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                  </svg>
-                  Mettre hors ligne
-                </button>
-              )}
-
               {/* Enregistrer (en edit: uniquement si modifications) */}
               {(mode !== "edit" || hasUnsavedChanges) && (
-                <button type="submit" disabled={isPending}
-                  className="btn-primary px-10 py-3.5 text-base disabled:opacity-60 disabled:cursor-not-allowed"
+                <button type="submit" disabled={isPending || isSyncLocked}
+                  className="btn-primary min-w-[260px] px-6 py-3.5 text-base disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isPending
                     ? mode === "edit" ? "Enregistrement…" : productId ? "Enregistrement…" : "Création en cours…"
@@ -1888,9 +1961,9 @@ export default function ProductForm({
               {mode === "create" && (
                 <button
                   type="button"
-                  disabled={isPending}
+                  disabled={isPending || isSyncLocked}
                   onClick={() => handleSaveDraft()}
-                  className="flex items-center gap-2 px-6 py-3.5 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
+                  className="flex items-center justify-center gap-2 min-w-[260px] px-6 py-3.5 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />

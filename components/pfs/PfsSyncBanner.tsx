@@ -3,6 +3,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { forcePfsSync, checkPfsProductExists } from "@/app/actions/admin/pfs-reverse-sync";
+import { markMarketplaceSyncPending } from "@/app/actions/admin/products";
+import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
+import { useProductFormHeader } from "@/components/admin/products/ProductFormHeaderContext";
 
 interface Props {
   productId: string;
@@ -13,7 +16,7 @@ interface Props {
   mappingIssues?: string[];
 }
 
-type BannerStatus = "synced" | "not_on_pfs" | "creating" | "pushing" | "error" | "mapping_issues" | "checking";
+type BannerStatus = "synced" | "not_on_pfs" | "creating" | "pushing" | "error" | "mapping_issues" | "checking" | "pending_sync";
 
 export default function PfsSyncBanner({
   productId,
@@ -24,12 +27,16 @@ export default function PfsSyncBanner({
   mappingIssues,
 }: Props) {
   const toast = useToast();
+  const { startSync } = useMarketplaceSync();
+  const { updateHeader, marketplaceSync: currentSync } = useProductFormHeader();
   const [status, setStatus] = useState<BannerStatus>(() => {
     if (mappingIssues && mappingIssues.length > 0) return "mapping_issues";
     if (pfsSyncStatus === "failed") return "error";
     if (pfsSyncStatus === "synced") return "synced";
     // Already linked in DB → synced
     if (pfsProductId) return "synced";
+    // Background sync in progress (just created) → show "syncing" with auto-poll
+    if (pfsSyncStatus === "pending") return "pending_sync";
     // Already checked and not found → show "not found" immediately (no API call)
     if (pfsSyncStatus === "not_found") return "not_on_pfs";
     // Never checked → auto-check on mount
@@ -59,46 +66,89 @@ export default function PfsSyncBanner({
     return () => { cancelled = true; };
   }, [productId, status]);
 
-  // Créer = re-check first (product may have been created externally), then create if needed
+  // Poll while pending_sync: check every 3s until sync completes
+  useEffect(() => {
+    if (status !== "pending_sync") return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      try {
+        const result = await checkPfsProductExists(productId);
+        if (cancelled) return;
+        if (result.exists) {
+          setStatus("synced");
+        } else if (result.error) {
+          // API error but sync may still be running — keep polling
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    }, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [productId, status]);
+
+  // Helper: update only PFS fields in header badge, preserving Ankorstore state
+  const updatePfsSync = useCallback((pfsSyncStatus: "synced" | "pending" | "failed" | null, pfsSyncError: string | null = null) => {
+    updateHeader({
+      marketplaceSync: {
+        ...(currentSync ?? { ankorsSyncStatus: null, ankorsSyncError: null, hasAnkorstoreConfig: false }),
+        pfsSyncStatus,
+        pfsSyncError,
+        hasPfsConfig: true,
+      } as import("@/components/admin/products/ProductFormHeaderContext").MarketplaceSyncInfo,
+    });
+  }, [updateHeader, currentSync]);
+
+  // Créer = activate overlay for real-time progress, then fire sync in background
   const handleCreateOnPfs = useCallback(async () => {
-    setStatus("creating");
+    setStatus("pending_sync");
     setError(null);
+    updatePfsSync("pending");
+    // Persist "pending" to DB immediately so other pages (product list) see it
+    markMarketplaceSyncPending(productId, "pfs").catch(() => {});
+
+    // Start overlay (SSE listener) BEFORE server action — catches early events
+    startSync(productId, ["pfs"]);
+
     try {
       // Step 1: Re-check if product now exists on PFS
       const check = await checkPfsProductExists(productId);
       if (check.exists) {
-        // Product was created externally → update instead of create
         const result = await forcePfsSync(productId);
         if (result.success) {
           setStatus("synced");
-          toast.success("Paris Fashion Shop", "Produit trouvé et mis à jour.");
+          updatePfsSync("synced");
         } else {
           setError(result.error ?? "Échec de la mise à jour");
           setStatus("error");
+          updatePfsSync("failed", result.error ?? null);
         }
         return;
       }
 
-      // Step 2: Confirmed not found → create
+      // Step 2: Confirmed not found → create (overlay tracks progress via SSE)
       const result = await forcePfsSync(productId, { forceCreate: true });
       if (result.success) {
         setStatus("synced");
+        updatePfsSync("synced");
         toast.success("Paris Fashion Shop", "Produit créé avec succès.");
-        window.location.reload();
       } else {
         setError(result.error ?? "Erreur lors de la création");
         setStatus("error");
+        updatePfsSync("failed", result.error ?? null);
         toast.error("Paris Fashion Shop", result.error ?? "Échec de la création.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
       setStatus("error");
+      updatePfsSync("failed", err instanceof Error ? err.message : "Erreur");
     }
-  }, [productId, toast]);
+  }, [productId, toast, startSync, updatePfsSync]);
 
   const handleForceSync = useCallback(async () => {
-    setStatus("pushing");
+    setStatus("pending_sync");
     setError(null);
+    markMarketplaceSyncPending(productId, "pfs").catch(() => {});
+    startSync(productId, ["pfs"]);
     try {
       // Step 1: Check if product exists on PFS
       const check = await checkPfsProductExists(productId);
@@ -109,7 +159,7 @@ export default function PfsSyncBanner({
         return;
       }
 
-      // Step 2: Product exists → sync
+      // Step 2: Product exists → sync (overlay tracks progress via SSE)
       const result = await forcePfsSync(productId);
       if (result.success) {
         setStatus("synced");
@@ -123,7 +173,7 @@ export default function PfsSyncBanner({
       setError(err instanceof Error ? err.message : "Erreur");
       setStatus("error");
     }
-  }, [productId, toast]);
+  }, [productId, toast, startSync]);
 
   // ── Render helper: relative time ──
   const relativeTime = pfsSyncedAt
@@ -148,6 +198,19 @@ export default function PfsSyncBanner({
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
         </svg>
         <span className="text-gray-600">Vérification sur Paris Fashion Shop...</span>
+      </div>
+    );
+  }
+
+  // ── Pending sync (background task in progress) ─────────────
+  if (status === "pending_sync") {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm font-body">
+        <svg className="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+        <span className="text-blue-800">Publication sur Paris Fashion Shop en cours...</span>
       </div>
     );
   }

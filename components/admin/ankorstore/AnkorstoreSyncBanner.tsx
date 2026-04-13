@@ -3,6 +3,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { pushSingleProductToAnkorstore, checkAnkorstoreProductExists } from "@/app/actions/admin/ankorstore";
+import { markMarketplaceSyncPending } from "@/app/actions/admin/products";
+import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
+import { useProductFormHeader } from "@/components/admin/products/ProductFormHeaderContext";
 
 interface Props {
   productId: string;
@@ -13,7 +16,7 @@ interface Props {
   ankorsSyncedAt?: string | null;
 }
 
-type BannerStatus = "synced" | "not_found" | "pushing" | "error" | "checking";
+type BannerStatus = "synced" | "not_found" | "pushing" | "error" | "checking" | "pending_sync";
 
 export default function AnkorstoreSyncBanner({
   productId,
@@ -23,11 +26,15 @@ export default function AnkorstoreSyncBanner({
   ankorsSyncedAt,
 }: Props) {
   const toast = useToast();
+  const { startSync } = useMarketplaceSync();
+  const { updateHeader, marketplaceSync: currentSync } = useProductFormHeader();
   const [status, setStatus] = useState<BannerStatus>(() => {
     if (ankorsSyncStatus === "failed") return "error";
     if (ankorsSyncStatus === "synced") return "synced";
     // Already linked in DB → synced
     if (ankorsProductId) return "synced";
+    // Background sync in progress (just created) → show "syncing" with auto-poll
+    if (ankorsSyncStatus === "pending") return "pending_sync";
     // Already checked and not found → show "not found" immediately (no API call)
     if (ankorsSyncStatus === "not_found") return "not_found";
     // Never checked → auto-check on mount
@@ -58,71 +65,116 @@ export default function AnkorstoreSyncBanner({
     return () => { cancelled = true; };
   }, [productId, status]);
 
-  // Re-publier = check existence first, then sync only if exists
+  // Poll while pending_sync: check every 3s until sync completes
+  useEffect(() => {
+    if (status !== "pending_sync") return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      try {
+        const result = await checkAnkorstoreProductExists(productId);
+        if (cancelled) return;
+        if (result.exists) {
+          setStatus("synced");
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    }, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [productId, status]);
+
+  // Helper: update only Ankorstore fields in header badge, preserving PFS state
+  const updateAnkorsSync = useCallback((ankorsSyncStatus: "synced" | "pending" | "failed" | null, ankorsSyncError: string | null = null) => {
+    updateHeader({
+      marketplaceSync: {
+        ...(currentSync ?? { pfsSyncStatus: null, pfsSyncError: null, hasPfsConfig: false }),
+        ankorsSyncStatus,
+        ankorsSyncError,
+        hasAnkorstoreConfig: true,
+      } as import("@/components/admin/products/ProductFormHeaderContext").MarketplaceSyncInfo,
+    });
+  }, [updateHeader, currentSync]);
+
+  // Re-publier = activate overlay, then sync in background
   const handlePush = useCallback(async () => {
-    setStatus("pushing");
+    setStatus("pending_sync");
     setError(null);
+    updateAnkorsSync("pending");
+    // Persist "pending" to DB immediately so other pages see it
+    markMarketplaceSyncPending(productId, "ankorstore").catch(() => {});
+    startSync(productId, ["ankorstore"]);
     try {
-      // Step 1: Check if product exists on Ankorstore
       const check = await checkAnkorstoreProductExists(productId);
       if (!check.exists) {
         setError("Le produit n'existe pas sur Ankorstore. Vous pouvez le créer.");
         setStatus("not_found");
+        updateAnkorsSync(null);
         toast.error("Ankorstore", "Produit introuvable sur Ankorstore.");
         return;
       }
 
-      // Step 2: Product exists → sync
       const result = await pushSingleProductToAnkorstore(productId);
       if (result.success) {
         setStatus("synced");
+        updateAnkorsSync("synced");
         toast.success("Ankorstore", "Produit publié sur Ankorstore avec succès.");
       } else {
         setError(result.error ?? "Échec de la publication");
         setStatus("error");
+        updateAnkorsSync("failed", result.error ?? null);
         toast.error("Ankorstore", result.error ?? "Échec de la publication sur Ankorstore.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
       setStatus("error");
+      updateAnkorsSync("failed", err instanceof Error ? err.message : "Erreur");
     }
-  }, [productId, toast]);
+  }, [productId, toast, startSync, updateAnkorsSync]);
 
-  // Créer = re-check first (product may have been created externally), then create if needed
+  // Créer = activate overlay for real-time progress, then fire sync in background
   const handleCreate = useCallback(async () => {
-    setStatus("pushing");
+    setStatus("pending_sync");
     setError(null);
+    updateAnkorsSync("pending");
+    // Persist "pending" to DB immediately so other pages (product list) see it
+    markMarketplaceSyncPending(productId, "ankorstore").catch(() => {});
+
+    // Start overlay (SSE listener) BEFORE server action
+    startSync(productId, ["ankorstore"]);
+
     try {
-      // Step 1: Re-check if product now exists on Ankorstore
       const check = await checkAnkorstoreProductExists(productId);
       if (check.exists) {
-        // Product was created externally → update instead of create
         const result = await pushSingleProductToAnkorstore(productId);
         if (result.success) {
           setStatus("synced");
+          updateAnkorsSync("synced");
           toast.success("Ankorstore", "Produit trouvé et mis à jour sur Ankorstore.");
         } else {
           setError(result.error ?? "Échec de la mise à jour");
           setStatus("error");
+          updateAnkorsSync("failed", result.error ?? null);
         }
         return;
       }
 
-      // Step 2: Confirmed not found → create
       const result = await pushSingleProductToAnkorstore(productId, { forceCreate: true });
       if (result.success) {
         setStatus("synced");
+        updateAnkorsSync("synced");
         toast.success("Ankorstore", "Produit créé sur Ankorstore avec succès.");
       } else {
         setError(result.error ?? "Échec de la création");
         setStatus("error");
+        updateAnkorsSync("failed", result.error ?? null);
         toast.error("Ankorstore", result.error ?? "Échec de la création sur Ankorstore.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
       setStatus("error");
+      updateAnkorsSync("failed", err instanceof Error ? err.message : "Erreur");
     }
-  }, [productId, toast]);
+  }, [productId, toast, startSync, updateAnkorsSync]);
 
   // ── Render helper: relative time ──
   const relativeTime = ankorsSyncedAt
@@ -147,6 +199,19 @@ export default function AnkorstoreSyncBanner({
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
         </svg>
         <span className="text-gray-600">Vérification sur Ankorstore...</span>
+      </div>
+    );
+  }
+
+  // ── Pending sync (background task in progress) ─────────────
+  if (status === "pending_sync") {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm font-body">
+        <svg className="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+        <span className="text-blue-800">Publication sur Ankorstore en cours...</span>
       </div>
     );
   }

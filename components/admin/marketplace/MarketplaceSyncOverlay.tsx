@@ -9,7 +9,6 @@ import {
   useRef,
 } from "react";
 import { createPortal } from "react-dom";
-import { usePathname } from "next/navigation";
 import type { MarketplaceId, MarketplaceSyncProgress } from "@/lib/product-events";
 import { subscribeSSE } from "@/lib/shared-sse";
 
@@ -274,25 +273,14 @@ function MiniSyncWidget({
   onExpand: () => void;
   onDismiss: () => void;
 }) {
-  const pathname = usePathname();
   const [widgetFadeIn, setWidgetFadeIn] = useState(false);
 
   useEffect(() => {
     requestAnimationFrame(() => setWidgetFadeIn(true));
   }, []);
 
-  // Only show on the product page being synced
-  // URL pattern: /admin/produits/{id}/modifier
-  const isOnSyncingProductPage = (() => {
-    if (syncingProductIds.size === 0) return false;
-    const match = pathname.match(/\/admin\/produits\/([^/]+)\/modifier/);
-    if (match) return syncingProductIds.has(match[1]);
-    // Also show on /admin/produits (list page) for bulk syncs
-    if (pathname === "/admin/produits" && syncingProductIds.size > 1) return true;
-    return false;
-  })();
-
-  if (!isOnSyncingProductPage) return null;
+  // Show mini-widget on all admin pages while sync is in progress
+  if (syncingProductIds.size === 0) return null;
 
   const allDone = Array.from(states.values()).every(
     (s) => s.status === "success" || s.status === "error"

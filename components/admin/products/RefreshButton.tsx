@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { usePfsRefresh } from "@/components/admin/pfs/PfsRefreshContext";
 import { useAnkorstoreRefresh } from "@/components/admin/ankorstore/AnkorstoreRefreshContext";
+import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import { refreshProduct } from "@/app/actions/admin/products";
 import { useState, useRef } from "react";
 
@@ -21,9 +22,11 @@ export default function RefreshButton({ href, productId, productName, productRef
   const { confirm } = useConfirm();
   const pfsRefresh = usePfsRefresh();
   const ankorsRefresh = useAnkorstoreRefresh();
+  const { syncingProductIds } = useMarketplaceSync();
   const [refreshing, setRefreshing] = useState(false);
   const pfsRefreshing = productId ? pfsRefresh?.isRefreshing(productId) : false;
   const ankorsRefreshing = productId ? ankorsRefresh?.isRefreshing(productId) : false;
+  const isSyncLocked = !!productId && syncingProductIds.has(productId);
 
   // Track checkbox state via refs (onChange callbacks)
   const refreshPfsRef = useRef(true);
@@ -95,9 +98,9 @@ export default function RefreshButton({ href, productId, productName, productRef
     <button
       type="button"
       onClick={handleClick}
-      disabled={refreshing || pfsRefreshing || ankorsRefreshing}
+      disabled={refreshing || pfsRefreshing || ankorsRefreshing || isSyncLocked}
       className={`inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-text-secondary bg-bg-primary border border-border rounded-lg hover:border-bg-dark hover:text-text-primary transition-colors font-body ${
-        refreshing || pfsRefreshing || ankorsRefreshing ? "opacity-50 cursor-wait" : ""
+        refreshing || pfsRefreshing || ankorsRefreshing || isSyncLocked ? "opacity-50 cursor-wait" : ""
       }`}
       title="Rafraîchir (remettre en Nouveauté)"
     >

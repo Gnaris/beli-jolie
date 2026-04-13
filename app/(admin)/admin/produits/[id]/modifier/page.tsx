@@ -11,6 +11,7 @@ import AnkorstoreSyncBanner from "@/components/admin/ankorstore/AnkorstoreSyncBa
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import { getCachedSiteConfig } from "@/lib/cached-data";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
+import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -124,29 +125,6 @@ export default async function ModifierProduitPage({
   ]);
 
   if (!product) notFound();
-
-  // Second batch: catalog data (independent of product, can use cached results)
-  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes] = await Promise.all([
-    prisma.category.findMany({
-      orderBy: { name: "asc" },
-      include: { subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } } },
-    }),
-    prisma.color.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
-    }),
-    prisma.composition.findMany({ orderBy: { name: "asc" } }),
-    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.manufacturingCountry.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, isoCode: true },
-    }),
-    prisma.season.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.size.findMany({
-      orderBy: { position: "asc" },
-      select: { id: true, name: true, categories: { select: { categoryId: true } } },
-    }),
-  ]);
 
   // Draft detection: incomplete + OFFLINE → show creation UI with pre-filled data
   const isDraft = product.isIncomplete && product.status === "OFFLINE";
@@ -379,11 +357,20 @@ export default async function ModifierProduitPage({
     productStatus: initialProductStatus,
     isIncomplete: initialIsIncomplete,
     stockState: initialStockState,
+    marketplaceSync: {
+      pfsSyncStatus: (product.pfsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
+      pfsSyncError: product.pfsSyncError ?? null,
+      ankorsSyncStatus: (product.ankorsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
+      ankorsSyncError: product.ankorsSyncError ?? null,
+      hasPfsConfig,
+      hasAnkorstoreConfig: ankorsEnabled?.value === "true",
+    },
   };
 
   // ── Draft: simple layout like create page ──────────────────────────────────
   if (isDraft) {
     return (
+      <DraftPageWrapper>
       <div className="max-w-[1600px] mx-auto space-y-8">
         <div>
           <nav className="flex items-center gap-1.5 text-[13px] font-body text-text-muted mb-3">
@@ -393,22 +380,20 @@ export default async function ModifierProduitPage({
             <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             <span className="text-text-secondary">Continuer</span>
           </nav>
-          <h1 className="page-title">Continuer le brouillon</h1>
-          {product.reference && (
-            <p className="text-base text-text-muted font-body mt-1">
-              Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
-            </p>
-          )}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="page-title">Continuer le brouillon</h1>
+              {product.reference && (
+                <p className="text-base text-text-muted font-body mt-1">
+                  Réf. <span className="font-mono font-semibold text-text-secondary">{product.reference}</span>
+                </p>
+              )}
+            </div>
+            <DraftPageToggle />
+          </div>
         </div>
 
         <ProductForm
-          categories={categories}
-          availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage, pfsColorRef: c.pfsColorRef }))}
-          availableSizes={sizes.map((s) => ({ id: s.id, name: s.name, categoryIds: s.categories.map((c) => c.categoryId) }))}
-          availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
-          availableCountries={manufacturingCountries}
-          availableSeasons={seasons}
-          availableTags={tags}
           mode="create"
           productId={product.id}
           hasPfsConfig={hasPfsConfig}
@@ -465,6 +450,7 @@ export default async function ModifierProduitPage({
           }}
         />
       </div>
+      </DraftPageWrapper>
     );
   }
 
@@ -555,17 +541,11 @@ export default async function ModifierProduitPage({
       }
     >
       <ProductForm
-        categories={categories}
-        availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage, pfsColorRef: c.pfsColorRef }))}
-        availableSizes={sizes.map((s) => ({ id: s.id, name: s.name, categoryIds: s.categories.map((c) => c.categoryId) }))}
-        availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
-        availableCountries={manufacturingCountries}
-        availableSeasons={seasons}
-        availableTags={tags}
         mode="edit"
         productId={product.id}
         hasPfsConfig={hasPfsConfig}
         hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
+        initialSyncing={product.pfsSyncStatus === "pending" || product.ankorsSyncStatus === "pending"}
         initialData={{
           reference:         product.reference,
           name:              product.name,

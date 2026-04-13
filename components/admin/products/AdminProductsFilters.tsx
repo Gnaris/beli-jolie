@@ -23,6 +23,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
   const urlExactRef  = searchParams.get("exactRef") === "1";
   const urlCat       = searchParams.get("cat")        ?? "";
   const urlStatus    = searchParams.get("status")     ?? "";
+  const urlSyncStatus = searchParams.get("syncStatus") ?? "";
   const urlMinPrice  = searchParams.get("minPrice")   ?? "";
   const urlMaxPrice  = searchParams.get("maxPrice")   ?? "";
   const urlDateFrom  = searchParams.get("dateFrom")   ?? "";
@@ -48,7 +49,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
   useEffect(() => { setLocalDateTo(urlDateTo); }, [urlDateTo]);
   useEffect(() => { setLocalStockBelow(urlStockBelow); }, [urlStockBelow]);
 
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlStatus || urlSyncStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow);
   const hasLocalChanges = localQ !== urlQ || localExactRef !== urlExactRef || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [customValue, setCustomValue] = useState("");
@@ -292,6 +293,25 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
                   { value: "DRAFT", label: "Brouillons" },
                   { value: "ARCHIVED", label: "Archivé" },
                   { value: "SYNCING", label: "Sync en cours" },
+                ]}
+                size="sm"
+              />
+            </div>
+
+            {/* Sync marketplace — applies immediately */}
+            <div>
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
+                Sync marketplace
+              </label>
+              <CustomSelect
+                value={urlSyncStatus}
+                onChange={(v) => navigate({ syncStatus: v || null })}
+                options={[
+                  { value: "", label: "Tous" },
+                  { value: "synced", label: "Synchronisé" },
+                  { value: "pending", label: "Sync en cours" },
+                  { value: "failed", label: "Sync échouée" },
+                  { value: "none", label: "Non synchronisé" },
                 ]}
                 size="sm"
               />

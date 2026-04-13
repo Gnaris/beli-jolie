@@ -3,14 +3,37 @@ import { createContext, useContext, useState, useCallback } from "react";
 
 export type StockState = "ok" | "partial_out" | "all_out";
 
+type SyncStatus = "synced" | "pending" | "failed" | null;
+
+export interface MarketplaceSyncInfo {
+  pfsSyncStatus: SyncStatus;
+  pfsSyncError: string | null;
+  ankorsSyncStatus: SyncStatus;
+  ankorsSyncError: string | null;
+  hasPfsConfig: boolean;
+  hasAnkorstoreConfig: boolean;
+}
+
 export interface ProductFormHeaderState {
   productStatus: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
   stockState: StockState;
+  marketplaceSync?: MarketplaceSyncInfo;
+}
+
+/** Callbacks exposed by ProductForm to let the header toggle status */
+export interface StatusToggleCallbacks {
+  getCompletenessErrors: () => string[];
+  isOutOfStock: () => boolean;
+  setProductStatus: (s: "OFFLINE" | "ONLINE" | "ARCHIVED") => void;
+  setOnlineErrors: (e: string[]) => void;
+  setError: (e: string) => void;
 }
 
 interface ContextValue extends ProductFormHeaderState {
   updateHeader: (s: Partial<ProductFormHeaderState>) => void;
+  statusToggle: StatusToggleCallbacks | null;
+  registerStatusToggle: (cb: StatusToggleCallbacks) => void;
 }
 
 const ProductFormHeaderContext = createContext<ContextValue>({
@@ -18,6 +41,8 @@ const ProductFormHeaderContext = createContext<ContextValue>({
   isIncomplete: false,
   stockState: "ok",
   updateHeader: () => {},
+  statusToggle: null,
+  registerStatusToggle: () => {},
 });
 
 export function ProductFormHeaderProvider({
@@ -28,11 +53,15 @@ export function ProductFormHeaderProvider({
   initial: ProductFormHeaderState;
 }) {
   const [state, setState] = useState<ProductFormHeaderState>(initial);
+  const [statusToggle, setStatusToggle] = useState<StatusToggleCallbacks | null>(null);
   const updateHeader = useCallback((s: Partial<ProductFormHeaderState>) => {
     setState((prev) => ({ ...prev, ...s }));
   }, []);
+  const registerStatusToggle = useCallback((cb: StatusToggleCallbacks) => {
+    setStatusToggle(cb);
+  }, []);
   return (
-    <ProductFormHeaderContext.Provider value={{ ...state, updateHeader }}>
+    <ProductFormHeaderContext.Provider value={{ ...state, updateHeader, statusToggle, registerStatusToggle }}>
       {children}
     </ProductFormHeaderContext.Provider>
   );

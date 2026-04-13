@@ -1,19 +1,78 @@
 "use client";
 import { ProductFormHeaderProvider, ProductFormHeaderState, useProductFormHeader } from "./ProductFormHeaderContext";
+import SyncStatusBadge from "./SyncStatusBadge";
+
+function StatusToggle({ mode }: { mode: "create" | "edit" }) {
+  const { productStatus, isIncomplete, statusToggle } = useProductFormHeader();
+  const isOnline = productStatus === "ONLINE";
+  const hasErrors = isIncomplete;
+
+  const handleToggle = () => {
+    if (!statusToggle) return;
+    if (isOnline) {
+      // Going offline — no validation needed
+      statusToggle.setProductStatus("OFFLINE");
+      statusToggle.setOnlineErrors([]);
+      statusToggle.setError("");
+    } else {
+      // Going online — validate
+      const errors = statusToggle.getCompletenessErrors();
+      if (errors.length > 0) {
+        statusToggle.setOnlineErrors(errors);
+        statusToggle.setError("Ce produit ne peut pas être mis en ligne. Corrigez les erreurs ci-dessus.");
+        return;
+      }
+      if (statusToggle.isOutOfStock()) {
+        statusToggle.setOnlineErrors(["Toutes les variantes sont en rupture de stock"]);
+        statusToggle.setError("Ce produit ne peut pas être mis en ligne car aucune variante n'a de stock.");
+        return;
+      }
+      statusToggle.setOnlineErrors([]);
+      statusToggle.setError("");
+      statusToggle.setProductStatus("ONLINE");
+    }
+  };
+
+  // Disabled when trying to go online but form is incomplete (only in create mode label differs)
+  const disabled = !statusToggle || (!isOnline && hasErrors && !statusToggle);
+
+  return (
+    <button
+      type="button"
+      onClick={handleToggle}
+      className="flex items-center gap-3 group"
+      title={isOnline
+        ? (mode === "edit" ? "Passer hors ligne" : "Mettre hors ligne")
+        : (mode === "edit" ? "Passer en ligne" : "Mettre en ligne")
+      }
+    >
+      {/* Toggle track */}
+      <div className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+        isOnline ? "bg-[#22C55E]" : "bg-[#D1D5DB]"
+      }`}>
+        {/* Toggle knob */}
+        <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 ${
+          isOnline ? "translate-x-5" : "translate-x-0"
+        }`} />
+      </div>
+      {/* Label */}
+      <span className={`text-sm font-semibold font-body whitespace-nowrap ${
+        isOnline ? "text-[#15803D]" : "text-text-secondary"
+      }`}>
+        {mode === "create"
+          ? (isOnline ? "Mettre en ligne" : "Hors ligne")
+          : (isOnline ? "En ligne" : "Hors ligne")
+        }
+      </span>
+    </button>
+  );
+}
 
 function HeaderBadges() {
-  const { productStatus, isIncomplete, stockState } = useProductFormHeader();
+  const { productStatus, isIncomplete, stockState, marketplaceSync } = useProductFormHeader();
 
   return (
     <>
-      <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-body ${
-        productStatus === "ONLINE"
-          ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-          : "bg-bg-secondary text-text-secondary border border-border"
-      }`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${productStatus === "ONLINE" ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
-        {productStatus === "ONLINE" ? "En ligne" : isIncomplete ? "Brouillon" : "Hors ligne"}
-      </span>
       {productStatus !== "ONLINE" && isIncomplete && (
         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-body bg-[#F3E8FF] text-[#7C3AED] border border-[#DDD6FE]">
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -21,6 +80,16 @@ function HeaderBadges() {
           </svg>
           Brouillon
         </span>
+      )}
+      {marketplaceSync && (
+        <SyncStatusBadge
+          pfsSyncStatus={marketplaceSync.pfsSyncStatus}
+          pfsSyncError={marketplaceSync.pfsSyncError}
+          ankorsSyncStatus={marketplaceSync.ankorsSyncStatus}
+          ankorsSyncError={marketplaceSync.ankorsSyncError}
+          hasPfsConfig={marketplaceSync.hasPfsConfig}
+          hasAnkorstoreConfig={marketplaceSync.hasAnkorstoreConfig}
+        />
       )}
       {stockState === "all_out" && (
         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-body bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]">
@@ -38,6 +107,8 @@ function HeaderBadges() {
   );
 }
 
+export { StatusToggle };
+
 export function ProductEditWrapper({
   staticHeader,
   initial,
@@ -52,13 +123,16 @@ export function ProductEditWrapper({
       <div className="max-w-[1600px] mx-auto space-y-8">
         <div className="sticky top-0 z-20 bg-bg-secondary/95 backdrop-blur-sm border-b border-border -mx-6 px-6 pt-3 pb-4">
           {staticHeader}
-          <div className="flex items-center gap-3 flex-wrap mt-4 pt-4 border-t border-border">
-            <h2 className="font-heading text-lg font-bold text-text-primary">
-              Informations du produit
-            </h2>
-            <div className="flex items-center gap-2">
-              <HeaderBadges />
+          <div className="flex items-center justify-between gap-3 flex-wrap mt-4 pt-4 border-t border-border">
+            <div className="flex items-center gap-3">
+              <h2 className="font-heading text-lg font-bold text-text-primary">
+                Informations du produit
+              </h2>
+              <div className="flex items-center gap-2">
+                <HeaderBadges />
+              </div>
             </div>
+            <StatusToggle mode="edit" />
           </div>
         </div>
         {children}

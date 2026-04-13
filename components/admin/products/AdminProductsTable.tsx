@@ -17,6 +17,7 @@ import { useAnkorstoreRefresh } from "@/components/admin/ankorstore/AnkorstoreRe
 import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import { useProductStream } from "@/hooks/useProductStream";
 import ImportProgressBanner from "@/components/admin/products/ImportProgressBanner";
+import { SyncStatusDot } from "@/components/admin/products/SyncStatusBadge";
 import type { MarketplaceId } from "@/lib/product-events";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -53,6 +54,9 @@ interface AdminProduct {
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
   pfsSyncStatus: "synced" | "pending" | "failed" | null;
+  pfsSyncError: string | null;
+  ankorsSyncStatus: "synced" | "pending" | "failed" | null;
+  ankorsSyncError: string | null;
   categoryName: string;
   subCategoryName: string | null;
   createdAt: string;
@@ -362,6 +366,7 @@ function ProductRow({
   hasPfsConfig = false,
   hasAnkorstoreConfig = false,
   isNew = false,
+  isDeleting = false,
 }: {
   product: AdminProduct;
   selected: boolean;
@@ -374,6 +379,7 @@ function ProductRow({
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
   isNew?: boolean;
+  isDeleting?: boolean;
 }) {
   const [refreshing, startRefresh] = useTransition();
   const { confirm } = useConfirm();
@@ -413,7 +419,7 @@ function ProductRow({
   return (
     <>
       <tr
-        className={`table-row transition-all duration-150 ${selected ? "bg-[#EEF2FF]" : ""} ${expanded ? "border-b-0" : ""} ${isNew ? "animate-product-pop" : ""}`}
+        className={`table-row transition-all duration-150 ${selected ? "bg-[#EEF2FF]" : ""} ${expanded ? "border-b-0" : ""} ${isNew ? "animate-product-pop" : ""} ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
       >
         {/* Checkbox */}
         <td className="px-4 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
@@ -574,21 +580,23 @@ function ProductRow({
                   Stock partiel
                 </span>
               )}
-              {hasPfsConfig && product.pfsSyncStatus === "failed" && (
-                <span
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]"
-                  title="Synchronisation Paris Fashion Shop échouée"
-                >
-                  PFS
+              {isDeleting ? (
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200">
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Suppression...
                 </span>
-              )}
-              {hasPfsConfig && product.pfsSyncStatus === "pending" && (
-                <span
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200"
-                  title="Synchronisation Paris Fashion Shop en cours"
-                >
-                  PFS
-                </span>
+              ) : (
+                <SyncStatusDot
+                  pfsSyncStatus={product.pfsSyncStatus}
+                  pfsSyncError={product.pfsSyncError}
+                  ankorsSyncStatus={product.ankorsSyncStatus}
+                  ankorsSyncError={product.ankorsSyncError}
+                  hasPfsConfig={hasPfsConfig}
+                  hasAnkorstoreConfig={hasAnkorstoreConfig}
+                />
               )}
             </div>
           </div>
@@ -1124,7 +1132,7 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, hasPfsConfig = false, hasAnkorstoreConfig = false, newProductIds,
+  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, hasPfsConfig = false, hasAnkorstoreConfig = false, newProductIds, deletingIds,
 }: {
   products: AdminProduct[];
   selectedIds: Set<string>;
@@ -1139,6 +1147,7 @@ function TableWithTopScroll({
   hasPfsConfig?: boolean;
   hasAnkorstoreConfig?: boolean;
   newProductIds: Set<string>;
+  deletingIds: Set<string>;
 }) {
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -1239,6 +1248,7 @@ function TableWithTopScroll({
                 hasPfsConfig={hasPfsConfig}
                 hasAnkorstoreConfig={hasAnkorstoreConfig}
                 isNew={newProductIds.has(product.id)}
+                isDeleting={deletingIds.has(product.id)}
               />
             ))}
           </tbody>
@@ -1259,6 +1269,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
   const { confirm } = useConfirm();
   const { startSync } = useMarketplaceSync();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [confirmRefresh, setConfirmRefresh] = useState(false);
   const pfsRefresh = usePfsRefresh();
 
@@ -1457,6 +1468,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
     }
 
     setBulkMessage(null);
+    setDeletingIds(new Set(ids));
     if (marketplaces.length === 0) showLoading();
     startTransition(async () => {
       try {
@@ -1480,6 +1492,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
               type: "error",
               text: `Suppression annulée — échec marketplace pour ${result.marketplaceErrors.map((e) => e.reference).join(", ")}`,
             });
+            setDeletingIds(new Set());
             return;
           }
 
@@ -1525,6 +1538,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
       } finally {
         if (marketplaces.length === 0) hideLoading();
+        setDeletingIds(new Set());
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1731,7 +1745,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} newProductIds={newProductIds} />
+      <TableWithTopScroll products={allProducts} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} newProductIds={newProductIds} deletingIds={deletingIds} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

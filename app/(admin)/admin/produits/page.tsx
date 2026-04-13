@@ -33,6 +33,7 @@ interface PageProps {
     perPage?: string;
     cat?: string;
     status?: string;
+    syncStatus?: string;
     minPrice?: string;
     maxPrice?: string;
     dateFrom?: string;
@@ -111,6 +112,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     perPage: perPageParam = "20",
     cat = "",
     status: statusFilter = "",
+    syncStatus: syncStatusFilter = "",
     minPrice: minPriceParam = "",
     maxPrice: maxPriceParam = "",
     dateFrom = "",
@@ -147,6 +149,20 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     where.isIncomplete = false;
   } else if (statusFilter === "ONLINE" || statusFilter === "ARCHIVED" || statusFilter === "SYNCING") {
     where.status = statusFilter;
+  }
+
+  // Sync marketplace filter — uses AND to combine with existing search OR
+  if (syncStatusFilter === "synced" || syncStatusFilter === "pending" || syncStatusFilter === "failed") {
+    where.AND = [
+      ...(where.AND ?? []),
+      { OR: [{ pfsSyncStatus: syncStatusFilter }, { ankorsSyncStatus: syncStatusFilter }] },
+    ];
+  } else if (syncStatusFilter === "none") {
+    where.AND = [
+      ...(where.AND ?? []),
+      { pfsSyncStatus: { not: "synced" } },
+      { ankorsSyncStatus: { not: "synced" } },
+    ];
   }
 
   if (minPrice !== null || maxPrice !== null) {
@@ -237,6 +253,9 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
     isIncomplete:    p.isIncomplete,
     pfsSyncStatus:   (p.pfsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
+    pfsSyncError:    p.pfsSyncError ?? null,
+    ankorsSyncStatus: (p.ankorsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
+    ankorsSyncError: p.ankorsSyncError ?? null,
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),

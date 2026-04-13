@@ -1,62 +1,39 @@
-import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
-import { getCachedCategories, getCachedColors, getCachedTags, getCachedManufacturingCountries, getCachedSeasons, getCachedSizes, getCachedPfsEnabled, getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedPfsEnabled, getCachedSiteConfig } from "@/lib/cached-data";
+import { CreatePageWrapper, CreatePageToggle } from "./CreatePageWrapper";
 
 export const metadata: Metadata = { title: "Nouveau produit" };
 
 export default async function NouveauProduitPage() {
-  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes, hasPfsConfig, ankorsEnabled] = await Promise.all([
-    getCachedCategories(),
-    getCachedColors(),
-    prisma.composition.findMany({ orderBy: { name: "asc" } }),
-    getCachedTags(),
-    getCachedManufacturingCountries(),
-    getCachedSeasons(),
-    getCachedSizes(),
+  const [hasPfsConfig, ankorsEnabled] = await Promise.all([
     getCachedPfsEnabled(),
     getCachedSiteConfig("ankors_enabled"),
   ]);
 
   return (
-    <div className="max-w-[1600px] mx-auto space-y-8">
-      <div>
-        <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-2">
-          <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
-          <span>/</span>
-          <span className="text-text-secondary">Nouveau</span>
+    <CreatePageWrapper>
+      <div className="max-w-[1600px] mx-auto space-y-8">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-2">
+            <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
+            <span>/</span>
+            <span className="text-text-secondary">Nouveau</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <h1 className="page-title">
+              Créer un produit
+            </h1>
+            <CreatePageToggle />
+          </div>
         </div>
-        <h1 className="page-title">
-          Créer un produit
-        </h1>
+
+        <ProductForm
+          hasPfsConfig={hasPfsConfig}
+          hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
+        />
       </div>
-
-      {categories.length === 0 && (
-        <div className="badge-warning px-4 py-3 text-sm font-body rounded-xl border border-[#FDE68A]">
-          Aucune catégorie.{" "}
-          <Link href="/admin/produits?tab=categories" className="underline font-medium">Créez-en une d&apos;abord.</Link>
-        </div>
-      )}
-
-      {colors.length === 0 && (
-        <div className="badge-warning px-4 py-3 text-sm font-body rounded-xl border border-[#FDE68A]">
-          Aucune couleur dans la bibliothèque.{" "}
-          <Link href="/admin/produits?tab=couleurs" className="underline font-medium">Créez des couleurs d&apos;abord.</Link>
-        </div>
-      )}
-
-      <ProductForm
-        categories={categories}
-        availableColors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage, pfsColorRef: c.pfsColorRef }))}
-        availableSizes={sizes.map((s) => ({ id: s.id, name: s.name, categoryIds: s.categories.map((c) => c.categoryId) }))}
-        availableCompositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
-        availableCountries={manufacturingCountries}
-        availableSeasons={seasons}
-        availableTags={tags}
-        hasPfsConfig={hasPfsConfig}
-        hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
-      />
-    </div>
+    </CreatePageWrapper>
   );
 }
