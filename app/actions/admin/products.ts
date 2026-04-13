@@ -13,6 +13,9 @@ import { pfsUpdateStatus, pfsDeleteProduct, type PfsStatus } from "@/lib/pfs-api
 import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { generateSku } from "@/lib/sku";
+import { deleteMultipleFromR2, r2KeyFromDbPath } from "@/lib/r2";
+import { getImagePaths } from "@/lib/image-utils";
+import { ankorstorePatchVariants, type AnkorstoreVariantDiff } from "@/app/actions/admin/ankorstore";
 
 /**
  * Fire-and-forget: push product to Ankorstore.
@@ -568,13 +571,28 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
 
+  // Mark sync status as pending BEFORE firing background tasks
+  // so the edit page knows a sync is in progress and doesn't show "not published"
+  const willSyncPfs = !input.isIncomplete && !input.skipPfsSync;
+  const willSyncAnkorstore = !input.isIncomplete && !input.skipAnkorstoreSync;
+
+  if (willSyncPfs || willSyncAnkorstore) {
+    await prisma.product.update({
+      where: { id: product.id },
+      data: {
+        ...(willSyncPfs && { pfsSyncStatus: "pending" }),
+        ...(willSyncAnkorstore && { ankorsSyncStatus: "pending" }),
+      },
+    });
+  }
+
   // Fire-and-forget sync to PFS (skip drafts and explicitly skipped)
-  if (!input.isIncomplete && !input.skipPfsSync) {
+  if (willSyncPfs) {
     triggerPfsSync(product.id, { forceCreate: true });
   }
 
   // Fire-and-forget push to Ankorstore (creates the product with all variants)
-  if (!input.isIncomplete && !input.skipAnkorstoreSync) {
+  if (willSyncAnkorstore) {
     triggerAnkorstoreSync(product.id, true);
   }
 
@@ -605,7 +623,20 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
 
   const oldProduct = await prisma.product.findUnique({
     where: { id },
-    select: { status: true, isBestSeller: true, pfsProductId: true },
+    select: {
+      status: true,
+      isBestSeller: true,
+      pfsProductId: true,
+      ankorsProductId: true,
+      name: true,
+      description: true,
+      categoryId: true,
+      manufacturingCountryId: true,
+      seasonId: true,
+      dimensionLength: true,
+      dimensionWidth: true,
+      dimensionHeight: true,
+    },
   });
 
   const dup = await prisma.product.findFirst({
@@ -639,7 +670,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     )
   );
 
-  const oldStockMap = await prisma.$transaction(async (tx) => {
+  const { oldStockMap, oldVariantMap } = await prisma.$transaction(async (tx) => {
     // Mise à jour des champs de base
     await tx.product.update({
       where: { id },
@@ -687,10 +718,19 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
 
     const existingVariants = await tx.productColor.findMany({
       where: { productId: id },
-      select: { id: true, stock: true },
+      select: { id: true, stock: true, unitPrice: true, ankorsVariantId: true, saleType: true, packQuantity: true,
+        variantSizes: { select: { quantity: true } } },
     });
     const existingIds = existingVariants.map((v) => v.id);
     const oldStockMap = new Map(existingVariants.map((v) => [v.id, v.stock]));
+    const oldVariantMap = new Map(existingVariants.map((v) => [v.id, {
+      stock: v.stock,
+      unitPrice: Number(v.unitPrice ?? 0),
+      ankorsVariantId: v.ankorsVariantId,
+      saleType: v.saleType as "UNIT" | "PACK",
+      packQuantity: v.packQuantity,
+      totalPackQty: v.variantSizes?.reduce((s: number, vs: { quantity: number }) => s + vs.quantity, 0) || (v.packQuantity ?? 12),
+    }]));
 
     // IDs that must be kept (those with dbId provided)
     const submittedDbIds = input.colors
@@ -913,7 +953,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       });
     }
 
-    return oldStockMap;
+    return { oldStockMap, oldVariantMap };
   }, { timeout: 30000 });
 
   // Traductions : remplacer toutes les traductions existantes
@@ -962,7 +1002,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   }
 
   revalidatePath("/admin/produits");
-  revalidatePath(`/admin/produits/${id}/modifier`);
   revalidatePath(`/produits/${id}`);
   revalidateTag("products", "default");
   revalidateTag("tags", "default");
@@ -993,9 +1032,59 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     triggerPfsSync(id);
   }
 
-  // Fire-and-forget sync to Ankorstore (price, color, variant changes)
-  if (!input.isIncomplete && !input.skipAnkorstoreSync) {
-    triggerAnkorstoreSync(id);
+  // Fire-and-forget sync to Ankorstore
+  // skipRevalidation=true: updateProduct already revalidated above
+  if (!input.isIncomplete && !input.skipAnkorstoreSync && oldProduct?.ankorsProductId) {
+    // Detect if only variant-level fields changed (stock/price)
+    const productLevelChanged =
+      oldProduct.name !== input.name.trim() ||
+      oldProduct.description !== (input.description?.trim() || "") ||
+      oldProduct.categoryId !== input.categoryId ||
+      oldProduct.manufacturingCountryId !== (input.manufacturingCountryId || null) ||
+      oldProduct.seasonId !== (input.seasonId || null) ||
+      oldProduct.dimensionLength !== (input.dimensionLength ?? null) ||
+      oldProduct.dimensionWidth !== (input.dimensionWidth ?? null) ||
+      oldProduct.dimensionHeight !== (input.dimensionHeight ?? null) ||
+      // Variant count changed (added/removed variants)
+      input.colors.length !== oldVariantMap.size;
+
+    if (productLevelChanged) {
+      // Full push (existing behavior)
+      triggerAnkorstoreSync(id, false, true);
+    } else {
+      // Granular patch: only stock/price changes
+      const diffs: AnkorstoreVariantDiff[] = [];
+      for (const c of input.colors) {
+        if (!c.dbId) continue; // New variant = must full push (already caught by count check)
+        const old = oldVariantMap.get(c.dbId);
+        if (!old?.ankorsVariantId) continue; // Not synced to Ankorstore
+
+        const stockChanged = old.stock !== c.stock;
+        const priceChanged = old.unitPrice !== c.unitPrice;
+
+        if (stockChanged || priceChanged) {
+          diffs.push({
+            variantDbId: c.dbId,
+            ankorsVariantId: old.ankorsVariantId,
+            stockChanged,
+            newStock: c.stock,
+            priceChanged,
+            newUnitPrice: c.unitPrice,
+            saleType: old.saleType,
+            packQuantity: old.packQuantity,
+            totalPackQty: old.totalPackQty,
+          });
+        }
+      }
+
+      if (diffs.length > 0) {
+        ankorstorePatchVariants(id, diffs).catch((err) => {
+          logger.error("[Ankorstore] Granular patch failed, will retry on next refresh", {
+            productId: id, error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    }
   }
 }
 
@@ -1140,6 +1229,26 @@ export async function deleteProduct(
     await prisma.cartItem.deleteMany({
       where: { variantId: { in: variantIds.map((v) => v.id) } },
     });
+  }
+
+  // Delete all product images from R2 (large + medium + thumb variants)
+  const productImages = await prisma.productColorImage.findMany({
+    where: { productId: id },
+    select: { path: true },
+  });
+  if (productImages.length > 0) {
+    const r2Keys = productImages.flatMap(({ path }) => {
+      const paths = getImagePaths(path);
+      return [paths.large, paths.medium, paths.thumb].map(r2KeyFromDbPath);
+    });
+    try {
+      await deleteMultipleFromR2(r2Keys);
+      logger.info(`[R2] Deleted ${r2Keys.length} images for product ${id}`);
+    } catch (err) {
+      logger.error(`[R2] Failed to delete images for product ${id}`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   await prisma.product.delete({ where: { id } });
@@ -1426,6 +1535,26 @@ export async function bulkDeleteProducts(
 
   let deleted = 0;
   if (deletableIds.length > 0) {
+    // Delete all product images from R2 (large + medium + thumb variants)
+    const allImages = await prisma.productColorImage.findMany({
+      where: { productId: { in: deletableIds } },
+      select: { path: true },
+    });
+    if (allImages.length > 0) {
+      const r2Keys = allImages.flatMap(({ path }) => {
+        const paths = getImagePaths(path);
+        return [paths.large, paths.medium, paths.thumb].map(r2KeyFromDbPath);
+      });
+      try {
+        await deleteMultipleFromR2(r2Keys);
+        logger.info(`[R2] Deleted ${r2Keys.length} images for ${deletableIds.length} products`);
+      } catch (err) {
+        logger.error(`[R2] Failed to delete images during bulk delete`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     // Clean up CartItems referencing variants of products to delete (no cascade on CartItem.variant)
     const variantIds = await prisma.productColor.findMany({
       where: { productId: { in: deletableIds } },
@@ -1708,8 +1837,59 @@ export async function revalidateAfterImport() {
 }
 
 /**
+ * Mark a marketplace sync as "pending" in DB immediately.
+ * Called from banners before firing the actual sync, so navigating away shows correct status.
+ */
+export async function markMarketplaceSyncPending(
+  productId: string,
+  marketplace: "pfs" | "ankorstore",
+): Promise<void> {
+  await requireAdmin();
+  await prisma.product.update({
+    where: { id: productId },
+    data: marketplace === "pfs"
+      ? { pfsSyncStatus: "pending", pfsSyncError: null }
+      : { ankorsSyncStatus: "pending", ankorsSyncError: null },
+  });
+}
+
+/**
  * Get detailed product statistics for the admin product stats tab.
  */
+export async function fetchProductFormAttributes() {
+  await requireAdmin();
+  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes] = await Promise.all([
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      include: { subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } } },
+    }),
+    prisma.color.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
+    }),
+    prisma.composition.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.manufacturingCountry.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, isoCode: true },
+    }),
+    prisma.season.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.size.findMany({
+      orderBy: { position: "asc" },
+      select: { id: true, name: true, categories: { select: { categoryId: true } } },
+    }),
+  ]);
+  return {
+    categories,
+    colors: colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage, pfsColorRef: c.pfsColorRef })),
+    compositions,
+    tags,
+    manufacturingCountries,
+    seasons,
+    sizes: sizes.map((s) => ({ id: s.id, name: s.name, categoryIds: s.categories.map((c) => c.categoryId) })),
+  };
+}
+
 export async function getProductStats(productId: string) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") return null;
