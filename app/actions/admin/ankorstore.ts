@@ -9,6 +9,8 @@ import { emitProductEvent, type MarketplaceSyncProgress } from "@/lib/product-ev
 import { ankorstoreSearchProductsByRef, ankorstoreSearchVariants } from "@/lib/ankorstore-api";
 import {
   ankorstorePushProducts,
+  ankorstoreUpdateVariantStock,
+  ankorstoreUpdateVariantPrices,
   type AnkorstorePushProduct,
 } from "@/lib/ankorstore-api-write";
 import { applyMarketplaceMarkup, loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
@@ -212,24 +214,22 @@ export async function pushProductToAnkorstoreInternal(
         // Retail markup applies on top of the wholesale price
         const packRetail = applyMarketplaceMarkup(packWholesale, markupConfigs.ankorstoreRetail);
         if (unitPrice > 0) {
-
-          // One Ankorstore variant per size (e.g. Sx6, Mx4, Lx2)
-          for (const sz of sizes) {
-            variants.push({
-              sku: truncateSku(`${prod.reference}_${colorName}_Pack${packQty}_${sz.name}`),
-              external_id: c.id,
-              stock_quantity: options?.zeroStock ? 0 : c.stock,
-              wholesalePrice: packWholesale,
-              retailPrice: packRetail,
-              originalWholesalePrice: unitPrice,
-              unit_multiplier: 1,
-              options: [
-                { name: "color", value: colorName },
-                { name: "size", value: `${sz.name}x${sz.quantity}` },
-              ],
-              ...(images.length > 0 ? { images } : {}),
-            });
-          }
+          // PACK = single Ankorstore variant with all sizes combined in the size label
+          const sizeLabel = sizes.map((sz) => `${sz.name}x${sz.quantity}`).join(", ");
+          variants.push({
+            sku: truncateSku(`${prod.reference}_${colorName}_Pack${totalQty}`),
+            external_id: c.id,
+            stock_quantity: options?.zeroStock ? 0 : c.stock,
+            wholesalePrice: packWholesale,
+            retailPrice: packRetail,
+            originalWholesalePrice: unitPrice,
+            unit_multiplier: 1,
+            options: [
+              { name: "color", value: colorName },
+              { name: "size", value: sizeLabel },
+            ],
+            ...(images.length > 0 ? { images } : {}),
+          });
         }
       }
     }
@@ -402,6 +402,7 @@ export async function pushProductToAnkorstoreInternal(
       data: { ankorsSyncStatus: "synced", ankorsSyncError: null, ankorsSyncedAt: new Date() },
     });
 
+    emitAnkors({ step: "Synchronisé avec succès", progress: 100, status: "success" });
     return { success: true };
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : String(e);
@@ -418,6 +419,7 @@ export async function pushProductToAnkorstoreInternal(
       },
     }).catch(() => {}); // Don't throw on cleanup failure
 
+    emitAnkors({ step: "Erreur de synchronisation", progress: 100, status: "error", error: errorMsg });
     return { success: false, error: errorMsg };
   }
 }
@@ -541,4 +543,71 @@ export async function checkAnkorstoreProductExists(
     });
     return { exists: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+// ─────────────────────────────────────────────
+// Granular variant patch (stock + prices only)
+// ─────────────────────────────────────────────
+
+export interface AnkorstoreVariantDiff {
+  variantDbId: string;
+  ankorsVariantId: string;
+  stockChanged: boolean;
+  newStock: number;
+  priceChanged: boolean;
+  /** unitPrice from DB (the raw price before markup) */
+  newUnitPrice: number;
+  saleType: "UNIT" | "PACK";
+  packQuantity: number | null;
+  totalPackQty: number;
+}
+
+/**
+ * Patch only changed variant fields via dedicated PATCH endpoints.
+ * Used when no product-level fields changed during a save.
+ */
+export async function ankorstorePatchVariants(
+  productId: string,
+  diffs: AnkorstoreVariantDiff[]
+): Promise<{ success: boolean; error?: string }> {
+  if (diffs.length === 0) return { success: true };
+
+  const markupConfigs = await loadMarketplaceMarkupConfigs();
+  const errors: string[] = [];
+
+  for (const d of diffs) {
+    // Stock patch
+    if (d.stockChanged) {
+      const res = await ankorstoreUpdateVariantStock(d.ankorsVariantId, d.newStock);
+      if (!res.success) errors.push(`Stock ${d.variantDbId}: ${res.error}`);
+    }
+
+    // Price patch
+    if (d.priceChanged) {
+      let wholesalePrice: number;
+      let retailPrice: number;
+
+      if (d.saleType === "UNIT") {
+        wholesalePrice = applyMarketplaceMarkup(d.newUnitPrice, markupConfigs.ankorstoreWholesale);
+        retailPrice = applyMarketplaceMarkup(wholesalePrice, markupConfigs.ankorstoreRetail);
+      } else {
+        // PACK: markup on per-unit price, then multiply by total qty
+        const perUnit = Math.round((d.newUnitPrice / d.totalPackQty) * 100) / 100;
+        const markedUpUnit = applyMarketplaceMarkup(perUnit, markupConfigs.ankorstoreWholesale);
+        wholesalePrice = Math.round(markedUpUnit * d.totalPackQty * 100) / 100;
+        retailPrice = applyMarketplaceMarkup(wholesalePrice, markupConfigs.ankorstoreRetail);
+      }
+
+      const res = await ankorstoreUpdateVariantPrices(d.ankorsVariantId, wholesalePrice, retailPrice);
+      if (!res.success) errors.push(`Price ${d.variantDbId}: ${res.error}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    logger.warn("[Ankorstore] Some variant patches failed", { productId, errors });
+    return { success: false, error: errors.join("; ") };
+  }
+
+  logger.info("[Ankorstore] Granular variant patches complete", { productId, count: diffs.length });
+  return { success: true };
 }
