@@ -79,9 +79,9 @@ function getEffectiveColorRef(variant: FullProduct["colors"][number]): string | 
  * Push a BJ product to PFS. Non-blocking — fire and forget.
  * Updates pfsSyncStatus in DB on completion/failure.
  */
-export function triggerPfsSync(productId: string): void {
+export function triggerPfsSync(productId: string, { forceCreate = false }: { forceCreate?: boolean } = {}): void {
   // Fire and forget — don't await
-  syncProductToPfs(productId).catch((err) => {
+  syncProductToPfs(productId, { forceCreate }).catch((err) => {
     logger.error(`[PFS Reverse Sync] Fatal error for ${productId}`, { error: err instanceof Error ? err.message : String(err) });
   });
 }

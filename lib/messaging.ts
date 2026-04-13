@@ -98,19 +98,5 @@ export async function markAsRead(conversationId: string, readerRole: Role) {
   });
 }
 
-/**
- * Get unread message count for admin (all conversations) or for a specific client.
- */
-export async function getUnreadCount(role: Role, userId?: string) {
-  const where: Record<string, unknown> = {
-    readAt: null,
-    senderRole: role === "ADMIN" ? "CLIENT" : "ADMIN",
-  };
 
-  if (role === "CLIENT" && userId) {
-    where.conversation = { userId };
-  }
-
-  return prisma.message.count({ where });
-}
 

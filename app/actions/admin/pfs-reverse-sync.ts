@@ -34,13 +34,18 @@ export async function checkPfsProductExists(
     logger.info(`[PFS] checkPfsProductExists for ${product.reference}`, { exists: refCheck?.exists });
 
     if (refCheck?.exists && refCheck?.product?.id) {
+      // Persist the link so we don't re-check next time
+      await prisma.product.update({
+        where: { id: productId },
+        data: { pfsProductId: String(refCheck.product.id), pfsSyncStatus: "synced", pfsSyncError: null },
+      });
       return { exists: true };
     }
 
-    // Not found — clear stale DB state
+    // Not found — persist "not_found" so we don't re-check on every page load
     await prisma.product.update({
       where: { id: productId },
-      data: { pfsSyncStatus: null, pfsProductId: null, pfsSyncError: null },
+      data: { pfsSyncStatus: "not_found", pfsProductId: null, pfsSyncError: null },
     });
 
     return { exists: false };

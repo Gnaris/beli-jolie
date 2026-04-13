@@ -265,20 +265,6 @@ const ADMIN_NAV_SECTIONS_BASE: NavSection[] = [
     ],
   },
   {
-    title: "Marketplaces",
-    items: [
-      {
-        label: "Ankorstore",
-        href: "/admin/ankorstore",
-        icon: (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349M3.75 21V9.349m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016A3.001 3.001 0 0021 9.349M3.75 9.349a2.993 2.993 0 001.5-2.599V6a.75.75 0 01.75-.75h12a.75.75 0 01.75.75v.75a2.993 2.993 0 001.5 2.599M12 12.75h.008v.008H12v-.008z" />
-          </svg>
-        ),
-      },
-    ],
-  },
-  {
     title: "Ventes",
     items: [
       {

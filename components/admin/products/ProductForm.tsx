@@ -1424,7 +1424,7 @@ export default function ProductForm({
               {/* Référence (always FR, not locale-dependent) */}
               <Field label="Référence produit *" hint="Ex: BJ-COL-001">
                 <input type="text" value={reference}
-                  onChange={(e) => setReference(e.target.value.toUpperCase())}
+                  onChange={(e) => setReference(e.target.value.replace(/\s/g, "").toUpperCase())}
                   onBlur={() => markTouched("reference")}
                   placeholder="BJ-COL-001" className={`field-input${touchedFields.has("reference") && !reference.trim() ? " field-error" : ""}`} required />
                 {touchedFields.has("reference") && !reference.trim() && (

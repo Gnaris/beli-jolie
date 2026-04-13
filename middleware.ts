@@ -78,7 +78,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/cgu") ||
     pathname.startsWith("/confidentialite") ||
     pathname.startsWith("/cookies") ||
-    pathname.startsWith("/api/legal");
+    pathname.startsWith("/api/legal") ||
+    pathname.startsWith("/catalogue");
 
   if (!bypassMaintenance) {
     const inMaintenance = await getMaintenanceStatus(request.url);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { pushSingleProductToAnkorstore, checkAnkorstoreProductExists } from "@/app/actions/admin/ankorstore";
 
@@ -8,12 +8,12 @@ interface Props {
   productId: string;
   productReference: string;
   ankorsProductId: string | null;
-  ankorsSyncStatus: "synced" | "pending" | "failed" | null;
+  ankorsSyncStatus: "synced" | "pending" | "failed" | "not_found" | null;
   ankorsSyncError: string | null;
   ankorsSyncedAt?: string | null;
 }
 
-type BannerStatus = "synced" | "not_found" | "pushing" | "error";
+type BannerStatus = "synced" | "not_found" | "pushing" | "error" | "checking";
 
 export default function AnkorstoreSyncBanner({
   productId,
@@ -26,9 +26,37 @@ export default function AnkorstoreSyncBanner({
   const [status, setStatus] = useState<BannerStatus>(() => {
     if (ankorsSyncStatus === "failed") return "error";
     if (ankorsSyncStatus === "synced") return "synced";
-    return "not_found";
+    // Already linked in DB → synced
+    if (ankorsProductId) return "synced";
+    // Already checked and not found → show "not found" immediately (no API call)
+    if (ankorsSyncStatus === "not_found") return "not_found";
+    // Never checked → auto-check on mount
+    return "checking";
   });
   const [error, setError] = useState<string | null>(ankorsSyncError);
+
+  // Auto-check on mount: verify if product exists on Ankorstore
+  useEffect(() => {
+    if (status !== "checking") return;
+    let cancelled = false;
+    checkAnkorstoreProductExists(productId).then((result) => {
+      if (cancelled) return;
+      if (result.exists) {
+        setStatus("synced");
+      } else if (result.error) {
+        // API error (auth, network, etc.) — show error, not "not found"
+        setError(result.error);
+        setStatus("error");
+      } else {
+        setStatus("not_found");
+      }
+    }).catch((err) => {
+      if (cancelled) return;
+      setError(err instanceof Error ? err.message : "Erreur de vérification");
+      setStatus("error");
+    });
+    return () => { cancelled = true; };
+  }, [productId, status]);
 
   // Re-publier = check existence first, then sync only if exists
   const handlePush = useCallback(async () => {
@@ -60,11 +88,27 @@ export default function AnkorstoreSyncBanner({
     }
   }, [productId, toast]);
 
-  // Créer = explicit creation, user chose to create
+  // Créer = re-check first (product may have been created externally), then create if needed
   const handleCreate = useCallback(async () => {
     setStatus("pushing");
     setError(null);
     try {
+      // Step 1: Re-check if product now exists on Ankorstore
+      const check = await checkAnkorstoreProductExists(productId);
+      if (check.exists) {
+        // Product was created externally → update instead of create
+        const result = await pushSingleProductToAnkorstore(productId);
+        if (result.success) {
+          setStatus("synced");
+          toast.success("Ankorstore", "Produit trouvé et mis à jour sur Ankorstore.");
+        } else {
+          setError(result.error ?? "Échec de la mise à jour");
+          setStatus("error");
+        }
+        return;
+      }
+
+      // Step 2: Confirmed not found → create
       const result = await pushSingleProductToAnkorstore(productId, { forceCreate: true });
       if (result.success) {
         setStatus("synced");
@@ -93,6 +137,19 @@ export default function AnkorstoreSyncBanner({
         return `il y a ${days}j`;
       })()
     : null;
+
+  // ── Checking ───────────────────────────────────────────────
+  if (status === "checking") {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-body">
+        <svg className="w-4 h-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+        <span className="text-gray-600">Vérification sur Ankorstore...</span>
+      </div>
+    );
+  }
 
   // ── Synced ─────────────────────────────────────────────────
   if (status === "synced") {

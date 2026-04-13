@@ -13,7 +13,8 @@
     "test:coverage": "vitest run --coverage",
     "test:pfs-smoke": "vitest run __tests__/pfs/pfs-smoke.test.ts",
     "c": "claude --dangerously-skip-permissions",
-    "pull": "git pull && npx prisma db push && npx prisma generate && npm run dev"
+    "pull": "git pull && npx prisma db push && npx prisma generate && npm run dev",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1019.0",
@@ -29,7 +30,6 @@
     "next-intl": "^4.8.3",
     "nodemailer": "^7.0.13",
     "pdfkit": "^0.17.2",
-    "playwright": "^1.58.2",
     "prisma": "^5.22.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -52,6 +52,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5",
+    "playwright": "^1.58.2",
     "vitest": "^4.1.2"
   }
 }

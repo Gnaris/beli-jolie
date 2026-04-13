@@ -1,19 +1,19 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { forcePfsSync, checkPfsProductExists } from "@/app/actions/admin/pfs-reverse-sync";
 
 interface Props {
   productId: string;
   pfsProductId: string | null;
-  pfsSyncStatus: "synced" | "pending" | "failed" | null;
+  pfsSyncStatus: "synced" | "pending" | "failed" | "not_found" | null;
   pfsSyncError: string | null;
   pfsSyncedAt: string | null;
   mappingIssues?: string[];
 }
 
-type BannerStatus = "synced" | "not_on_pfs" | "creating" | "pushing" | "error" | "mapping_issues";
+type BannerStatus = "synced" | "not_on_pfs" | "creating" | "pushing" | "error" | "mapping_issues" | "checking";
 
 export default function PfsSyncBanner({
   productId,
@@ -28,14 +28,58 @@ export default function PfsSyncBanner({
     if (mappingIssues && mappingIssues.length > 0) return "mapping_issues";
     if (pfsSyncStatus === "failed") return "error";
     if (pfsSyncStatus === "synced") return "synced";
-    return "not_on_pfs";
+    // Already linked in DB → synced
+    if (pfsProductId) return "synced";
+    // Already checked and not found → show "not found" immediately (no API call)
+    if (pfsSyncStatus === "not_found") return "not_on_pfs";
+    // Never checked → auto-check on mount
+    return "checking";
   });
   const [error, setError] = useState<string | null>(pfsSyncError);
 
+  // Auto-check on mount: verify if product exists on PFS
+  useEffect(() => {
+    if (status !== "checking") return;
+    let cancelled = false;
+    checkPfsProductExists(productId).then((result) => {
+      if (cancelled) return;
+      if (result.exists) {
+        setStatus("synced");
+      } else if (result.error) {
+        setError(result.error);
+        setStatus("error");
+      } else {
+        setStatus("not_on_pfs");
+      }
+    }).catch((err) => {
+      if (cancelled) return;
+      setError(err instanceof Error ? err.message : "Erreur de vérification");
+      setStatus("error");
+    });
+    return () => { cancelled = true; };
+  }, [productId, status]);
+
+  // Créer = re-check first (product may have been created externally), then create if needed
   const handleCreateOnPfs = useCallback(async () => {
     setStatus("creating");
     setError(null);
     try {
+      // Step 1: Re-check if product now exists on PFS
+      const check = await checkPfsProductExists(productId);
+      if (check.exists) {
+        // Product was created externally → update instead of create
+        const result = await forcePfsSync(productId);
+        if (result.success) {
+          setStatus("synced");
+          toast.success("Paris Fashion Shop", "Produit trouvé et mis à jour.");
+        } else {
+          setError(result.error ?? "Échec de la mise à jour");
+          setStatus("error");
+        }
+        return;
+      }
+
+      // Step 2: Confirmed not found → create
       const result = await forcePfsSync(productId, { forceCreate: true });
       if (result.success) {
         setStatus("synced");
@@ -94,6 +138,19 @@ export default function PfsSyncBanner({
         return `il y a ${days}j`;
       })()
     : null;
+
+  // ── Checking ───────────────────────────────────────────────
+  if (status === "checking") {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-body">
+        <svg className="w-4 h-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+        <span className="text-gray-600">Vérification sur Paris Fashion Shop...</span>
+      </div>
+    );
+  }
 
   // ── Mapping issues ─────────────────────────────────────────
   if (status === "mapping_issues" && mappingIssues) {

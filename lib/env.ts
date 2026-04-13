@@ -36,7 +36,6 @@ const envSchema = z.object({
   PFS_EMAIL: z.string().optional(),
   PFS_PASSWORD: z.string().optional(),
   EASY_EXPRESS_API_KEY: z.string().optional(),
-  CRON_SECRET: z.string().optional(),
 });
 
 type Env = z.infer<typeof envSchema>;

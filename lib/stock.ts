@@ -137,20 +137,3 @@ export async function reinstateStockForOrder(orderId: string) {
   logger.info(`[Stock] Reinstated stock for cancelled order ${order.orderNumber}`);
 }
 
-/**
- * Get low stock threshold for a product. Falls back to global default.
- */
-export async function getLowStockThreshold(productId: string): Promise<number> {
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
-    select: { lowStockThreshold: true },
-  });
-
-  if (product?.lowStockThreshold != null) return product.lowStockThreshold;
-
-  const config = await prisma.siteConfig.findUnique({
-    where: { key: "default_low_stock_threshold" },
-  });
-
-  return config ? parseInt(config.value, 10) || 5 : 5;
-}

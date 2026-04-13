@@ -44,6 +44,13 @@ next-env.d.ts
 # playwright mcp logs
 .playwright-mcp/
 
+# test results
+/test-results/
+
+# superpowers (brainstorm artifacts)
+.superpowers/
+docs/superpowers/
+
 # uploads (fichiers utilisateurs)
 /private/uploads/
 /public/uploads/

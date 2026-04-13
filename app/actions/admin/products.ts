@@ -46,7 +46,7 @@ function triggerAnkorstoreSync(productId: string, forceCreate = false, skipReval
         import("@/app/actions/admin/ankorstore").then(({ pushProductToAnkorstoreInternal }) => {
           logger.info("[Ankorstore] Calling pushProductToAnkorstoreInternal", { productId });
           emitAnkors(productId, { step: "Envoi vers Ankorstore...", progress: 30, status: "in_progress" });
-          return pushProductToAnkorstoreInternal(productId, undefined, { skipRevalidation }).then((result) => {
+          return pushProductToAnkorstoreInternal(productId, undefined, { skipRevalidation, forceCreate }).then((result) => {
             logger.info("[Ankorstore] Auto-sync result", { productId, result });
             if (result.success) {
               emitAnkors(productId, { step: "Publication terminée", progress: 100, status: "success" });
@@ -338,6 +338,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     validateVariants(input.colors);
   }
 
+  if (/\s/.test(input.reference)) throw new Error("La référence ne doit pas contenir d'espaces.");
+
   const existing = await prisma.product.findUnique({ where: { reference: input.reference }, select: { id: true } });
   if (existing) throw new Error("Cette référence existe déjà.");
 
@@ -568,7 +570,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 
   // Fire-and-forget sync to PFS (skip drafts and explicitly skipped)
   if (!input.isIncomplete && !input.skipPfsSync) {
-    triggerPfsSync(product.id);
+    triggerPfsSync(product.id, { forceCreate: true });
   }
 
   // Fire-and-forget push to Ankorstore (creates the product with all variants)
@@ -588,6 +590,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
 
   // ── Defensive validation: DB non-nullable constraints ────────
   if (!input.reference?.trim()) throw new Error("La référence est requise.");
+  if (/\s/.test(input.reference)) throw new Error("La référence ne doit pas contenir d'espaces.");
   if (!input.name?.trim()) throw new Error("Le nom est requis.");
   if (!input.categoryId) throw new Error("La catégorie est requise.");
 

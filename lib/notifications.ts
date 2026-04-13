@@ -584,67 +584,6 @@ export async function notifyAdminNewClaim(params: {
 /**
  * Notify client of claim status update.
  */
-/**
- * Notify admin of pending orders (hourly digest).
- * Sends a simple email with the count of PENDING orders + link to admin.
- * Does nothing if count === 0 or Gmail is not configured.
- */
-export async function notifyPendingOrders(count: number): Promise<void> {
-  if (count <= 0) return;
-
-  const [shopName, companyInfo, gmailCfg] = await Promise.all([
-    getCachedShopName(), getCachedCompanyInfo(), getCachedGmailConfig(),
-  ]);
-
-  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-  if (!GMAIL_USER || !GMAIL_PASSWORD) {
-    logger.warn("[order-digest] Configuration Gmail manquante — email ignoré.");
-    return;
-  }
-
-  const notifyEmail = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
-  if (!notifyEmail) {
-    logger.warn("[order-digest] Aucun email destinataire configuré — email ignoré.");
-    return;
-  }
-
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
-  const plural = count > 1 ? "s" : "";
-
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-  });
-
-  await transporter.sendMail({
-    from: `"${shopName}" <${GMAIL_USER}>`,
-    to: notifyEmail,
-    subject: `${shopName} — ${count} commande${plural} en attente`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;color:#1A1A1A;">
-        <div style="background:#1A1A1A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-          <h2 style="margin:0;font-size:20px;">Notification Commande${plural}</h2>
-        </div>
-        <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;text-align:center;">
-          <p style="font-size:16px;line-height:1.6;">
-            Vous avez <strong>${count}</strong> commande${plural} en attente.
-          </p>
-          <a href="${baseUrl}/admin/commandes"
-             style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;margin-top:12px;">
-            Voir les commandes →
-          </a>
-        </div>
-        <p style="color:#9CA3AF;font-size:11px;padding:12px;text-align:center;">
-          ${escapeHtml(shopName)} — Administration
-        </p>
-      </div>
-    `,
-  });
-
-  logger.info(`[order-digest] Email envoyé : ${count} commande${plural} en attente`);
-}
-
 export async function notifyClientClaimUpdate(params: {
   clientEmail: string;
   clientName: string;

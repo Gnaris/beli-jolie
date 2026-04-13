@@ -480,7 +480,7 @@ export default async function ModifierProduitPage({
                 productId={product.id}
                 productReference={product.reference}
                 ankorsProductId={product.ankorsProductId}
-                ankorsSyncStatus={product.ankorsSyncStatus as "synced" | "pending" | "failed" | null}
+                ankorsSyncStatus={product.ankorsSyncStatus as "synced" | "pending" | "failed" | "not_found" | null}
                 ankorsSyncError={product.ankorsSyncError}
                 ankorsSyncedAt={product.ankorsSyncedAt?.toISOString() ?? null}
               />
@@ -491,7 +491,7 @@ export default async function ModifierProduitPage({
               <PfsSyncBanner
                 productId={product.id}
                 pfsProductId={product.pfsProductId}
-                pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | null}
+                pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | "not_found" | null}
                 pfsSyncError={product.pfsSyncError}
                 pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
                 mappingIssues={mappingIssues}

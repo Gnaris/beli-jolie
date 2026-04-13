@@ -73,6 +73,11 @@ async function authenticateAnkorstore(
       status: res.status,
       body: text.slice(0, 300),
     });
+    if (text.includes("Client authentication failed")) {
+      throw new Error(
+        "L'authentification Ankorstore a échoué. Veuillez vérifier vos identifiants dans Paramètres > Marketplaces."
+      );
+    }
     throw new Error(`Ankorstore auth failed (${res.status}): ${text.slice(0, 200)}`);
   }
 

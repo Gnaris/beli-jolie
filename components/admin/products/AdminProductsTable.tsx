@@ -13,6 +13,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { usePfsRefresh } from "@/components/admin/pfs/PfsRefreshContext";
+import { useAnkorstoreRefresh } from "@/components/admin/ankorstore/AnkorstoreRefreshContext";
 import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import { useProductStream } from "@/hooks/useProductStream";
 import ImportProgressBanner from "@/components/admin/products/ImportProgressBanner";
@@ -359,6 +360,7 @@ function ProductRow({
   onToggleVariant,
   onToggleAllVariants,
   hasPfsConfig = false,
+  hasAnkorstoreConfig = false,
   isNew = false,
 }: {
   product: AdminProduct;
@@ -370,12 +372,17 @@ function ProductRow({
   onToggleVariant: (id: string) => void;
   onToggleAllVariants: (ids: string[], select: boolean) => void;
   hasPfsConfig?: boolean;
+  hasAnkorstoreConfig?: boolean;
   isNew?: boolean;
 }) {
   const [refreshing, startRefresh] = useTransition();
   const { confirm } = useConfirm();
   const pfsRefresh = usePfsRefresh();
+  const ankorsRefresh = useAnkorstoreRefresh();
   const pfsRefreshing = pfsRefresh?.isRefreshing(product.id) ?? false;
+  const ankorsRefreshing = ankorsRefresh?.isRefreshing(product.id) ?? false;
+  const refreshPfsRef = useRef(true);
+  const refreshAnkorsRef = useRef(true);
 
   // Group UNIT variants by colorId + ordered sub-colors (PACK variants excluded — no single color)
   const uniqueColors = [...new Map(product.colors
@@ -623,14 +630,27 @@ function ProductRow({
             <button
               type="button"
               onClick={async () => {
-                const msg = hasPfsConfig
-                  ? "Le produit sera remis en \"Nouveauté\" avec la date du jour.\nSur Paris Fashion Shop, le produit sera recréé comme nouveau."
-                  : "Le produit sera remis en \"Nouveauté\" avec la date du jour.";
+                const hasAnyMarketplace = hasPfsConfig || hasAnkorstoreConfig;
+
+                const checkboxes: { id: string; label: string; defaultChecked: boolean; onChange: (checked: boolean) => void }[] = [];
+                if (hasPfsConfig) {
+                  checkboxes.push({ id: "pfs", label: "Rafraîchir sur Paris Fashion Shop", defaultChecked: true, onChange: (v) => { refreshPfsRef.current = v; } });
+                }
+                if (hasAnkorstoreConfig) {
+                  checkboxes.push({ id: "ankorstore", label: "Rafraîchir sur Ankorstore", defaultChecked: true, onChange: (v) => { refreshAnkorsRef.current = v; } });
+                }
+                refreshPfsRef.current = true;
+                refreshAnkorsRef.current = true;
+
+                const message = "Le produit sera remis en \"Nouveauté\" avec la date du jour."
+                  + (hasAnyMarketplace ? "\nSur les marketplaces sélectionnées, le produit sera supprimé puis recréé comme nouveau." : "");
+
                 const ok = await confirm({
                   type: "warning",
                   title: "Rafraîchir ce produit ?",
-                  message: msg,
+                  message,
                   confirmLabel: "Rafraîchir",
+                  ...(checkboxes.length > 0 ? { checkboxes, checkboxesLabel: "Marketplaces" } : {}),
                 });
                 if (!ok) return;
                 startRefresh(async () => {
@@ -640,17 +660,19 @@ function ProductRow({
                     // silently ignore
                   }
                 });
-                // Also enqueue PFS refresh if PFS is configured
-                if (hasPfsConfig && pfsRefresh) {
+                if (hasPfsConfig && refreshPfsRef.current && pfsRefresh) {
                   pfsRefresh.enqueue(product.id, product.name, product.reference);
                 }
+                if (hasAnkorstoreConfig && refreshAnkorsRef.current && ankorsRefresh) {
+                  ankorsRefresh.enqueue(product.id, product.name, product.reference);
+                }
               }}
-              disabled={refreshing || pfsRefreshing}
-              className={`p-2.5 text-text-muted hover:text-text-primary transition-colors ${refreshing || pfsRefreshing ? "opacity-50 cursor-wait" : ""}`}
+              disabled={refreshing || pfsRefreshing || ankorsRefreshing}
+              className={`p-2.5 text-text-muted hover:text-text-primary transition-colors ${refreshing || pfsRefreshing || ankorsRefreshing ? "opacity-50 cursor-wait" : ""}`}
               title="Rafraîchir (remettre en Nouveauté)"
               aria-label="Rafraîchir le produit"
             >
-              <svg className={`w-4.5 h-4.5 ${refreshing || pfsRefreshing ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-4.5 h-4.5 ${refreshing || pfsRefreshing || ankorsRefreshing ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
               </svg>
             </button>
@@ -1102,7 +1124,7 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, hasPfsConfig = false, newProductIds,
+  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, hasPfsConfig = false, hasAnkorstoreConfig = false, newProductIds,
 }: {
   products: AdminProduct[];
   selectedIds: Set<string>;
@@ -1115,6 +1137,7 @@ function TableWithTopScroll({
   toggleVariant: (id: string) => void;
   toggleAllVariants: (ids: string[], select: boolean) => void;
   hasPfsConfig?: boolean;
+  hasAnkorstoreConfig?: boolean;
   newProductIds: Set<string>;
 }) {
   const topScrollRef = useRef<HTMLDivElement>(null);
@@ -1214,6 +1237,7 @@ function TableWithTopScroll({
                 onToggleVariant={toggleVariant}
                 onToggleAllVariants={toggleAllVariants}
                 hasPfsConfig={hasPfsConfig}
+                hasAnkorstoreConfig={hasAnkorstoreConfig}
                 isNew={newProductIds.has(product.id)}
               />
             ))}
@@ -1707,7 +1731,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} hasPfsConfig={hasPfsConfig} newProductIds={newProductIds} />
+      <TableWithTopScroll products={allProducts} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} newProductIds={newProductIds} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (
