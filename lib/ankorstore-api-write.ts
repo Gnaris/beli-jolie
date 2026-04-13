@@ -55,6 +55,42 @@ export async function ankorstoreUpdateVariantStock(
 }
 
 // ─────────────────────────────────────────────
+// Variant price update
+// ─────────────────────────────────────────────
+
+/**
+ * Update the prices of an Ankorstore product variant.
+ * PATCH /product-variants/{id}/prices
+ * Both wholesalePrice and retailPrice are required (in cents).
+ */
+export async function ankorstoreUpdateVariantPrices(
+  variantId: string,
+  wholesalePrice: number,
+  retailPrice: number
+): Promise<{ success: boolean; error?: string }> {
+  const url = `${ANKORSTORE_BASE_URL}/product-variants/${encodeURIComponent(variantId)}/prices`;
+
+  const body = JSON.stringify({
+    data: {
+      type: "product-variants",
+      id: variantId,
+      attributes: { wholesalePrice, retailPrice },
+    },
+  });
+
+  try {
+    logger.info("[Ankorstore] Updating variant prices", { variantId, wholesalePrice, retailPrice });
+    await ankorstoreFetch(url, { method: "PATCH", body });
+    logger.info("[Ankorstore] Variant prices updated", { variantId, wholesalePrice, retailPrice });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Ankorstore] Price update failed", { variantId, wholesalePrice, retailPrice, error: message });
+    return { success: false, error: message };
+  }
+}
+
+// ─────────────────────────────────────────────
 // Catalog push (bulk import/update)
 // ─────────────────────────────────────────────
 
