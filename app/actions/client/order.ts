@@ -101,7 +101,7 @@ export async function placeOrder(
           include: {
             variant: {
               include: {
-                product: { select: { id: true, name: true, reference: true, status: true, category: { select: { name: true } } } },
+                product: { select: { id: true, name: true, reference: true, status: true, discountPercent: true, category: { select: { name: true } } } },
                 color:   { select: { id: true, name: true, hex: true } },
                 subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
                 packColorLines: { orderBy: { position: "asc" }, include: { colors: { orderBy: { position: "asc" }, include: { color: { select: { name: true } } } } } },
@@ -170,10 +170,9 @@ export async function placeOrder(
     const base = variant.saleType === "UNIT"
       ? price
       : price * (variant.packQuantity ?? 1);
-    if (!variant.discountType || !variant.discountValue) return base;
-    const discount = Number(variant.discountValue);
-    if (variant.discountType === "PERCENT") return Math.max(0, base * (1 - discount / 100));
-    return Math.max(0, base - discount);
+    const discountPercent = variant.product.discountPercent != null ? Number(variant.product.discountPercent) : null;
+    if (!discountPercent || discountPercent <= 0) return base;
+    return Math.max(0, base * (1 - discountPercent / 100));
   }
 
   const subtotalHT = cart.items.reduce(
@@ -233,8 +232,7 @@ export async function placeOrder(
       packQuantity: item.variant.packQuantity,
       weight: item.variant.weight,
       unitPriceOriginal: Number(item.variant.unitPrice),
-      discountType: item.variant.discountType ?? null,
-      discountValue: item.variant.discountValue != null ? Number(item.variant.discountValue) : null,
+      discountPercent: item.variant.product.discountPercent != null ? Number(item.variant.product.discountPercent) : null,
       sizes: item.variant.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({
         name: vs.size.name,
         quantity: vs.quantity,

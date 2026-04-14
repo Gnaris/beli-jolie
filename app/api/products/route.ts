@@ -20,8 +20,6 @@ const PRODUCT_INCLUDE = {
       isPrimary:     true,
       saleType:      true,
       packQuantity:  true,
-      discountType:  true,
-      discountValue: true,
       color:         { select: { name: true, hex: true, patternImage: true } },
       subColors:     { orderBy: { position: "asc" as const }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
       variantSizes:  { orderBy: { size: { position: "asc" } }, include: { size: true } },
@@ -42,7 +40,7 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
     const colorMap = new Map<string, {
       groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null; subColors?: { name: string; hex: string; patternImage?: string | null }[];
       firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
-      variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; sizes: {name: string, quantity: number}[]; unitPrice: number; stock: number; discountType: "PERCENT" | "AMOUNT" | null; discountValue: number | null }[];
+      variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; sizes: {name: string, quantity: number}[]; unitPrice: number; stock: number }[];
     }>();
     for (const v of p.colors) {
       if (!v.colorId) continue;
@@ -69,7 +67,7 @@ function shapeProducts(products: any[], imageMap: Map<string, Map<string, string
       cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
       cd.totalStock += v.stock ?? 0;
       if (v.isPrimary) cd.isPrimary = true;
-      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0, discountType: v.discountType ?? null, discountValue: v.discountValue != null ? Number(v.discountValue) : null });
+      cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
     }
     return { ...p, colors: [...colorMap.values()] };
   });
@@ -187,7 +185,7 @@ export async function GET(request: NextRequest) {
   if (notOrdered && userOrderedRefs.length > 0) andConditions.push({ NOT: { reference: { in: userOrderedRefs } } });
   if (colorIds.length === 1) andConditions.push({ colors: { some: { colorId: colorIds[0] } } });
   else if (colorIds.length > 1) andConditions.push({ colors: { some: { colorId: { in: colorIds } } } });
-  if (promo) andConditions.push({ colors: { some: { discountValue: { gt: 0 } } } });
+  if (promo) andConditions.push({ discountPercent: { gt: 0 } });
   if (minPrice !== null || maxPrice !== null) {
     andConditions.push({ colors: { some: { unitPrice: { ...(minPrice !== null && { gte: minPrice }), ...(maxPrice !== null && { lte: maxPrice }) } } } });
   }

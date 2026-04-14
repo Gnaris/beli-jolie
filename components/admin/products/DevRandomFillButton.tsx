@@ -281,7 +281,8 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
   async function handleRandomFill() {
     setLoading(true);
     try {
-      const suffix = Date.now().toString(36).slice(-4).toUpperCase();
+      // Product reference needs uniqueness — use a short timestamp-based ID
+      const refId = Date.now().toString(36).slice(-4).toUpperCase();
 
       // ══════════════════════════════════════════
       // PHASE 0: Fetch real PFS attributes for valid mapping
@@ -289,7 +290,7 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
       setProgress("Récupération des attributs PFS...");
       type PfsAttrs = {
         colors: { reference: string; value: string }[];
-        categories: { id: string; family: { id: string }; labels: Record<string, string>; gender: string }[];
+        categories: { id: string; family: { id: string } | null; labels: Record<string, string>; gender: string | null }[];
         compositions: { reference: string; labels: Record<string, string> }[];
         countries: { reference: string; labels: Record<string, string> }[];
         collections: { reference: string; labels: Record<string, string> }[];
@@ -304,8 +305,9 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
 
       const hasPfs = !pfs.pfsDisabled && pfs.categories.length > 0;
 
-      // Pick real PFS refs (or null if PFS unavailable)
-      const pfsCat = hasPfs ? pick(pfs.categories) : null;
+      // Pick a PFS category — prefer one with complete mappings, fallback to any
+      const completePfsCats = pfs.categories.filter(c => c.id && c.family?.id && c.gender);
+      const pfsCat = completePfsCats.length > 0 ? pick(completePfsCats) : (hasPfs ? pick(pfs.categories) : null);
       const pfsColorRefs = hasPfs ? pickN(pfs.colors, Math.min(20, pfs.colors.length)) : [];
       const pfsCompRefs = hasPfs ? pickN(pfs.compositions, Math.min(4, pfs.compositions.length)) : [];
       const pfsCountryRef = hasPfs && pfs.countries.length > 0 ? pick(pfs.countries).reference : null;
@@ -318,7 +320,7 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
       setProgress("Création des entités (parallèle)...");
 
       const catDef = pick(CATEGORY_DEFS);
-      const catName = `${catDef.name} ${suffix}`;
+      const catName = catDef.name;
       const numColors = rand(12, 15);
       const colorDefs = pickN(COLOR_DEFS, numColors);
       const catCompositions = COMPOSITION_BY_CATEGORY[catDef.name] || COMPOSITION_BY_CATEGORY["Accessoires Mode"]!;
@@ -340,24 +342,22 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
         // Colors — map each to a real PFS color ref
         Promise.all(colorDefs.map((def, i) => {
           const realPfsRef = pfsColorRefs[i % pfsColorRefs.length]?.reference ?? null;
-          // Suffix to ensure uniqueness (PFS ref on Color must be unique in DB)
-          const uniquePfsRef = realPfsRef ? `${realPfsRef}` : null;
-          return safeCreate(() => createColorQuick({ fr: `${def.name} ${suffix}` }, def.hex, null, uniquePfsRef));
+          return safeCreate(() => createColorQuick({ fr: def.name }, def.hex, null, realPfsRef));
         })),
         // Compositions — map to real PFS composition refs
         Promise.all(compDefs.map((def, i) => {
           const realRef = pfsCompRefs[i % pfsCompRefs.length]?.reference ?? null;
-          return safeCreate(() => createCompositionQuick({ fr: `${def.name} ${suffix}` }, realRef));
+          return safeCreate(() => createCompositionQuick({ fr: def.name }, realRef));
         })),
         // Country — use real PFS country ref
         safeCreate(() => createManufacturingCountryQuick(
-          { fr: `${countryDef.name} ${suffix}` }, countryDef.isoCode, pfsCountryRef
+          { fr: countryDef.name }, countryDef.isoCode, pfsCountryRef
         )),
         // Season — use real PFS collection ref
-        safeCreate(() => createSeasonQuick({ fr: `${seasonDef.name} ${suffix}` }, pfsSeasonRef)),
+        safeCreate(() => createSeasonQuick({ fr: seasonDef.name }, pfsSeasonRef)),
         // Tags
         Promise.all(tagDefs.map(tn =>
-          safeCreate(() => createTagQuick({ fr: `${tn} ${suffix}` }))
+          safeCreate(() => createTagQuick({ fr: tn }))
         )),
       ]);
 
@@ -394,12 +394,12 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
         // Subcategories in parallel
         Promise.all(
           pickN(subCatNames, rand(2, subCatNames.length)).map(scName =>
-            safeCreate(() => createSubCategoryQuick({ fr: `${scName} ${suffix}` }, createdCat.id))
+            safeCreate(() => createSubCategoryQuick({ fr: scName }, createdCat.id))
           )
         ),
         // Sizes in parallel — use real PFS size refs
         Promise.all(sizeDefs.map(async (sd, i) => {
-          const result = await safeCreate(() => createSize(`${sd.name} ${suffix}`, [createdCat.id]));
+          const result = await safeCreate(() => createSize(sd.name, [createdCat.id]));
           if (result) {
             const realSizeRef = pfsSizeRefs[i % pfsSizeRefs.length]?.reference;
             if (realSizeRef) {
@@ -419,7 +419,7 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
       // 8. BUILD PRODUCT DATA
       // ══════════════════════════════════════════
       setProgress("Construction du produit...");
-      const ref = `TEST${suffix}${rand(10, 99)}`;
+      const ref = `TEST${refId}${rand(10, 99)}`;
       const productName = `${pick(ADJECTIVES)} ${pick(NOUNS)} ${pick(MATERIALS_LABEL)}`;
       const description = `${productName} — produit de test généré automatiquement. ` +
         `Fabriqué avec soin. Réf: ${ref}. Catégorie: ${catName}.`;
@@ -494,6 +494,7 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
             tempId: genUid(), sizeId: s.id, sizeName: s.name, quantity: String(rand(1, packQty)),
           }));
 
+          // Multi-color packs: use individual color refs to build an override
           const packPfsRef = packColorLines[0]?.colors
             .map(c => createdColors.find(cc => cc.id === c.colorId)?.pfsColorRef || "UNKNOWN")
             .join("-") || "";
@@ -508,8 +509,6 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
             isPrimary: variants.length === 0,
             saleType: "PACK",
             packQuantity: String(packQty),
-            discountType: Math.random() > 0.8 ? "PERCENT" : "",
-            discountValue: Math.random() > 0.8 ? String(rand(5, 25)) : "",
             pfsColorRef: isMultiColor ? packPfsRef : "", sku: "",
           };
 
@@ -534,6 +533,7 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
             tempId: genUid(), sizeId: pickedSize.id, sizeName: pickedSize.name, quantity: "1",
           }];
 
+          // Multi-color units: use individual color refs to build an override
           const unitPfsRef = subColors.length > 0
             ? [mainColor.pfsColorRef, ...subColors.map(sc => createdColors.find(cc => cc.id === sc.colorId)?.pfsColorRef || "UNKNOWN")].filter(Boolean).join("-")
             : "";
@@ -548,8 +548,6 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
             isPrimary: variants.length === 0,
             saleType: "UNIT",
             packQuantity: "",
-            discountType: Math.random() > 0.85 ? "PERCENT" : "",
-            discountValue: Math.random() > 0.85 ? String(rand(5, 30)) : "",
             pfsColorRef: unitPfsRef, sku: "",
           };
 

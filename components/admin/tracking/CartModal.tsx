@@ -12,8 +12,7 @@ interface CartItem {
     saleType: "UNIT" | "PACK";
     packQuantity: number | null;
     unitPrice: number;
-    discountType: string | null;
-    discountValue: number | null;
+    discountPercent: number | null;
     stock: number;
     sizes: { name: string; quantity: number }[];
   };
@@ -125,7 +124,7 @@ export default function CartModal({ userId, userName, onClose }: Props) {
           ) : (
             <div className="space-y-3">
               {cart.items.map((item) => {
-                const hasDiscount = item.variant.discountType && item.variant.discountValue;
+                const hasDiscount = item.variant.discountPercent && item.variant.discountPercent > 0;
                 return (
                   <div
                     key={item.id}

@@ -50,7 +50,7 @@ export async function pushProductToAnkorstoreInternal(
       where: { id: productId },
       select: {
         id: true, name: true, reference: true, description: true,
-        ankorsProductId: true, ankorsSyncStatus: true,
+        ankorsProductId: true, ankorsSyncStatus: true, discountPercent: true,
         dimensionLength: true, dimensionWidth: true, dimensionHeight: true,
         dimensionDiameter: true, dimensionCircumference: true,
         manufacturingCountry: { select: { isoCode: true } },
@@ -128,6 +128,10 @@ export async function pushProductToAnkorstoreInternal(
 
     const markupConfigs = await loadMarketplaceMarkupConfigs();
 
+    // Product-level discount (percentage, e.g. 15 = -15%)
+    const discountPct = prod.discountPercent ? Number(prod.discountPercent) : 0;
+    const discountRate = discountPct > 0 ? Math.min(discountPct / 100, 1) : 0;
+
     // Build variants — handle UNIT and PACK independently.
     // UNIT variants have color via color relation.
     // PACK variants have colorId=null, colors come from packColorLines.
@@ -182,9 +186,15 @@ export async function pushProductToAnkorstoreInternal(
       if (!mainImage && images[0]?.url) mainImage = images[0].url;
 
       if (c.saleType === "UNIT" && unitPrice > 0) {
-        const unitWholesale = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale);
-        // Retail markup applies on top of wholesale price
-        const unitRetail = applyMarketplaceMarkup(unitWholesale, markupConfigs.ankorstoreRetail);
+        const unitWholesaleFull = applyMarketplaceMarkup(unitPrice, markupConfigs.ankorstoreWholesale);
+        const unitWholesale = discountRate > 0
+          ? Math.round(unitWholesaleFull * (1 - discountRate) * 100) / 100
+          : unitWholesaleFull;
+        // Retail markup applies on top of wholesale price (before discount)
+        const unitRetailFull = applyMarketplaceMarkup(unitWholesaleFull, markupConfigs.ankorstoreRetail);
+        const unitRetail = discountRate > 0
+          ? Math.round(unitRetailFull * (1 - discountRate) * 100) / 100
+          : unitRetailFull;
         // One Ankorstore variant per size
         for (const sz of sizes) {
           variants.push({
@@ -193,7 +203,7 @@ export async function pushProductToAnkorstoreInternal(
             stock_quantity: options?.zeroStock ? 0 : c.stock,
             wholesalePrice: unitWholesale,
             retailPrice: unitRetail,
-            originalWholesalePrice: unitPrice,
+            originalWholesalePrice: unitWholesaleFull,
             options: [
               { name: "color", value: colorName },
               { name: "size", value: sz.name },
@@ -210,9 +220,15 @@ export async function pushProductToAnkorstoreInternal(
         const totalQty = c.variantSizes?.reduce((sum, vs) => sum + vs.quantity, 0) || packQty;
         const perUnitPrice = Math.round((unitPrice / totalQty) * 100) / 100;
         const markedUpUnit = applyMarketplaceMarkup(perUnitPrice, markupConfigs.ankorstoreWholesale);
-        const packWholesale = Math.round(markedUpUnit * totalQty * 100) / 100;
-        // Retail markup applies on top of the wholesale price
-        const packRetail = applyMarketplaceMarkup(packWholesale, markupConfigs.ankorstoreRetail);
+        const packWholesaleFull = Math.round(markedUpUnit * totalQty * 100) / 100;
+        const packWholesale = discountRate > 0
+          ? Math.round(packWholesaleFull * (1 - discountRate) * 100) / 100
+          : packWholesaleFull;
+        // Retail markup applies on top of the wholesale price (before discount)
+        const packRetailFull = applyMarketplaceMarkup(packWholesaleFull, markupConfigs.ankorstoreRetail);
+        const packRetail = discountRate > 0
+          ? Math.round(packRetailFull * (1 - discountRate) * 100) / 100
+          : packRetailFull;
         if (unitPrice > 0) {
           // PACK = single Ankorstore variant with all sizes combined in the size label
           const sizeLabel = sizes.map((sz) => `${sz.name}x${sz.quantity}`).join(", ");
@@ -222,7 +238,7 @@ export async function pushProductToAnkorstoreInternal(
             stock_quantity: options?.zeroStock ? 0 : c.stock,
             wholesalePrice: packWholesale,
             retailPrice: packRetail,
-            originalWholesalePrice: unitPrice,
+            originalWholesalePrice: packWholesaleFull,
             unit_multiplier: 1,
             options: [
               { name: "color", value: colorName },
@@ -291,17 +307,22 @@ export async function pushProductToAnkorstoreInternal(
     const maxWeightKg = Math.max(0, ...prod.colors.map((c) => c.weight ?? 0));
     const weightGrams = maxWeightKg > 0 ? Math.round(maxWeightKg * 1000) : undefined;
 
+    const baseWholesaleFull = applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreWholesale);
+    const baseRetailFull = applyMarketplaceMarkup(baseWholesaleFull, markupConfigs.ankorstoreRetail);
+
     const pushPayload: AnkorstorePushProduct = {
       external_id: prod.reference,
       name: title,
       description: desc,
-      wholesale_price: applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreWholesale),
-      retail_price: applyMarketplaceMarkup(
-        applyMarketplaceMarkup(basePrice, markupConfigs.ankorstoreWholesale),
-        markupConfigs.ankorstoreRetail
-      ),
+      wholesale_price: discountRate > 0
+        ? Math.round(baseWholesaleFull * (1 - discountRate) * 100) / 100
+        : baseWholesaleFull,
+      retail_price: discountRate > 0
+        ? Math.round(baseRetailFull * (1 - discountRate) * 100) / 100
+        : baseRetailFull,
       vat_rate: 20,
       unit_multiplier: maxPackQty,
+      discount_rate: discountRate,
       main_image: mainImage,
       made_in_country: prod.manufacturingCountry?.isoCode ?? undefined,
       // Dimensions in mm (from DB), weight in grams

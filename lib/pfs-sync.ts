@@ -887,8 +887,6 @@ async function syncSingleProduct(
       sizeNames?: string[];
       sizeEntries?: { name: string; qty: number; pricePerUnit: number }[];
       isPrimary: boolean;
-      discountType: "PERCENT" | "AMOUNT" | null;
-      discountValue: number | null;
     }
 
     // ── Detect default/primary color from images DEFAULT key ──
@@ -927,13 +925,6 @@ async function syncSingleProduct(
         const pfsPrice = v.price_sale.unit.value;
         const bjPrice = pfsPrice;
 
-        let discountType: "PERCENT" | "AMOUNT" | null = null;
-        let discountValue: number | null = null;
-        if (v.discount) {
-          discountType = v.discount.type === "PERCENT" ? "PERCENT" : "AMOUNT";
-          discountValue = v.discount.value;
-        }
-
         // Size: prefer v.item.size, fallback to size_details_tu from detailed endpoint
         const sizeName = v.item?.size || (v as PfsVariantDetail).size_details_tu || null;
 
@@ -949,8 +940,6 @@ async function syncSingleProduct(
           packQuantity: null,
           sizeName,
           isPrimary: false, // resolved below
-          discountType,
-          discountValue,
         });
       } else if (v.type === "PACK" && v.packs && v.packs.length > 0) {
         const pack = v.packs[0];
@@ -967,13 +956,6 @@ async function syncSingleProduct(
         const packQty = detail?.pieces ?? pack.sizes?.[0]?.qty ?? v.pieces ?? 1;
         const pfsPrice = v.price_sale.unit.value;
         const bjPrice = pfsPrice;
-
-        let discountType: "PERCENT" | "AMOUNT" | null = null;
-        let discountValue: number | null = null;
-        if (v.discount) {
-          discountType = v.discount.type === "PERCENT" ? "PERCENT" : "AMOUNT";
-          discountValue = v.discount.value;
-        }
 
         addLog(`  📦 PACK ×${packQty} ${pack.color.labels?.fr || pack.color.reference} — PFS: ${pfsPrice}€ → BJ: ${bjPrice}€ | stock: ${v.stock_qty} | poids: ${weight}kg`);
 
@@ -1009,11 +991,19 @@ async function syncSingleProduct(
           sizeNames,
           sizeEntries,
           isPrimary: false, // resolved below
-          discountType,
-          discountValue,
         });
       } else {
         addLog(`  ⚠️ Variante ${v.id} type="${v.type}" ignorée (données manquantes: item=${!!v.item}, packs=${!!v.packs})`);
+      }
+    }
+
+    // ── Extract product-level discount from PFS variant discounts ──
+    // PFS sends discount per variant; we aggregate to product level (only PERCENT supported)
+    let discountPercent: number | null = null;
+    for (const v of allVariants) {
+      if (v.discount && v.discount.type === "PERCENT" && v.discount.value > 0) {
+        discountPercent = v.discount.value;
+        break; // All variants should have the same discount
       }
     }
 
@@ -1120,7 +1110,7 @@ async function syncSingleProduct(
         await Promise.all([
           tx.product.update({
             where: { id: productId },
-            data: { name: nameFr, description: descriptionFr, pfsProductId: pfsProduct.id, categoryId, manufacturingCountryId, seasonId, status: "SYNCING" },
+            data: { name: nameFr, description: descriptionFr, pfsProductId: pfsProduct.id, categoryId, manufacturingCountryId, seasonId, discountPercent, status: "SYNCING" },
           }),
           tx.productComposition.deleteMany({ where: { productId } }),
           tx.productColorImage.deleteMany({ where: { productId } }),
@@ -1157,8 +1147,6 @@ async function syncSingleProduct(
               isPrimary: v.isPrimary,
               saleType: v.saleType,
               packQuantity: v.packQuantity,
-              discountType: v.discountType,
-              discountValue: v.discountValue,
             },
             select: { id: true, colorId: true },
           });
@@ -1235,6 +1223,7 @@ async function syncSingleProduct(
             seasonId,
             status: "SYNCING",
             isBestSeller: pfsProduct.is_star === 1,
+            discountPercent,
             compositions: {
               create: compositions.map((c) => ({
                 compositionId: c.compositionId,
@@ -1257,8 +1246,6 @@ async function syncSingleProduct(
               isPrimary: v.isPrimary,
               saleType: v.saleType,
               packQuantity: v.packQuantity,
-              discountType: v.discountType,
-              discountValue: v.discountValue,
             },
             select: { id: true, colorId: true },
           });

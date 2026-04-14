@@ -18,7 +18,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         select: {
           id: true, colorId: true, unitPrice: true, stock: true,
           isPrimary: true, saleType: true, packQuantity: true,
-          discountType: true, discountValue: true,
           color: { select: { name: true, hex: true, patternImage: true } },
           subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
           variantSizes: { orderBy: { size: { position: "asc" } }, include: { size: true } },
@@ -71,7 +70,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       id: v.id, saleType: v.saleType, packQuantity: v.packQuantity,
       sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })),
       unitPrice: Number(v.unitPrice), stock: v.stock ?? 0,
-      discountType: v.discountType ?? null, discountValue: v.discountValue != null ? Number(v.discountValue) : null,
     });
   }
 
@@ -81,6 +79,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       name: product.name,
       reference: product.reference,
       isBestSeller: product.isBestSeller,
+      discountPercent: product.discountPercent != null ? Number(product.discountPercent) : null,
       createdAt: product.createdAt,
       category: product.category,
       subCategories: product.subCategories,

@@ -6,6 +6,7 @@ import { pushSingleProductToAnkorstore, checkAnkorstoreProductExists } from "@/a
 import { markMarketplaceSyncPending } from "@/app/actions/admin/products";
 import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import { useProductFormHeader } from "@/components/admin/products/ProductFormHeaderContext";
+import { subscribeSSE } from "@/lib/shared-sse";
 
 interface Props {
   productId: string;
@@ -41,6 +42,14 @@ export default function AnkorstoreSyncBanner({
     return "checking";
   });
   const [error, setError] = useState<string | null>(ankorsSyncError);
+
+  // React to header state changes (e.g. form save triggers sync)
+  useEffect(() => {
+    if (currentSync?.ankorsSyncStatus === "pending" && status !== "pending_sync" && status !== "checking") {
+      setStatus("pending_sync");
+      setError(null);
+    }
+  }, [currentSync?.ankorsSyncStatus, status]);
 
   // Auto-check on mount: verify if product exists on Ankorstore
   useEffect(() => {
@@ -82,6 +91,32 @@ export default function AnkorstoreSyncBanner({
     }, 3000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [productId, status]);
+
+  // Listen for SSE marketplace sync events (triggered by product save or external sync)
+  useEffect(() => {
+    const unsub = subscribeSSE((data) => {
+      const event = data as {
+        type?: string;
+        productId?: string;
+        marketplaceSync?: { marketplace: string; status: string; error?: string };
+      };
+      if (event.type !== "MARKETPLACE_SYNC" || event.productId !== productId) return;
+      const mp = event.marketplaceSync;
+      if (!mp || mp.marketplace !== "ankorstore") return;
+
+      if (mp.status === "pending" || mp.status === "in_progress") {
+        setStatus("pending_sync");
+        setError(null);
+      } else if (mp.status === "success") {
+        setStatus("synced");
+        setError(null);
+      } else if (mp.status === "error") {
+        setError(mp.error ?? "Erreur inconnue");
+        setStatus("error");
+      }
+    });
+    return unsub;
+  }, [productId]);
 
   // Helper: update only Ankorstore fields in header badge, preserving PFS state
   const updateAnkorsSync = useCallback((ankorsSyncStatus: "synced" | "pending" | "failed" | null, ankorsSyncError: string | null = null) => {

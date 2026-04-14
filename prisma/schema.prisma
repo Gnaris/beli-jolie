@@ -101,10 +101,6 @@ enum SaleType {
   PACK // Vendu par paquet de X unités
 }
 
-enum DiscountType {
-  PERCENT // Remise en %
-  AMOUNT // Remise en €
-}
 
 enum ProductStatus {
   OFFLINE // Hors ligne (brouillon)
@@ -344,6 +340,7 @@ model Product {
   seasonId               String?
   season                 Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   lowStockThreshold      Int?
+  discountPercent        Decimal?              @db.Decimal(5, 2) // Remise en % (ex: 15.00 = -15%). null = pas de remise
   views                  ProductView[]
   promotions             PromotionProduct[]
   createdAt              DateTime              @default(now())
@@ -411,8 +408,8 @@ model PendingSimilar {
 }
 
 // Variante d'un produit
-// UNIT: une composition de couleurs + tailles×qty + prix/poids/stock/remise
-// PACK: N lignes de couleurs + tailles×qty partagées + packQuantity + prix/poids/stock/remise
+// UNIT: une composition de couleurs + tailles×qty + prix/poids/stock
+// PACK: N lignes de couleurs + tailles×qty partagées + packQuantity + prix/poids/stock
 model ProductColor {
   id                  String                 @id @default(cuid())
   productId           String
@@ -425,8 +422,6 @@ model ProductColor {
   isPrimary           Boolean                @default(false)
   saleType            SaleType // UNIT ou PACK
   packQuantity        Int? // Quantité par paquet (null si UNIT)
-  discountType        DiscountType? // Type de remise (null = pas de remise)
-  discountValue       Decimal?               @db.Decimal(12, 2) // Valeur de la remise
   // UNIT: composition de couleurs (colorId = 1ère couleur, subColors = couleurs suivantes)
   subColors           ProductColorSubColor[]
   // Tailles avec quantités (partagées entre toutes les lignes couleur pour PACK)
@@ -449,7 +444,6 @@ model ProductColor {
   @@index([productId, colorId])
   @@index([productId, isPrimary])
   @@index([colorId])
-  @@index([discountType, discountValue])
   @@index([stock])
   @@index([unitPrice])
 }
@@ -1297,6 +1291,7 @@ model PfsStagedProduct {
   manufacturingCountryName String?
   seasonId                 String?
   seasonName               String?
+  discountPercent          Decimal?        @db.Decimal(5, 2) // Remise produit en % (ex: 15.00 = -15%)
   pfsProductStatus         String? // PFS status at import time (READY_FOR_SALE, DRAFT, etc.)
   errorMessage             String?         @db.Text
   existsInDb               Boolean         @default(false)

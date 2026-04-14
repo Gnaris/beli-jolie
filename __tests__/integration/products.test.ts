@@ -39,8 +39,6 @@ describe("Product CRUD (real DB)", () => {
           packQuantity: null,
           sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
           packColorLines: [],
-          discountType: null,
-          discountValue: null,
         },
       ],
       compositions: [{ compositionId: entities.composition.id, percentage: 100 }],
@@ -48,6 +46,7 @@ describe("Product CRUD (real DB)", () => {
       bundleChildIds: [],
       tagNames: [],
       isBestSeller: false,
+      discountPercent: null,
       status: "OFFLINE",
       dimensionLength: null,
       dimensionWidth: null,
@@ -145,8 +144,6 @@ describe("Product CRUD (real DB)", () => {
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
             packColorLines: [],
-            discountType: null,
-            discountValue: null,
           },
           {
             colorId: entities.color2.id,
@@ -158,8 +155,6 @@ describe("Product CRUD (real DB)", () => {
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
             packColorLines: [],
-            discountType: "PERCENT",
-            discountValue: 10,
           },
         ],
       });
@@ -177,13 +172,9 @@ describe("Product CRUD (real DB)", () => {
       // Primary variant
       expect(product!.colors[0].isPrimary).toBe(true);
       expect(product!.colors[0].color?.name).toBe(`${TEST_PREFIX}Doré`);
-      expect(product!.colors[0].discountType).toBeNull();
-
-      // Secondary variant with discount
+      // Secondary variant
       expect(product!.colors[1].isPrimary).toBe(false);
       expect(product!.colors[1].color?.name).toBe(`${TEST_PREFIX}Argenté`);
-      expect(product!.colors[1].discountType).toBe("PERCENT");
-      expect(Number(product!.colors[1].discountValue)).toBe(10);
     });
   });
 
@@ -212,8 +203,6 @@ describe("Product CRUD (real DB)", () => {
             packColorLines: [
               { colorIds: [entities.color1.id, entities.color2.id, entities.color3.id], position: 0 },
             ],
-            discountType: null,
-            discountValue: null,
           },
         ],
       });
@@ -295,8 +284,6 @@ describe("Product CRUD (real DB)", () => {
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
             packColorLines: [],
-            discountType: null,
-            discountValue: null,
           },
         ],
       }));
@@ -322,8 +309,6 @@ describe("Product CRUD (real DB)", () => {
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
             packColorLines: [],
-            discountType: "AMOUNT",
-            discountValue: 2,
           },
         ],
       }));
@@ -332,8 +317,6 @@ describe("Product CRUD (real DB)", () => {
       expect(Number(variant!.unitPrice)).toBe(14.99);
       expect(variant!.stock).toBe(200);
       expect(variant!.weight).toBeCloseTo(0.2);
-      expect(variant!.discountType).toBe("AMOUNT");
-      expect(Number(variant!.discountValue)).toBe(2);
     });
 
     it("should add a second variant during update", async () => {
@@ -352,8 +335,6 @@ describe("Product CRUD (real DB)", () => {
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
             packColorLines: [],
-            discountType: "AMOUNT",
-            discountValue: 2,
           },
           {
             colorId: entities.color2.id,
@@ -365,8 +346,6 @@ describe("Product CRUD (real DB)", () => {
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
             packColorLines: [],
-            discountType: null,
-            discountValue: null,
           },
         ],
       }));
@@ -399,8 +378,6 @@ describe("Product CRUD (real DB)", () => {
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
             packColorLines: [],
-            discountType: null,
-            discountValue: null,
           },
         ],
         compositions: [
@@ -549,8 +526,6 @@ describe("Product CRUD (real DB)", () => {
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
             packColorLines: [],
-            discountType: null,
-            discountValue: null,
           },
         ],
       }));

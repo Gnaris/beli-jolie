@@ -10,7 +10,7 @@ import { logger } from "@/lib/logger";
  *
  * POST /api/admin/products/import/images/variants
  * Create a new variant on a product with given color IDs and attributes.
- * body: { reference, colorIds: string[], unitPrice, weight, stock, saleType, packQuantity?, size?, discountType?, discountValue? }
+ * body: { reference, colorIds: string[], unitPrice, weight, stock, saleType, packQuantity?, size? }
  */
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -91,8 +91,6 @@ export async function POST(req: NextRequest) {
     saleType: "UNIT" | "PACK";
     packQuantity?: number;
     size?: string;
-    discountType?: "PERCENT" | "AMOUNT" | null;
-    discountValue?: number | null;
   } = await req.json();
 
   if (!body.reference || !body.colorIds?.length) {
@@ -117,8 +115,6 @@ export async function POST(req: NextRequest) {
         isPrimary: false,
         saleType: body.saleType,
         packQuantity: body.saleType === "PACK" ? (body.packQuantity || null) : null,
-        discountType: body.discountType || null,
-        discountValue: body.discountValue || null,
         subColors: subColorIds.length > 0 ? {
           create: subColorIds.map((id, i) => ({
             colorId: id,

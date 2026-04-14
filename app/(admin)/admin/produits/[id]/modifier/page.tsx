@@ -186,8 +186,6 @@ export default async function ModifierProduitPage({
     isPrimary:     pc.isPrimary,
     saleType:      pc.saleType,
     packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
-    discountType:  (pc.discountType ?? "") as "" | "PERCENT" | "AMOUNT",
-    discountValue: pc.discountValue != null ? String(pc.discountValue) : "",
     pfsColorRef:   pc.pfsColorRef ?? "",
     sku:           pc.sku ?? "",
   }));
@@ -447,6 +445,7 @@ export default async function ModifierProduitPage({
             dimCircumference: product.dimensionCircumference != null ? String(product.dimensionCircumference) : "",
             manufacturingCountryId: product.manufacturingCountryId ?? "",
             seasonId: product.seasonId ?? "",
+            discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
           }}
         />
       </div>
@@ -595,6 +594,7 @@ export default async function ModifierProduitPage({
           dimCircumference: product.dimensionCircumference != null ? String(product.dimensionCircumference) : "",
           manufacturingCountryId: product.manufacturingCountryId ?? "",
           seasonId: product.seasonId ?? "",
+          discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
         }}
       />
     </ProductEditWrapper>

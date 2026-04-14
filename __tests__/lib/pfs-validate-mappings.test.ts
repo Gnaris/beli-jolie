@@ -7,6 +7,7 @@ function makeProduct(overrides?: Partial<FullProduct>): FullProduct {
     id: "prod-1",
     reference: "REF001",
     pfsProductId: "pfs-1",
+    pfsSyncStatus: null,
     name: "Test Product",
     description: "desc",
     status: "ONLINE",
@@ -15,7 +16,8 @@ function makeProduct(overrides?: Partial<FullProduct>): FullProduct {
     dimensionHeight: null,
     dimensionDiameter: null,
     dimensionCircumference: null,
-    category: { name: "Bijoux", pfsCategoryId: "PFS_CAT", pfsGender: null, pfsFamilyId: null },
+    discountPercent: null,
+    category: { name: "Bijoux", pfsCategoryId: "PFS_CAT", pfsGender: "WOMAN", pfsFamilyId: "PFS_FAM" },
     colors: [],
     compositions: [],
     manufacturingCountry: null,
@@ -36,8 +38,6 @@ function makeVariant(overrides?: Partial<FullProduct["colors"][number]>): FullPr
     saleType: "UNIT",
     packQuantity: null,
     variantSizes: [],
-    discountType: null,
-    discountValue: null,
     color: { id: "col-1", name: "Rouge", pfsColorRef: "RED" },
     subColors: [],
     packColorLines: [],
@@ -59,6 +59,20 @@ describe("validatePfsMappings", () => {
       category: { name: "Bijoux", pfsCategoryId: null, pfsGender: null, pfsFamilyId: null },
     });
     expect(() => validatePfsMappings(product)).toThrow(/Catégorie.*sans correspondance/);
+  });
+
+  it("throws for missing pfsGender", () => {
+    const product = makeProduct({
+      category: { name: "Bijoux", pfsCategoryId: "PFS_CAT", pfsGender: null, pfsFamilyId: "PFS_FAM" },
+    });
+    expect(() => validatePfsMappings(product)).toThrow(/sans genre PFS/);
+  });
+
+  it("throws for missing pfsFamilyId", () => {
+    const product = makeProduct({
+      category: { name: "Bijoux", pfsCategoryId: "PFS_CAT", pfsGender: "WOMAN", pfsFamilyId: null },
+    });
+    expect(() => validatePfsMappings(product)).toThrow(/sans famille PFS/);
   });
 
   it("throws for unmapped single color", () => {

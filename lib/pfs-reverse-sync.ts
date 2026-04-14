@@ -56,7 +56,6 @@ const PFS_DEFAULTS = {
   gender: "WOMAN",
   gender_label: "Femme",
   brand_name: "Ma Boutique",
-  family: "a035J00000185J7QAI", // WOMAN/FASHIONJEWELRY
   season_name: "PE2026",
   country_of_manufacture: "CN",
 };
@@ -247,6 +246,7 @@ export interface FullProduct {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
+  discountPercent: number | null; // Remise produit en % (ex: 15 = -15%)
   category: { name: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null };
   colors: {
     id: string;
@@ -259,8 +259,6 @@ export interface FullProduct {
     saleType: "UNIT" | "PACK";
     packQuantity: number | null;
     variantSizes: { size: { name: string; pfsMappings: { pfsSizeRef: string }[] }; quantity: number }[];
-    discountType: "PERCENT" | "AMOUNT" | null;
-    discountValue: number | null;
     color: { id: string; name: string; pfsColorRef: string | null } | null;
     subColors: { color: { id: string; name: string; pfsColorRef: string | null }; position: number }[];
     packColorLines: {
@@ -293,6 +291,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
+      discountPercent: true,
       category: { select: { name: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true } },
       colors: {
         select: {
@@ -306,8 +305,6 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           saleType: true,
           packQuantity: true,
           variantSizes: { select: { size: { select: { name: true, pfsMappings: { select: { pfsSizeRef: true } } } }, quantity: true } },
-          discountType: true,
-          discountValue: true,
           color: { select: { id: true, name: true, pfsColorRef: true } },
           subColors: {
             select: { color: { select: { id: true, name: true, pfsColorRef: true } }, position: true },
@@ -389,9 +386,9 @@ async function createProductOnPfs(product: FullProduct): Promise<string> {
     compositionArray.push({ id: "ACIERINOXYDABLE", value: "100" });
   }
 
-  // Use category's PFS gender/family if available, otherwise fallback to defaults
-  const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
-  const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;
+  // Use category's PFS gender/family — validated by validatePfsMappings()
+  const gender = product.category.pfsGender!;
+  const family = product.category.pfsFamilyId!;
 
   const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
   const brandName = shopNameInfo?.shopName || PFS_DEFAULTS.brand_name;
@@ -496,8 +493,8 @@ async function diffAndUpdateMetadata(
 
   if (categoryChanged) {
     updates.category = bjCategoryId!;
-    const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
-    const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;
+    const gender = product.category.pfsGender!;
+    const family = product.category.pfsFamilyId!;
     const genderLabels: Record<string, string> = { WOMAN: "Femme", MAN: "Homme", KID: "Enfant", SUPPLIES: "Fournitures" };
     updates.gender_label = genderLabels[gender] ?? PFS_DEFAULTS.gender_label;
     updates.family = family;
@@ -530,8 +527,8 @@ async function forceUpdateMetadata(pfsProductId: string, product: FullProduct): 
   const descriptionWithDims = product.description + buildDimensionsSuffix(product);
   const translated = await pfsTranslate(product.name, descriptionWithDims);
 
-  const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
-  const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;
+  const gender = product.category.pfsGender!;
+  const family = product.category.pfsFamilyId!;
   const genderLabels: Record<string, string> = { WOMAN: "Femme", MAN: "Homme", KID: "Enfant", SUPPLIES: "Fournitures" };
 
   const updates: PfsProductUpdateData = {
@@ -816,9 +813,20 @@ async function syncVariants(
 
     // Batch create all new variants in a single API call
     if (batchItems.length > 0) {
+      logger.info(`[PFS Reverse Sync] Creating ${batchItems.length} variants in batch`, {
+        variants: batchItems.map(b => ({
+          bjId: b.variant.id,
+          type: b.pfsData.type,
+          color: b.pfsData.color,
+          size: b.pfsData.size,
+        })),
+      });
       try {
         const { variantIds } = await pfsCreateVariants(pfsProductId, batchItems.map(b => b.pfsData));
         apiCalls++;
+        logger.info(`[PFS Reverse Sync] Batch create returned ${variantIds.length} IDs`, {
+          ids: variantIds,
+        });
         // Link returned IDs to BJ variants
         for (let i = 0; i < batchItems.length; i++) {
           if (variantIds[i]) {
@@ -827,7 +835,10 @@ async function syncVariants(
               data: { pfsVariantId: variantIds[i] },
             });
           } else {
-            logger.warn(`[PFS Reverse Sync] PFS returned no ID for variant ${batchItems[i].variant.id}`);
+            logger.warn(`[PFS Reverse Sync] PFS returned no ID for variant ${batchItems[i].variant.id}`, {
+              index: i,
+              pfsData: batchItems[i].pfsData,
+            });
           }
         }
       } catch (err) {
@@ -863,8 +874,9 @@ async function syncVariants(
       const bjStock = v.stock ?? 0;
       const bjWeight = v.weight;
       const bjActive = bjStock > 0;
-      const bjDiscType = v.discountType ?? null;
-      const bjDiscValue = v.discountValue != null ? Number(v.discountValue) : null;
+      // Product-level discount applied uniformly to all variants
+      const bjDiscType = product.discountPercent && Number(product.discountPercent) > 0 ? "PERCENT" : null;
+      const bjDiscValue = bjDiscType ? Number(product.discountPercent) : null;
 
       // Compare with PFS current values
       if (pfsV) {
@@ -1095,9 +1107,15 @@ async function syncStatus(
 export function validatePfsMappings(product: FullProduct): void {
   const issues: string[] = [];
 
-  // Catégorie
+  // Catégorie (Genre → Famille → Catégorie : les 3 sont requis)
   if (!product.category.pfsCategoryId) {
     issues.push(`Catégorie "${product.category.name}" sans correspondance (pfsCategoryId manquant)`);
+  }
+  if (!product.category.pfsGender) {
+    issues.push(`Catégorie "${product.category.name}" sans genre PFS (pfsGender manquant) — reconfigurer dans Correspondances PFS`);
+  }
+  if (!product.category.pfsFamilyId) {
+    issues.push(`Catégorie "${product.category.name}" sans famille PFS (pfsFamilyId manquant) — reconfigurer dans Correspondances PFS`);
   }
 
   // Compositions

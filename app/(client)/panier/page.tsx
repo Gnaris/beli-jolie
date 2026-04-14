@@ -60,8 +60,11 @@ export default async function PanierPage() {
         ...item.variant,
         unitPrice: Number(item.variant.unitPrice),
         weight: Number(item.variant.weight),
-        discountValue: item.variant.discountValue != null ? Number(item.variant.discountValue) : null,
         stock: Number(item.variant.stock ?? 0),
+        product: {
+          ...item.variant.product,
+          discountPercent: item.variant.product?.discountPercent != null ? Number(item.variant.product.discountPercent) : null,
+        },
       },
     })),
   } : null;

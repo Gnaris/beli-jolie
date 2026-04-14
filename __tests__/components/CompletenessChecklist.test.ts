@@ -18,9 +18,8 @@ function makeVariant(overrides: Partial<VariantState> = {}): VariantState {
     isPrimary: true,
     saleType: "UNIT",
     packQuantity: "",
-    discountType: "",
-    discountValue: "",
     pfsColorRef: "",
+    sku: "",
     ...overrides,
   };
 }

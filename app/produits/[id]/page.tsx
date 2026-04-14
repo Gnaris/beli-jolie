@@ -365,8 +365,6 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                     patternImage: lc.color.patternImage ?? null,
                   })),
                 })),
-                discountType:  pc.discountType,
-                discountValue: pc.discountValue != null ? Number(pc.discountValue) : null,
               }))}
               colorImages={colorImagesForDetail}
               compositions={product.compositions.map((c) => ({
@@ -384,6 +382,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
               bundleChildren={product.bundleChildren.map((b) => toRelated(b.child))}
               bundleParents={product.bundleParents.map((b) => toRelated(b.parent))}
+              discountPercent={product.discountPercent != null ? Number(product.discountPercent) : null}
               clientDiscount={clientDiscount}
               isAuthenticated={!!session?.user?.id}
             />

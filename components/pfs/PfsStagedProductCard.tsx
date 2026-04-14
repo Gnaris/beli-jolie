@@ -23,8 +23,6 @@ export interface StagedVariantData {
   packQuantity: number | null;
   size: string | null;
   isPrimary: boolean;
-  discountType: "PERCENT" | "AMOUNT" | null;
-  discountValue: number | null;
 }
 
 export interface StagedImageGroup {

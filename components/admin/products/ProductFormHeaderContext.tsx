@@ -30,8 +30,10 @@ export interface StatusToggleCallbacks {
   setError: (e: string) => void;
 }
 
+type HeaderUpdater = Partial<ProductFormHeaderState> | ((prev: ProductFormHeaderState) => ProductFormHeaderState);
+
 interface ContextValue extends ProductFormHeaderState {
-  updateHeader: (s: Partial<ProductFormHeaderState>) => void;
+  updateHeader: (s: HeaderUpdater) => void;
   statusToggle: StatusToggleCallbacks | null;
   registerStatusToggle: (cb: StatusToggleCallbacks) => void;
 }
@@ -54,8 +56,8 @@ export function ProductFormHeaderProvider({
 }) {
   const [state, setState] = useState<ProductFormHeaderState>(initial);
   const [statusToggle, setStatusToggle] = useState<StatusToggleCallbacks | null>(null);
-  const updateHeader = useCallback((s: Partial<ProductFormHeaderState>) => {
-    setState((prev) => ({ ...prev, ...s }));
+  const updateHeader = useCallback((s: HeaderUpdater) => {
+    setState((prev) => typeof s === "function" ? s(prev) : { ...prev, ...s });
   }, []);
   const registerStatusToggle = useCallback((cb: StatusToggleCallbacks) => {
     setStatusToggle(cb);

@@ -56,8 +56,6 @@ export async function POST(req: Request) {
         subColorIds: [],
         sizeEntries: [],
         packColorLines: [],
-        discountType: null,
-        discountValue: null,
       }],
       imagePaths: [],
       compositions: [{ compositionId: composition.id, percentage: 100 }],
@@ -72,6 +70,7 @@ export async function POST(req: Request) {
       dimensionHeight: null,
       dimensionDiameter: null,
       dimensionCircumference: null,
+      discountPercent: null,
     });
 
     return NextResponse.json({ success: true, productId: result.id });

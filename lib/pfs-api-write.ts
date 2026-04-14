@@ -283,7 +283,7 @@ export async function pfsUpdateProduct(
 export async function pfsCreateVariants(
   pfsProductId: string,
   variants: PfsVariantCreateData[],
-): Promise<{ variantIds: string[] }> {
+): Promise<{ variantIds: (string | null)[] }> {
   const { status, data } = await pfsPost(
     `/catalog/products/${pfsProductId}/variants`,
     { data: variants },
@@ -293,6 +293,11 @@ export async function pfsCreateVariants(
     data?: { id?: string; errors?: Record<string, string[]> }[];
     resume?: { products?: number; errors?: number };
   };
+
+  // Detect HTML response (session expired / auth redirect)
+  if (typeof data === "string" && data.includes("<!DOCTYPE")) {
+    throw new Error("PFS create variants failed: received HTML instead of JSON (session expired?)");
+  }
 
   if (status !== 200) {
     throw new Error(`PFS create variants failed (${status}): ${JSON.stringify(data).slice(0, 300)}`);
@@ -307,7 +312,8 @@ export async function pfsCreateVariants(
     logger.warn("[PFS] Create variants returned errors", { errorCount: resp.resume.errors, details: errorDetails || JSON.stringify(data).slice(0, 300) });
   }
 
-  const ids = (resp.data?.map((v) => v.id).filter((id): id is string => !!id)) ?? [];
+  // Keep index alignment: do NOT filter — variantIds[i] must match variants[i]
+  const ids = resp.data?.map((v) => v.id ?? null) ?? [];
   return { variantIds: ids };
 }
 
@@ -458,9 +464,9 @@ export interface PfsAttributeColor {
 
 export interface PfsAttributeCategory {
   id: string;
-  family: { id: string };
+  family: { id: string } | null;
   labels: Record<string, string>;
-  gender: string;
+  gender: string | null;
 }
 
 export interface PfsAttributeComposition {

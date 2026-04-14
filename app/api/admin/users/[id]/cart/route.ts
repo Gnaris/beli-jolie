@@ -30,6 +30,7 @@ export async function GET(
                   id: true,
                   reference: true,
                   name: true,
+                  discountPercent: true,
                   colorImages: {
                     select: { path: true, colorId: true, order: true },
                     orderBy: { order: "asc" },
@@ -56,10 +57,9 @@ export async function GET(
 
     // Compute price
     let unitPrice = Number(v.unitPrice);
-    if (v.discountType === "PERCENT" && v.discountValue) {
-      unitPrice = unitPrice * (1 - Number(v.discountValue) / 100);
-    } else if (v.discountType === "AMOUNT" && v.discountValue) {
-      unitPrice = unitPrice - Number(v.discountValue);
+    const discountPercent = v.product.discountPercent != null ? Number(v.product.discountPercent) : null;
+    if (discountPercent && discountPercent > 0) {
+      unitPrice = unitPrice * (1 - discountPercent / 100);
     }
     const lineTotal =
       v.saleType === "PACK" && v.packQuantity
@@ -78,8 +78,7 @@ export async function GET(
         saleType: v.saleType,
         packQuantity: v.packQuantity,
         unitPrice: Number(v.unitPrice),
-        discountType: v.discountType,
-        discountValue: v.discountValue != null ? Number(v.discountValue) : null,
+        discountPercent: discountPercent,
         stock: v.stock,
         sizes: v.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({ name: vs.size.name, quantity: vs.quantity })),
       },

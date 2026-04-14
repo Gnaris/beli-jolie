@@ -159,8 +159,6 @@ export interface ColorInput {
   packQuantity: number | null;
   sizeEntries: SizeEntryInput[];         // Tailles avec quantités
   packColorLines: PackColorLineInput[];  // PACK: lignes de couleur
-  discountType: "PERCENT" | "AMOUNT" | null;
-  discountValue: number | null;
   pfsColorRef?: string | null; // Override PFS color for multi-color variants
 }
 
@@ -198,6 +196,7 @@ export interface ProductInput {
   manufacturingCountryId?: string | null;
   seasonId?: string | null;
   translations?: TranslationInput[];
+  discountPercent: number | null; // Remise en % (ex: 15 = -15%). null = pas de remise
   isIncomplete?: boolean;
   skipPfsSync?: boolean;
   skipAnkorstoreSync?: boolean;
@@ -392,6 +391,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       dimensionCircumference: input.dimensionCircumference,
       manufacturingCountryId: input.manufacturingCountryId || null,
       seasonId: input.seasonId || null,
+      discountPercent: input.discountPercent,
       compositions: {
         create: input.compositions.map((c) => ({
           compositionId: c.compositionId,
@@ -415,8 +415,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         isPrimary:     color.isPrimary || i === 0,
         saleType:      color.saleType,
         packQuantity:  color.packQuantity,
-        discountType:  color.discountType,
-        discountValue: color.discountValue,
         pfsColorRef:   color.pfsColorRef || null,
         subColors: color.subColorIds && color.subColorIds.length > 0
           ? { create: color.subColorIds.map((scId, pos) => ({ colorId: scId, position: pos })) }
@@ -690,6 +688,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         dimensionCircumference: input.dimensionCircumference,
         manufacturingCountryId: input.manufacturingCountryId || null,
         seasonId: input.seasonId || null,
+        discountPercent: input.discountPercent,
       },
     });
 
@@ -766,8 +765,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             isPrimary:     colorInput.isPrimary,
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
-            discountType:  colorInput.discountType,
-            discountValue: colorInput.discountValue,
             pfsColorRef:   colorInput.pfsColorRef || null,
           },
         });
@@ -784,8 +781,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             isPrimary:     colorInput.isPrimary,
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
-            discountType:  colorInput.discountType,
-            discountValue: colorInput.discountValue,
             pfsColorRef:   colorInput.pfsColorRef || null,
           },
         });
@@ -1588,8 +1583,6 @@ export interface VariantQuickUpdate {
   weight?: number;
   saleType?: "UNIT" | "PACK";
   packQuantity?: number | null;
-  discountType?: "PERCENT" | "AMOUNT" | null;
-  discountValue?: number | null;
 }
 
 export async function updateVariantQuick(
@@ -1633,6 +1626,41 @@ export async function updateVariantQuick(
         })
       );
   }
+}
+
+// ─────────────────────────────────────────────
+// Mise à jour de la remise produit
+// ─────────────────────────────────────────────
+
+export async function updateProductDiscount(
+  productId: string,
+  discountPercent: number | null
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin();
+
+  if (discountPercent !== null && (discountPercent <= 0 || discountPercent > 100)) {
+    return { success: false, error: "La remise doit être entre 0 et 100%." };
+  }
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true, pfsProductId: true, ankorsProductId: true },
+  });
+  if (!product) return { success: false, error: "Produit introuvable." };
+
+  await prisma.product.update({
+    where: { id: productId },
+    data: { discountPercent },
+  });
+
+  revalidateTag("products", "default");
+  emitProductEvent({ type: "PRODUCT_UPDATED", productId });
+
+  // Fire-and-forget marketplace syncs
+  triggerPfsSync(productId);
+  triggerAnkorstoreSync(productId);
+
+  return { success: true };
 }
 
 // ─────────────────────────────────────────────

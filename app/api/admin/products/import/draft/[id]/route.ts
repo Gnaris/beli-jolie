@@ -176,8 +176,6 @@ async function handleProductRowFix(
                   return totalQty > 0 ? totalQty : (Number(row.packQuantity) || null);
                 })()
               : null,
-            discountType: row.discountType ? String(row.discountType) as "PERCENT" | "AMOUNT" : null,
-            discountValue: row.discountValue ? Number(row.discountValue) : null,
           }],
         },
       },

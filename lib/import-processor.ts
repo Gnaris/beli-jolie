@@ -86,8 +86,7 @@ interface ProductImportRow {
   stock: number;
   weight?: number;
   isPrimary?: boolean;
-  discountType?: "PERCENT" | "AMOUNT";
-  discountValue?: number;
+  discountPercent?: number;
   size?: string;
   tags?: string;
   composition?: string;
@@ -157,8 +156,7 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"] ?? raw["Stock *"]) ?? 0,
     weight: num(raw["weight_g"] ?? raw["poids_g"] ?? raw["poids"] ?? raw["Poids (g)"]) ?? undefined,
     isPrimary: String(raw["is_primary"] ?? raw["primaire"] ?? raw["Primaire"] ?? "").toLowerCase() === "true",
-    discountType: (str(raw["discount_type"] ?? raw["remise_type"] ?? raw["Type remise"]).toUpperCase() as "PERCENT" | "AMOUNT") || undefined,
-    discountValue: num(raw["discount_value"] ?? raw["remise_valeur"] ?? raw["Valeur remise"]),
+    discountPercent: num(raw["discount_percent"] ?? raw["remise_percent"] ?? raw["Remise %"] ?? raw["discount_value"] ?? raw["remise_valeur"] ?? raw["Valeur remise"]),
     size: str(raw["size"] ?? raw["taille"] ?? raw["Taille"]) || undefined,
     tags: str(raw["tags"] ?? raw["Tags"]) || undefined,
     composition: str(raw["composition"] ?? raw["Composition"]) || undefined,
@@ -195,8 +193,7 @@ function parseJSON(text: string): ProductImportRow[] {
         stock: Number(colorVariant.stock ?? 0),
         weight: colorVariant.weight ?? colorVariant.weight_g ?? undefined,
         isPrimary: colorVariant.isPrimary ?? false,
-        discountType: colorVariant.discountType ?? undefined,
-        discountValue: colorVariant.discountValue ?? undefined,
+        discountPercent: colorVariant.discountPercent ?? colorVariant.discountValue ?? undefined,
         size: colorVariant.size ?? undefined,
         tags: Array.isArray(item.tags) ? item.tags.join(",") : (item.tags ?? undefined),
         composition: Array.isArray(item.compositions)
@@ -254,9 +251,6 @@ function validateVariantRow(row: ProductImportRow): string[] {
   if (!row.size) errors.push("Taille obligatoire.");
   if (!row.unitPrice || row.unitPrice <= 0) errors.push("Prix unitaire invalide.");
   if (row.stock == null || row.stock < 0) errors.push("Stock invalide.");
-  if (row.discountType && !["PERCENT", "AMOUNT"].includes(row.discountType))
-    errors.push("Type de remise invalide (PERCENT ou AMOUNT).");
-
   // Validate size format for PACK
   if (row.saleType === "PACK" && row.size) {
     const parsed = parseSizeField(row.size, "PACK");
@@ -625,6 +619,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
               seasonId,
               status: "OFFLINE",
               isBestSeller: false,
+              discountPercent: firstRow.discountPercent ?? null,
               dimensionLength: firstRow.dimensionLength ?? null,
               dimensionWidth: firstRow.dimensionWidth ?? null,
               dimensionHeight: firstRow.dimensionHeight ?? null,
@@ -663,8 +658,6 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                             return totalQty > 0 ? totalQty : (row.packQuantity ?? null);
                           })()
                         : null,
-                      discountType: row.discountType ?? null,
-                      discountValue: row.discountValue ?? null,
                       // UNIT: sub-colors for multi-color variants (e.g. "Bleu/Rose/Vert")
                       subColors: !isPack && subColors.length > 0
                         ? { create: subColors.map((sc, idx) => ({ colorId: sc.id, position: idx })) }

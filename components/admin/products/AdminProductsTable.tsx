@@ -37,8 +37,6 @@ interface ColorVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   variantSizes?: VariantSizeEntry[];
-  discountType: "PERCENT" | "AMOUNT" | null;
-  discountValue: number | null;
   color: { name: string; hex: string | null; patternImage?: string | null };
   subColors?: { color: { name: string; hex: string | null; patternImage?: string | null } }[];
 }
@@ -93,8 +91,6 @@ function VariantRow({
   const [weight, setWeight] = useState(String(variant.weight));
   const [saleType, setSaleType] = useState(variant.saleType);
   const [packQuantity, setPackQuantity] = useState(String(variant.packQuantity ?? ""));
-  const [discountType, setDiscountType] = useState(variant.discountType ?? "");
-  const [discountValue, setDiscountValue] = useState(String(variant.discountValue ?? ""));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -108,8 +104,6 @@ function VariantRow({
         weight: parseFloat(weight) || 0,
         saleType,
         packQuantity: saleType === "PACK" ? (parseInt(packQuantity) || null) : null,
-        discountType: discountType === "PERCENT" || discountType === "AMOUNT" ? discountType : null,
-        discountValue: discountValue ? parseFloat(discountValue) : null,
       });
       setEditing(false);
       onSaved();
@@ -206,16 +200,6 @@ function VariantRow({
         <td className="px-3 py-2.5 text-xs font-body text-text-secondary">
           {variant.weight} kg
         </td>
-        <td className="px-3 py-2.5 text-xs font-body">
-          {variant.discountType && variant.discountValue
-            ? (
-              <span className="badge badge-success text-[10px]">
-                {variant.discountType === "PERCENT" ? `-${variant.discountValue}%` : `-${variant.discountValue}€`}
-              </span>
-            )
-            : <span className="text-text-muted">—</span>
-          }
-        </td>
         <td className="px-3 py-2.5 text-right">
           <button
             type="button"
@@ -287,24 +271,6 @@ function VariantRow({
         </td>
         <td className="px-3 py-2.5">
           <input type="number" step="0.01" min={0} value={weight} onChange={(e) => setWeight(e.target.value)} className={`${inputClass} !w-16`} />
-        </td>
-        <td className="px-3 py-2.5">
-          <div className="flex items-center gap-1.5">
-            <CustomSelect
-              value={discountType}
-              onChange={(v) => setDiscountType(v)}
-              options={[
-                { value: "", label: "—" },
-                { value: "PERCENT", label: "%" },
-                { value: "AMOUNT", label: "€" },
-              ]}
-              size="sm"
-              className="w-[74px]"
-            />
-            {discountType && (
-              <input type="number" step="0.01" min={0} value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className={`${inputClass} !w-14`} />
-            )}
-          </div>
         </td>
         <td className="px-3 py-2.5 text-right">
           <div className="flex items-center gap-1.5 justify-end">
@@ -758,7 +724,6 @@ function ProductRow({
                     <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT</th>
                     <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
                     <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
-                    <th className="px-3 py-2 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Remise</th>
                     <th className="px-3 py-2 text-right text-[10px]"></th>
                   </tr>
                 </thead>
@@ -789,8 +754,6 @@ const BULK_FIELDS: { value: string; label: string; icon: string }[] = [
   { value: "stock", label: "Stock", icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" },
   { value: "price", label: "Prix HT", icon: "M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
   { value: "weight", label: "Poids", icon: "M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0012 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 01-2.031.352 5.988 5.988 0 01-2.031-.352c-.483-.174-.711-.703-.59-1.202L18.75 4.971zm-16.5.52c.99-.203 1.99-.377 3-.52m0 0l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.989 5.989 0 01-2.031.352 5.989 5.989 0 01-2.031-.352c-.483-.174-.711-.703-.59-1.202L5.25 4.971z" },
-  { value: "discount", label: "Remise", icon: "M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z M6 6h.008v.008H6V6z" },
-  { value: "discountClear", label: "Supprimer remise", icon: "M6 18L18 6M6 6l12 12" },
 ];
 
 function BulkVariantBar({
@@ -807,12 +770,11 @@ function BulkVariantBar({
   const [field, setField] = useState<string>("stock");
   const [mode, setMode] = useState<"set" | "add">("set");
   const [value, setValue] = useState("");
-  const [discountType, setDiscountType] = useState<"PERCENT" | "AMOUNT">("PERCENT");
   const [fieldMenuOpen, setFieldMenuOpen] = useState(false);
 
   const handleApply = () => {
     const numVal = parseFloat(value);
-    if (isNaN(numVal) && field !== "discountClear") return;
+    if (isNaN(numVal)) return;
 
     if (field === "stock") {
       onApply(mode === "set" ? { stock: Math.max(0, Math.round(numVal)) } : { stock: { increment: Math.round(numVal) } });
@@ -821,10 +783,6 @@ function BulkVariantBar({
       else onApply({ unitPrice: { increment: numVal } });
     } else if (field === "weight") {
       onApply({ weight: Math.max(0, numVal) });
-    } else if (field === "discount") {
-      onApply({ discountType, discountValue: Math.max(0, numVal) });
-    } else if (field === "discountClear") {
-      onApply({ discountType: null, discountValue: null });
     }
   };
 
@@ -1016,48 +974,8 @@ function BulkVariantBar({
         </div>
       )}
 
-      {/* Discount type selector */}
-      {field === "discount" && (
-        <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
-          <button
-            type="button"
-            onClick={() => setDiscountType("PERCENT")}
-            className="font-body"
-            style={{
-              padding: '7px 12px',
-              fontSize: 11,
-              fontWeight: 600,
-              border: 'none',
-              cursor: 'pointer',
-              background: discountType === "PERCENT" ? '#fff' : 'transparent',
-              color: discountType === "PERCENT" ? '#1A1A1A' : 'rgba(255,255,255,0.5)',
-              transition: 'all 0.15s',
-            }}
-          >
-            %
-          </button>
-          <button
-            type="button"
-            onClick={() => setDiscountType("AMOUNT")}
-            className="font-body"
-            style={{
-              padding: '7px 12px',
-              fontSize: 11,
-              fontWeight: 600,
-              border: 'none',
-              cursor: 'pointer',
-              background: discountType === "AMOUNT" ? '#fff' : 'transparent',
-              color: discountType === "AMOUNT" ? '#1A1A1A' : 'rgba(255,255,255,0.5)',
-              transition: 'all 0.15s',
-            }}
-          >
-            €
-          </button>
-        </div>
-      )}
-
       {/* Value input */}
-      {field !== "discountClear" && (
+      {(
         <input
           type="number"
           step={field === "stock" ? "1" : "0.01"}
@@ -1077,7 +995,7 @@ function BulkVariantBar({
       <button
         type="button"
         onClick={handleApply}
-        disabled={isPending || (field !== "discountClear" && !value)}
+        disabled={isPending || (!value)}
         className="flex items-center gap-1.5 font-body"
         style={{
           padding: '7px 16px',
@@ -1087,8 +1005,8 @@ function BulkVariantBar({
           color: '#1A1A1A',
           border: 'none',
           borderRadius: 8,
-          cursor: isPending || (field !== "discountClear" && !value) ? 'not-allowed' : 'pointer',
-          opacity: isPending || (field !== "discountClear" && !value) ? 0.4 : 1,
+          cursor: isPending || (!value) ? 'not-allowed' : 'pointer',
+          opacity: isPending || (!value) ? 0.4 : 1,
           transition: 'all 0.15s',
         }}
       >

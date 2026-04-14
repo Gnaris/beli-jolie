@@ -55,11 +55,9 @@ export default async function CommandePage() {
       const up = Number(v.unitPrice);
       const base = v.saleType === "UNIT" ? up : up * (v.packQuantity ?? 1);
       let price = base;
-      if (v.discountType && v.discountValue) {
-        const dv = Number(v.discountValue);
-        price = v.discountType === "PERCENT"
-          ? Math.max(0, base * (1 - dv / 100))
-          : Math.max(0, base - dv);
+      const dp = v.product?.discountPercent != null ? Number(v.product.discountPercent) : null;
+      if (dp && dp > 0) {
+        price = Math.max(0, base * (1 - dp / 100));
       }
       subtotalHT += price * item.quantity;
     }
@@ -75,7 +73,10 @@ export default async function CommandePage() {
         ...item.variant,
         unitPrice: Number(item.variant.unitPrice),
         weight: Number(item.variant.weight),
-        discountValue: item.variant.discountValue != null ? Number(item.variant.discountValue) : null,
+        product: {
+          ...item.variant.product,
+          discountPercent: item.variant.product?.discountPercent != null ? Number(item.variant.product.discountPercent) : null,
+        },
       },
     })),
   };

@@ -114,6 +114,7 @@ export interface AnkorstorePushProduct {
   retail_price: number;
   vat_rate: number;
   unit_multiplier?: number; // Units per lot (default 1, e.g. 12 for packs)
+  discount_rate?: number; // Product-level discount (0 to 1, e.g. 0.15 = -15%)
   main_image?: string;
   images?: { order: number; url: string }[];
   made_in_country?: string; // ISO Alpha-2 (e.g. "CN", "FR")
@@ -328,7 +329,7 @@ export async function ankorstorePushProducts(
             wholesale_price: p.wholesale_price,
             retail_price: p.retail_price,
             unit_multiplier: p.unit_multiplier ?? 1,
-            discount_rate: 0,
+            discount_rate: p.discount_rate ?? 0,
             ...(p.main_image ? { main_image: p.main_image } : {}),
             ...(p.made_in_country ? { made_in_country: p.made_in_country } : {}),
             ...(p.weight ? { weight: p.weight } : {}),
@@ -347,7 +348,6 @@ export async function ankorstorePushProducts(
               retailPrice: v.retailPrice,
               originalWholesalePrice: v.originalWholesalePrice,
               unit_multiplier: v.unit_multiplier ?? 1,
-              discount_rate: 0,
               options: v.options,
               ...(v.images?.length ? { images: v.images } : {}),
             })),

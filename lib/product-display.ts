@@ -164,6 +164,7 @@ const CAROUSEL_SELECT = {
   id: true,
   name: true,
   reference: true,
+  discountPercent: true,
   category: { select: { name: true } },
   colors: {
     select: {
@@ -171,8 +172,6 @@ const CAROUSEL_SELECT = {
       colorId: true,
       unitPrice: true,
       isPrimary: true,
-      discountType: true,
-      discountValue: true,
       color: { select: { name: true, hex: true, patternImage: true } },
     },
   },
@@ -182,14 +181,13 @@ type CarouselPrismaProduct = {
   id: string;
   name: string;
   reference: string;
+  discountPercent: number | Decimal | null;
   category: { name: string };
   colors: {
     id: string;
     colorId: string | null;
     unitPrice: number | Decimal;
     isPrimary: boolean;
-    discountType: "PERCENT" | "AMOUNT" | null;
-    discountValue: number | Decimal | null;
     color: { name: string; hex: string | null; patternImage?: string | null } | null;
   }[];
 };
@@ -229,7 +227,7 @@ export async function fetchCarouselProducts(
       return prisma.product.findMany({
         where: {
           status: "ONLINE",
-          colors: { some: { discountType: { not: null }, discountValue: { gt: 0 } } },
+          discountPercent: { gt: 0 },
         },
         orderBy: { updatedAt: "desc" },
         take: carousel.quantity,

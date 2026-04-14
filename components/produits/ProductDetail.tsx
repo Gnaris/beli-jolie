@@ -42,8 +42,6 @@ interface VariantData {
   packQuantity: number | null;
   sizes: { name: string; quantity: number; pricePerUnit?: number }[];
   packColorLines?: PackColorLineInfo[];
-  discountType:  "PERCENT" | "AMOUNT" | null;
-  discountValue: number | null;
 }
 
 interface ColorImageData {
@@ -93,17 +91,16 @@ interface ProductDetailProps {
   similarProducts: RelatedProduct[];
   bundleChildren: RelatedProduct[];
   bundleParents: RelatedProduct[];
+  discountPercent?: number | null;
   clientDiscount?: ClientDiscountInfo | null;
   isAuthenticated?: boolean;
 }
 
-function computePrice(v: VariantData): number {
+function computePrice(v: VariantData, discountPercent?: number | null): number {
   // unitPrice is always the total price (for both UNIT and PACK)
   const total = Number(v.unitPrice);
-  if (!v.discountType || !v.discountValue) return total;
-  const dv = Number(v.discountValue);
-  if (v.discountType === "PERCENT") return Math.max(0, total * (1 - dv / 100));
-  return Math.max(0, total - dv);
+  if (!discountPercent || discountPercent <= 0) return total;
+  return Math.max(0, total * (1 - discountPercent / 100));
 }
 
 function RelatedCard({ product }: { product: RelatedProduct }) {
@@ -153,7 +150,7 @@ function applyClientDiscount(price: number, discount: ClientDiscountInfo | null 
 
 export default function ProductDetail({
   productId, name, reference, description, category, subCategories, tags, variants,
-  colorImages, compositions, dimensions, similarProducts, bundleChildren, bundleParents, clientDiscount, isAuthenticated,
+  colorImages, compositions, dimensions, similarProducts, bundleChildren, bundleParents, discountPercent, clientDiscount, isAuthenticated,
 }: ProductDetailProps) {
   const router = useRouter();
   const t = useTranslations("product");
@@ -232,7 +229,7 @@ export default function ProductDetail({
 
   const displayedColorName = getFullColorName(hoveredGroupKey ?? selectedGroupKey);
 
-  const minPrice = variants.length > 0 ? Math.min(...variants.map(v => computePrice(v))) : 0;
+  const minPrice = variants.length > 0 ? Math.min(...variants.map(v => computePrice(v, discountPercent))) : 0;
   const minBasePrice = variants.length > 0 ? Math.min(...variants.map(v => Number(v.unitPrice))) : 0;
   const hasAnyProductDiscount = minPrice < minBasePrice;
   const minPriceAfterClient = applyClientDiscount(minPrice, clientDiscount);
@@ -575,7 +572,7 @@ export default function ProductDetail({
                   Unités
                 </h3>
                 {selectedUnitVariants.map((v) => {
-                  const price        = computePrice(v);
+                  const price        = computePrice(v, discountPercent);
                   const basePrice    = Number(v.unitPrice);
                   const hasDiscount  = price < basePrice;
                   const clientPrice  = applyClientDiscount(price, clientDiscount);
@@ -653,7 +650,7 @@ export default function ProductDetail({
                   Paquets
                 </h3>
                 {selectedPackVariants.map((v) => {
-                  const price        = computePrice(v);
+                  const price        = computePrice(v, discountPercent);
                   const basePrice    = Number(v.unitPrice);
                   const hasDiscount  = price < basePrice;
                   const clientPrice  = applyClientDiscount(price, clientDiscount);
@@ -792,7 +789,7 @@ export default function ProductDetail({
       {/* Sticky mobile add-to-cart bar */}
       {selectedUnitVariants.length > 0 && (() => {
         const firstV = selectedUnitVariants[0];
-        const stickyPrice = computePrice(firstV);
+        const stickyPrice = computePrice(firstV, discountPercent);
         const stickyClientPrice = applyClientDiscount(stickyPrice, clientDiscount);
         const stickyDisplayPrice = clientDiscount ? stickyClientPrice : stickyPrice;
         const stickyStock = firstV.stock;

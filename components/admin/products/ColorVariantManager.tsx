@@ -53,8 +53,6 @@ export interface VariantState {
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: string;    // Quantité par paquet (PACK only)
-  discountType: "" | "PERCENT" | "AMOUNT";
-  discountValue: string;
   // PFS color override for multi-color variants (single-color uses Color.pfsColorRef)
   pfsColorRef: string;
   // SKU auto-généré: {ref}_{couleurs}_{UNIT|PACK}_{index}
@@ -122,14 +120,11 @@ export function computeTotalPrice(v: VariantState): number | null {
   return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : unit;
 }
 
-export function computeFinalPrice(v: VariantState): number | null {
+export function computeFinalPrice(v: VariantState, discountPercent?: number | null): number | null {
   const total = computeTotalPrice(v);
   if (total === null) return null;
-  if (!v.discountType || !v.discountValue) return total;
-  const disc = parseFloat(v.discountValue);
-  if (isNaN(disc) || disc <= 0) return total;
-  if (v.discountType === "PERCENT") return Math.max(0, total * (1 - disc / 100));
-  return Math.max(0, total - disc);
+  if (!discountPercent || discountPercent <= 0) return total;
+  return Math.max(0, total * (1 - discountPercent / 100));
 }
 
 /**
@@ -255,8 +250,6 @@ function defaultVariant(): VariantState {
     isPrimary:    false,
     saleType:     "UNIT",
     packQuantity: "",
-    discountType: "",
-    discountValue: "",
     pfsColorRef: "",
     sku: "",
   };
@@ -269,12 +262,10 @@ interface BulkEditState {
   unitPrice:    string;
   weight:       string;
   stock:        string;
-  discountType: "" | "PERCENT" | "AMOUNT";
-  discountValue: string;
 }
 
 function defaultBulkEdit(): BulkEditState {
-  return { unitPrice: "", weight: "", stock: "", discountType: "", discountValue: "" };
+  return { unitPrice: "", weight: "", stock: "" };
 }
 
 // ─────────────────────────────────────────────
@@ -718,7 +709,7 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
   });
 
   return (
-    <div style={{ minWidth: 140 }}>
+    <div>
       <button
         type="button"
         onClick={openModal}
@@ -727,29 +718,26 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
         {selected.length === 0 ? (
           <span className="text-text-muted flex-1 italic">— Couleur</span>
         ) : (
-          <>
-            {/* Left side: swatch + color name */}
-            <span className="flex items-center gap-1.5 flex-1 min-w-0">
-              {selectedSegments.length === 1 ? (
-                <ColorSwatch hex={selectedSegments[0].hex} patternImage={selectedSegments[0].patternImage} size={14} rounded="full" />
-              ) : (
-                <ColorSwatch hex={selectedSegments[0]?.hex} patternImage={selectedSegments[0]?.patternImage} subColors={selectedSegments.slice(1)} size={14} rounded="full" />
-              )}
-              <span className="truncate text-[11px]">{displayName}</span>
-            </span>
-            {/* Right side: PFS badge + arrow */}
-            {selected.length > 1 && pfsColorRef && (
-              <span className="flex-none inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600 shrink-0 whitespace-nowrap">
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-300 animate-pulse shrink-0" />
-                Paris Fashion Shop : {pfsColorRefLabel || pfsColorRef}
-              </span>
+          <span className="flex items-center gap-1.5 flex-1 min-w-0">
+            {selectedSegments.length === 1 ? (
+              <ColorSwatch hex={selectedSegments[0].hex} patternImage={selectedSegments[0].patternImage} size={14} rounded="full" />
+            ) : (
+              <ColorSwatch hex={selectedSegments[0]?.hex} patternImage={selectedSegments[0]?.patternImage} subColors={selectedSegments.slice(1)} size={14} rounded="full" />
             )}
-          </>
+            <span className="truncate text-[11px]">{displayName}</span>
+          </span>
         )}
         <svg className="w-3 h-3 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
+      {/* PFS badge — below trigger */}
+      {selected.length > 1 && pfsColorRef && (
+        <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600 truncate max-w-full">
+          <span className="w-1.5 h-1.5 rounded-full bg-purple-300 animate-pulse shrink-0" />
+          PFS : {pfsColorRefLabel || pfsColorRef}
+        </span>
+      )}
 
       {/* Modal */}
       {open && createPortal(
@@ -1903,8 +1891,6 @@ function QuickAddModal({
   const [unitPrice, setUnitPrice] = useState("");
   const [stock, setStock] = useState("");
   const [weight, setWeight] = useState("");
-  const [discountType, setDiscountType] = useState<"" | "PERCENT" | "AMOUNT">("");
-  const [discountValue, setDiscountValue] = useState("");
   const [sizeEntries, setSizeEntries] = useState<SizeEntryState[]>([]);
 
   // Size picker inline
@@ -1932,8 +1918,6 @@ function QuickAddModal({
       setUnitPrice("");
       setStock("");
       setWeight("");
-      setDiscountType("");
-      setDiscountValue("");
       setSizeEntries([]);
       setShowSizePicker(false);
     }
@@ -2096,8 +2080,6 @@ function QuickAddModal({
         isPrimary: i === 0 && existingVariants.length === 0,
         saleType,
         packQuantity: saleType === "PACK" ? (sizeEntries.length > 1 ? String(sizeEntries.length) : "1") : "",
-        discountType,
-        discountValue,
         pfsColorRef: line.pfsColorRef || "",
         sku: "",
       };
@@ -2247,20 +2229,6 @@ function QuickAddModal({
                 <input type="number" min="0" step="0.01" value={unitPrice} placeholder="0.00"
                   onChange={(e) => setUnitPrice(e.target.value)}
                   className="w-full mt-1 border border-border bg-bg-primary px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-body" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-text-muted font-semibold font-body">Remise</label>
-                <div className="flex gap-1 mt-1">
-                  <CustomSelect value={discountType}
-                    onChange={(val) => { setDiscountType(val as "" | "PERCENT" | "AMOUNT"); setDiscountValue(""); }}
-                    options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
-                    size="sm" className="w-[60px]" />
-                  {discountType && (
-                    <input type="number" min="0" step="0.01" value={discountValue} placeholder="0"
-                      onChange={(e) => setDiscountValue(e.target.value)}
-                      className="w-16 border border-border bg-bg-primary px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-body" />
-                  )}
-                </div>
               </div>
             </div>
 
@@ -2694,10 +2662,6 @@ export default function ColorVariantManager({
       if (bulkEdit.unitPrice  !== "") patch.unitPrice  = bulkEdit.unitPrice;
       if (bulkEdit.weight     !== "") patch.weight     = bulkEdit.weight;
       if (bulkEdit.stock      !== "") patch.stock      = bulkEdit.stock;
-      if (bulkEdit.discountType !== "") {
-        patch.discountType  = bulkEdit.discountType;
-        patch.discountValue = bulkEdit.discountValue;
-      }
       return { ...v, ...patch };
     }));
     setBulkEdit(defaultBulkEdit());
@@ -3010,20 +2974,6 @@ export default function ColorVariantManager({
                       <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Total</p>
                       <div className="text-xs pt-1.5">{renderTotalPrice(v)}</div>
                     </div>
-                    <div className="shrink-0">
-                      <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Remise</p>
-                      <div className="flex gap-1 items-center">
-                        <CustomSelect value={v.discountType}
-                          onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
-                          options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
-                          size="sm" className="w-[50px]" />
-                        {v.discountType && (
-                          <input type="number" min="0" step="0.01" value={v.discountValue} placeholder="0"
-                            onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
-                            className="w-12 border border-border bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body" />
-                        )}
-                      </div>
-                    </div>
                   </div>
                 </div>
               );
@@ -3032,8 +2982,7 @@ export default function ColorVariantManager({
 
           {/* ── Variants TABLE (desktop only) ── */}
           <div className="hidden md:block border border-border rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs font-body">
+              <table className="w-full table-fixed text-xs font-body">
                 <thead>
                   {/* Column headers */}
                   <tr className="bg-bg-secondary border-b border-border">
@@ -3048,16 +2997,14 @@ export default function ColorVariantManager({
                         className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5"
                       />
                     </th>
-                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[70px]">Type</th>
-                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold min-w-[140px]">Couleur</th>
-                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[150px]">SKU</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[90px]">Prix/unité</th>
-                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold min-w-[120px]">Tailles</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[65px]">Total</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[90px]">Stock</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[95px]">Poids</th>
-                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold w-[130px]">Remise</th>
-                    <th className="w-10 px-2 py-2"></th>
+                    <th className="w-[68px] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Type</th>
+                    <th className="w-[22%] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Couleur / SKU</th>
+                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Tailles</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Stock</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Poids</th>
+                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Prix/unité</th>
+                    <th className="w-[60px] px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Total</th>
+                    <th className="w-[52px] px-2 py-2"></th>
                   </tr>
                   {/* Bulk edit row — inline in thead */}
                   <tr className={`border-b transition-colors ${showBulkRow ? "bg-[#F0FDF4] border-[#BBF7D0]" : "bg-[#FAFAFA] border-border"}`}>
@@ -3066,7 +3013,7 @@ export default function ColorVariantManager({
                         {showBulkRow ? selectedIds.size : "—"}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5" colSpan={3}>
+                    <td className="px-2 py-1.5" colSpan={2}>
                       <span className={`text-[10px] font-body ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
                         {showBulkRow
                           ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}`
@@ -3074,17 +3021,7 @@ export default function ColorVariantManager({
                       </span>
                     </td>
                     <td className="px-2 py-1.5">
-                      <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice} disabled={!showBulkRow}
-                        onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
-                        className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
-                          showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
-                        }`} />
-                    </td>
-                    <td className="px-2 py-1.5">
                       {/* Tailles: not bulk-editable */}
-                    </td>
-                    <td className="px-2 py-1.5">
-                      {/* Total: computed */}
                     </td>
                     <td className="px-2 py-1.5">
                       <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock} disabled={!showBulkRow}
@@ -3101,19 +3038,14 @@ export default function ColorVariantManager({
                         }`} />
                     </td>
                     <td className="px-2 py-1.5">
-                      <div className="flex gap-1 items-center">
-                        <CustomSelect value={bulkEdit.discountType} disabled={!showBulkRow}
-                          onChange={(val) => setBulkEdit((b) => ({ ...b, discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" }))}
-                          options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
-                          size="sm" className="w-[50px]" />
-                        {bulkEdit.discountType && (
-                          <input type="number" min="0" step="0.01" placeholder="0" value={bulkEdit.discountValue} disabled={!showBulkRow}
-                            onChange={(e) => setBulkEdit((b) => ({ ...b, discountValue: e.target.value }))}
-                            className={`w-14 border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
-                              showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
-                            }`} />
-                        )}
-                      </div>
+                      <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice} disabled={!showBulkRow}
+                        onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
+                        className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
+                          showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
+                        }`} />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {/* Total: computed */}
                     </td>
                     <td className="px-2 py-1.5 text-center">
                       <button type="button" onClick={applyBulk} disabled={!showBulkRow}
@@ -3206,7 +3138,7 @@ export default function ColorVariantManager({
                           />
                         </td>
 
-                        {/* Color */}
+                        {/* Color + SKU */}
                         <td className="px-2 py-2">
                           {isUnit ? (
                             <MultiColorSelect
@@ -3248,24 +3180,9 @@ export default function ColorVariantManager({
                               Correspondance Paris Fashion Shop manquante
                             </span>
                           )}
-                        </td>
-
-                        {/* SKU */}
-                        <td className="px-2 py-2">
-                          <span className="text-[11px] text-text-muted font-mono truncate block" title={v.sku || "—"}>
+                          <span className="text-[10px] text-text-muted font-mono truncate block mt-1" title={v.sku || "—"}>
                             {v.sku || "—"}
                           </span>
-                        </td>
-
-                        {/* Unit Price */}
-                        <td className="px-2 py-2">
-                          <input
-                            type="number" min="0" step="0.01"
-                            value={v.unitPrice}
-                            placeholder="0.00"
-                            onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
-                            className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
-                          />
                         </td>
 
                         {/* Sizes — click to open modal */}
@@ -3273,7 +3190,7 @@ export default function ColorVariantManager({
                           <button
                             type="button"
                             onClick={() => setSizeModalVariantId(v.tempId)}
-                            className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px] max-w-[200px]`}
+                            className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px]`}
                             title={v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ") : "Ajouter des tailles"}
                           >
                             {renderSizeSummary(v)}
@@ -3281,11 +3198,6 @@ export default function ColorVariantManager({
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                             </svg>
                           </button>
-                        </td>
-
-                        {/* Total price */}
-                        <td className="px-2 py-2 text-right text-xs">
-                          {renderTotalPrice(v)}
                         </td>
 
                         {/* Stock */}
@@ -3310,25 +3222,21 @@ export default function ColorVariantManager({
                           />
                         </td>
 
-                        {/* Discount */}
+
+                        {/* Unit Price */}
                         <td className="px-2 py-2">
-                          <div className="flex gap-1 items-center">
-                            <CustomSelect
-                              value={v.discountType}
-                              onChange={(val) => updateVariant(v.tempId, { discountType: val as "" | "PERCENT" | "AMOUNT", discountValue: "" })}
-                              options={[{ value: "", label: "—" }, { value: "PERCENT", label: "%" }, { value: "AMOUNT", label: "€" }]}
-                              size="sm"
-                              className="w-[50px]"
-                            />
-                            {v.discountType && (
-                              <input type="number" min="0" step="0.01"
-                                value={v.discountValue}
-                                placeholder="0"
-                                onChange={(e) => updateVariant(v.tempId, { discountValue: e.target.value })}
-                                className="w-14 border border-border bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body"
-                              />
-                            )}
-                          </div>
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={v.unitPrice}
+                            placeholder="0.00"
+                            onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                            className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
+                          />
+                        </td>
+
+                        {/* Total price */}
+                        <td className="px-2 py-2 text-right text-xs">
+                          {renderTotalPrice(v)}
                         </td>
 
                         {/* Actions */}
@@ -3360,7 +3268,6 @@ export default function ColorVariantManager({
                   })}
                 </tbody>
               </table>
-            </div>
           </div>
 
           {/* Duplicate warning */}

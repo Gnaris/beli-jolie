@@ -71,8 +71,6 @@ export interface StagedVariantData {
   sizeNames?: string[]; // All sizes for PACK variants (multiple sizes)
   sizeEntries?: { name: string; qty: number; pricePerUnit: number }[]; // Sizes with qty + price
   isPrimary: boolean;
-  discountType: "PERCENT" | "AMOUNT" | null;
-  discountValue: number | null;
 }
 
 export interface StagedComposition {
@@ -239,13 +237,6 @@ async function prepareSingleProduct(
         const pfsPrice = v.price_sale.unit.value;
         const bjPrice = pfsPrice;
 
-        let discountType: "PERCENT" | "AMOUNT" | null = null;
-        let discountValue: number | null = null;
-        if (v.discount) {
-          discountType = v.discount.type === "PERCENT" ? "PERCENT" : "AMOUNT";
-          discountValue = v.discount.value;
-        }
-
         const sizeName = v.item?.size || (v as PfsVariantDetail).size_details_tu || null;
 
         variants.push({
@@ -259,8 +250,6 @@ async function prepareSingleProduct(
           packQuantity: null,
           sizeName,
           isPrimary: false,
-          discountType,
-          discountValue,
         });
       } else if (v.type === "PACK" && v.packs && v.packs.length > 0) {
         // Use first pack for main color (required for ProductColor.colorId)
@@ -299,13 +288,6 @@ async function prepareSingleProduct(
         const pfsPrice = v.price_sale.unit.value;
         const bjPrice = pfsPrice;
 
-        let discountType: "PERCENT" | "AMOUNT" | null = null;
-        let discountValue: number | null = null;
-        if (v.discount) {
-          discountType = v.discount.type === "PERCENT" ? "PERCENT" : "AMOUNT";
-          discountValue = v.discount.value;
-        }
-
         // Collect ALL sizes with quantities from ALL packs
         const sizeQtyMap = new Map<string, number>();
         for (const pack of v.packs) {
@@ -340,14 +322,22 @@ async function prepareSingleProduct(
           sizeNames,
           sizeEntries,
           isPrimary: false,
-          discountType,
-          discountValue,
         });
       }
     }
 
     if (inactiveCount > 0) {
       addLog(`  ⚠️ ${inactiveCount} variante(s) désactivée(s) importée(s) avec stock=0`);
+    }
+
+    // ── Extract product-level discount from PFS variant discounts ──
+    // PFS sends discount per variant; we aggregate to product level (only PERCENT supported)
+    let discountPercent: number | null = null;
+    for (const v of allVariants) {
+      if (v.discount && v.discount.type === "PERCENT" && v.discount.value > 0) {
+        discountPercent = v.discount.value;
+        break; // All variants should have the same discount
+      }
     }
 
     // ── Deduplicate variants by colorId + saleType ──
@@ -417,6 +407,7 @@ async function prepareSingleProduct(
         seasonId,
         seasonName,
         isBestSeller: pfsProduct.is_star === 1,
+        discountPercent,
         variants: variants as unknown as import("@prisma/client").Prisma.InputJsonValue,
         compositions: compositions as unknown as import("@prisma/client").Prisma.InputJsonValue,
         translations: translations as unknown as import("@prisma/client").Prisma.InputJsonValue,
@@ -439,6 +430,7 @@ async function prepareSingleProduct(
         seasonId,
         seasonName,
         isBestSeller: pfsProduct.is_star === 1,
+        discountPercent,
         variants: variants as unknown as import("@prisma/client").Prisma.InputJsonValue,
         compositions: compositions as unknown as import("@prisma/client").Prisma.InputJsonValue,
         translations: translations as unknown as import("@prisma/client").Prisma.InputJsonValue,
@@ -957,6 +949,7 @@ export async function approveStagedProduct(stagedId: string): Promise<{ productI
       categoryId: staged.categoryId,
       subCategories: subCategoryIds.length > 0 ? { connect: subCategoryIds.map((id) => ({ id })) } : undefined,
       isBestSeller: staged.isBestSeller,
+      discountPercent: staged.discountPercent,
       manufacturingCountryId: staged.manufacturingCountryId || null,
       seasonId: staged.seasonId || null,
       status: "SYNCING",
@@ -1063,8 +1056,6 @@ export async function createProductChildren(
         isPrimary: v.isPrimary,
         saleType: v.saleType,
         packQuantity: v.packQuantity,
-        discountType: v.discountType,
-        discountValue: v.discountValue,
       },
       select: { id: true, colorId: true },
     });

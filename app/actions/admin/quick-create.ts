@@ -62,7 +62,13 @@ export async function createColorQuick(
     where: { name: frName },
     select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
   });
-  if (existing) throw new Error(`La couleur "${frName}" existe déjà.`);
+  if (existing) {
+    if (pfsColorRef) {
+      await prisma.color.update({ where: { id: existing.id }, data: { pfsColorRef: pfsColorRef.trim() } });
+      existing.pfsColorRef = pfsColorRef.trim();
+    }
+    return existing;
+  }
 
   const color = await prisma.color.create({
     data: { name: frName, hex: hex || null, patternImage: patternImage || null, pfsColorRef: pfsColorRef?.trim() || null },
@@ -95,9 +101,19 @@ export async function createCategoryQuick(
 
   const existing = await prisma.category.findFirst({
     where: { name: frName },
-    select: { id: true },
+    select: { id: true, name: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true, subCategories: { select: { id: true, name: true } } },
   });
-  if (existing) throw new Error(`La catégorie "${frName}" existe déjà.`);
+  if (existing) {
+    // Always overwrite PFS mappings when provided (ensures re-runs fix stale data)
+    const data: Record<string, string> = {};
+    if (pfsCategoryId) data.pfsCategoryId = pfsCategoryId.trim();
+    if (pfsGender) data.pfsGender = pfsGender;
+    if (pfsFamilyId) data.pfsFamilyId = pfsFamilyId;
+    if (Object.keys(data).length > 0) {
+      await prisma.category.update({ where: { id: existing.id }, data });
+    }
+    return existing;
+  }
 
   const category = await prisma.category.create({
     data: {
@@ -133,9 +149,14 @@ export async function createCompositionQuick(
 
   const existing = await prisma.composition.findUnique({
     where: { name: frName },
-    select: { id: true },
+    select: { id: true, name: true, pfsCompositionRef: true },
   });
-  if (existing) throw new Error(`La composition "${frName}" existe déjà.`);
+  if (existing) {
+    if (pfsCompositionRef) {
+      await prisma.composition.update({ where: { id: existing.id }, data: { pfsCompositionRef: pfsCompositionRef.trim() } });
+    }
+    return existing;
+  }
 
   const composition = await prisma.composition.create({
     data: { name: frName, pfsCompositionRef: pfsCompositionRef?.trim() || null },
@@ -166,9 +187,9 @@ export async function createSubCategoryQuick(
 
   const existing = await prisma.subCategory.findFirst({
     where: { name: frName, categoryId },
-    select: { id: true },
+    select: { id: true, name: true },
   });
-  if (existing) throw new Error(`La sous-catégorie "${frName}" existe déjà dans cette catégorie.`);
+  if (existing) return existing;
 
   const subCategory = await prisma.subCategory.create({
     data: { name: frName, slug: toSlug(frName), categoryId },
@@ -197,9 +218,9 @@ export async function createTagQuick(
 
   const existing = await prisma.tag.findFirst({
     where: { name: frName },
-    select: { id: true },
+    select: { id: true, name: true },
   });
-  if (existing) throw new Error(`Le mot-clé "${frName}" existe déjà.`);
+  if (existing) return existing;
 
   const tag = await prisma.tag.create({
     data: { name: frName },
@@ -230,9 +251,14 @@ export async function createManufacturingCountryQuick(
 
   const existing = await prisma.manufacturingCountry.findFirst({
     where: { name: frName },
-    select: { id: true },
+    select: { id: true, name: true, pfsCountryRef: true },
   });
-  if (existing) throw new Error(`Le pays "${frName}" existe déjà.`);
+  if (existing) {
+    if (pfsCountryRef) {
+      await prisma.manufacturingCountry.update({ where: { id: existing.id }, data: { pfsCountryRef: pfsCountryRef.trim() } });
+    }
+    return existing;
+  }
 
   const country = await prisma.manufacturingCountry.create({
     data: { name: frName, isoCode: isoCode || null, pfsCountryRef: pfsCountryRef?.trim() || null },
@@ -260,14 +286,19 @@ export async function createSeasonQuick(
   const frName = names["fr"]?.trim();
   if (!frName) throw new Error("Le nom en français est requis.");
 
-  const existing = await prisma.season.findFirst({
-    where: { name: frName },
-    select: { id: true },
-  });
-  if (existing) throw new Error(`La saison "${frName}" existe déjà.`);
-
   // Normalize: accept string or string[] (take first), trim + uppercase
   const ref = (Array.isArray(pfsSeasonRef) ? pfsSeasonRef[0] : pfsSeasonRef)?.trim().toUpperCase() || null;
+
+  const existing = await prisma.season.findFirst({
+    where: { name: frName },
+    select: { id: true, name: true, pfsRef: true },
+  });
+  if (existing) {
+    if (ref) {
+      await prisma.season.update({ where: { id: existing.id }, data: { pfsRef: ref } });
+    }
+    return existing;
+  }
   const season = await prisma.season.create({
     data: {
       name: frName,

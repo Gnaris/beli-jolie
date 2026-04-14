@@ -147,8 +147,6 @@ export default function ImportImagesTab() {
     saleType: "UNIT" as "UNIT" | "PACK",
     packQuantity: "",
     size: "",
-    discountType: "" as "" | "PERCENT" | "AMOUNT",
-    discountValue: "",
   });
   const [creatingVariant, setCreatingVariant] = useState(false);
 
@@ -184,7 +182,7 @@ export default function ImportImagesTab() {
     setCreatingColor(false);
     setSelectedColors([]);
     setShowVariantForm(false);
-    setVariantAttrs({ unitPrice: "", weight: "", stock: "0", saleType: "UNIT", packQuantity: "", size: "", discountType: "", discountValue: "" });
+    setVariantAttrs({ unitPrice: "", weight: "", stock: "0", saleType: "UNIT", packQuantity: "", size: "" });
     fetchAllColors();
     fetchVariants(reference);
   }, [fetchAllColors]);
@@ -296,8 +294,6 @@ export default function ImportImagesTab() {
           saleType: variantAttrs.saleType,
           packQuantity: variantAttrs.saleType === "PACK" ? (parseInt(variantAttrs.packQuantity) || null) : null,
           size: variantAttrs.size || null,
-          discountType: variantAttrs.discountType || null,
-          discountValue: variantAttrs.discountValue ? parseFloat(variantAttrs.discountValue) : null,
         }),
       });
       const data = await res.json();
@@ -1456,36 +1452,6 @@ export default function ImportImagesTab() {
                       )}
                     </div>
                   )}
-
-                  {/* Discount */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="field-label">Remise</label>
-                      <select
-                        className="field-input w-full"
-                        value={variantAttrs.discountType}
-                        onChange={(e) => setVariantAttrs((p) => ({ ...p, discountType: e.target.value as "" | "PERCENT" | "AMOUNT" }))}
-                      >
-                        <option value="">Aucune</option>
-                        <option value="PERCENT">Pourcentage (%)</option>
-                        <option value="AMOUNT">Montant fixe (€)</option>
-                      </select>
-                    </div>
-                    {variantAttrs.discountType && (
-                      <div>
-                        <label className="field-label">Valeur</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          className="field-input w-full"
-                          placeholder={variantAttrs.discountType === "PERCENT" ? "10" : "5.00"}
-                          value={variantAttrs.discountValue}
-                          onChange={(e) => setVariantAttrs((p) => ({ ...p, discountValue: e.target.value }))}
-                        />
-                      </div>
-                    )}
-                  </div>
 
                   {/* Validation summary */}
                   {!canSubmitVariant && (variantAttrs.unitPrice || variantAttrs.weight) && (

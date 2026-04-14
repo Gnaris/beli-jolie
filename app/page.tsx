@@ -34,33 +34,31 @@ type PrismaProduct = {
   id: string;
   name: string;
   reference: string;
+  discountPercent: number | null;
   category: { name: string };
   colors: {
     id: string;
     colorId: string | null;
     unitPrice: number;
     isPrimary: boolean;
-    discountType: "PERCENT" | "AMOUNT" | null;
-    discountValue: number | null;
     color: { name: string; hex: string | null; patternImage?: string | null } | null;
   }[];
 };
 
-function computeDiscountedPrice(unitPrice: number, discountType: "PERCENT" | "AMOUNT" | null, discountValue: number | null): number {
-  if (!discountType || !discountValue) return unitPrice;
-  if (discountType === "PERCENT") return Math.max(0, unitPrice * (1 - discountValue / 100));
-  return Math.max(0, unitPrice - discountValue);
+function computeDiscountedPrice(unitPrice: number, discountPercent: number | null): number {
+  if (!discountPercent || discountPercent <= 0) return unitPrice;
+  return Math.max(0, unitPrice * (1 - discountPercent / 100));
 }
 
 function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string, string>>): CarouselProduct[] {
   return products.map((p) => {
     // Deduplicate by colorId, take min price per color
     const colorMap = new Map<string, { id: string; colorId: string; hex: string | null; patternImage: string | null; name: string; unitPrice: number; discountedPrice: number; hasDiscount: boolean; isPrimary: boolean; variantId: string }>();
+    const productDiscountPercent = p.discountPercent != null ? Number(p.discountPercent) : null;
     for (const c of p.colors) {
       if (!c.colorId) continue;
       const price = Number(c.unitPrice);
-      const dv = c.discountValue != null ? Number(c.discountValue) : null;
-      const discounted = computeDiscountedPrice(price, c.discountType, dv);
+      const discounted = computeDiscountedPrice(price, productDiscountPercent);
       const hasDsc = discounted < price;
       if (!colorMap.has(c.colorId)) {
         colorMap.set(c.colorId, { id: c.colorId, colorId: c.colorId, hex: c.color?.hex ?? null, patternImage: c.color?.patternImage ?? null, name: c.color?.name ?? "", unitPrice: price, discountedPrice: discounted, hasDiscount: hasDsc, isPrimary: c.isPrimary, variantId: c.id });
@@ -100,10 +98,10 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
 function serializeProducts(products: Array<Record<string, unknown>>): PrismaProduct[] {
   return products.map((p: any) => ({
     ...p,
+    discountPercent: p.discountPercent != null ? Number(p.discountPercent) : null,
     colors: p.colors.map((c: any) => ({
       ...c,
       unitPrice: Number(c.unitPrice),
-      discountValue: c.discountValue != null ? Number(c.discountValue) : null,
     })),
   }));
 }
@@ -115,14 +113,12 @@ const COLOR_INCLUDE = {
       colorId:       true,
       unitPrice:     true,
       isPrimary:     true,
-      discountType:  true,
-      discountValue: true,
       color:         { select: { name: true, hex: true, patternImage: true } },
     },
   },
 };
 
-const PRODUCT_SELECT = { id: true, name: true, reference: true, category: { select: { name: true } }, ...COLOR_INCLUDE };
+const PRODUCT_SELECT = { id: true, name: true, reference: true, discountPercent: true, category: { select: { name: true } }, ...COLOR_INCLUDE };
 
 // ─────────────────────────────────────────────
 // Reassort fetcher (needs userId)

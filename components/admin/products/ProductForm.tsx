@@ -18,6 +18,7 @@ import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import type { MarketplaceId } from "@/lib/product-events";
+import { subscribeSSE } from "@/lib/shared-sse";
 import dynamic from "next/dynamic";
 
 const DevRandomFillButton = dynamic(() => import("./DevRandomFillButton"), { ssr: false });
@@ -88,6 +89,7 @@ interface ProductFormProps {
     seasonId?: string;
     translations?: { locale: string; name: string; description: string }[];
     status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
+    discountPercent?: string;
   };
 }
 
@@ -107,8 +109,6 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
     isPrimary:    true,
     saleType:     "UNIT",
     packQuantity: "",
-    discountType: "",
-    discountValue: "",
     pfsColorRef: "",
     sku: "",
   };
@@ -127,6 +127,8 @@ function TagsDropdown({
   productId,
   mode,
   loading = false,
+  discountPercent,
+  setDiscountPercent,
 }: {
   localTags: { id: string; name: string }[];
   tagNames: string[];
@@ -137,6 +139,8 @@ function TagsDropdown({
   productId?: string;
   mode?: "create" | "edit";
   loading?: boolean;
+  discountPercent: string;
+  setDiscountPercent: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -316,6 +320,31 @@ function TagsDropdown({
           </div>
         </label>
       </div>
+
+      {/* Remise produit */}
+      <div className="pt-3 border-t border-border-light">
+        <div className="flex items-center gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-text-primary font-heading">Remise produit</p>
+            <p className="text-xs text-text-muted font-body mt-0.5">
+              Appliquée sur toutes les variantes et synchronisée sur PFS &amp; Ankorstore.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              placeholder="—"
+              value={discountPercent}
+              onChange={(e) => setDiscountPercent(e.target.value)}
+              className="field-input w-24 text-right"
+            />
+            <span className="text-sm font-semibold text-text-secondary">%</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -340,8 +369,10 @@ export default function ProductForm({
   const { startSync, syncingProductIds } = useMarketplaceSync();
 
   // ── Marketplace sync lock ──────────────────────────────────────────────
-  // Combines DB status (survives refresh) + SSE real-time tracking
-  const isSyncLocked = initialSyncing || (!!productId && syncingProductIds.has(productId));
+  // Starts from DB status (survives refresh), unlocks when SSE reports completion
+  const [dbSyncing, setDbSyncing] = useState(initialSyncing);
+
+  const isSyncLocked = dbSyncing || (!!productId && syncingProductIds.has(productId));
 
   // ── Local lists — fetched from DB on mount (no cache) ────────────────
   const [localCategories,   setLocalCategories]   = useState<Category[]>(_initialCategories ?? []);
@@ -387,6 +418,7 @@ export default function ProductForm({
   const [bundleChildIds, setBundleChildIds] = useState<string[]>(initialData?.bundleChildIds ?? []);
   const [tagNames,          setTagNames]          = useState<string[]>(initialData?.tagNames ?? []);
   const [isBestSeller,      setIsBestSeller]      = useState(initialData?.isBestSeller ?? false);
+  const [discountPercent,   setDiscountPercent]   = useState(initialData?.discountPercent ?? "");
   const [manufacturingCountryId, setManufacturingCountryId] = useState(initialData?.manufacturingCountryId ?? "");
   const [seasonId, setSeasonId] = useState(initialData?.seasonId ?? "");
 
@@ -434,6 +466,44 @@ export default function ProductForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reference, name, description, categoryId, compositions, variants, colorImages]);
 
+  // Listen for SSE marketplace sync events to:
+  // 1. Unlock the form when sync completes (even if page was loaded mid-sync)
+  // 2. Update the header badge in real-time
+  useEffect(() => {
+    if (!productId) return;
+    const unsub = subscribeSSE((data) => {
+      const event = data as {
+        type?: string;
+        productId?: string;
+        marketplaceSync?: { marketplace: string; status: string; error?: string };
+      };
+      if (event.type !== "MARKETPLACE_SYNC" || event.productId !== productId) return;
+      const mp = event.marketplaceSync;
+      if (!mp) return;
+
+      // Unlock form on completion
+      if (mp.status === "success" || mp.status === "error") {
+        setDbSyncing(false);
+      }
+
+      // Update header badge in real-time
+      updateHeader((prev) => {
+        const current = prev.marketplaceSync;
+        if (!current) return prev;
+        const syncStatus = mp.status === "success" ? "synced" as const
+          : mp.status === "error" ? "failed" as const
+          : "pending" as const;
+        if (mp.marketplace === "pfs") {
+          return { ...prev, marketplaceSync: { ...current, pfsSyncStatus: syncStatus, pfsSyncError: mp.error ?? null } };
+        } else if (mp.marketplace === "ankorstore") {
+          return { ...prev, marketplaceSync: { ...current, ankorsSyncStatus: syncStatus, ankorsSyncError: mp.error ?? null } };
+        }
+        return prev;
+      });
+    });
+    return unsub;
+  }, [productId, updateHeader]);
+
   // ── Unsaved changes guard ─────────────────────────────────────────────
   const router = useRouter();
   const { confirm: confirmDialog } = useConfirm();
@@ -443,12 +513,12 @@ export default function ProductForm({
 
   const buildSnapshot = useCallback(() => JSON.stringify({
     reference, name, description, categoryId, subCategoryIds,
-    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, packColorLines: v.packColorLines, discountType: v.discountType, discountValue: v.discountValue })),
+    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, packColorLines: v.packColorLines })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
-    compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller,
+    compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
     manufacturingCountryId, seasonId,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId]);
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId]);
 
   // Capture snapshot after first effects have settled (colorImages sync etc.)
   useEffect(() => {
@@ -1058,10 +1128,9 @@ export default function ProductForm({
                 position: pos,
               }))
             : [],
-          discountType:  v.discountType || null,
-          discountValue: v.discountValue ? parseFloat(v.discountValue) : null,
           pfsColorRef:   v.pfsColorRef || null,
         })),
+      discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
       imagePaths: colorImages.flatMap((ci) => {
         if (ci.uploadedPaths.length === 0) return [];
         // Only match against valid draft variants
@@ -1321,10 +1390,9 @@ export default function ProductForm({
               position: pos,
             }))
           : [],
-        discountType:  v.discountType || null,
-        discountValue: v.discountValue ? parseFloat(v.discountValue) : null,
         pfsColorRef:   v.pfsColorRef || null,
       })),
+      discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
       imagePaths: colorImages.flatMap((ci) => {
         if (ci.uploadedPaths.length === 0) return [];
         // Find ALL variants sharing this image group key
@@ -1375,6 +1443,19 @@ export default function ProductForm({
     const hasSyncOverlay = syncMarketplaces.length > 0;
     if (mode === "edit" && productId && hasSyncOverlay) {
       startSync(productId, syncMarketplaces);
+      // Immediately update header badge to "pending" for syncing marketplaces
+      updateHeader((prev) => {
+        const current = prev.marketplaceSync;
+        if (!current) return prev;
+        return {
+          ...prev,
+          marketplaceSync: {
+            ...current,
+            ...(syncMarketplaces.includes("pfs") ? { pfsSyncStatus: "pending" as const, pfsSyncError: null } : {}),
+            ...(syncMarketplaces.includes("ankorstore") ? { ankorsSyncStatus: "pending" as const, ankorsSyncError: null } : {}),
+          },
+        };
+      });
     }
 
     // Skip loading overlay when sync overlay is active — the sync overlay
@@ -1702,7 +1783,7 @@ export default function ProductForm({
               </div>
             </div>
 
-            {/* ── BLOC MOTS CLÉS ── */}
+            {/* ── BLOC MOTS CLÉS & REMISE ── */}
             <TagsDropdown
               localTags={localTags}
               tagNames={tagNames}
@@ -1713,6 +1794,8 @@ export default function ProductForm({
               productId={productId}
               mode={mode}
               loading={!attributesLoaded}
+              discountPercent={discountPercent}
+              setDiscountPercent={setDiscountPercent}
             />
           </div>
 

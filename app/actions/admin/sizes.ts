@@ -18,8 +18,8 @@ export async function createSize(name: string, categoryIds: string[]) {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Le nom est requis.");
 
-  const existing = await prisma.size.findUnique({ where: { name: trimmed } });
-  if (existing) throw new Error(`La taille « ${trimmed} » existe déjà.`);
+  const existing = await prisma.size.findUnique({ where: { name: trimmed }, select: { id: true, name: true } });
+  if (existing) return existing;
 
   // Get max position for ordering
   const maxPos = await prisma.size.aggregate({ _max: { position: true } });

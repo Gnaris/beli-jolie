@@ -42,6 +42,7 @@ export async function getCart() {
                   name: true,
                   reference: true,
                   status: true,
+                  discountPercent: true,
                   category: { select: { name: true } },
                 },
               },

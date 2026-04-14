@@ -111,7 +111,7 @@ const TEMPLATE_JSON = JSON.stringify(
         { color: "Noir", saleType: "UNIT", unitPrice: 24.90, stock: 300, weight: 220, isPrimary: true, size: "L" },
         { color: "Noir", saleType: "PACK", unitPrice: 3.30, stock: 50, weight: 220, size: "S:1,M:2,L:2,XL:1" },
         { color: "Kaki", saleType: "UNIT", unitPrice: 24.90, stock: 200, weight: 220, size: "M" },
-        { color: "Beige", saleType: "UNIT", unitPrice: 24.90, stock: 250, weight: 220, size: "S", discountType: "PERCENT", discountValue: 10 },
+        { color: "Beige", saleType: "UNIT", unitPrice: 24.90, stock: 250, weight: 220, size: "S", discountPercent: 10 },
       ],
     },
     // ─── 3. Collier pendentif : UNIT, remise PERCENT ───
@@ -129,7 +129,7 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "France",
       similar_refs: ["COL-002", "BRC-001"],
       colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 29.90, stock: 150, weight: 12, isPrimary: true, size: "45cm", discountType: "PERCENT", discountValue: 15 },
+        { color: "Doré", saleType: "UNIT", unitPrice: 29.90, stock: 150, weight: 12, isPrimary: true, size: "45cm", discountPercent: 15 },
       ],
     },
     // ─── 4. Collier multi-rang : multi-couleurs, UNIT + PACK ───
@@ -146,7 +146,7 @@ const TEMPLATE_JSON = JSON.stringify(
       similar_refs: ["COL-001"],
       colors: [
         { color: "Doré/Argenté/Or Rose", saleType: "UNIT", unitPrice: 34.50, stock: 80, weight: 18, isPrimary: true, size: "42cm" },
-        { color: "Doré/Argenté/Or Rose", saleType: "PACK", unitPrice: 4.70, stock: 20, weight: 18, size: "40cm:2,45cm:3,50cm:1", discountType: "PERCENT", discountValue: 20 },
+        { color: "Doré/Argenté/Or Rose", saleType: "PACK", unitPrice: 4.70, stock: 20, weight: 18, size: "40cm:2,45cm:3,50cm:1", discountPercent: 20 },
       ],
     },
     // ─── 5. Bracelet jonc : 2 couleurs, remise AMOUNT ───
@@ -164,8 +164,8 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "France",
       similar_refs: ["COL-001", "COL-002"],
       colors: [
-        { color: "Doré", saleType: "UNIT", unitPrice: 18.90, stock: 300, weight: 25, isPrimary: true, size: "Unique", discountType: "AMOUNT", discountValue: 3 },
-        { color: "Argenté", saleType: "UNIT", unitPrice: 18.90, stock: 200, weight: 25, size: "Unique", discountType: "AMOUNT", discountValue: 3 },
+        { color: "Doré", saleType: "UNIT", unitPrice: 18.90, stock: 300, weight: 25, isPrimary: true, size: "Unique", discountPercent: 3 },
+        { color: "Argenté", saleType: "UNIT", unitPrice: 18.90, stock: 200, weight: 25, size: "Unique", discountPercent: 3 },
       ],
     },
     // ─── 6. Pantalon chino : 2 couleurs, UNIT ───
@@ -202,7 +202,7 @@ const TEMPLATE_JSON = JSON.stringify(
       similar_refs: ["PNT-001"],
       colors: [
         { color: "Kaki", saleType: "UNIT", unitPrice: 49.90, stock: 120, weight: 520, isPrimary: true, size: "44" },
-        { color: "Kaki", saleType: "PACK", unitPrice: 10.50, stock: 30, weight: 520, size: "40:1,42:1,44:1,46:1", discountType: "PERCENT", discountValue: 10 },
+        { color: "Kaki", saleType: "PACK", unitPrice: 10.50, stock: 30, weight: 520, size: "40:1,42:1,44:1,46:1", discountPercent: 10 },
         { color: "Noir", saleType: "UNIT", unitPrice: 49.90, stock: 100, weight: 520, size: "42" },
       ],
     },
@@ -222,7 +222,7 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "Tunisie",
       similar_refs: ["JNS-002", "PNT-001"],
       colors: [
-        { color: "Bleu Moyen", saleType: "UNIT", unitPrice: 44.90, stock: 250, weight: 600, isPrimary: true, size: "40", discountType: "AMOUNT", discountValue: 5 },
+        { color: "Bleu Moyen", saleType: "UNIT", unitPrice: 44.90, stock: 250, weight: 600, isPrimary: true, size: "40", discountPercent: 5 },
       ],
     },
     // ─── 9. Jean large : 2 couleurs, UNIT ───
@@ -274,8 +274,8 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "Portugal",
       similar_refs: ["MOC-001"],
       colors: [
-        { color: "Taupe", saleType: "UNIT", unitPrice: 69.90, stock: 100, weight: 320, isPrimary: true, size: "41", discountType: "PERCENT", discountValue: 20 },
-        { color: "Taupe", saleType: "PACK", unitPrice: 14.90, stock: 15, weight: 320, size: "40:1,41:1,42:1,43:1", discountType: "PERCENT", discountValue: 25 },
+        { color: "Taupe", saleType: "UNIT", unitPrice: 69.90, stock: 100, weight: 320, isPrimary: true, size: "41", discountPercent: 20 },
+        { color: "Taupe", saleType: "PACK", unitPrice: 14.90, stock: 15, weight: 320, size: "40:1,41:1,42:1,43:1", discountPercent: 25 },
       ],
     },
     // ─── 12. Basket running : multi-couleurs, UNIT ───
@@ -353,7 +353,7 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "Italie",
       similar_refs: ["SAC-001"],
       colors: [
-        { color: "Rose Poudré", saleType: "UNIT", unitPrice: 42.50, stock: 120, weight: 280, isPrimary: true, size: "Unique", discountType: "PERCENT", discountValue: 15 },
+        { color: "Rose Poudré", saleType: "UNIT", unitPrice: 42.50, stock: 120, weight: 280, isPrimary: true, size: "Unique", discountPercent: 15 },
       ],
     },
     // ─── 16. Sac à dos : multi-couleurs, UNIT ───
@@ -390,7 +390,7 @@ const TEMPLATE_JSON = JSON.stringify(
       colors: [
         { color: "Camel", saleType: "UNIT", unitPrice: 35.00, stock: 80, weight: 150, isPrimary: true, size: "58" },
         { color: "Noir", saleType: "UNIT", unitPrice: 35.00, stock: 60, weight: 150, size: "56" },
-        { color: "Camel", saleType: "PACK", unitPrice: 4.70, stock: 15, weight: 150, size: "56:2,58:3,60:1", discountType: "PERCENT", discountValue: 15 },
+        { color: "Camel", saleType: "PACK", unitPrice: 4.70, stock: 15, weight: 150, size: "56:2,58:3,60:1", discountPercent: 15 },
       ],
     },
     // ─── 18. Bonnet : UNIT, remise PERCENT ───
@@ -409,7 +409,7 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "Écosse",
       similar_refs: ["CHP-001", "GNT-001"],
       colors: [
-        { color: "Gris Chiné", saleType: "UNIT", unitPrice: 19.90, stock: 350, weight: 90, isPrimary: true, size: "Unique", discountType: "PERCENT", discountValue: 25 },
+        { color: "Gris Chiné", saleType: "UNIT", unitPrice: 19.90, stock: 350, weight: 90, isPrimary: true, size: "Unique", discountPercent: 25 },
       ],
     },
     // ─── 19. Gant cuir : multi-couleurs, UNIT + PACK multi-tailles ───
@@ -430,7 +430,7 @@ const TEMPLATE_JSON = JSON.stringify(
       colors: [
         { color: "Noir", saleType: "UNIT", unitPrice: 49.90, stock: 100, weight: 120, isPrimary: true, size: "M" },
         { color: "Marron/Beige", saleType: "UNIT", unitPrice: 52.90, stock: 70, weight: 120, size: "L" },
-        { color: "Noir", saleType: "PACK", unitPrice: 7.00, stock: 20, weight: 120, size: "S:1,M:2,L:2,XL:1", discountType: "AMOUNT", discountValue: 5 },
+        { color: "Noir", saleType: "PACK", unitPrice: 7.00, stock: 20, weight: 120, size: "S:1,M:2,L:2,XL:1", discountPercent: 5 },
       ],
     },
     // ─── 20. T-shirt lot pro : PACK only, multi-tailles ───
@@ -445,8 +445,8 @@ const TEMPLATE_JSON = JSON.stringify(
       manufacturing_country: "Bangladesh",
       similar_refs: ["TSH-001", "TSH-002"],
       colors: [
-        { color: "Blanc", saleType: "PACK", unitPrice: 0.75, stock: 100, weight: 170, isPrimary: true, size: "S:2,M:3,L:4,XL:3", discountType: "AMOUNT", discountValue: 1 },
-        { color: "Noir", saleType: "PACK", unitPrice: 0.75, stock: 80, weight: 170, size: "S:2,M:3,L:4,XL:3", discountType: "AMOUNT", discountValue: 1 },
+        { color: "Blanc", saleType: "PACK", unitPrice: 0.75, stock: 100, weight: 170, isPrimary: true, size: "S:2,M:3,L:4,XL:3", discountPercent: 1 },
+        { color: "Noir", saleType: "PACK", unitPrice: 0.75, stock: 80, weight: 170, size: "S:2,M:3,L:4,XL:3", discountPercent: 1 },
         { color: "Gris Chiné", saleType: "PACK", unitPrice: 0.80, stock: 60, weight: 170, size: "S:2,M:4,L:4,XL:2" },
       ],
     },

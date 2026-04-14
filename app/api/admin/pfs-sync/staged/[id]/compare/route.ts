@@ -111,8 +111,6 @@ export async function GET(
       packQuantity: pc.packQuantity,
       sizeName: pc.variantSizes?.[0]?.size.name ?? null,
       isPrimary: pc.isPrimary,
-      discountType: pc.discountType,
-      discountValue: pc.discountValue != null ? Number(pc.discountValue) : null,
     })),
     imagesByColor: (() => {
       // Group images by color (using colorId + sub-colors as key)

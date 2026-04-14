@@ -121,7 +121,7 @@ export function ProductEditWrapper({
   return (
     <ProductFormHeaderProvider initial={initial}>
       <div className="max-w-[1600px] mx-auto space-y-8">
-        <div className="sticky top-0 z-20 bg-bg-secondary/95 backdrop-blur-sm border-b border-border -mx-6 px-6 pt-3 pb-4">
+        <div className="z-20 bg-bg-secondary border-b border-border -mx-6 px-6 pt-3 pb-4">
           {staticHeader}
           <div className="flex items-center justify-between gap-3 flex-wrap mt-4 pt-4 border-t border-border">
             <div className="flex items-center gap-3">

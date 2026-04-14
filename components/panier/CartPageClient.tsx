@@ -21,8 +21,6 @@ interface VariantData {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   sizes: { name: string; quantity: number }[];
-  discountType: "PERCENT" | "AMOUNT" | null;
-  discountValue: number | null;
   unitPrice: number;
   weight: number;
   stock: number;
@@ -32,6 +30,7 @@ interface VariantData {
     id: string;
     name: string;
     reference: string;
+    discountPercent?: number | null;
     category: { name: string };
   };
 }
@@ -61,10 +60,9 @@ interface Props {
 function computeUnitPrice(v: VariantData): number {
   const price = Number(v.unitPrice);
   const base = v.saleType === "UNIT" ? price : price * (v.packQuantity ?? 1);
-  if (!v.discountType || !v.discountValue) return base;
-  const discount = Number(v.discountValue);
-  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - discount / 100));
-  return Math.max(0, base - discount);
+  const discountPercent = v.product.discountPercent != null ? Number(v.product.discountPercent) : null;
+  if (!discountPercent || discountPercent <= 0) return base;
+  return Math.max(0, base * (1 - discountPercent / 100));
 }
 
 // ─────────────────────────────────────────────

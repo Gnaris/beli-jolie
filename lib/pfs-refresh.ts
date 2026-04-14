@@ -386,7 +386,7 @@ export async function pfsRefreshProduct(
       }
     }
 
-    let createdVariantIds: string[] = [];
+    let createdVariantIds: (string | null)[] = [];
     let allVariantsOutOfStock = false;
 
     if (variantCreateData.length > 0) {
@@ -416,9 +416,10 @@ export async function pfsRefreshProduct(
       if (createdVariantIds.length === variantCreateData.length) {
         const zeroStockPatches: PfsVariantUpdateData[] = [];
         for (let i = 0; i < variantCreateData.length; i++) {
-          if (variantCreateData[i].pfsData.stock_qty === 0) {
+          const vid = createdVariantIds[i];
+          if (variantCreateData[i].pfsData.stock_qty === 0 && vid) {
             zeroStockPatches.push({
-              variant_id: createdVariantIds[i],
+              variant_id: vid,
               stock_qty: 0,
               is_active: false,
             });

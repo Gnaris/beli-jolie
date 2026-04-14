@@ -24,8 +24,7 @@ export interface ProductImportRow {
   stock: number;
   weight?: number; // kg
   isPrimary?: boolean;
-  discountType?: "PERCENT" | "AMOUNT";
-  discountValue?: number;
+  discountPercent?: number;
   size?: string;
   tags?: string;       // comma-separated
   composition?: string; // "Acier:85,Or:15"
@@ -71,8 +70,7 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     stock: int(raw["stock"] ?? raw["quantite"] ?? raw["qty"]) ?? 0,
     weight: num(raw["weight_g"] ?? raw["poids_g"] ?? raw["poids"]) ?? undefined,
     isPrimary: String(raw["is_primary"] ?? raw["primaire"] ?? "").toLowerCase() === "true" || String(raw["is_primary"] ?? "1") === "1",
-    discountType: (str(raw["discount_type"] ?? raw["remise_type"]).toUpperCase() as "PERCENT" | "AMOUNT") || undefined,
-    discountValue: num(raw["discount_value"] ?? raw["remise_valeur"]),
+    discountPercent: num(raw["discount_percent"] ?? raw["remise_percent"] ?? raw["discount_value"] ?? raw["remise_valeur"]),
     size: str(raw["size"] ?? raw["taille"] ?? raw["Taille"]) || undefined,
     tags: str(raw["tags"]) || undefined,
     composition: str(raw["composition"]) || undefined,
@@ -102,8 +100,7 @@ function parseJSON(text: string): ProductImportRow[] {
         stock: Number(colorVariant.stock ?? 0),
         weight: colorVariant.weight ?? colorVariant.weight_g ?? undefined,
         isPrimary: colorVariant.isPrimary ?? false,
-        discountType: colorVariant.discountType ?? undefined,
-        discountValue: colorVariant.discountValue ?? undefined,
+        discountPercent: colorVariant.discountPercent ?? undefined,
         size: colorVariant.size ?? undefined,
         tags: Array.isArray(item.tags) ? item.tags.join(",") : (item.tags ?? undefined),
         composition: Array.isArray(item.compositions)
@@ -135,8 +132,6 @@ function validateVariantRow(row: ProductImportRow): string[] {
   if (!row.size) errors.push("Taille obligatoire.");
   if (!row.unitPrice || row.unitPrice <= 0) errors.push("Prix unitaire invalide.");
   if (row.stock == null || row.stock < 0) errors.push("Stock invalide.");
-  if (row.discountType && !["PERCENT", "AMOUNT"].includes(row.discountType))
-    errors.push("Type de remise invalide (PERCENT ou AMOUNT).");
   if (row.saleType === "PACK" && row.size) {
     const parsed = parseSizeField(row.size, "PACK");
     if (parsed.length === 0) errors.push("Format de taille invalide pour PACK (ex: S:2,M:3,L:1).");
@@ -353,6 +348,7 @@ async function createProductsInBackground(
           categoryId: categoryId ?? (await prisma.category.findFirst().then((c) => c?.id ?? "")),
           status: "OFFLINE",
           isBestSeller: false,
+          discountPercent: firstRow.discountPercent ?? null,
           tags: tagIds.length > 0 ? { create: tagIds.map((id) => ({ tagId: id })) } : undefined,
           compositions: compPairs.length > 0 ? { create: compPairs } : undefined,
           colors: {
@@ -372,8 +368,6 @@ async function createProductsInBackground(
                 packQuantity: isPack
                   ? (totalQty > 0 ? totalQty : (row.packQuantity ?? null))
                   : null,
-                discountType: row.discountType ?? null,
-                discountValue: row.discountValue ?? null,
               };
             }),
           },

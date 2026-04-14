@@ -14,8 +14,6 @@ type VariantItem = {
   sizes:        { name: string; quantity: number }[];
   unitPrice:    number;
   stock:        number;
-  discountType?: "PERCENT" | "AMOUNT" | null;
-  discountValue?: number | null;
 };
 
 type ProductItem = {
@@ -24,6 +22,7 @@ type ProductItem = {
   reference:     string;
   isBestSeller?: boolean;
   createdAt?:    string | Date;
+  discountPercent?: number | null;
   category:      { name: string };
   subCategories: { name: string }[];
   tags:          { tag: { id: string; name: string } }[];
@@ -258,6 +257,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
             isNew={product.createdAt ? new Date(product.createdAt) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : false}
             tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
             colors={product.colors}
+            discountPercent={product.discountPercent}
             clientDiscount={clientDiscount}
             filteredColorIds={filteredColorIds}
           />

@@ -17,8 +17,6 @@ interface VariantData {
   sizes: { name: string; quantity: number }[];
   unitPrice: number;
   stock: number;
-  discountType?: "PERCENT" | "AMOUNT" | null;
-  discountValue?: number | null;
 }
 
 interface ColorData {
@@ -51,16 +49,15 @@ interface ProductCardProps {
   isFavorite?: boolean;
   isBestSeller?: boolean;
   isNew?: boolean;
+  discountPercent?: number | null;
   clientDiscount?: ClientDiscountInfo | null;
   filteredColorIds?: string[];
 }
 
-function computeVariantPrice(v: VariantData): number {
+function computeVariantPrice(v: VariantData, discountPercent?: number | null): number {
   const base = Number(v.unitPrice);
-  if (!v.discountType || !v.discountValue) return base;
-  const dv = Number(v.discountValue);
-  if (v.discountType === "PERCENT") return Math.max(0, base * (1 - dv / 100));
-  return Math.max(0, base - dv);
+  if (!discountPercent || discountPercent <= 0) return base;
+  return Math.max(0, base * (1 - discountPercent / 100));
 }
 
 function applyClientDiscount(price: number, discount: ClientDiscountInfo | null | undefined): number {
@@ -70,7 +67,7 @@ function applyClientDiscount(price: number, discount: ClientDiscountInfo | null 
 }
 
 export default function ProductCard({
-  id, name, reference, category, subCategory, colors, tags = [], isFavorite = false, isBestSeller = false, isNew = false, clientDiscount, filteredColorIds = [],
+  id, name, reference, category, subCategory, colors, tags = [], isFavorite = false, isBestSeller = false, isNew = false, discountPercent, clientDiscount, filteredColorIds = [],
 }: ProductCardProps) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -116,7 +113,7 @@ export default function ProductCard({
   // Compute prices with product discount
   const basePrice = displayed?.unitPrice ?? Math.min(...colors.map((c) => c.unitPrice));
   const minVariantPrice = displayed?.variants?.length
-    ? Math.min(...displayed.variants.map((v) => computeVariantPrice(v)))
+    ? Math.min(...displayed.variants.map((v) => computeVariantPrice(v, discountPercent)))
     : basePrice;
   const hasProductDiscount = minVariantPrice < basePrice;
 
@@ -130,10 +127,8 @@ export default function ProductCard({
   const strikethroughPrice = hasClientDiscount ? priceAfterProductDiscount : basePrice;
   const displayedFinalPrice = hasClientDiscount ? finalPrice : priceAfterProductDiscount;
 
-  // Check if any variant in this product has a discount
-  const anyVariantHasDiscount = colors.some((c) =>
-    c.variants.some((v) => v.discountType && v.discountValue && v.discountValue > 0)
-  );
+  // Check if this product has a discount
+  const anyVariantHasDiscount = !!discountPercent && discountPercent > 0;
 
   // Detect pack options for selected color
   const unitOptions = displayed?.variants.filter((v) => v.saleType === "UNIT") ?? [];

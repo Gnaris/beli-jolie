@@ -231,8 +231,8 @@ describe("lib/pfs-api-write", () => {
         { type: "ITEM", color: "INVALID", size: "TU", price_eur_ex_vat: 5, weight: 0.1, stock_qty: 10 },
       ]);
 
-      // Should still return the successful ID
-      expect(result.variantIds).toEqual(["var-ok"]);
+      // Should preserve index alignment: successful ID at [0], null at [1]
+      expect(result.variantIds).toEqual(["var-ok", null]);
     });
 
     it("should throw on non-200", async () => {
