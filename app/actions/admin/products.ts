@@ -80,17 +80,27 @@ function triggerAnkorstoreSync(productId: string, forceCreate = false, skipReval
           return;
         }
 
-        // OFFLINE → push update with all stocks at 0 (Ankorstore has no disable endpoint)
+        // OFFLINE → patch each variant stock to 0 (lightweight, no full push)
         if (prod.status === "OFFLINE") {
           emitAnkors(productId, { step: "Mise en rupture sur Ankorstore...", progress: 30, status: "in_progress" });
-          const { pushProductToAnkorstoreInternal } = await import("@/app/actions/admin/ankorstore");
-          const result = await pushProductToAnkorstoreInternal(productId, undefined, {
-            skipRevalidation, zeroStock: true,
+          const variants = await prisma.productColor.findMany({
+            where: { productId, ankorsVariantId: { not: null } },
+            select: { ankorsVariantId: true },
           });
-          if (result.success) {
+          if (variants.length === 0) {
+            emitAnkors(productId, { step: "Aucune variante liée", progress: 100, status: "success" });
+            return;
+          }
+          const { ankorstoreUpdateVariantStock } = await import("@/lib/ankorstore-api-write");
+          const errors: string[] = [];
+          for (const v of variants) {
+            const res = await ankorstoreUpdateVariantStock(v.ankorsVariantId!, 0);
+            if (!res.success) errors.push(res.error || "unknown");
+          }
+          if (errors.length === 0) {
             emitAnkors(productId, { step: "Stock mis à 0 sur Ankorstore", progress: 100, status: "success" });
           } else {
-            emitAnkors(productId, { step: "Erreur mise en rupture", progress: 100, status: "error", error: result.error });
+            emitAnkors(productId, { step: "Erreur mise en rupture", progress: 100, status: "error", error: errors.join("; ") });
           }
           return;
         }
@@ -1269,7 +1279,8 @@ export async function archiveProduct(id: string) {
       logger.warn(`[PFS] Archive status sync failed for product ${id}`, { error: err });
     });
   }
-  triggerPfsSync(id);
+  // No triggerPfsSync — pfsUpdateStatus already handles the status change
+  triggerAnkorstoreSync(id);
 }
 
 export async function unarchiveProduct(id: string) {
@@ -1387,10 +1398,13 @@ export async function bulkUpdateProductStatus(
     }
   }
 
-  // Fire-and-forget sync to PFS + Ankorstore for each updated product
+  // Fire-and-forget sync to Ankorstore for each updated product
   // skipRevalidation=true because we already called revalidateTag("products", "default") above
+  // PFS: only full sync for ONLINE (status already set via pfsUpdateStatus above for OFFLINE/ARCHIVED)
   for (const pid of success) {
-    triggerPfsSync(pid);
+    if (status === "ONLINE") {
+      triggerPfsSync(pid);
+    }
     triggerAnkorstoreSync(pid, false, true);
   }
 
@@ -1473,7 +1487,7 @@ export async function bulkDeleteProducts(
           emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Supprimé de PFS", progress: 100, status: "success" } });
         } else {
           logger.info(`[PFS] Product ${p.id} not found on PFS, skipping delete`, { reference: p.reference });
-          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Non trouvé sur PFS", progress: 100, status: "success" } });
+          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Aucune action requise", progress: 100, status: "success" } });
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
@@ -1507,7 +1521,7 @@ export async function bulkDeleteProducts(
 
           if (skus.length === 0) {
             logger.info("[Ankorstore] No variants found on Ankorstore, skipping delete", { reference: p.reference });
-            emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Non trouvé sur Ankorstore", progress: 100, status: "success" } });
+            emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Aucune action requise", progress: 100, status: "success" } });
             continue;
           }
           await ankorstoreDeleteProduct(p.reference, skus);

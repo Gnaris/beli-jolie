@@ -464,7 +464,7 @@ export interface PfsAttributeColor {
 
 export interface PfsAttributeCategory {
   id: string;
-  family: { id: string } | null;
+  family: string | { id: string } | null;
   labels: Record<string, string>;
   gender: string | null;
 }

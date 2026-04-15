@@ -288,16 +288,25 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
       // PHASE 0: Fetch real PFS attributes for valid mapping
       // ══════════════════════════════════════════
       setProgress("Récupération des attributs PFS...");
+      type PfsCatFamily = string | { id: string } | null;
+      type PfsAttrCategory = { id: string; family: PfsCatFamily; labels: Record<string, string>; gender: string | null };
       type PfsAttrs = {
         colors: { reference: string; value: string }[];
-        categories: { id: string; family: { id: string } | null; labels: Record<string, string>; gender: string | null }[];
+        categories: PfsAttrCategory[];
         compositions: { reference: string; labels: Record<string, string> }[];
         countries: { reference: string; labels: Record<string, string> }[];
         collections: { reference: string; labels: Record<string, string> }[];
+        families: { id: string; labels: Record<string, string>; gender: string }[];
         sizes: { reference: string }[];
         pfsDisabled?: boolean;
       };
-      let pfs: PfsAttrs = { colors: [], categories: [], compositions: [], countries: [], collections: [], sizes: [] };
+      /** Extract family ID from a PFS category — family can be string or { id } */
+      const getFamilyId = (fam: PfsCatFamily): string | null => {
+        if (!fam) return null;
+        if (typeof fam === "string") return fam;
+        return fam.id || null;
+      };
+      let pfs: PfsAttrs = { colors: [], categories: [], compositions: [], countries: [], collections: [], families: [], sizes: [] };
       try {
         const res = await fetch("/api/admin/pfs-sync/attributes");
         if (res.ok) pfs = await res.json();
@@ -305,9 +314,10 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
 
       const hasPfs = !pfs.pfsDisabled && pfs.categories.length > 0;
 
-      // Pick a PFS category — prefer one with complete mappings, fallback to any
-      const completePfsCats = pfs.categories.filter(c => c.id && c.family?.id && c.gender);
-      const pfsCat = completePfsCats.length > 0 ? pick(completePfsCats) : (hasPfs ? pick(pfs.categories) : null);
+      // Pick a PFS category — ONLY use ones with complete mappings (family + gender)
+      // so the category/family/gender triplet is always consistent for PFS
+      const completePfsCats = pfs.categories.filter(c => c.id && getFamilyId(c.family) && c.gender);
+      const pfsCat = completePfsCats.length > 0 ? pick(completePfsCats) : null;
       const pfsColorRefs = hasPfs ? pickN(pfs.colors, Math.min(20, pfs.colors.length)) : [];
       const pfsCompRefs = hasPfs ? pickN(pfs.compositions, Math.min(4, pfs.compositions.length)) : [];
       const pfsCountryRef = hasPfs && pfs.countries.length > 0 ? pick(pfs.countries).reference : null;
@@ -332,12 +342,12 @@ export default function DevRandomFillButton({ onFill }: DevRandomFillProps) {
       const tagDefs = pickN(TAG_NAMES, numTags);
 
       const [createdCat, colorsResults, compsResults, createdCountry, createdSeason, tagsResults] = await Promise.all([
-        // Category — use real PFS category ID, family ID, gender
+        // Category — use real PFS category ID, family ID, gender (all from same PFS category for consistency)
         safeCreate(() => createCategoryQuick(
           { fr: catName },
           pfsCat?.id ?? null,
-          pfsCat?.gender ?? catDef.pfsGender,
-          pfsCat?.family?.id ?? null,
+          pfsCat?.gender ?? null,
+          pfsCat ? getFamilyId(pfsCat.family) : null,
         )),
         // Colors — map each to a real PFS color ref
         Promise.all(colorDefs.map((def, i) => {

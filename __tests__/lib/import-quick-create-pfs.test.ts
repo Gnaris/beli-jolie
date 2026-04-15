@@ -38,7 +38,7 @@ function getPfsFields(
     const pfsCat = pfsCategories.find((c) => c.id === catId);
     if (pfsCat) {
       fields.pfsGender = pfsCat.gender;
-      fields.pfsFamilyId = pfsCat.family.id;
+      fields.pfsFamilyId = typeof pfsCat.family === "string" ? pfsCat.family : pfsCat.family?.id;
     }
   }
   if (entity.type === "composition" && pfsCompositionRefs[entity.name]) {

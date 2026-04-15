@@ -1140,7 +1140,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
       const pfsCat = pfsAttrs?.categories.find((c) => c.id === catId);
       if (pfsCat) {
         fields.pfsGender = pfsCat.gender;
-        fields.pfsFamilyId = pfsCat.family.id;
+        fields.pfsFamilyId = typeof pfsCat.family === "string" ? pfsCat.family : pfsCat.family?.id;
       }
     }
     if (entity.type === "composition" && pfsCompositionRefs[entity.name]) {
