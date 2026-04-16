@@ -201,7 +201,7 @@ describe("Product CRUD (real DB)", () => {
               { sizeId: entities.sizeM.id, quantity: 3, pricePerUnit: 5 },
             ],
             packColorLines: [
-              { colorIds: [entities.color1.id, entities.color2.id, entities.color3.id], position: 0 },
+              { colorIds: [entities.color1.id, entities.color2.id, entities.color3.id], position: 0, sizeEntries: [{ sizeId: entities.sizeS.id, quantity: 3 }, { sizeId: entities.sizeM.id, quantity: 3 }] },
             ],
           },
         ],

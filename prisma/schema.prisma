@@ -473,8 +473,9 @@ model Size {
   position       Int                @default(0)
   pfsMappings    SizePfsMapping[]
   categories     SizeCategoryLink[]
-  variantSizes   VariantSize[]
-  stockMovements StockMovement[]
+  variantSizes       VariantSize[]
+  packColorLineSizes PackColorLineSize[]
+  stockMovements     StockMovement[]
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 }
@@ -528,8 +529,22 @@ model PackColorLine {
   productColor   ProductColor         @relation(fields: [productColorId], references: [id], onDelete: Cascade)
   position       Int                  @default(0) // Ordre d'affichage
   colors         PackColorLineColor[]
+  sizes          PackColorLineSize[]  // Tailles/quantités propres à cette ligne
 
   @@index([productColorId])
+}
+
+// Taille × quantité par ligne de couleur PACK (chaque couleur a ses propres tailles)
+model PackColorLineSize {
+  id              String        @id @default(cuid())
+  packColorLineId String
+  packColorLine   PackColorLine @relation(fields: [packColorLineId], references: [id], onDelete: Cascade)
+  sizeId          String
+  size            Size          @relation(fields: [sizeId], references: [id])
+  quantity        Int           @default(1)
+
+  @@unique([packColorLineId, sizeId])
+  @@index([packColorLineId])
 }
 
 // Couleur dans une ligne de couleur de PACK (ordonnée)

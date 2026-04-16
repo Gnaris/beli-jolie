@@ -24,6 +24,7 @@ interface PackColorLineColorInfo {
 
 interface PackColorLineInfo {
   colors: PackColorLineColorInfo[];
+  sizes?: { name: string; quantity: number }[];
 }
 
 interface VariantData {
@@ -666,25 +667,36 @@ export default function ProductDetail({
                           <p className="text-sm font-medium text-text-primary font-body">
                             {t("packOption", { qty: v.packQuantity ?? 1 })}
                           </p>
-                          {(v.packColorLines?.[0]?.colors?.length ?? 0) > 0 && (() => {
-                            const line = v.packColorLines![0];
-                            return (
-                              <div className="mt-1.5 flex items-center gap-2">
-                                <ColorSwatch
-                                  hex={line.colors[0]?.hex ?? "#9CA3AF"}
-                                  patternImage={line.colors[0]?.patternImage}
-                                  subColors={line.colors.slice(1).map(c => ({ hex: c.hex, patternImage: c.patternImage }))}
-                                  size={22}
-                                  rounded="full"
-                                  border={true}
-                                />
-                                <span className="text-xs text-text-secondary font-body truncate">
-                                  {line.colors.map(c => c.name).join(" / ")}
-                                </span>
-                              </div>
-                            );
-                          })()}
-                          {v.sizes?.length > 0 && (
+                          {/* Pack color lines with per-color sizes */}
+                          {(v.packColorLines?.length ?? 0) > 0 && (
+                            <div className="mt-1.5 space-y-2">
+                              {v.packColorLines!.map((line, lineIdx) => (
+                                <div key={lineIdx} className="flex items-start gap-2">
+                                  {line.colors?.[0] && (
+                                    <ColorSwatch
+                                      hex={line.colors[0]?.hex ?? "#9CA3AF"}
+                                      patternImage={line.colors[0]?.patternImage}
+                                      size={18}
+                                      rounded="full"
+                                      border={true}
+                                    />
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <span className="text-xs text-text-secondary font-body font-medium">
+                                      {line.colors?.map(c => c.name).join(" / ") || "?"}
+                                    </span>
+                                    {(line.sizes?.length ?? 0) > 0 && (
+                                      <p className="text-[11px] text-text-muted font-body">
+                                        {line.sizes!.map((s) => `${s.name} × ${s.quantity}`).join(", ")}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {/* Fallback: shared sizes (backward compat) */}
+                          {(v.packColorLines?.length ?? 0) === 0 && v.sizes?.length > 0 && (
                             <div className="mt-1 space-y-0.5">
                               {v.sizes.map((s) => (
                                 <p key={s.name} className="text-xs text-text-muted font-body">

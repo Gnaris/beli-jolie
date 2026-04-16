@@ -49,7 +49,7 @@ export async function getCart() {
               color: { select: { id: true, name: true, hex: true } },
               subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
               variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
-              packColorLines: { orderBy: { position: "asc" }, include: { colors: { orderBy: { position: "asc" }, include: { color: { select: { name: true, hex: true } } } } } },
+              packColorLines: { orderBy: { position: "asc" }, include: { colors: { orderBy: { position: "asc" }, include: { color: { select: { name: true, hex: true } } } }, sizes: { orderBy: { size: { position: "asc" } }, include: { size: { select: { name: true } } } } } },
             },
           },
         },

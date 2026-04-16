@@ -45,7 +45,13 @@ function getPfsUnitPrice(variant: FullProduct["colors"][number], markup?: Markup
   if (variant.saleType !== "PACK") {
     unitPrice = price;
   } else {
-    const totalQty = variant.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || variant.packQuantity || 1;
+    // Try per-line sizes first (PackColorLineSize), fallback to shared VariantSize
+    const perLineTotalQty = (variant as any).packColorLines?.reduce(
+      (sum: number, pcl: any) => sum + (pcl.sizes ?? []).reduce((s: number, pcs: any) => s + pcs.quantity, 0), 0
+    ) || 0;
+    const totalQty = perLineTotalQty > 0
+      ? perLineTotalQty
+      : (variant.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || variant.packQuantity || 1);
     unitPrice = Math.round((price / totalQty) * 100) / 100;
   }
   return markup ? applyMarketplaceMarkup(unitPrice, markup) : unitPrice;
@@ -264,6 +270,7 @@ export interface FullProduct {
     packColorLines: {
       position: number;
       colors: { color: { id: string; name: string; pfsColorRef: string | null }; position: number }[];
+      sizes: { size: { name: string; pfsMappings: { pfsSizeRef: string }[] }; quantity: number }[];
     }[];
     images: { path: string; order: number }[];
   }[];
@@ -316,6 +323,10 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
               colors: {
                 select: { color: { select: { id: true, name: true, pfsColorRef: true } }, position: true },
                 orderBy: { position: "asc" as const },
+              },
+              sizes: {
+                select: { size: { select: { name: true, pfsMappings: { select: { pfsSizeRef: true } } } }, quantity: true },
+                orderBy: { size: { position: "asc" as const } },
               },
             },
             orderBy: { position: "asc" as const },
@@ -758,23 +769,46 @@ async function syncVariants(
           continue;
         }
 
-        const variantSizes = variant.variantSizes.length > 0
-          ? variant.variantSizes
-          : [{ size: { name: "TU", pfsMappings: [{ pfsSizeRef: "TU" }] }, quantity: variant.packQuantity ?? 1 }];
+        // Use per-line sizes (PackColorLineSize) if available, fallback to shared VariantSize
+        const hasPerLineSizes = variant.packColorLines.some((pcl) => pcl.sizes && pcl.sizes.length > 0);
 
-        for (const pc of packColors) {
-          for (const vs of variantSizes) {
-            packEntries.push({ color: pc.ref, size: getSizeRef(vs), qty: vs.quantity });
+        if (hasPerLineSizes) {
+          // Per-line sizes: each packColorLine has its own sizes
+          for (const line of variant.packColorLines) {
+            const lineColorRef = line.colors[0]?.color.pfsColorRef;
+            if (!lineColorRef) continue;
+            for (const pcs of line.sizes) {
+              const sizeRef = pcs.size.pfsMappings?.[0]?.pfsSizeRef || pcs.size.name;
+              packEntries.push({ color: lineColorRef, size: sizeRef, qty: pcs.quantity });
+            }
+          }
+        } else {
+          // Fallback: shared variantSizes × packColors (old data)
+          const variantSizes = variant.variantSizes.length > 0
+            ? variant.variantSizes
+            : [{ size: { name: "TU", pfsMappings: [{ pfsSizeRef: "TU" }] }, quantity: variant.packQuantity ?? 1 }];
+          for (const pc of packColors) {
+            for (const vs of variantSizes) {
+              packEntries.push({ color: pc.ref, size: getSizeRef(vs), qty: vs.quantity });
+            }
           }
         }
 
         // PFS API uses first color + first size as the variant's main identifiers
         const mainColorRef = packColors[0].ref;
-        const mainSizeRef = variantSizes[0] ? getSizeRef(variantSizes[0]) : "TU";
+        const firstSize = hasPerLineSizes
+          ? variant.packColorLines[0]?.sizes?.[0]
+          : (variant.variantSizes[0] ?? null);
+        const mainSizeRef = firstSize
+          ? ((firstSize as any).size?.pfsMappings?.[0]?.pfsSizeRef || (firstSize as any).size?.name || "TU")
+          : "TU";
 
         // SKU key uses ALL colors in order + all sizes to avoid collisions between different PACKs
         const packColorKey = packColors.map(pc => pc.ref).join("+");
-        const packSizeKey = variantSizes.map(vs => getSizeRef(vs)).sort().join(",") || "TU";
+        const allSizeRefs = hasPerLineSizes
+          ? variant.packColorLines.flatMap((pcl) => pcl.sizes.map((pcs) => pcs.size.pfsMappings?.[0]?.pfsSizeRef || pcs.size.name))
+          : variant.variantSizes.map(vs => getSizeRef(vs));
+        const packSizeKey = allSizeRefs.sort().join(",") || "TU";
         const packSkuKey = `PACK::${packColorKey}_${packSizeKey}`;
         const existingPackPfsId = pfsVariantBySkuKey.get(packSkuKey);
         if (existingPackPfsId) {

@@ -125,6 +125,7 @@ describe("validatePfsMappings", () => {
                 { color: { id: "col-2", name: "Bleu", pfsColorRef: "BLUE" }, position: 0 },
                 { color: { id: "col-3", name: "Vert", pfsColorRef: "GREEN" }, position: 1 },
               ],
+              sizes: [],
             },
           ],
         }),
@@ -147,6 +148,7 @@ describe("validatePfsMappings", () => {
                 { color: { id: "col-2", name: "Bleu", pfsColorRef: "BLUE" }, position: 0 },
                 { color: { id: "col-3", name: "Vert", pfsColorRef: "GREEN" }, position: 1 },
               ],
+              sizes: [],
             },
           ],
         }),
@@ -170,6 +172,7 @@ describe("validatePfsMappings", () => {
               colors: [
                 { color: { id: "col-gold", name: "Doré", pfsColorRef: "GOLDEN" }, position: 0 },
               ],
+              sizes: [],
             },
           ],
         }),

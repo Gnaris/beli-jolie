@@ -32,6 +32,7 @@ export interface SizeEntryState {
 export interface PackColorLineState {
   tempId: string;
   colors: { colorId: string; colorName: string; colorHex: string }[];
+  sizeEntries: SizeEntryState[];  // Per-line sizes (each color has its own sizes/quantities)
 }
 
 export interface VariantState {
@@ -106,10 +107,31 @@ interface Props {
 
 /** Total price = unitPrice × total quantity across all sizes.
  *  For UNIT: if no sizes, total = unitPrice × 1.
- *  For PACK: total = unitPrice × sum(quantities). */
+ *  For PACK: total = unitPrice × sum(quantities across ALL pack color lines). */
 export function computeTotalPrice(v: VariantState): number | null {
   const unit = parseFloat(v.unitPrice);
   if (isNaN(unit) || unit <= 0) return null;
+  if (v.saleType === "PACK") {
+    // Sum quantities across all pack color lines
+    let totalQty = 0;
+    for (const pcl of v.packColorLines) {
+      for (const se of pcl.sizeEntries) {
+        const qty = parseInt(se.quantity);
+        if (isNaN(qty) || qty <= 0) return null;
+        totalQty += qty;
+      }
+    }
+    // Fallback: if no per-line sizes, try shared sizeEntries (backward compat)
+    if (totalQty === 0 && v.sizeEntries.length > 0) {
+      for (const se of v.sizeEntries) {
+        const qty = parseInt(se.quantity);
+        if (isNaN(qty) || qty <= 0) return null;
+        totalQty += qty;
+      }
+    }
+    return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : unit;
+  }
+  // UNIT
   if (v.sizeEntries.length === 0) return unit;
   let totalQty = 0;
   for (const se of v.sizeEntries) {
@@ -118,6 +140,30 @@ export function computeTotalPrice(v: VariantState): number | null {
     totalQty += qty;
   }
   return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : unit;
+}
+
+/** Get total quantity across all pack color lines (for PACK) or sizeEntries (for UNIT). */
+export function computePackTotalQty(v: VariantState): number {
+  if (v.saleType === "PACK") {
+    let total = 0;
+    for (const pcl of v.packColorLines) {
+      for (const se of pcl.sizeEntries) {
+        total += parseInt(se.quantity) || 0;
+      }
+    }
+    // Fallback to shared sizeEntries
+    if (total === 0) {
+      for (const se of v.sizeEntries) {
+        total += parseInt(se.quantity) || 0;
+      }
+    }
+    return total;
+  }
+  let total = 0;
+  for (const se of v.sizeEntries) {
+    total += parseInt(se.quantity) || 0;
+  }
+  return total;
 }
 
 export function computeFinalPrice(v: VariantState, discountPercent?: number | null): number | null {
@@ -145,18 +191,24 @@ export function uid() { return Math.random().toString(36).slice(2, 9); }
 // Duplicate detection (saleType + color composition + sizes/quantities)
 // ─────────────────────────────────────────────
 function buildVariantDuplicateKey(v: VariantState): string {
-  const sizeKey = [...v.sizeEntries]
-    .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
-    .map((s) => `${s.sizeId}:${s.quantity}`)
-    .join(",");
-
   if (v.saleType === "UNIT") {
+    const sizeKey = [...v.sizeEntries]
+      .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
+      .map((s) => `${s.sizeId}:${s.quantity}`)
+      .join(",");
     const subColorKey = v.subColors.map((sc) => sc.colorId).join(",");
     return `UNIT::${v.colorId}::${subColorKey}::${sizeKey}`;
   }
-  // PACK: single color line composition + packQuantity
-  const lineKey = (v.packColorLines[0]?.colors ?? []).map((c) => c.colorId).sort().join("+");
-  return `PACK::${v.packQuantity}::${lineKey}::${sizeKey}`;
+  // PACK: per-line color + sizes
+  const lineKeys = v.packColorLines.map((pcl) => {
+    const colorKey = pcl.colors.map((c) => c.colorId).sort().join("+");
+    const sizeKey = [...pcl.sizeEntries]
+      .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
+      .map((s) => `${s.sizeId}:${s.quantity}`)
+      .join(",");
+    return `${colorKey}|${sizeKey}`;
+  }).sort().join("//");
+  return `PACK::${lineKeys}`;
 }
 
 function findDuplicateVariantTempIds(variants: VariantState[]): Set<string> {
@@ -188,19 +240,14 @@ export function variantGroupKeyFromState(v: { colorId: string; subColors: { colo
 export function imageGroupKeyFromVariant(v: VariantState): string {
   if (v.saleType === "PACK") {
     if (v.packColorLines.length === 0) return `pack::${v.dbId || v.tempId}`;
-    // Get color signature of each line
-    const lineSignatures = v.packColorLines.map(pcl =>
-      pcl.colors.map(c => c.colorId).join(",")
-    );
-    // All lines must have the same color composition
-    const allSame = lineSignatures.every(sig => sig === lineSignatures[0]);
-    if (allSame && v.packColorLines[0].colors.length > 0) {
-      const colors = v.packColorLines[0].colors;
-      if (colors.length === 1) return colors[0].colorId;
-      return `${colors[0].colorId}::${colors.slice(1).map(c => c.colorId).join(",")}`;
-    }
-    // Mixed colors per line → unique key
-    return `pack::${v.dbId || v.tempId}`;
+    // Each line now has one color — use sorted color IDs as key
+    const colorIds = v.packColorLines
+      .map((pcl) => pcl.colors[0]?.colorId)
+      .filter(Boolean)
+      .sort();
+    if (colorIds.length === 0) return `pack::${v.dbId || v.tempId}`;
+    if (colorIds.length === 1) return colorIds[0];
+    return `${colorIds[0]}::${colorIds.slice(1).join(",")}`;
   }
   return variantGroupKeyFromState(v);
 }
@@ -210,7 +257,7 @@ export function imageGroupKeyFromVariant(v: VariantState): string {
 export function variantColorFingerprint(v: VariantState): string {
   if (v.saleType === "PACK") {
     const pclKey = v.packColorLines
-      .map((pcl) => pcl.colors.map((c) => c.colorId).join("+"))
+      .map((pcl) => pcl.colors[0]?.colorId || "")
       .join("|");
     return `pack::${v.dbId || v.tempId}::${pclKey}`;
   }
@@ -1497,13 +1544,28 @@ interface SizeModalProps {
   categoryId?: string;
   allCategories?: { id: string; name: string }[];
   onSave: (entries: SizeEntryState[]) => void;
+  onSavePackSizes?: (lineSizes: { tempId: string; sizeEntries: SizeEntryState[] }[]) => void;
   onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
   onAssignSizeToCategory?: (sizeId: string, categoryId: string) => Promise<void>;
 }
 
-function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCategories, onSave, onQuickCreateSize, onAssignSizeToCategory }: SizeModalProps) {
+function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCategories, onSave, onSavePackSizes, onQuickCreateSize, onAssignSizeToCategory }: SizeModalProps) {
   const backdrop = useBackdropClose(onClose);
+  const isUnit = variant.saleType === "UNIT";
+  const isPack = variant.saleType === "PACK";
+
+  // UNIT: single draft
   const [draft, setDraft] = useState<SizeEntryState[]>(variant.sizeEntries);
+  // PACK: per-line drafts (keyed by packColorLine tempId)
+  const [packDrafts, setPackDrafts] = useState<Map<string, SizeEntryState[]>>(() => {
+    const m = new Map<string, SizeEntryState[]>();
+    for (const pcl of variant.packColorLines) {
+      m.set(pcl.tempId, [...pcl.sizeEntries]);
+    }
+    return m;
+  });
+  const [activeLineId, setActiveLineId] = useState<string>(variant.packColorLines[0]?.tempId ?? "");
+
   const [showCreate, setShowCreate] = useState(false);
   const [newSizeName, setNewSizeName] = useState("");
   const [newSizeCatIds, setNewSizeCatIds] = useState<Set<string>>(categoryId ? new Set([categoryId]) : new Set());
@@ -1513,10 +1575,18 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const { data: pfsData, loading: pfsLoading } = usePfsAttributes();
 
-  // Reset draft when variant changes
+  // Reset drafts when variant changes
   useEffect(() => {
     setDraft(variant.sizeEntries);
-  }, [variant.sizeEntries]);
+    const m = new Map<string, SizeEntryState[]>();
+    for (const pcl of variant.packColorLines) {
+      m.set(pcl.tempId, [...pcl.sizeEntries]);
+    }
+    setPackDrafts(m);
+    if (variant.packColorLines.length > 0 && !variant.packColorLines.find((p) => p.tempId === activeLineId)) {
+      setActiveLineId(variant.packColorLines[0]?.tempId ?? "");
+    }
+  }, [variant.sizeEntries, variant.packColorLines]);
 
   // Lock body scroll
   useEffect(() => {
@@ -1526,8 +1596,9 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  const isUnit = variant.saleType === "UNIT";
-  const usedSizeIds = new Set(draft.map((s) => s.sizeId));
+  // Current draft = for UNIT or for the active PACK line
+  const currentDraft = isPack ? (packDrafts.get(activeLineId) ?? []) : draft;
+  const usedSizeIds = new Set(currentDraft.map((s) => s.sizeId));
 
   // Filter sizes by category
   const filteredSizes = categoryId
@@ -1540,25 +1611,50 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
     ? availableSizes.filter((s) => s.categoryIds && s.categoryIds.length > 0 && !s.categoryIds.includes(categoryId))
     : [];
 
+  function setCurrentDraft(newDraft: SizeEntryState[]) {
+    if (isPack) {
+      setPackDrafts((prev) => {
+        const m = new Map(prev);
+        m.set(activeLineId, newDraft);
+        return m;
+      });
+    } else {
+      setDraft(newDraft);
+    }
+  }
+
   function toggleSize(size: AvailableSize) {
     if (usedSizeIds.has(size.id)) {
-      setDraft(draft.filter((s) => s.sizeId !== size.id));
+      setCurrentDraft(currentDraft.filter((s) => s.sizeId !== size.id));
     } else {
-      if (isUnit && draft.length >= 1) {
-        // UNIT: replace existing
-        setDraft([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      if (isUnit && currentDraft.length >= 1) {
+        setCurrentDraft([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
       } else {
-        setDraft([...draft, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+        setCurrentDraft([...currentDraft, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
       }
     }
   }
 
   function updateQty(sizeId: string, qty: string) {
-    setDraft(draft.map((s) => s.sizeId === sizeId ? { ...s, quantity: qty } : s));
+    setCurrentDraft(currentDraft.map((s) => s.sizeId === sizeId ? { ...s, quantity: qty } : s));
+  }
+
+  function copySizesFrom(sourceLineId: string) {
+    const source = packDrafts.get(sourceLineId);
+    if (!source) return;
+    setCurrentDraft(source.map((s) => ({ ...s, tempId: uid() })));
   }
 
   function handleSave() {
-    onSave(draft);
+    if (isPack && onSavePackSizes) {
+      const lineSizes = variant.packColorLines.map((pcl) => ({
+        tempId: pcl.tempId,
+        sizeEntries: packDrafts.get(pcl.tempId) ?? [],
+      }));
+      onSavePackSizes(lineSizes);
+    } else {
+      onSave(draft);
+    }
     onClose();
   }
 
@@ -1572,9 +1668,8 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
     setCreateError("");
     try {
       const created = await onQuickCreateSize(newSizeName.trim(), Array.from(newSizeCatIds), Array.from(newPfsSizeRefs));
-      // Auto-add to draft
-      if (!(isUnit && draft.length >= 1)) {
-        setDraft((prev) => [...prev, { tempId: uid(), sizeId: created.id, sizeName: created.name, quantity: "1" }]);
+      if (!(isUnit && currentDraft.length >= 1)) {
+        setCurrentDraft([...currentDraft, { tempId: uid(), sizeId: created.id, sizeName: created.name, quantity: "1" }]);
       }
       setNewSizeName("");
       setNewPfsSizeRefs(new Set());
@@ -1591,16 +1686,20 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
     setAssigningId(size.id);
     try {
       await onAssignSizeToCategory(size.id, categoryId);
-      // Auto-add to draft
-      if (!(isUnit && draft.length >= 1)) {
-        setDraft((prev) => [...prev, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      if (!(isUnit && currentDraft.length >= 1)) {
+        setCurrentDraft([...currentDraft, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
       } else {
-        setDraft([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+        setCurrentDraft([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
       }
     } finally {
       setAssigningId(null);
     }
   }
+
+  // Pack totals
+  const packTotalQty = isPack
+    ? Array.from(packDrafts.values()).reduce((sum, entries) => sum + entries.reduce((s, e) => s + (parseInt(e.quantity) || 0), 0), 0)
+    : 0;
 
   if (!open) return null;
 
@@ -1616,10 +1715,10 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
             <h3 className="text-base font-semibold font-heading text-text-primary">
-              {isUnit ? "Taille" : "Tailles & quantités"}
+              {isUnit ? "Taille" : "Tailles & quantités par couleur"}
             </h3>
             <p className="text-xs text-text-muted font-body mt-0.5">
-              {isUnit ? "Sélectionnez une taille (max 1)" : "Sélectionnez les tailles et définissez les quantités"}
+              {isUnit ? "Sélectionnez une taille (max 1)" : "Chaque couleur du paquet a ses propres tailles et quantités"}
             </p>
           </div>
           <button type="button" onClick={onClose} className="p-2 hover:bg-bg-secondary rounded-xl transition-colors" aria-label="Fermer">
@@ -1629,15 +1728,74 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
           </button>
         </div>
 
+        {/* PACK: color line tabs */}
+        {isPack && variant.packColorLines.length > 0 && (
+          <div className="flex items-center gap-1 px-6 pt-3 pb-0 overflow-x-auto">
+            {variant.packColorLines.map((pcl) => {
+              const colorName = pcl.colors[0]?.colorName || "?";
+              const colorHex = pcl.colors[0]?.colorHex || "#9CA3AF";
+              const lineQty = (packDrafts.get(pcl.tempId) ?? []).reduce((s, e) => s + (parseInt(e.quantity) || 0), 0);
+              const isActive = pcl.tempId === activeLineId;
+              return (
+                <button
+                  key={pcl.tempId}
+                  type="button"
+                  onClick={() => setActiveLineId(pcl.tempId)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t-lg border border-b-0 transition-colors font-body shrink-0 ${
+                    isActive
+                      ? "bg-bg-primary border-border text-text-primary"
+                      : "bg-bg-secondary border-transparent text-text-muted hover:text-text-secondary"
+                  }`}
+                >
+                  <span className="w-3 h-3 rounded-full border border-border shrink-0" style={{ backgroundColor: colorHex }} />
+                  {colorName}
+                  {lineQty > 0 && <span className="text-[10px] text-text-muted">({lineQty})</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+
+          {/* PACK: copy sizes button */}
+          {isPack && variant.packColorLines.length > 1 && (() => {
+            const otherLines = variant.packColorLines.filter((p) => p.tempId !== activeLineId && (packDrafts.get(p.tempId) ?? []).length > 0);
+            if (otherLines.length === 0) return null;
+            return (
+              <div className="flex flex-wrap gap-1.5">
+                {otherLines.map((pcl) => (
+                  <button
+                    key={pcl.tempId}
+                    type="button"
+                    onClick={() => copySizesFrom(pcl.tempId)}
+                    className="text-[11px] text-text-secondary hover:text-text-primary font-body hover:underline flex items-center gap-1 px-2 py-1 bg-bg-secondary rounded-md border border-border transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copier de {pcl.colors[0]?.colorName || "?"}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* PACK with no color lines: show warning */}
+          {isPack && variant.packColorLines.length === 0 && (
+            <p className="text-xs text-amber-600 font-body">
+              Ajoutez d&apos;abord des couleurs au paquet pour configurer les tailles.
+            </p>
+          )}
+
           {/* Selected sizes with quantity */}
-          {draft.length > 0 && (
+          {currentDraft.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
-                Sélectionnées ({draft.length})
+                Sélectionnées ({currentDraft.length})
               </p>
-              {draft.map((se) => (
+              {currentDraft.map((se) => (
                 <div key={se.tempId} className="flex items-center gap-3 px-3 py-2.5 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg">
                   <svg className="w-4 h-4 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -1818,11 +1976,19 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
           <span className="text-sm text-text-muted font-body">
-            {draft.length === 0 ? "Aucune taille" : `${draft.length} taille${draft.length > 1 ? "s" : ""}`}
-            {!isUnit && draft.length > 0 && (() => {
-              const totalQty = draft.reduce((a, s) => a + (parseInt(s.quantity) || 0), 0);
-              return ` — ${totalQty} pièce${totalQty > 1 ? "s" : ""}`;
-            })()}
+            {isPack ? (
+              packTotalQty > 0
+                ? `${packTotalQty} pièce${packTotalQty > 1 ? "s" : ""} au total`
+                : "Aucune taille configurée"
+            ) : (
+              <>
+                {currentDraft.length === 0 ? "Aucune taille" : `${currentDraft.length} taille${currentDraft.length > 1 ? "s" : ""}`}
+                {currentDraft.length > 0 && (() => {
+                  const totalQty = currentDraft.reduce((a, s) => a + (parseInt(s.quantity) || 0), 0);
+                  return ` — ${totalQty} pièce${totalQty > 1 ? "s" : ""}`;
+                })()}
+              </>
+            )}
           </span>
           <div className="flex items-center gap-2.5">
             <button type="button" onClick={onClose}
@@ -1941,15 +2107,16 @@ function QuickAddModal({
         pfsColorRef: v.pfsColorRef || undefined,
       });
     }
-    // Also add PACK color lines
+    // Also add PACK color lines (each line = one color)
     for (const v of existingVariants) {
       if (v.saleType !== "PACK") continue;
-      const line = v.packColorLines[0];
-      if (!line || line.colors.length === 0) continue;
-      const gk = `pack::${line.colors.map((c) => c.colorId).sort().join("+")}`;
-      if (seen.has(gk)) continue;
-      seen.add(gk);
-      combos.push({ key: gk, colors: line.colors, pfsColorRef: v.pfsColorRef || undefined });
+      for (const line of v.packColorLines) {
+        if (line.colors.length === 0) continue;
+        const gk = `pack::${line.colors[0].colorId}`;
+        if (seen.has(gk)) continue;
+        seen.add(gk);
+        combos.push({ key: gk, colors: line.colors });
+      }
     }
     return combos;
   }, [existingVariants]);
@@ -2063,23 +2230,55 @@ function QuickAddModal({
   const canConfirm = validLines.length > 0;
 
   function handleConfirm() {
+    const isUnitType = saleType === "UNIT";
+
+    if (!isUnitType) {
+      // PACK: all color lines become ONE variant with multiple packColorLines
+      const packColorLines: PackColorLineState[] = validLines.map((line) => ({
+        tempId: uid(),
+        colors: line.colors.length > 0 ? [line.colors[0]] : [], // one color per line
+        sizeEntries: sizeEntries.map((se) => ({ ...se, tempId: uid() })),
+      }));
+      const totalQty = packColorLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0), 0);
+      const newVariant: VariantState = {
+        tempId: uid(),
+        colorId: "",
+        colorName: "",
+        colorHex: "#9CA3AF",
+        subColors: [],
+        packColorLines,
+        sizeEntries: [],
+        unitPrice,
+        weight,
+        stock,
+        isPrimary: existingVariants.length === 0,
+        saleType: "PACK",
+        packQuantity: String(totalQty || 1),
+        pfsColorRef: "",
+        sku: "",
+      };
+      onConfirm([newVariant]);
+      onClose();
+      return;
+    }
+
+    // UNIT: one variant per color line (unchanged)
     const newVariants: VariantState[] = validLines.map((line, i) => {
       const [main, ...rest] = line.colors;
-      const isUnit = saleType === "UNIT";
       return {
         tempId: uid(),
-        colorId: isUnit ? (main?.colorId ?? "") : "",
-        colorName: isUnit ? (main?.colorName ?? "") : "",
-        colorHex: isUnit ? (main?.colorHex ?? "#9CA3AF") : "#9CA3AF",
-        subColors: isUnit ? rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })) : [],
-        packColorLines: isUnit ? [] : [{ tempId: uid(), colors: line.colors }],
+        colorId: main?.colorId ?? "",
+        colorName: main?.colorName ?? "",
+        colorHex: main?.colorHex ?? "#9CA3AF",
+        subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
+        packColorLines: [],
         sizeEntries: sizeEntries.map((se) => ({ ...se, tempId: uid() })),
         unitPrice,
         weight,
         stock,
         isPrimary: i === 0 && existingVariants.length === 0,
-        saleType,
-        packQuantity: saleType === "PACK" ? (sizeEntries.length > 1 ? String(sizeEntries.length) : "1") : "",
+        saleType: "UNIT",
+        packQuantity: "",
         pfsColorRef: line.pfsColorRef || "",
         sku: "",
       };
@@ -2600,19 +2799,47 @@ export default function ColorVariantManager({
   }
 
   // ── Pack color line management ─────────────────────────────────────────────
+  function addPackColorLine(variantTempId: string) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v) return;
+    updateVariant(variantTempId, {
+      packColorLines: [...v.packColorLines, { tempId: uid(), colors: [], sizeEntries: [] }],
+    });
+  }
+
+  function removePackColorLine(variantTempId: string, lineTempId: string) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v) return;
+    const newLines = v.packColorLines.filter((pcl) => pcl.tempId !== lineTempId);
+    // Recalculate packQuantity
+    const totalQty = newLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0), 0);
+    updateVariant(variantTempId, {
+      packColorLines: newLines,
+      packQuantity: String(totalQty || 1),
+    });
+  }
+
+  function updatePackColorLineColor(variantTempId: string, lineTempId: string, color: { colorId: string; colorName: string; colorHex: string } | null) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v) return;
+    const updatedLines = v.packColorLines.map((pcl) => {
+      if (pcl.tempId !== lineTempId) return pcl;
+      return { ...pcl, colors: color ? [color] : [] };
+    });
+    updateVariant(variantTempId, { packColorLines: updatedLines });
+  }
+
+  // Legacy: for backward compat with old single-line pack UI
   function updatePackColorLine(variantTempId: string, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) {
     const v = variants.find((x) => x.tempId === variantTempId);
     if (!v) return;
-    const line = v.packColorLines[0] ?? { tempId: uid(), colors: [] };
+    const line = v.packColorLines[0] ?? { tempId: uid(), colors: [], sizeEntries: [] };
     const patch: Partial<VariantState> = {
       packColorLines: [{ ...line, colors }],
     };
-    // Handle PFS color ref override for multi-color pack lines
     let resolvedRef = pfsColorRefOverride;
-    // Auto-resolve from existing variant with same color combination
     if (resolvedRef === undefined && colors.length > 1) {
       const sortedIds = colors.map((c) => c.colorId).sort().join("+");
-      // 1. Check same-product variants first
       for (const ov of variants) {
         if (ov.tempId === variantTempId || !ov.pfsColorRef) continue;
         if (ov.colorId && ov.subColors.length > 0) {
@@ -2624,7 +2851,6 @@ export default function ColorVariantManager({
           if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
         }
       }
-      // 2. Check cross-product mapped combinations from DB (skip if already used by another variant)
       if (resolvedRef === undefined && pfsAttrData?.mappedCombos?.[sortedIds]) {
         const candidate = pfsAttrData.mappedCombos[sortedIds];
         const alreadyUsed = variants.some((ov) => ov.tempId !== variantTempId && ov.pfsColorRef === candidate);
@@ -2641,16 +2867,25 @@ export default function ColorVariantManager({
   function handleSizeSave(variantTempId: string, entries: SizeEntryState[]) {
     const v = variants.find((x) => x.tempId === variantTempId);
     if (!v) return;
-    const patch: Partial<VariantState> = { sizeEntries: entries };
-    // PACK: auto-set packQuantity from size count
-    if (v.saleType === "PACK") {
-      if (entries.length > 1) {
-        patch.packQuantity = String(entries.length);
-      } else if (entries.length <= 1) {
-        patch.packQuantity = v.packQuantity || "1";
-      }
-    }
-    updateVariant(variantTempId, patch);
+    // UNIT: save shared sizeEntries
+    updateVariant(variantTempId, { sizeEntries: entries });
+  }
+
+  function handlePackSizeSave(variantTempId: string, lineSizes: { tempId: string; sizeEntries: SizeEntryState[] }[]) {
+    const v = variants.find((x) => x.tempId === variantTempId);
+    if (!v) return;
+    // Update each packColorLine's sizeEntries
+    const updatedLines = v.packColorLines.map((pcl) => {
+      const match = lineSizes.find((ls) => ls.tempId === pcl.tempId);
+      return match ? { ...pcl, sizeEntries: match.sizeEntries } : pcl;
+    });
+    // Auto-calculate packQuantity = total pieces across all lines
+    const totalQty = updatedLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0), 0);
+    updateVariant(variantTempId, {
+      packColorLines: updatedLines,
+      packQuantity: String(totalQty || 1),
+      sizeEntries: [], // Clear shared sizeEntries for PACK
+    });
   }
 
   // ── Bulk apply ─────────────────────────────────────────────────────────────
@@ -2692,14 +2927,29 @@ export default function ColorVariantManager({
 
   // ── Render helper: size summary cell ──────────────────────────────────────
   function renderSizeSummary(v: VariantState) {
-    if (v.sizeEntries.length === 0) return <span className="text-text-muted italic">—</span>;
     if (v.saleType === "UNIT") {
+      if (v.sizeEntries.length === 0) return <span className="text-text-muted italic">—</span>;
       return <span className="text-text-primary font-medium">{v.sizeEntries[0]?.sizeName}</span>;
     }
-    // PACK
+    // PACK: per-color sizes
+    const lines = v.packColorLines.filter((pcl) => pcl.sizeEntries.length > 0);
+    if (lines.length === 0) {
+      // Fallback: shared sizeEntries (backward compat)
+      if (v.sizeEntries.length === 0) return <span className="text-text-muted italic">—</span>;
+      return (
+        <span className="truncate text-text-primary font-medium" title={v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}>
+          {v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}
+        </span>
+      );
+    }
+    const summary = lines.map((pcl) => {
+      const colorName = pcl.colors[0]?.colorName || "?";
+      const sizes = pcl.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ");
+      return `${colorName}: ${sizes}`;
+    }).join(" / ");
     return (
-      <span className="truncate text-text-primary font-medium" title={v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}>
-        {v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}
+      <span className="truncate text-text-primary font-medium" title={summary}>
+        {summary}
       </span>
     );
   }
@@ -2739,8 +2989,8 @@ export default function ColorVariantManager({
     let targetIds = "";
     if (variant.saleType === "UNIT" && variant.colorId && variant.subColors.length > 0) {
       targetIds = [variant.colorId, ...variant.subColors.map((sc) => sc.colorId)].sort().join("+");
-    } else if (variant.saleType === "PACK" && variant.packColorLines[0]?.colors.length > 1) {
-      targetIds = variant.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
+    } else if (variant.saleType === "PACK" && variant.packColorLines.length > 1) {
+      targetIds = variant.packColorLines.map((pcl) => pcl.colors[0]?.colorId).filter(Boolean).sort().join("+");
     }
     if (!targetIds) return;
     // Find siblings with same combo (propagate to ALL siblings)
@@ -2749,8 +2999,8 @@ export default function ColorVariantManager({
       if (v.saleType === "UNIT" && v.colorId && v.subColors.length > 0) {
         return [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+") === targetIds;
       }
-      if (v.saleType === "PACK" && v.packColorLines[0]?.colors.length > 1) {
-        return v.packColorLines[0].colors.map((c) => c.colorId).sort().join("+") === targetIds;
+      if (v.saleType === "PACK" && v.packColorLines.length > 1) {
+        return v.packColorLines.map((pcl) => pcl.colors[0]?.colorId).filter(Boolean).sort().join("+") === targetIds;
       }
       return false;
     });
@@ -2766,7 +3016,7 @@ export default function ColorVariantManager({
       if (ov.tempId === excludeTempId) continue;
       // PACK variants with pfsColorRef override
       if (ov.saleType === "PACK" && ov.pfsColorRef) {
-        const label = ov.packColorLines[0]?.colors.map((c) => c.colorName).join(" / ") || "Pack";
+        const label = ov.packColorLines.map((pcl) => pcl.colors[0]?.colorName).filter(Boolean).join(" + ") || "Pack";
         map.set(ov.pfsColorRef, label);
         continue;
       }
@@ -2857,12 +3107,15 @@ export default function ColorVariantManager({
                           const migratedColors: { colorId: string; colorName: string; colorHex: string }[] = [];
                           if (v.colorId) migratedColors.push({ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex });
                           v.subColors.forEach((sc) => migratedColors.push({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }));
-                          updateVariant(v.tempId, { saleType: "PACK", colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [], packColorLines: [{ tempId: uid(), colors: migratedColors }], packQuantity: "1" });
+                          const lines: PackColorLineState[] = migratedColors.length > 0
+                            ? migratedColors.map((c) => ({ tempId: uid(), colors: [c], sizeEntries: v.sizeEntries.map((se) => ({ ...se, tempId: uid() })) }))
+                            : [{ tempId: uid(), colors: [], sizeEntries: [] }];
+                          updateVariant(v.tempId, { saleType: "PACK", colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [], packColorLines: lines, packQuantity: "1", sizeEntries: [] });
                         } else if (val === "UNIT" && v.saleType === "PACK") {
                           const firstLine = v.packColorLines[0];
                           const firstColor = firstLine?.colors[0];
-                          const restoredSub = (firstLine?.colors.slice(1) ?? []).map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex }));
-                          updateVariant(v.tempId, { saleType: "UNIT", colorId: firstColor?.colorId ?? "", colorName: firstColor?.colorName ?? "", colorHex: firstColor?.colorHex ?? "#9CA3AF", subColors: restoredSub, packColorLines: [], packQuantity: "", sizeEntries: v.sizeEntries.slice(0, 1) });
+                          const restoredSizes = (firstLine?.sizeEntries ?? []).slice(0, 1);
+                          updateVariant(v.tempId, { saleType: "UNIT", colorId: firstColor?.colorId ?? "", colorName: firstColor?.colorName ?? "", colorHex: firstColor?.colorHex ?? "#9CA3AF", subColors: [], packColorLines: [], packQuantity: "", sizeEntries: restoredSizes });
                         }
                       }}
                       options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
@@ -2914,18 +3167,48 @@ export default function ColorVariantManager({
                       mappedCombos={pfsAttrData?.mappedCombos}
                     />
                   ) : (
-                    <MultiColorSelect
-                      selected={v.packColorLines[0]?.colors ?? []}
-                      options={availableColors}
-                      onChange={(colors, pfsRef) => updatePackColorLine(v.tempId, colors, pfsRef)}
-                      pfsColorRef={v.pfsColorRef}
-                      pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                      onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
-                      usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
-                      onCreateColor={onQuickCreateColor}
-                      onColorAdded={onColorAdded}
-                      mappedCombos={pfsAttrData?.mappedCombos}
-                    />
+                    /* PACK mobile: per-line color selectors */
+                    <div className="space-y-1.5">
+                      {v.packColorLines.map((pcl) => (
+                        <div key={pcl.tempId} className="flex items-center gap-1.5">
+                          <CustomSelect
+                            value={pcl.colors[0]?.colorId ?? ""}
+                            onChange={(val) => {
+                              const colorObj = availableColors.find((c) => c.id === val);
+                              if (colorObj) {
+                                updatePackColorLineColor(v.tempId, pcl.tempId, {
+                                  colorId: colorObj.id,
+                                  colorName: colorObj.name,
+                                  colorHex: colorObj.hex || "#9CA3AF",
+                                });
+                              }
+                            }}
+                            options={availableColors.map((c) => ({
+                              value: c.id,
+                              label: c.name,
+                            }))}
+                            size="sm"
+                            placeholder="Couleur..."
+                            className="flex-1 min-w-0"
+                          />
+                          {v.packColorLines.length > 1 && (
+                            <button type="button" onClick={() => removePackColorLine(v.tempId, pcl.tempId)}
+                              className="p-1 text-text-muted hover:text-[#EF4444] transition-colors shrink-0">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button type="button" onClick={() => addPackColorLine(v.tempId)}
+                        className="text-xs text-text-secondary hover:text-text-primary font-body hover:underline flex items-center gap-1 transition-colors">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Ajouter une couleur
+                      </button>
+                    </div>
                   )}
                   {pfsMissing && (
                     <span className="flex items-center gap-1 text-[10px] text-[#DC2626] font-medium">
@@ -3068,10 +3351,10 @@ export default function ColorVariantManager({
                     const vErrs = variantErrors?.get(v.tempId);
                     const colorDisplayName = isUnit
                       ? ([v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ") || "Sans couleur")
-                      : (v.packColorLines[0]?.colors?.map((c) => c.colorName).join(" + ") || "Aucune couleur");
+                      : (v.packColorLines.map((pcl) => pcl.colors[0]?.colorName).filter(Boolean).join(" + ") || "Aucune couleur");
                     const isMultiColorD = isUnit
                       ? v.subColors.length > 0
-                      : (v.packColorLines[0]?.colors.length ?? 0) > 1;
+                      : v.packColorLines.length > 1;
                     const pfsMissingD = !!pfsAttrData && isMultiColorD && !v.pfsColorRef;
                     const imgGkD = imageGroupKeyFromVariant(v);
                     const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
@@ -3101,31 +3384,37 @@ export default function ColorVariantManager({
                             value={v.saleType}
                             onChange={(val) => {
                               if (val === "PACK" && v.saleType === "UNIT") {
-                                const migratedColors: { colorId: string; colorName: string; colorHex: string }[] = [];
-                                if (v.colorId) migratedColors.push({ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex });
-                                v.subColors.forEach((sc) => migratedColors.push({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }));
+                                // Migrate UNIT colors to separate pack color lines (one per color)
+                                const allColors: { colorId: string; colorName: string; colorHex: string }[] = [];
+                                if (v.colorId) allColors.push({ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex });
+                                v.subColors.forEach((sc) => allColors.push({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }));
+                                const lines: PackColorLineState[] = allColors.length > 0
+                                  ? allColors.map((c) => ({ tempId: uid(), colors: [c], sizeEntries: v.sizeEntries.map((se) => ({ ...se, tempId: uid() })) }))
+                                  : [{ tempId: uid(), colors: [], sizeEntries: [] }];
                                 updateVariant(v.tempId, {
                                   saleType: "PACK",
                                   colorId: "",
                                   colorName: "",
                                   colorHex: "#9CA3AF",
                                   subColors: [],
-                                  packColorLines: [{ tempId: uid(), colors: migratedColors }],
+                                  packColorLines: lines,
                                   packQuantity: "1",
+                                  sizeEntries: [], // Clear shared; sizes now in packColorLines
                                 });
                               } else if (val === "UNIT" && v.saleType === "PACK") {
                                 const firstLine = v.packColorLines[0];
                                 const firstColor = firstLine?.colors[0];
-                                const restoredSub = (firstLine?.colors.slice(1) ?? []).map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex }));
+                                // Restore first line's sizes as shared sizeEntries
+                                const restoredSizes = (firstLine?.sizeEntries ?? []).slice(0, 1);
                                 updateVariant(v.tempId, {
                                   saleType: "UNIT",
                                   colorId: firstColor?.colorId ?? "",
                                   colorName: firstColor?.colorName ?? "",
                                   colorHex: firstColor?.colorHex ?? "#9CA3AF",
-                                  subColors: restoredSub,
+                                  subColors: [],
                                   packColorLines: [],
                                   packQuantity: "",
-                                  sizeEntries: v.sizeEntries.slice(0, 1),
+                                  sizeEntries: restoredSizes,
                                 });
                               }
                             }}
@@ -3159,18 +3448,48 @@ export default function ColorVariantManager({
                               mappedCombos={pfsAttrData?.mappedCombos}
                             />
                           ) : (
-                            <MultiColorSelect
-                              selected={v.packColorLines[0]?.colors ?? []}
-                              options={availableColors}
-                              onChange={(colors, pfsRef) => updatePackColorLine(v.tempId, colors, pfsRef)}
-                              pfsColorRef={v.pfsColorRef}
-                              pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                              onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
-                              usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
-                              onCreateColor={onQuickCreateColor}
-                              onColorAdded={onColorAdded}
-                              mappedCombos={pfsAttrData?.mappedCombos}
-                            />
+                            /* PACK: per-line color selectors */
+                            <div className="space-y-1">
+                              {v.packColorLines.map((pcl) => (
+                                <div key={pcl.tempId} className="flex items-center gap-1">
+                                  <CustomSelect
+                                    value={pcl.colors[0]?.colorId ?? ""}
+                                    onChange={(val) => {
+                                      const colorObj = availableColors.find((c) => c.id === val);
+                                      if (colorObj) {
+                                        updatePackColorLineColor(v.tempId, pcl.tempId, {
+                                          colorId: colorObj.id,
+                                          colorName: colorObj.name,
+                                          colorHex: colorObj.hex || "#9CA3AF",
+                                        });
+                                      }
+                                    }}
+                                    options={availableColors.map((c) => ({
+                                      value: c.id,
+                                      label: c.name,
+                                    }))}
+                                    size="sm"
+                                    placeholder="Couleur..."
+                                    className="flex-1 min-w-0"
+                                  />
+                                  {v.packColorLines.length > 1 && (
+                                    <button type="button" onClick={() => removePackColorLine(v.tempId, pcl.tempId)}
+                                      className="p-0.5 text-text-muted hover:text-[#EF4444] transition-colors shrink-0">
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                              <button type="button" onClick={() => addPackColorLine(v.tempId)}
+                                className="text-[10px] text-text-secondary hover:text-text-primary font-body hover:underline flex items-center gap-0.5 transition-colors">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                                Couleur
+                              </button>
+                            </div>
                           )}
                           {pfsMissingD && (
                             <span className="flex items-center gap-1 mt-1 text-[10px] text-[#DC2626] font-medium">
@@ -3359,6 +3678,7 @@ export default function ColorVariantManager({
           categoryId={categoryId}
           allCategories={allCategories}
           onSave={(entries) => handleSizeSave(sizeModalVariant.tempId, entries)}
+          onSavePackSizes={(lineSizes) => handlePackSizeSave(sizeModalVariant.tempId, lineSizes)}
           onQuickCreateSize={onQuickCreateSize}
           onAssignSizeToCategory={onAssignSizeToCategory}
         />

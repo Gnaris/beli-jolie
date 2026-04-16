@@ -44,12 +44,18 @@ function triggerAnkorstoreSync(productId: string, forceCreate = false, skipReval
 
       if (forceCreate) {
         // New product → always push (auto-detects import vs update)
+        // If product is OFFLINE, push with zeroStock so it appears out-of-stock on Ankorstore
         logger.info("[Ankorstore] Importing pushProductToAnkorstoreInternal", { productId });
         emitAnkors(productId, { step: "Préparation du produit...", progress: 10, status: "in_progress" });
-        import("@/app/actions/admin/ankorstore").then(({ pushProductToAnkorstoreInternal }) => {
-          logger.info("[Ankorstore] Calling pushProductToAnkorstoreInternal", { productId });
+        import("@/app/actions/admin/ankorstore").then(async ({ pushProductToAnkorstoreInternal }) => {
+          const prodStatus = await prisma.product.findUnique({
+            where: { id: productId },
+            select: { status: true },
+          });
+          const isOffline = prodStatus?.status === "OFFLINE";
+          logger.info("[Ankorstore] Calling pushProductToAnkorstoreInternal", { productId, zeroStock: isOffline });
           emitAnkors(productId, { step: "Envoi vers Ankorstore...", progress: 30, status: "in_progress" });
-          return pushProductToAnkorstoreInternal(productId, undefined, { skipRevalidation, forceCreate }).then((result) => {
+          return pushProductToAnkorstoreInternal(productId, undefined, { skipRevalidation, forceCreate, zeroStock: isOffline }).then((result) => {
             logger.info("[Ankorstore] Auto-sync result", { productId, result });
             if (result.success) {
               emitAnkors(productId, { step: "Publication terminée", progress: 100, status: "success" });
@@ -155,6 +161,7 @@ export interface SizeEntryInput {
 export interface PackColorLineInput {
   colorIds: string[];   // Ordered color IDs for this line
   position: number;
+  sizeEntries: SizeEntryInput[];  // Per-line sizes (each color has its own sizes/quantities)
 }
 
 export interface ColorInput {
@@ -237,11 +244,19 @@ function validateVariants(colors: ColorInput[]): void {
     }
   }
 
-  // PACK variants: must have exactly one color line + packQuantity >= 1
+  // PACK variants: must have at least one color line + packQuantity >= 1
   for (const c of colors) {
     if (c.saleType === "PACK") {
-      if (c.packColorLines.length !== 1) {
-        throw new Error("Un paquet doit avoir exactement une ligne de couleur.");
+      if (c.packColorLines.length < 1) {
+        throw new Error("Un paquet doit avoir au moins une ligne de couleur.");
+      }
+      for (const pcl of c.packColorLines) {
+        if (pcl.colorIds.length < 1) {
+          throw new Error("Chaque ligne de couleur doit avoir au moins une couleur.");
+        }
+        if (!pcl.sizeEntries || pcl.sizeEntries.length < 1) {
+          throw new Error("Chaque ligne de couleur doit avoir au moins une taille.");
+        }
       }
       if (c.packQuantity == null || c.packQuantity < 1) {
         throw new Error("Un paquet doit avoir une quantité d'au moins 1.");
@@ -434,8 +449,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     });
     createdVariants.push(variant);
 
-    // Create variant sizes
-    if (color.sizeEntries && color.sizeEntries.length > 0) {
+    // Create variant sizes (UNIT only — PACK sizes live in PackColorLineSize)
+    if (color.saleType !== "PACK" && color.sizeEntries && color.sizeEntries.length > 0) {
       await prisma.variantSize.createMany({
         data: color.sizeEntries.map((se) => ({
           productColorId: variant.id,
@@ -446,7 +461,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       });
     }
 
-    // Create pack color lines for PACK variants
+    // Create pack color lines for PACK variants (each line has its own colors + sizes)
     if (color.saleType === "PACK" && color.packColorLines.length > 0) {
       for (const pcl of color.packColorLines) {
         const line = await prisma.packColorLine.create({
@@ -461,6 +476,16 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
               packColorLineId: line.id,
               colorId: cId,
               position: pos,
+            })),
+          });
+        }
+        // Per-line sizes
+        if (pcl.sizeEntries && pcl.sizeEntries.length > 0) {
+          await prisma.packColorLineSize.createMany({
+            data: pcl.sizeEntries.map((se) => ({
+              packColorLineId: line.id,
+              sizeId: se.sizeId,
+              quantity: se.quantity,
             })),
           });
         }
@@ -817,7 +842,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       await tx.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
     }
 
-    // ── Variant sizes: full replace for all variants ──────────
+    // ── Variant sizes: full replace for UNIT variants only ──────────
+    // (PACK sizes now live in PackColorLineSize, not VariantSize)
     if (allVariantIds.length > 0) {
       await tx.variantSize.deleteMany({
         where: { productColorId: { in: allVariantIds } },
@@ -825,7 +851,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
     const variantSizeData: { productColorId: string; sizeId: string; quantity: number; pricePerUnit?: number }[] = [];
     for (const { colorInput, variantId } of variantIdMap) {
-      if (colorInput.sizeEntries && colorInput.sizeEntries.length > 0) {
+      if (colorInput.saleType !== "PACK" && colorInput.sizeEntries && colorInput.sizeEntries.length > 0) {
         for (const se of colorInput.sizeEntries) {
           variantSizeData.push({
             productColorId: variantId,
@@ -840,7 +866,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       await tx.variantSize.createMany({ data: variantSizeData });
     }
 
-    // ── Pack color lines: full replace for all PACK variants ──────────
+    // ── Pack color lines: full replace for all PACK variants (with per-line sizes) ──────────
     if (allVariantIds.length > 0) {
       await tx.packColorLine.deleteMany({
         where: { productColorId: { in: allVariantIds } },
@@ -858,6 +884,16 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
                 packColorLineId: line.id,
                 colorId: cId,
                 position: pos,
+              })),
+            });
+          }
+          // Per-line sizes
+          if (pcl.sizeEntries && pcl.sizeEntries.length > 0) {
+            await tx.packColorLineSize.createMany({
+              data: pcl.sizeEntries.map((se) => ({
+                packColorLineId: line.id,
+                sizeId: se.sizeId,
+                quantity: se.quantity,
               })),
             });
           }
@@ -1190,7 +1226,7 @@ export async function deleteProduct(
     }
   }
 
-  // Delete from Ankorstore if requested — fetch real SKUs from Ankorstore API
+  // Delete from Ankorstore if requested — fire-and-forget via callback webhook
   if (deleteFromAnkorstore && !forceLocalDelete) {
     try {
       const { ankorstoreSearchVariants } = await import("@/lib/ankorstore-api");
@@ -1205,12 +1241,14 @@ export async function deleteProduct(
       if (skus.length === 0) {
         logger.info("[Ankorstore] No variants found on Ankorstore, skipping delete", { reference: product.reference });
       } else {
-        const result = await ankorstoreDeleteProduct(product.reference, skus);
-        if (result.success) {
-          logger.info("[Ankorstore] Product deleted", { id, reference: product.reference, skus });
-        } else {
-          logger.warn("[Ankorstore] Delete returned failure", { id, reference: product.reference, error: result.error });
+        // Starts delete operation and returns immediately — callback handles result
+        const result = await ankorstoreDeleteProduct(product.reference, skus, id);
+        if (!result.success) {
+          // Failed to even start the operation
+          logger.warn("[Ankorstore] Delete failed to start", { id, reference: product.reference, error: result.error });
           marketplaceErrors.push({ marketplace: "Ankorstore", error: result.error ?? "Échec de suppression" });
+        } else {
+          logger.info("[Ankorstore] Delete operation started", { id, reference: product.reference, opId: result.opId });
         }
       }
     } catch (err) {
@@ -1524,9 +1562,15 @@ export async function bulkDeleteProducts(
             emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Aucune action requise", progress: 100, status: "success" } });
             continue;
           }
-          await ankorstoreDeleteProduct(p.reference, skus);
-          ankorsDeleted++;
-          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Supprimé d'Ankorstore", progress: 100, status: "success" } });
+          // Fire-and-forget — callback webhook handles the result + SSE events
+          const result = await ankorstoreDeleteProduct(p.reference, skus, p.id);
+          if (result.success) {
+            ankorsDeleted++;
+            emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Suppression en cours...", progress: 50, status: "in_progress" } });
+          } else {
+            emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Erreur de suppression", progress: 100, status: "error", error: result.error } });
+            marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Ankorstore", error: result.error || "Échec" });
+          }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           logger.warn("[Ankorstore] Bulk delete failed", { ref: p.reference, error: errMsg });

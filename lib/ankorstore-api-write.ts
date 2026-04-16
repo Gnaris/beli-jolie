@@ -4,21 +4,18 @@
  * Handles mutations (PATCH, POST) on the Ankorstore API.
  * - Stock updates (single variant)
  * - Catalog push (bulk product import/update via operations API)
+ * - Product delete via operations API
+ *
+ * Push and delete operations use a callback webhook instead of polling:
+ * 1. Create operation with callbackUrl → add products → start
+ * 2. Return immediately (no blocking)
+ * 3. Ankorstore calls /api/ankorstore/callback when done
  */
 
 import { ankorstoreFetch } from "@/lib/ankorstore-api";
 import { getAnkorstoreHeaders, ANKORSTORE_BASE_URL } from "@/lib/ankorstore-auth";
 import { logger } from "@/lib/logger";
-
-// ─────────────────────────────────────────────
-// Adaptive polling delays
-// 5 fast polls at 3s, then increasing: 5s, 8s, 12s, 18s, 25s, 35s, 45s...
-// ─────────────────────────────────────────────
-function getPollingDelay(attempt: number): number {
-  if (attempt < 5) return 3_000;
-  const extra = attempt - 5;
-  return Math.min(5_000 * Math.pow(1.5, extra), 45_000);
-}
+import { registerOperation, buildCallbackUrl } from "@/lib/ankorstore-operations";
 
 // ─────────────────────────────────────────────
 // Variant stock update
@@ -135,15 +132,18 @@ export interface AnkorstorePushResult {
 
 /**
  * Delete product(s) from Ankorstore via catalog operations.
- * 3 steps: create delete operation → add products → start.
+ * 3 steps: create delete operation → add products → start → return immediately.
+ * Result is processed asynchronously via callback webhook.
  *
  * @param externalId The product reference (external_id on Ankorstore)
  * @param variantSkus SKUs of variants to delete
+ * @param productId Local product ID (for callback context)
  */
 export async function ankorstoreDeleteProduct(
   externalId: string,
-  variantSkus: string[]
-): Promise<{ success: boolean; error?: string }> {
+  variantSkus: string[],
+  productId?: string,
+): Promise<{ success: boolean; opId?: string; error?: string }> {
   const headers = await getAnkorstoreHeaders();
   const jsonHeaders = { ...headers, "Content-Type": "application/vnd.api+json" };
 
@@ -151,6 +151,9 @@ export async function ankorstoreDeleteProduct(
     logger.info("[Ankorstore] Deleting product", { externalId, variantSkus });
 
     // Step 1: Create delete operation
+    const tempOpId = crypto.randomUUID();
+    const callbackUrl = buildCallbackUrl(tempOpId);
+
     const createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
       method: "POST",
       headers: jsonHeaders,
@@ -160,7 +163,7 @@ export async function ankorstoreDeleteProduct(
           attributes: {
             source: "other",
             operationType: "delete",
-            callbackUrl: "https://example.com/ankorstore-callback",
+            callbackUrl,
           },
         },
       }),
@@ -171,8 +174,28 @@ export async function ankorstoreDeleteProduct(
       throw new Error(`Create delete operation failed (${createRes.status}): ${err.slice(0, 300)}`);
     }
 
-    const opId = (await createRes.json()).data?.id;
+    const opId = (await createRes.json()).data?.id as string;
     if (!opId) throw new Error("No operation ID returned");
+
+    // Register pending operation for callback processing
+    registerOperation({
+      opId,
+      productId: productId || externalId,
+      type: "delete",
+      hadOptimisticLink: false,
+      reference: externalId,
+      createdAt: Date.now(),
+    });
+
+    // Also register with our temp ID in case Ankorstore uses our callbackUrl as-is
+    registerOperation({
+      opId: tempOpId,
+      productId: productId || externalId,
+      type: "delete",
+      hadOptimisticLink: false,
+      reference: externalId,
+      createdAt: Date.now(),
+    });
 
     // Step 2: Add product to delete
     const addRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}/products`, {
@@ -214,53 +237,9 @@ export async function ankorstoreDeleteProduct(
       throw new Error(`Start delete operation failed (${startRes.status}): ${err.slice(0, 300)}`);
     }
 
-    logger.info("[Ankorstore] Delete operation started, polling for result...", { opId, externalId });
-
-    // Step 4: Poll for completion (adaptive: 5×3s then increasing, max 12 polls)
-    for (let i = 0; i < 12; i++) {
-      await new Promise((r) => setTimeout(r, getPollingDelay(i)));
-
-      const checkRes = await fetch(
-        `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`,
-        { headers }
-      );
-      const checkData = await checkRes.json();
-      const status = checkData.data?.attributes?.status;
-
-      logger.info("[Ankorstore] Delete poll", { opId, poll: i, status });
-
-      if (["succeeded", "completed"].includes(status)) {
-        logger.info("[Ankorstore] Delete succeeded", { opId, externalId });
-        return { success: true };
-      }
-
-      if (["failed", "partially_failed"].includes(status)) {
-        // Fetch results for details
-        const resultsRes = await fetch(
-          `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}/results`,
-          { headers }
-        );
-        const resultsData = await resultsRes.json();
-        const failures = (resultsData.data ?? [])
-          .filter((r: { attributes?: { status?: string } }) => r.attributes?.status === "failure")
-          .map((r: { attributes?: { failureReason?: string; issues?: { field: string; message: string }[] } }) => {
-            const issues = r.attributes?.issues?.map((i) => `${i.field}: ${i.message}`).join("; ");
-            return issues || r.attributes?.failureReason || "Unknown";
-          });
-
-        const errorMsg = failures.length > 0 ? failures.join(" | ") : `Operation ${status}`;
-        logger.error("[Ankorstore] Delete failed", { opId, externalId, status, failures });
-        return { success: false, error: errorMsg };
-      }
-
-      if (status === "skipped") {
-        logger.warn("[Ankorstore] Delete operation skipped", { opId });
-        return { success: false, error: "Delete operation was skipped by Ankorstore" };
-      }
-    }
-
-    logger.warn("[Ankorstore] Delete timed out after polling", { opId, externalId });
-    return { success: false, error: "Timeout waiting for delete to complete" };
+    // Return immediately — callback webhook will handle the result
+    logger.info("[Ankorstore] Delete operation started, waiting for callback", { opId, externalId });
+    return { success: true, opId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("[Ankorstore] Delete failed", { externalId, error: message });
@@ -270,23 +249,26 @@ export async function ankorstoreDeleteProduct(
 
 /**
  * Push products to Ankorstore via the Catalog Integrations operations API.
- * Creates an operation, adds products, starts processing, and polls for results.
+ * Creates an operation, adds products, starts processing → returns immediately.
+ * Result is processed asynchronously via callback webhook.
  *
  * @param products Products to push (with variants)
  * @param operationType "import" for new products, "update" for existing
- * @param onProgress Optional progress callback
- * @returns Results per product
+ * @param context Context for callback processing
  */
 export async function ankorstorePushProducts(
   products: AnkorstorePushProduct[],
   operationType: "import" | "update" = "update",
-  onProgress?: (status: string, processed: number, total: number) => void
-): Promise<{ success: boolean; results: AnkorstorePushResult[]; error?: string }> {
+  context?: { productId: string; hadOptimisticLink: boolean },
+): Promise<{ success: boolean; opId?: string; error?: string }> {
   const headers = await getAnkorstoreHeaders();
   const jsonHeaders = { ...headers, "Content-Type": "application/vnd.api+json" };
 
   try {
     // Step 1: Create operation
+    const tempOpId = crypto.randomUUID();
+    const callbackUrl = buildCallbackUrl(tempOpId);
+
     logger.info("[Ankorstore] Creating catalog operation", { operationType, productCount: products.length });
     const createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
       method: "POST",
@@ -297,7 +279,7 @@ export async function ankorstorePushProducts(
           attributes: {
             source: "other",
             operationType,
-            callbackUrl: "https://example.com/ankorstore-callback",
+            callbackUrl,
           },
         },
       }),
@@ -308,9 +290,30 @@ export async function ankorstorePushProducts(
       throw new Error(`Failed to create operation: ${err.slice(0, 300)}`);
     }
 
-    const opId = (await createRes.json()).data?.id;
+    const opId = (await createRes.json()).data?.id as string;
     if (!opId) throw new Error("No operation ID returned");
     logger.info("[Ankorstore] Operation created", { opId });
+
+    // Register pending operation for callback processing
+    if (context) {
+      const reference = products[0]?.external_id || "";
+      registerOperation({
+        opId,
+        productId: context.productId,
+        type: operationType,
+        hadOptimisticLink: context.hadOptimisticLink,
+        reference,
+        createdAt: Date.now(),
+      });
+      registerOperation({
+        opId: tempOpId,
+        productId: context.productId,
+        type: operationType,
+        hadOptimisticLink: context.hadOptimisticLink,
+        reference,
+        createdAt: Date.now(),
+      });
+    }
 
     // Step 2: Add products in batches of 50
     const batchSize = 50;
@@ -399,74 +402,12 @@ export async function ankorstorePushProducts(
       throw new Error(`Failed to start operation: ${err.slice(0, 300)}`);
     }
 
-    logger.info("[Ankorstore] Operation started", { opId });
-    onProgress?.("started", 0, products.length);
-
-    // Step 4: Poll for completion (adaptive: 5×3s then increasing, max 12 polls)
-    const maxPolls = 12;
-    for (let i = 0; i < maxPolls; i++) {
-      await new Promise((r) => setTimeout(r, getPollingDelay(i)));
-
-      const checkRes = await fetch(
-        `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}`,
-        { headers }
-      );
-      const checkData = await checkRes.json();
-      const attrs = checkData.data?.attributes;
-      const status = attrs?.status;
-      const processed = attrs?.processedProductsCount ?? 0;
-      const total = attrs?.totalProductsCount ?? products.length;
-
-      if (i % 3 === 0) {
-        logger.info("[Ankorstore] Polling", { opId, poll: i, status, processed, total });
-      }
-
-      onProgress?.(status, processed, total);
-
-      if (["succeeded", "completed", "failed", "partially_failed"].includes(status)) {
-        // Get results
-        const resultsRes = await fetch(
-          `${ANKORSTORE_BASE_URL}/catalog/integrations/operations/${opId}/results`,
-          { headers }
-        );
-        const resultsData = await resultsRes.json();
-        const results: AnkorstorePushResult[] = (resultsData.data ?? []).map(
-          (r: { attributes: AnkorstorePushResult }) => r.attributes
-        );
-
-        const succeeded = results.filter((r) => r.status === "success").length;
-        const failed = results.filter((r) => r.status === "failure").length;
-
-        logger.info("[Ankorstore] Operation completed", { opId, status, succeeded, failed });
-
-        // Log detailed failure info
-        for (const r of results) {
-          if (r.status === "failure") {
-            logger.warn("[Ankorstore] Product failed", {
-              opId,
-              externalProductId: r.externalProductId,
-              failureReason: r.failureReason,
-              issues: r.issues,
-            });
-          }
-        }
-
-        return {
-          success: status === "succeeded" || status === "completed",
-          results,
-        };
-      }
-
-      if (status === "skipped") {
-        logger.warn("[Ankorstore] Operation skipped", { opId });
-        return { success: false, results: [], error: "Operation was skipped by Ankorstore" };
-      }
-    }
-
-    return { success: false, results: [], error: "Timeout waiting for operation to complete" };
+    // Return immediately — callback webhook will handle the result
+    logger.info("[Ankorstore] Operation started, waiting for callback", { opId, operationType });
+    return { success: true, opId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("[Ankorstore] Push failed", { error: message });
-    return { success: false, results: [], error: message };
+    return { success: false, error: message };
   }
 }

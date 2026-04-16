@@ -55,6 +55,10 @@ export default async function ModifierProduitPage({
                   orderBy: { position: "asc" },
                   include: { color: true },
                 },
+                sizes: {
+                  orderBy: { size: { position: "asc" } },
+                  include: { size: true },
+                },
               },
             },
           },
@@ -158,25 +162,49 @@ export default async function ModifierProduitPage({
       colorName: sc.color.name,
       colorHex:  sc.color.hex ?? "#9CA3AF",
     })),
-    packColorLines: pc.packColorLines.map((pcl) => ({
-      tempId: uid(),
-      colors: pcl.colors.map((c) => ({
-        colorId:   c.colorId,
-        colorName: c.color.name,
-        colorHex:  c.color.hex ?? "#9CA3AF",
-      })),
-    })),
-    sizeEntries:   pc.variantSizes.map((vs) => ({
-      tempId:       uid(),
-      sizeId:       vs.sizeId,
-      sizeName:     vs.size.name,
-      quantity:     String(vs.quantity),
-      pricePerUnit: vs.pricePerUnit != null ? String(vs.pricePerUnit) : undefined,
-    })),
+    packColorLines: (() => {
+      const hasPerLineSizes = pc.packColorLines.some((pcl) => pcl.sizes && pcl.sizes.length > 0);
+      // Shared sizeEntries for backward compat (old data without per-line sizes)
+      const sharedSizeEntries = pc.variantSizes.map((vs) => ({
+        tempId: uid(),
+        sizeId: vs.sizeId,
+        sizeName: vs.size.name,
+        quantity: String(vs.quantity),
+      }));
+      return pc.packColorLines.map((pcl) => ({
+        tempId: uid(),
+        colors: pcl.colors.map((c) => ({
+          colorId: c.colorId,
+          colorName: c.color.name,
+          colorHex: c.color.hex ?? "#9CA3AF",
+        })),
+        sizeEntries: hasPerLineSizes
+          ? (pcl.sizes ?? []).map((pcs) => ({
+              tempId: uid(),
+              sizeId: pcs.sizeId,
+              sizeName: pcs.size.name,
+              quantity: String(pcs.quantity),
+            }))
+          : sharedSizeEntries.map((se) => ({ ...se, tempId: uid() })), // Backward compat: copy shared sizes to each line
+      }));
+    })(),
+    sizeEntries:   pc.saleType === "PACK"
+      ? [] // PACK sizes now live in packColorLines
+      : pc.variantSizes.map((vs) => ({
+          tempId:       uid(),
+          sizeId:       vs.sizeId,
+          sizeName:     vs.size.name,
+          quantity:     String(vs.quantity),
+          pricePerUnit: vs.pricePerUnit != null ? String(vs.pricePerUnit) : undefined,
+        })),
     unitPrice:     (() => {
       // DB stores totalPackPrice for PACK (unitPrice × totalQty) — convert back to per-unit
-      if (pc.saleType === "PACK" && pc.variantSizes.length > 0) {
-        const totalQty = pc.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0);
+      if (pc.saleType === "PACK") {
+        // Try per-line sizes first
+        const hasPerLineSizes = pc.packColorLines.some((pcl) => pcl.sizes && pcl.sizes.length > 0);
+        const totalQty = hasPerLineSizes
+          ? pc.packColorLines.reduce((sum, pcl) => sum + (pcl.sizes ?? []).reduce((s, pcs) => s + pcs.quantity, 0), 0)
+          : pc.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0);
         if (totalQty > 0) return String(Math.round(Number(pc.unitPrice) / totalQty * 100) / 100);
       }
       return String(pc.unitPrice);
@@ -198,21 +226,17 @@ export default async function ModifierProduitPage({
   }): string {
     if (pc.saleType === "PACK") {
       if (pc.packColorLines.length === 0) return `pack::${pc.id}`;
-      // Check if all lines have the same color composition (mirrors imageGroupKeyFromVariant logic)
-      const lineSignatures = pc.packColorLines.map(pcl =>
-        pcl.colors.map(c => c.colorId).join(",")
-      );
-      const allSame = lineSignatures.every(sig => sig === lineSignatures[0]);
-      if (allSame && pc.packColorLines[0].colors.length > 0) {
-        const colors = pc.packColorLines[0].colors;
-        if (colors.length === 1) return colors[0].colorId;
-        return `${colors[0].colorId}::${colors.slice(1).map(c => c.colorId).join(",")}`;
-      }
-      return `pack::${pc.id}`;
+      // Each line has one color — use sorted color IDs as key (mirrors imageGroupKeyFromVariant)
+      const colorIds = pc.packColorLines
+        .map((pcl) => pcl.colors[0]?.colorId)
+        .filter(Boolean)
+        .sort();
+      if (colorIds.length === 0) return `pack::${pc.id}`;
+      if (colorIds.length === 1) return colorIds[0];
+      return `${colorIds[0]}::${colorIds.slice(1).join(",")}`;
     }
     if (!pc.colorId) return "";
     if (pc.subColors.length === 0) return pc.colorId;
-    // Must use colorId (not name) to match variantGroupKeyFromState() in ColorVariantManager
     return `${pc.colorId}::${pc.subColors.map(sc => sc.colorId).join(",")}`;
   }
 

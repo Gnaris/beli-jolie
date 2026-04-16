@@ -1,7 +1,6 @@
 "use server";
 
 import { getServerSession } from "next-auth";
-import { revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -354,76 +353,27 @@ export async function pushProductToAnkorstoreInternal(
       })),
     });
 
-    const result = await ankorstorePushProducts([pushPayload], effectiveOp);
-    emitAnkors({ step: "Vérification du résultat...", progress: 85, status: "in_progress" });
-
-    logger.info("[Ankorstore] Push result", {
+    // Push with callback context — returns immediately, result processed via webhook
+    const result = await ankorstorePushProducts([pushPayload], effectiveOp, {
       productId,
-      success: result.success,
-      error: result.error,
-      results: result.results.map((r) => ({
-        externalId: r.externalProductId,
-        status: r.status,
-        failureReason: r.failureReason,
-        issues: r.issues,
-      })),
+      hadOptimisticLink: !prod.ankorsProductId,
     });
 
     if (!result.success) {
-      // Rollback optimistic link on failure
+      // Operation failed to even start (network error, auth error, etc.)
       if (!prod.ankorsProductId) {
         await prisma.product.update({
           where: { id: productId },
           data: { ankorsProductId: null, ankorsMatchedAt: null },
         });
-        logger.warn("[Ankorstore] Rolled back optimistic link", { productId, error: result.error, results: result.results });
+        logger.warn("[Ankorstore] Rolled back optimistic link", { productId, error: result.error });
       }
-      const detailedError = result.error
-        || result.results.map((r) => {
-          if (r.status === "failure") {
-            const issues = r.issues?.map((i) => `${i.field}: ${i.message}`).join("; ");
-            return `${r.externalProductId}: ${issues || r.failureReason || "Unknown"}`;
-          }
-          return null;
-        }).filter(Boolean).join(" | ")
-        || "Echec du push.";
-      return { success: false, error: detailedError };
+      return { success: false, error: result.error || "Echec du push." };
     }
 
-    const productResult = result.results[0];
-    if (productResult?.status === "failure") {
-      // Rollback optimistic link on failure
-      if (!prod.ankorsProductId) {
-        await prisma.product.update({
-          where: { id: productId },
-          data: { ankorsProductId: null, ankorsMatchedAt: null },
-        });
-        logger.warn("[Ankorstore] Rolled back optimistic link (product failure)", {
-          productId,
-          failureReason: productResult.failureReason,
-          issues: productResult.issues,
-        });
-      }
-      const issues = productResult.issues?.map((i) => `${i.field}: ${i.message}`).join("; ");
-      return { success: false, error: `Echec: ${issues ?? productResult.failureReason}` };
-    }
-
-    // revalidateTag may fail when called from fire-and-forget context
-    // (e.g. triggerAnkorstoreSync during page render). That's OK — the
-    // caller (createProduct/updateProduct) already revalidates.
-    // When skipRevalidation is true (batch operations), the caller handles
-    // a single revalidateTag at the end of the batch instead of per-product.
-    if (!options?.skipRevalidation) {
-      try { revalidateTag("products", "default"); } catch { /* fire-and-forget context */ }
-    }
-
-    // Mark as synced
-    await prisma.product.update({
-      where: { id: productId },
-      data: { ankorsSyncStatus: "synced", ankorsSyncError: null, ankorsSyncedAt: new Date() },
-    });
-
-    emitAnkors({ step: "Synchronisé avec succès", progress: 100, status: "success" });
+    // Operation started successfully — callback will handle the result
+    emitAnkors({ step: "En cours de traitement sur Ankorstore...", progress: 70, status: "in_progress" });
+    logger.info("[Ankorstore] Push started, waiting for callback", { productId, opId: result.opId });
     return { success: true };
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : String(e);

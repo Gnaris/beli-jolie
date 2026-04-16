@@ -73,7 +73,7 @@ export async function ankorstoreRefreshProduct(
       report(`Suppression d'Ankorstore (${skus.length} variantes)...`);
       logger.info("[Ankorstore Refresh] Deleting product", { reference: product.reference, skuCount: skus.length });
 
-      const deleteResult = await ankorstoreDeleteProduct(product.reference, skus);
+      const deleteResult = await ankorstoreDeleteProduct(product.reference, skus, productId);
 
       if (!deleteResult.success) {
         // Non-fatal: log warning and continue — the re-import as "update" will still work

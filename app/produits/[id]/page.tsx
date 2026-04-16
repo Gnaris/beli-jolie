@@ -42,6 +42,10 @@ const getProduct = cache(async (id: string) => {
                 orderBy: { position: "asc" },
                 include: { color: { select: { name: true, hex: true, patternImage: true } } },
               },
+              sizes: {
+                orderBy: { size: { position: "asc" } },
+                include: { size: { select: { name: true } } },
+              },
             },
           },
         },
@@ -363,6 +367,10 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                     name: lc.color.name,
                     hex: lc.color.hex ?? "#9CA3AF",
                     patternImage: lc.color.patternImage ?? null,
+                  })),
+                  sizes: (line.sizes ?? []).map((pcs: any) => ({
+                    name: pcs.size.name,
+                    quantity: pcs.quantity,
                   })),
                 })),
               }))}

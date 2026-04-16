@@ -19,9 +19,6 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import type { MarketplaceId } from "@/lib/product-events";
 import { subscribeSSE } from "@/lib/shared-sse";
-import dynamic from "next/dynamic";
-
-const DevRandomFillButton = dynamic(() => import("./DevRandomFillButton"), { ssr: false });
 
 interface Category {
   id: string;
@@ -1117,15 +1114,20 @@ export default function ProductForm({
           isPrimary:     v.isPrimary,
           saleType:      v.saleType,
           packQuantity:  v.saleType === "PACK"
-            ? (v.sizeEntries.reduce((sum, se) => sum + (parseInt(se.quantity) || 1), 0) || 1)
+            ? (v.packColorLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0), 0) || 1)
             : null,
-          sizeEntries:   v.sizeEntries
-            .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
-            .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
+          sizeEntries:   v.saleType === "PACK"
+            ? [] // PACK sizes live in packColorLines
+            : v.sizeEntries
+                .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
+                .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
           packColorLines: v.saleType === "PACK"
             ? v.packColorLines.map((pcl, pos) => ({
                 colorIds: pcl.colors.filter((c) => validColorIds.has(c.colorId)).map((c) => c.colorId),
                 position: pos,
+                sizeEntries: pcl.sizeEntries
+                  .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
+                  .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
               }))
             : [],
           pfsColorRef:   v.pfsColorRef || null,
@@ -1376,18 +1378,23 @@ export default function ProductForm({
         isPrimary:     v.isPrimary,
         saleType:      v.saleType,
         packQuantity:  v.saleType === "PACK"
-          ? (v.sizeEntries.reduce((sum, se) => sum + (parseInt(se.quantity) || 1), 0) || 1)
+          ? (v.packColorLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0), 0) || 1)
           : null,
-        sizeEntries:   v.sizeEntries
-          .filter((se) => se.sizeId)
-          .map((se) => ({
-            sizeId:       se.sizeId,
-            quantity:     parseInt(se.quantity) || 1,
-          })),
+        sizeEntries:   v.saleType === "PACK"
+          ? [] // PACK sizes live in packColorLines
+          : v.sizeEntries
+              .filter((se) => se.sizeId)
+              .map((se) => ({
+                sizeId:       se.sizeId,
+                quantity:     parseInt(se.quantity) || 1,
+              })),
         packColorLines: v.saleType === "PACK"
           ? v.packColorLines.map((pcl, pos) => ({
               colorIds: pcl.colors.map((c) => c.colorId),
               position: pos,
+              sizeEntries: pcl.sizeEntries
+                .filter((se) => se.sizeId)
+                .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
             }))
           : [],
         pfsColorRef:   v.pfsColorRef || null,
@@ -1498,49 +1505,8 @@ export default function ProductForm({
     });
   }
 
-  // ── Dev random fill handler ──────────────────────────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleDevRandomFill = useCallback((data: any) => {
-    // Replace local entity lists (not append) so re-clicks start clean
-    if (data.newCategory) setLocalCategories([data.newCategory]);
-    if (data.newColors?.length) setLocalColors(data.newColors);
-    if (data.newCompositions?.length) setLocalCompositions(data.newCompositions);
-    if (data.newSizes?.length) setLocalSizes(data.newSizes);
-    if (data.newCountry) setLocalCountries([data.newCountry]);
-    if (data.newSeason) setLocalSeasons([data.newSeason]);
-    if (data.newTags?.length) setLocalTags(data.newTags);
-
-    // Reset + fill all form fields
-    setReference(data.reference);
-    setName(data.name);
-    setDescription(data.description);
-    setCategoryId(data.categoryId);
-    setSubCategoryIds(data.subCategoryIds);
-    setVariants(data.variants);
-    setColorImages(data.colorImages);
-    setCompositions(data.compositions);
-    setTagNames(data.tagNames);
-    setIsBestSeller(data.isBestSeller);
-    setDimLength(data.dimLength);
-    setDimWidth(data.dimWidth);
-    setDimHeight(data.dimHeight);
-    setDimDiameter(data.dimDiameter);
-    setDimCircumference(data.dimCircumference);
-    setManufacturingCountryId(data.manufacturingCountryId);
-    setSeasonId(data.seasonId);
-    setSimilarProductIds([]);
-    setBundleChildIds([]);
-    setError("");
-    setOnlineErrors([]);
-    setProductStatus("ONLINE");
-    setTouchedFields(new Set(["reference", "name", "description", "category"]));
-  }, []);
-
   return (
     <>
-      {mode === "create" && process.env.NODE_ENV !== "production" && (
-        <DevRandomFillButton onFill={handleDevRandomFill} />
-      )}
       <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-8">
 
         {/* ── Indicateur de complétude ── */}
