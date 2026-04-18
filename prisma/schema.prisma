@@ -59,8 +59,6 @@ model User {
   favorites       Favorite[]
   importDrafts    ImportDraft[]
   importJobs      ImportJob[]
-  pfsSyncJobs     PfsSyncJob[]
-  pfsPrepareJobs  PfsPrepareJob[]
   accessCodes     AccessCode[]
   activity        UserActivity?
   restockAlerts   RestockAlert[]
@@ -117,6 +115,7 @@ model Category {
   pfsCategoryId String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
   pfsGender     String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
   pfsFamilyId   String? // ID famille PFS (ex: "a035J00000185J7QAI")
+  pfsFamilyName String? // Nom lisible de la famille PFS (ex: "Bijoux_Fantaisie") — pour export Excel
   subCategories SubCategory[]
   products      Product[]
   translations  CategoryTranslation[]
@@ -167,7 +166,7 @@ model Color {
   name                String                 @unique
   hex                 String?
   patternImage        String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
-  pfsColorRef         String? // Référence couleur PFS (ex: "GOLDEN", "SILVER") — pour reverse sync
+  pfsColorRef         String? // Libellé PFS (ex: "Doré", "Noir") — pour export Excel marketplace
   createdAt           DateTime               @default(now())
   productColors       ProductColor[]
   colorImages         ProductColorImage[]
@@ -296,15 +295,6 @@ model ProductTag {
 model Product {
   id                     String                @id @default(cuid())
   reference              String                @unique
-  pfsProductId           String?               @unique // ID produit sur Paris Fashion Shop (ex: "pro_171bb9...")
-  pfsSyncStatus          String? // null=jamais sync, "synced"=OK, "pending"=en cours, "failed"=échec
-  pfsSyncError           String?               @db.Text // Dernier message d'erreur de sync PFS
-  pfsSyncedAt            DateTime? // Dernière sync réussie vers PFS
-  ankorsProductId        String?               @unique // UUID produit Ankorstore
-  ankorsMatchedAt        DateTime?             // Date du matching Ankorstore
-  ankorsSyncStatus       String? // null=jamais sync, "synced"=OK, "pending"=en cours, "failed"=echec
-  ankorsSyncError        String?               @db.Text // Dernier message d'erreur de sync Ankorstore
-  ankorsSyncedAt         DateTime? // Derniere sync reussie vers Ankorstore
   name                   String
   description            String                @db.Text
   categoryId             String
@@ -435,9 +425,6 @@ model ProductColor {
   stockMovements      StockMovement[]
   priceHistory        PriceHistory[]
   sku                 String?                @unique // SKU universel: {ref}_{couleurs}_{UNIT|PACK}_{index}
-  ankorsVariantId     String?                @unique // UUID variante Ankorstore
-  pfsColorRef         String? // Override couleur PFS pour variantes multi-couleur
-  pfsVariantId        String? // ID variant sur PFS — pour reverse sync
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
@@ -1211,117 +1198,6 @@ model TranslationQuota {
 }
 
 // ─────────────────────────────────────────────
-// PFS Sync (Paris Fashion Shop)
-// ─────────────────────────────────────────────
-
-enum PfsSyncStatus {
-  PENDING
-  ANALYZING
-  NEEDS_VALIDATION
-  RUNNING
-  COMPLETED
-  FAILED
-  STOPPED
-}
-
-model PfsSyncJob {
-  id                String        @id @default(cuid())
-  status            PfsSyncStatus @default(PENDING)
-  totalProducts     Int           @default(0)
-  processedProducts Int           @default(0)
-  createdProducts   Int           @default(0)
-  updatedProducts   Int           @default(0)
-  skippedProducts   Int           @default(0)
-  errorProducts     Int           @default(0)
-  lastPage          Int           @default(0) // for resume — last fully processed page
-  errorMessage      String?       @db.Text
-  errorDetails      Json? // per-product errors
-  failedReferences  Json? // references that failed image download (for retry)
-  logs              Json? // detailed sync logs for frontend display
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  adminId           String
-  admin             User          @relation(fields: [adminId], references: [id])
-
-  @@index([status])
-  @@index([createdAt])
-}
-
-// ─────────────────────────────────────────────
-// PFS Prepare — review before approval
-// ─────────────────────────────────────────────
-
-enum PfsStagedStatus {
-  PREPARING // Data/images en cours de téléchargement
-  READY // Prêt pour review admin
-  APPROVED // Approuvé — produit créé en DB
-  REJECTED // Refusé — images supprimées
-  ERROR // Erreur lors de la préparation
-}
-
-model PfsPrepareJob {
-  id                String             @id @default(cuid())
-  status            PfsSyncStatus      @default(PENDING)
-  totalProducts     Int                @default(0)
-  processedProducts Int                @default(0)
-  readyProducts     Int                @default(0)
-  errorProducts     Int                @default(0)
-  approvedProducts  Int                @default(0)
-  rejectedProducts  Int                @default(0)
-  lastPage          Int                @default(0)
-  errorMessage      String?            @db.Text
-  logs              Json?
-  analyzeResult     Json?
-  adminId           String
-  admin             User               @relation(fields: [adminId], references: [id])
-  stagedProducts    PfsStagedProduct[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-
-  @@index([status])
-  @@index([createdAt])
-}
-
-model PfsStagedProduct {
-  id                       String          @id @default(cuid())
-  prepareJobId             String
-  prepareJob               PfsPrepareJob   @relation(fields: [prepareJobId], references: [id], onDelete: Cascade)
-  pfsProductId             String
-  reference                String // Réf BJ (sans VS suffix)
-  pfsReference             String // Réf PFS originale
-  status                   PfsStagedStatus @default(PREPARING)
-  name                     String
-  description              String          @db.Text
-  categoryId               String
-  categoryName             String
-  subCategoryIds           Json? // string[] — IDs des sous-catégories
-  subCategoryNames         Json? // string[] — Noms des sous-catégories
-  isBestSeller             Boolean         @default(false)
-  variants                 Json // VariantData[]
-  compositions             Json // { compositionId, name, percentage }[]
-  translations             Json // { locale, name, description }[]
-  imagesByColor            Json // { colorRef, colorName, colorId, paths[] }[]
-  tags                     Json? // string[] — tag names
-  manufacturingCountryId   String?
-  manufacturingCountryName String?
-  seasonId                 String?
-  seasonName               String?
-  discountPercent          Decimal?        @db.Decimal(5, 2) // Remise produit en % (ex: 15.00 = -15%)
-  pfsProductStatus         String? // PFS status at import time (READY_FOR_SALE, DRAFT, etc.)
-  errorMessage             String?         @db.Text
-  existsInDb               Boolean         @default(false)
-  existingProductId        String?
-  differences              Json? // Array of { field, stagedValue, existingValue }
-  createdProductId         String? // Filled when product is approved and created in DB
-  createdAt                DateTime        @default(now())
-  updatedAt                DateTime        @updatedAt
-
-  @@unique([pfsProductId, prepareJobId])
-  @@index([prepareJobId, status])
-  @@index([reference])
-}
-
-// ─────────────────────────────────────────────
 // Informations société (configurable par l'admin)
 // ─────────────────────────────────────────────
 
@@ -1384,20 +1260,6 @@ model LegalDocumentVersion {
   createdAt           DateTime      @default(now())
 
   @@index([documentId, createdAt])
-}
-
-// PFS name → BJ entity mapping (remembered across syncs)
-model PfsMapping {
-  id         String   @id @default(cuid())
-  type       String // "category" | "color" | "composition"
-  pfsName    String // original PFS name (normalized lowercase)
-  bjEntityId String // BJ entity id (Category.id, Color.id, Composition.id)
-  bjName     String // BJ entity name (for display)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([type, pfsName])
-  @@index([type])
 }
 
 // ─────────────────────────────────────────────

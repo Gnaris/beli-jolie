@@ -140,17 +140,8 @@ async function main() {
   const importJobs = await prisma.importJob.deleteMany();
   console.log(`  ImportJob                      : ${importJobs.count}`);
 
-  const pfsStagedProducts = await prisma.pfsStagedProduct.deleteMany();
-  console.log(`  PfsStagedProduct               : ${pfsStagedProducts.count}`);
-
-  const pfsPrepareJobs = await prisma.pfsPrepareJob.deleteMany();
-  console.log(`  PfsPrepareJob                  : ${pfsPrepareJobs.count}`);
-
-  const pfsSyncJobs = await prisma.pfsSyncJob.deleteMany();
-  console.log(`  PfsSyncJob                     : ${pfsSyncJobs.count}`);
-
-  const pfsMappings = await prisma.pfsMapping.deleteMany();
-  console.log(`  PfsMapping                     : ${pfsMappings.count}`);
+  // PFS reverse-sync tables (PfsStagedProduct, PfsPrepareJob, PfsSyncJob, PfsMapping)
+  // were removed when the manual Excel flow replaced the live sync.
 
   // ── Attributes ──
   const colorTranslations = await prisma.colorTranslation.deleteMany();

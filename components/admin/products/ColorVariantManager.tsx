@@ -54,8 +54,9 @@ export interface VariantState {
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: string;    // Quantité par paquet (PACK only)
-  // PFS color override for multi-color variants (single-color uses Color.pfsColorRef)
-  pfsColorRef: string;
+  // PFS color override for multi-color variants — retained in the UI state but
+  // no longer persisted. Populated for backwards compatibility with legacy UI.
+  pfsColorRef?: string;
   // SKU auto-généré: {ref}_{couleurs}_{UNIT|PACK}_{index}
   sku: string;
 }

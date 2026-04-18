@@ -29,6 +29,7 @@ interface Props {
     pfs: MarkupState;
     ankorstoreWholesale: MarkupState;
     ankorstoreRetail: MarkupState;
+    ankorstoreVatRate: number;
   };
 }
 
@@ -208,6 +209,7 @@ export default function MarketplaceConfig({
   const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
   const [ankorsWholesaleMarkup, setAnkorsWholesaleMarkup] = useState<MarkupState>(markupSettings.ankorstoreWholesale);
   const [ankorsRetailMarkup, setAnkorsRetailMarkup] = useState<MarkupState>(markupSettings.ankorstoreRetail);
+  const [ankorstoreVatRate, setAnkorstoreVatRate] = useState<number>(markupSettings.ankorstoreVatRate);
   const [isSavingMarkup, startSavingMarkup] = useTransition();
 
   const toast = useToast();
@@ -353,6 +355,7 @@ export default function MarketplaceConfig({
           pfs: pfsMarkup,
           ankorstoreWholesale: ankorsWholesaleMarkup,
           ankorstoreRetail: ankorsRetailMarkup,
+          ankorstoreVatRate,
         });
         if (result.success) {
           toast.success("Enregistré", "Majorations marketplace sauvegardées.");
@@ -566,6 +569,21 @@ export default function MarketplaceConfig({
             <p className="font-body text-xs text-text-secondary mb-2">Majorations prix</p>
             <MarkupRow label="Prix wholesale (gros)" state={ankorsWholesaleMarkup} onChange={setAnkorsWholesaleMarkup} />
             <MarkupRow label="Prix retail (détail)" state={ankorsRetailMarkup} onChange={setAnkorsRetailMarkup} />
+            <div className="flex items-center gap-3">
+              <label className="font-body text-xs text-text-secondary w-40">Taux de TVA (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={ankorstoreVatRate}
+                onChange={(e) => setAnkorstoreVatRate(Number(e.target.value))}
+                className="h-9 w-24 px-3 rounded-lg border border-border bg-bg-primary text-sm font-body"
+              />
+              <span className="font-body text-[11px] text-text-muted">
+                Appliqué au prix de détail TTC dans l&apos;export Excel Ankorstore
+              </span>
+            </div>
           </div>
         </div>
       </div>

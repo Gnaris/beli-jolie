@@ -8,139 +8,19 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
-import { emitProductEvent, type MarketplaceSyncProgress } from "@/lib/product-events";
-import { pfsUpdateStatus, pfsDeleteProduct, type PfsStatus } from "@/lib/pfs-api-write";
-import { triggerPfsSync } from "@/lib/pfs-reverse-sync";
+import { emitProductEvent } from "@/lib/product-events";
+import { pfsDeleteProduct } from "@/lib/pfs-api-write";
+import { pfsCheckReference } from "@/lib/pfs-api";
+import { ankorstoreDeleteProduct } from "@/lib/ankorstore-api-write";
+import { ankorstoreSearchProductsByRef } from "@/lib/ankorstore-api";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { generateSku } from "@/lib/sku";
 import { deleteMultipleFromR2, r2KeyFromDbPath } from "@/lib/r2";
 import { getImagePaths } from "@/lib/image-utils";
-import { ankorstorePatchVariants, type AnkorstoreVariantDiff } from "@/app/actions/admin/ankorstore";
 
-/**
- * Fire-and-forget: push product to Ankorstore.
- * If forceCreate=false (default), only syncs products already linked (ankorsProductId exists).
- * If forceCreate=true, always pushes (used on product creation).
- *
- * Uses pushProductToAnkorstoreInternal (no auth check) because fire-and-forget
- * runs outside the request context where getServerSession() is unavailable.
- */
-function emitAnkors(productId: string, p: Omit<MarketplaceSyncProgress, "marketplace">) {
-  emitProductEvent({ type: "MARKETPLACE_SYNC", productId, marketplaceSync: { marketplace: "ankorstore", ...p } });
-}
-
-function triggerAnkorstoreSync(productId: string, forceCreate = false, skipRevalidation = false) {
-  logger.info("[Ankorstore] triggerAnkorstoreSync called", { productId, forceCreate });
-  emitAnkors(productId, { step: "Vérification de la configuration...", progress: 0, status: "in_progress" });
-
-  // Check if Ankorstore is enabled, then push
-  import("@/lib/cached-data").then(({ getCachedSiteConfig }) =>
-    getCachedSiteConfig("ankors_enabled").then((cfg) => {
-      logger.info("[Ankorstore] ankors_enabled config", { value: cfg?.value });
-      if (cfg?.value !== "true") {
-        emitAnkors(productId, { step: "Ankorstore désactivé", progress: 100, status: "success" });
-        return;
-      }
-
-      if (forceCreate) {
-        // New product → always push (auto-detects import vs update)
-        // If product is OFFLINE, push with zeroStock so it appears out-of-stock on Ankorstore
-        logger.info("[Ankorstore] Importing pushProductToAnkorstoreInternal", { productId });
-        emitAnkors(productId, { step: "Préparation du produit...", progress: 10, status: "in_progress" });
-        import("@/app/actions/admin/ankorstore").then(async ({ pushProductToAnkorstoreInternal }) => {
-          const prodStatus = await prisma.product.findUnique({
-            where: { id: productId },
-            select: { status: true },
-          });
-          const isOffline = prodStatus?.status === "OFFLINE";
-          logger.info("[Ankorstore] Calling pushProductToAnkorstoreInternal", { productId, zeroStock: isOffline });
-          emitAnkors(productId, { step: "Envoi vers Ankorstore...", progress: 30, status: "in_progress" });
-          return pushProductToAnkorstoreInternal(productId, undefined, { skipRevalidation, forceCreate, zeroStock: isOffline }).then((result) => {
-            logger.info("[Ankorstore] Auto-sync result", { productId, result });
-            if (result.success) {
-              emitAnkors(productId, { step: "Publication terminée", progress: 100, status: "success" });
-            } else {
-              emitAnkors(productId, { step: "Erreur de publication", progress: 100, status: "error", error: result.error });
-            }
-          }).catch(async (err) => {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            logger.warn("[Ankorstore] Auto-sync failed", { productId, error: errMsg });
-            emitAnkors(productId, { step: "Erreur de publication", progress: 100, status: "error", error: errMsg });
-            // Persist error
-            await prisma.product.update({
-              where: { id: productId },
-              data: { ankorsSyncStatus: "failed", ankorsSyncError: errMsg.slice(0, 5000) },
-            }).catch(() => {});
-          });
-        });
-        return;
-      }
-
-      // Existing product → only push if already linked
-      prisma.product.findUnique({
-        where: { id: productId },
-        select: { ankorsProductId: true, status: true },
-      }).then(async (prod) => {
-        if (!prod?.ankorsProductId) {
-          emitAnkors(productId, { step: "Produit non lié", progress: 100, status: "success" });
-          return;
-        }
-
-        // OFFLINE → patch each variant stock to 0 (lightweight, no full push)
-        if (prod.status === "OFFLINE") {
-          emitAnkors(productId, { step: "Mise en rupture sur Ankorstore...", progress: 30, status: "in_progress" });
-          const variants = await prisma.productColor.findMany({
-            where: { productId, ankorsVariantId: { not: null } },
-            select: { ankorsVariantId: true },
-          });
-          if (variants.length === 0) {
-            emitAnkors(productId, { step: "Aucune variante liée", progress: 100, status: "success" });
-            return;
-          }
-          const { ankorstoreUpdateVariantStock } = await import("@/lib/ankorstore-api-write");
-          const errors: string[] = [];
-          for (const v of variants) {
-            const res = await ankorstoreUpdateVariantStock(v.ankorsVariantId!, 0);
-            if (!res.success) errors.push(res.error || "unknown");
-          }
-          if (errors.length === 0) {
-            emitAnkors(productId, { step: "Stock mis à 0 sur Ankorstore", progress: 100, status: "success" });
-          } else {
-            emitAnkors(productId, { step: "Erreur mise en rupture", progress: 100, status: "error", error: errors.join("; ") });
-          }
-          return;
-        }
-
-        emitAnkors(productId, { step: "Envoi vers Ankorstore...", progress: 30, status: "in_progress" });
-        const { pushProductToAnkorstoreInternal } = await import("@/app/actions/admin/ankorstore");
-        const result = await pushProductToAnkorstoreInternal(productId, undefined, { skipRevalidation });
-        if (result.success) {
-          emitAnkors(productId, { step: "Publication terminée", progress: 100, status: "success" });
-        } else {
-          emitAnkors(productId, { step: "Erreur de publication", progress: 100, status: "error", error: result.error });
-        }
-      }).catch(async (err) => {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        logger.error("[Ankorstore] Product sync failed", { productId, error: errMsg });
-        emitAnkors(productId, { step: "Erreur de synchronisation", progress: 100, status: "error", error: errMsg });
-        await prisma.product.update({
-          where: { id: productId },
-          data: { ankorsSyncStatus: "failed", ankorsSyncError: errMsg.slice(0, 5000) },
-        }).catch(() => {});
-      });
-    })
-  ).catch(async (err) => {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    logger.error("[Ankorstore] triggerAnkorstoreSync chain failed", { productId, error: errMsg });
-    emitAnkors(productId, { step: "Erreur de publication", progress: 100, status: "error", error: errMsg });
-    // Persist error
-    await prisma.product.update({
-      where: { id: productId },
-      data: { ankorsSyncStatus: "failed", ankorsSyncError: errMsg.slice(0, 5000) },
-    }).catch(() => {});
-  });
-}
-
+// Legacy sync functions intentionally removed — Create/Update on marketplaces is now
+// handled via manual Excel upload (lib/marketplace-excel). Only DELETE remains automated,
+// and it fetches the remote product ID via search (ref) at call time.
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") {
@@ -176,7 +56,6 @@ export interface ColorInput {
   packQuantity: number | null;
   sizeEntries: SizeEntryInput[];         // Tailles avec quantités
   packColorLines: PackColorLineInput[];  // PACK: lignes de couleur
-  pfsColorRef?: string | null; // Override PFS color for multi-color variants
 }
 
 export interface CompositionInput {
@@ -215,8 +94,6 @@ export interface ProductInput {
   translations?: TranslationInput[];
   discountPercent: number | null; // Remise en % (ex: 15 = -15%). null = pas de remise
   isIncomplete?: boolean;
-  skipPfsSync?: boolean;
-  skipAnkorstoreSync?: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -363,6 +240,9 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   // Skip strict variant validation for incomplete products
   if (!input.isIncomplete) {
     validateVariants(input.colors);
+    if (input.description.trim().length < 30) {
+      throw new Error("La description doit faire au moins 30 caractères (requis pour Ankorstore).");
+    }
   }
 
   if (/\s/.test(input.reference)) throw new Error("La référence ne doit pas contenir d'espaces.");
@@ -440,7 +320,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         isPrimary:     color.isPrimary || i === 0,
         saleType:      color.saleType,
         packQuantity:  color.packQuantity,
-        pfsColorRef:   color.pfsColorRef || null,
         subColors: color.subColorIds && color.subColorIds.length > 0
           ? { create: color.subColorIds.map((scId, pos) => ({ colorId: scId, position: pos })) }
           : undefined,
@@ -604,30 +483,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
 
-  // Mark sync status as pending BEFORE firing background tasks
-  // so the edit page knows a sync is in progress and doesn't show "not published"
-  const willSyncPfs = !input.isIncomplete && !input.skipPfsSync;
-  const willSyncAnkorstore = !input.isIncomplete && !input.skipAnkorstoreSync;
-
-  if (willSyncPfs || willSyncAnkorstore) {
-    await prisma.product.update({
-      where: { id: product.id },
-      data: {
-        ...(willSyncPfs && { pfsSyncStatus: "pending" }),
-        ...(willSyncAnkorstore && { ankorsSyncStatus: "pending" }),
-      },
-    });
-  }
-
-  // Fire-and-forget sync to PFS (skip drafts and explicitly skipped)
-  if (willSyncPfs) {
-    triggerPfsSync(product.id, { forceCreate: true });
-  }
-
-  // Fire-and-forget push to Ankorstore (creates the product with all variants)
-  if (willSyncAnkorstore) {
-    triggerAnkorstoreSync(product.id, true);
-  }
+  // Marketplace publishing is no longer automatic — the admin generates an Excel
+  // archive from /admin/produits and uploads it to PFS / Ankorstore manually.
 
   return { id: product.id };
 }
@@ -648,6 +505,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   // Skip strict validation for incomplete products (variants, description, etc.)
   if (!input.isIncomplete) {
     if (!input.description?.trim()) throw new Error("La description est requise.");
+    if (input.description.trim().length < 30) {
+      throw new Error("La description doit faire au moins 30 caractères (requis pour Ankorstore).");
+    }
     if (!input.colors || input.colors.length === 0) {
       throw new Error("Au moins une variante est requise.");
     }
@@ -659,8 +519,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     select: {
       status: true,
       isBestSeller: true,
-      pfsProductId: true,
-      ankorsProductId: true,
       name: true,
       description: true,
       categoryId: true,
@@ -752,7 +610,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
 
     const existingVariants = await tx.productColor.findMany({
       where: { productId: id },
-      select: { id: true, stock: true, unitPrice: true, ankorsVariantId: true, saleType: true, packQuantity: true,
+      select: { id: true, stock: true, unitPrice: true, saleType: true, packQuantity: true,
         variantSizes: { select: { quantity: true } } },
     });
     const existingIds = existingVariants.map((v) => v.id);
@@ -760,7 +618,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     const oldVariantMap = new Map(existingVariants.map((v) => [v.id, {
       stock: v.stock,
       unitPrice: Number(v.unitPrice ?? 0),
-      ankorsVariantId: v.ankorsVariantId,
       saleType: v.saleType as "UNIT" | "PACK",
       packQuantity: v.packQuantity,
       totalPackQty: v.variantSizes?.reduce((s: number, vs: { quantity: number }) => s + vs.quantity, 0) || (v.packQuantity ?? 12),
@@ -800,7 +657,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             isPrimary:     colorInput.isPrimary,
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
-            pfsColorRef:   colorInput.pfsColorRef || null,
           },
         });
         variantIdMap.push({ colorInput, variantId: colorInput.dbId });
@@ -816,7 +672,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             isPrimary:     colorInput.isPrimary,
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
-            pfsColorRef:   colorInput.pfsColorRef || null,
           },
         });
         variantIdMap.push({ colorInput, variantId: created.id });
@@ -1060,73 +915,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
   }
 
-  // PFS best seller sync (only when the checkbox was actually toggled)
-  if (oldProduct?.pfsProductId && oldProduct.isBestSeller !== input.isBestSeller) {
-    const starStatus: PfsStatus = input.isBestSeller ? "STAR" : "REMOVE_STAR";
-    pfsUpdateStatus([{ id: oldProduct.pfsProductId, status: starStatus }]).catch((err) => {
-      logger.warn(`[PFS] Best seller sync failed for product ${id}`, { error: err });
-    });
-  }
-
-  // Fire-and-forget sync to PFS (skip drafts and explicitly skipped)
-  if (!input.isIncomplete && !input.skipPfsSync) {
-    triggerPfsSync(id);
-  }
-
-  // Fire-and-forget sync to Ankorstore
-  // skipRevalidation=true: updateProduct already revalidated above
-  if (!input.isIncomplete && !input.skipAnkorstoreSync && oldProduct?.ankorsProductId) {
-    // Detect if only variant-level fields changed (stock/price)
-    const productLevelChanged =
-      oldProduct.name !== input.name.trim() ||
-      oldProduct.description !== (input.description?.trim() || "") ||
-      oldProduct.categoryId !== input.categoryId ||
-      oldProduct.manufacturingCountryId !== (input.manufacturingCountryId || null) ||
-      oldProduct.seasonId !== (input.seasonId || null) ||
-      oldProduct.dimensionLength !== (input.dimensionLength ?? null) ||
-      oldProduct.dimensionWidth !== (input.dimensionWidth ?? null) ||
-      oldProduct.dimensionHeight !== (input.dimensionHeight ?? null) ||
-      // Variant count changed (added/removed variants)
-      input.colors.length !== oldVariantMap.size;
-
-    if (productLevelChanged) {
-      // Full push (existing behavior)
-      triggerAnkorstoreSync(id, false, true);
-    } else {
-      // Granular patch: only stock/price changes
-      const diffs: AnkorstoreVariantDiff[] = [];
-      for (const c of input.colors) {
-        if (!c.dbId) continue; // New variant = must full push (already caught by count check)
-        const old = oldVariantMap.get(c.dbId);
-        if (!old?.ankorsVariantId) continue; // Not synced to Ankorstore
-
-        const stockChanged = old.stock !== c.stock;
-        const priceChanged = old.unitPrice !== c.unitPrice;
-
-        if (stockChanged || priceChanged) {
-          diffs.push({
-            variantDbId: c.dbId,
-            ankorsVariantId: old.ankorsVariantId,
-            stockChanged,
-            newStock: c.stock,
-            priceChanged,
-            newUnitPrice: c.unitPrice,
-            saleType: old.saleType,
-            packQuantity: old.packQuantity,
-            totalPackQty: old.totalPackQty,
-          });
-        }
-      }
-
-      if (diffs.length > 0) {
-        ankorstorePatchVariants(id, diffs).catch((err) => {
-          logger.error("[Ankorstore] Granular patch failed, will retry on next refresh", {
-            productId: id, error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
-    }
-  }
+  // Marketplace republication is no longer automatic on edit.
+  // The admin must regenerate the marketplace Excel archive and re-upload manually.
+  // oldVariantMap retained above is unused after this simplification.
+  void oldVariantMap;
 }
 
 // ─────────────────────────────────────────────
@@ -1138,7 +930,7 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
 
   const product = await prisma.product.findUnique({
     where: { id: productId },
-    select: { isBestSeller: true, pfsProductId: true },
+    select: { isBestSeller: true },
   });
   if (!product) return { success: false, error: "Produit introuvable." };
   if (product.isBestSeller === isBestSeller) return { success: true };
@@ -1150,13 +942,6 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
 
   revalidateTag("products", "default");
   emitProductEvent({ type: "BESTSELLER_CHANGED", productId });
-
-  if (product.pfsProductId) {
-    const starStatus: PfsStatus = isBestSeller ? "STAR" : "REMOVE_STAR";
-    pfsUpdateStatus([{ id: product.pfsProductId, status: starStatus }]).catch((err) => {
-      logger.warn(`[PFS] Best seller sync failed for product ${productId}`, { error: err });
-    });
-  }
 
   return { success: true };
 }
@@ -1178,23 +963,7 @@ export async function deleteProduct(
     where: { id },
     select: {
       reference: true,
-      pfsProductId: true,
-      ankorsProductId: true,
-      colors: {
-        select: {
-          sku: true,
-          saleType: true,
-          packQuantity: true,
-          color: { select: { name: true } },
-          packColorLines: {
-            select: { colors: { select: { color: { select: { name: true } } }, orderBy: { position: "asc" } } },
-            orderBy: { position: "asc" },
-          },
-          variantSizes: {
-            select: { size: { select: { name: true } } },
-          },
-        },
-      },
+      colors: { select: { sku: true } },
     },
   });
   if (!product) throw new Error("Produit introuvable.");
@@ -1208,14 +977,14 @@ export async function deleteProduct(
 
   const marketplaceErrors: { marketplace: string; error: string }[] = [];
 
-  // Delete from PFS if requested and product is synced — check existence first
-  if (deleteFromPfs && product.pfsProductId && !forceLocalDelete) {
+  // Delete from PFS — look up the remote product ID by reference (no longer stored locally)
+  if (deleteFromPfs && !forceLocalDelete) {
     try {
-      const { pfsCheckReference } = await import("@/lib/pfs-api");
-      const exists = await pfsCheckReference(product.reference).catch(() => null);
-      if (exists) {
-        await pfsDeleteProduct(product.pfsProductId);
-        logger.info(`[PFS] Product ${id} deleted from PFS (${product.pfsProductId})`);
+      const pfsRef = await pfsCheckReference(product.reference).catch(() => null);
+      const remoteId = pfsRef?.product?.id;
+      if (remoteId) {
+        await pfsDeleteProduct(remoteId);
+        logger.info(`[PFS] Product ${id} deleted from PFS`, { reference: product.reference, remoteId });
       } else {
         logger.info(`[PFS] Product ${id} not found on PFS, skipping delete`, { reference: product.reference });
       }
@@ -1226,26 +995,19 @@ export async function deleteProduct(
     }
   }
 
-  // Delete from Ankorstore if requested — fire-and-forget via callback webhook
+  // Delete from Ankorstore — search by reference, fire-and-forget
   if (deleteFromAnkorstore && !forceLocalDelete) {
     try {
-      const { ankorstoreSearchVariants } = await import("@/lib/ankorstore-api");
-      const { ankorstoreDeleteProduct } = await import("@/lib/ankorstore-api-write");
-
-      // Search Ankorstore for variants matching this product reference
-      const ankorsVariants = await ankorstoreSearchVariants({ skuOrName: product.reference });
-      const skus = ankorsVariants
-        .map((v) => v.sku)
-        .filter((s): s is string => !!s && s.startsWith(product.reference));
-
-      if (skus.length === 0) {
-        logger.info("[Ankorstore] No variants found on Ankorstore, skipping delete", { reference: product.reference });
+      const remoteProducts = await ankorstoreSearchProductsByRef(product.reference);
+      if (remoteProducts.length === 0) {
+        logger.info("[Ankorstore] Product not found on Ankorstore, skipping delete", { reference: product.reference });
       } else {
-        // Starts delete operation and returns immediately — callback handles result
-        const result = await ankorstoreDeleteProduct(product.reference, skus, id);
+        const remote = remoteProducts[0];
+        const skus = remote.variants
+          .map((v) => v.sku)
+          .filter((s): s is string => !!s && s.startsWith(product.reference));
+        const result = await ankorstoreDeleteProduct(remote.id, skus);
         if (!result.success) {
-          // Failed to even start the operation
-          logger.warn("[Ankorstore] Delete failed to start", { id, reference: product.reference, error: result.error });
           marketplaceErrors.push({ marketplace: "Ankorstore", error: result.error ?? "Échec de suppression" });
         } else {
           logger.info("[Ankorstore] Delete operation started", { id, reference: product.reference, opId: result.opId });
@@ -1306,36 +1068,22 @@ export async function deleteProduct(
 
 export async function archiveProduct(id: string) {
   await requireAdmin();
-  const product = await prisma.product.findUnique({ where: { id }, select: { pfsProductId: true } });
   await prisma.product.update({ where: { id }, data: { status: "ARCHIVED" } });
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
-  if (product?.pfsProductId) {
-    pfsUpdateStatus([{ id: product.pfsProductId, status: "ARCHIVED" }]).catch((err) => {
-      logger.warn(`[PFS] Archive status sync failed for product ${id}`, { error: err });
-    });
-  }
-  // No triggerPfsSync — pfsUpdateStatus already handles the status change
-  triggerAnkorstoreSync(id);
+  // Marketplace status is no longer sync'd automatically — admin must regenerate
+  // and re-upload the Excel archive (or delete the product from the marketplace).
 }
 
 export async function unarchiveProduct(id: string) {
   await requireAdmin();
-  const product = await prisma.product.findUnique({ where: { id }, select: { pfsProductId: true } });
   await prisma.product.update({ where: { id }, data: { status: "OFFLINE" } });
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
-  if (product?.pfsProductId) {
-    pfsUpdateStatus([{ id: product.pfsProductId, status: "DRAFT" }]).catch((err) => {
-      logger.warn(`[PFS] Unarchive status sync failed for product ${id}`, { error: err });
-    });
-  }
-  triggerPfsSync(id);
-  triggerAnkorstoreSync(id);
 }
 
 // ─────────────────────────────────────────────
@@ -1418,33 +1166,7 @@ export async function bulkUpdateProductStatus(
     }
   }
 
-  // Sync status to PFS for linked products
-  const pfsStatusMap: Record<string, PfsStatus> = {
-    ONLINE: "READY_FOR_SALE",
-    OFFLINE: "DRAFT",
-    ARCHIVED: "ARCHIVED",
-  };
-  const pfsStatus = pfsStatusMap[status];
-  if (pfsStatus) {
-    const pfsUpdates = products
-      .filter((p) => success.includes(p.id) && p.pfsProductId && p.status !== status)
-      .map((p) => ({ id: p.pfsProductId!, status: pfsStatus }));
-    if (pfsUpdates.length > 0) {
-      pfsUpdateStatus(pfsUpdates).catch((err) => {
-        logger.warn("[PFS] Bulk status sync failed", { error: err });
-      });
-    }
-  }
-
-  // Fire-and-forget sync to Ankorstore for each updated product
-  // skipRevalidation=true because we already called revalidateTag("products", "default") above
-  // PFS: only full sync for ONLINE (status already set via pfsUpdateStatus above for OFFLINE/ARCHIVED)
-  for (const pid of success) {
-    if (status === "ONLINE") {
-      triggerPfsSync(pid);
-    }
-    triggerAnkorstoreSync(pid, false, true);
-  }
+  // Marketplace status is no longer sync'd automatically — admin re-generates Excel.
 
   return { success, errors };
 }
@@ -1467,7 +1189,7 @@ export async function bulkDeleteProducts(
   // Find products with orders — cannot be deleted
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
-    select: { id: true, reference: true, pfsProductId: true, ankorsProductId: true, colors: { select: { sku: true } } },
+    select: { id: true, reference: true, colors: { select: { sku: true } } },
   });
 
   const refToId = new Map(products.map((p) => [p.reference, p.id]));
@@ -1491,92 +1213,45 @@ export async function bulkDeleteProducts(
     return prod && !protectedRefs.has(prod.reference);
   });
 
-  // Emit marketplace sync events for protected products (they won't be deleted)
-  for (const pp of protectedProducts) {
-    if (deleteFromPfs) {
-      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: pp.id, marketplaceSync: { marketplace: "pfs", step: "Protégé (commandes)", progress: 100, status: "success" } });
-    }
-    if (deleteFromAnkorstore) {
-      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: pp.id, marketplaceSync: { marketplace: "ankorstore", step: "Protégé (commandes)", progress: 100, status: "success" } });
-    }
-  }
-
-  // Track marketplace errors
+  // Track marketplace errors (search-based delete — no stored IDs anymore)
   const marketplaceErrors: { productId: string; reference: string; marketplace: string; error: string }[] = [];
-
-  // Delete from PFS if requested (skip if forceLocalDelete)
   let pfsDeleted = 0;
+  let ankorsDeleted = 0;
+
   if (deleteFromPfs && deletableIds.length > 0 && !forceLocalDelete) {
-    const pfsProducts = products.filter((p) => deletableIds.includes(p.id) && p.pfsProductId);
-    const nonPfsProducts = products.filter((p) => deletableIds.includes(p.id) && !p.pfsProductId);
-    // Products not linked to PFS — emit immediate success
-    for (const p of nonPfsProducts) {
-      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Non lié à PFS", progress: 100, status: "success" } });
-    }
-    const { pfsCheckReference } = await import("@/lib/pfs-api");
-    for (const p of pfsProducts) {
-      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Suppression de PFS...", progress: 30, status: "in_progress" } });
+    for (const p of products.filter((x) => deletableIds.includes(x.id))) {
       try {
-        const exists = await pfsCheckReference(p.reference).catch(() => null);
-        if (exists) {
-          await pfsDeleteProduct(p.pfsProductId!);
+        const pfsRef = await pfsCheckReference(p.reference).catch(() => null);
+        const remoteId = pfsRef?.product?.id;
+        if (remoteId) {
+          await pfsDeleteProduct(remoteId);
           pfsDeleted++;
-          logger.info(`[PFS] Product ${p.id} deleted from PFS (${p.pfsProductId})`);
-          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Supprimé de PFS", progress: 100, status: "success" } });
-        } else {
-          logger.info(`[PFS] Product ${p.id} not found on PFS, skipping delete`, { reference: p.reference });
-          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Aucune action requise", progress: 100, status: "success" } });
+          logger.info(`[PFS] Product ${p.id} deleted`, { reference: p.reference, remoteId });
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        logger.error(`[PFS] Failed to delete product ${p.id} from PFS`, { error: errMsg });
-        emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "pfs", step: "Erreur de suppression", progress: 100, status: "error", error: errMsg } });
+        logger.error(`[PFS] Failed to delete product ${p.id}`, { error: errMsg });
         marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Paris Fashion Shop", error: errMsg });
       }
     }
   }
 
-  // Delete from Ankorstore if requested and products are linked (skip if forceLocalDelete)
-  let ankorsDeleted = 0;
   if (deleteFromAnkorstore && deletableIds.length > 0 && !forceLocalDelete) {
-    const ankorsProducts = products.filter((p) => deletableIds.includes(p.id) && p.ankorsProductId);
-    const nonAnkorsProducts = products.filter((p) => deletableIds.includes(p.id) && !p.ankorsProductId);
-    // Products not linked to Ankorstore — emit immediate success
-    for (const p of nonAnkorsProducts) {
-      emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Non lié à Ankorstore", progress: 100, status: "success" } });
-    }
-    if (ankorsProducts.length > 0) {
-      const { ankorstoreSearchVariants } = await import("@/lib/ankorstore-api");
-      const { ankorstoreDeleteProduct } = await import("@/lib/ankorstore-api-write");
-      for (const p of ankorsProducts) {
-        emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Suppression d'Ankorstore...", progress: 30, status: "in_progress" } });
-        try {
-          // Fetch real SKUs from Ankorstore API
-          const ankorsVariants = await ankorstoreSearchVariants({ skuOrName: p.reference });
-          const skus = ankorsVariants
-            .map((v) => v.sku)
-            .filter((s): s is string => !!s && s.startsWith(p.reference));
-
-          if (skus.length === 0) {
-            logger.info("[Ankorstore] No variants found on Ankorstore, skipping delete", { reference: p.reference });
-            emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Aucune action requise", progress: 100, status: "success" } });
-            continue;
-          }
-          // Fire-and-forget — callback webhook handles the result + SSE events
-          const result = await ankorstoreDeleteProduct(p.reference, skus, p.id);
-          if (result.success) {
-            ankorsDeleted++;
-            emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Suppression en cours...", progress: 50, status: "in_progress" } });
-          } else {
-            emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Erreur de suppression", progress: 100, status: "error", error: result.error } });
-            marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Ankorstore", error: result.error || "Échec" });
-          }
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          logger.warn("[Ankorstore] Bulk delete failed", { ref: p.reference, error: errMsg });
-          emitProductEvent({ type: "MARKETPLACE_SYNC", productId: p.id, marketplaceSync: { marketplace: "ankorstore", step: "Erreur de suppression", progress: 100, status: "error", error: errMsg } });
-          marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Ankorstore", error: errMsg });
-        }
+    for (const p of products.filter((x) => deletableIds.includes(x.id))) {
+      try {
+        const remoteProducts = await ankorstoreSearchProductsByRef(p.reference);
+        if (remoteProducts.length === 0) continue;
+        const remote = remoteProducts[0];
+        const skus = remote.variants
+          .map((v) => v.sku)
+          .filter((s): s is string => !!s && s.startsWith(p.reference));
+        const result = await ankorstoreDeleteProduct(remote.id, skus);
+        if (result.success) ankorsDeleted++;
+        else marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Ankorstore", error: result.error || "Échec" });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.warn("[Ankorstore] Bulk delete failed", { ref: p.reference, error: errMsg });
+        marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Ankorstore", error: errMsg });
       }
     }
   }
@@ -1651,7 +1326,7 @@ export async function updateVariantQuick(
 
   const variant = await prisma.productColor.findUnique({
     where: { id: variantId },
-    select: { productId: true, stock: true, ankorsVariantId: true },
+    select: { productId: true, stock: true },
   });
   if (!variant) throw new Error("Variante introuvable.");
 
@@ -1668,22 +1343,7 @@ export async function updateVariantQuick(
   revalidatePath("/admin/produits");
   revalidatePath(`/produits/${variant.productId}`);
   emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
-
-  triggerPfsSync(variant.productId);
-
-  // Sync stock to Ankorstore if variant is linked
-  if (data.stock != null && variant.ankorsVariantId) {
-    import("@/lib/ankorstore-api-write")
-      .then(({ ankorstoreUpdateVariantStock }) =>
-        ankorstoreUpdateVariantStock(variant.ankorsVariantId!, data.stock!)
-      )
-      .catch((err) =>
-        logger.warn("[Ankorstore] Stock sync failed for variant %s", {
-          variantId,
-          error: err instanceof Error ? err.message : String(err),
-        })
-      );
-  }
+  // Marketplace stock sync removed — re-export Excel to update marketplaces.
 }
 
 // ─────────────────────────────────────────────
@@ -1702,7 +1362,7 @@ export async function updateProductDiscount(
 
   const product = await prisma.product.findUnique({
     where: { id: productId },
-    select: { id: true, pfsProductId: true, ankorsProductId: true },
+    select: { id: true },
   });
   if (!product) return { success: false, error: "Produit introuvable." };
 
@@ -1713,10 +1373,6 @@ export async function updateProductDiscount(
 
   revalidateTag("products", "default");
   emitProductEvent({ type: "PRODUCT_UPDATED", productId });
-
-  // Fire-and-forget marketplace syncs
-  triggerPfsSync(productId);
-  triggerAnkorstoreSync(productId);
 
   return { success: true };
 }
@@ -1762,7 +1418,6 @@ export async function bulkUpdateVariants(
   for (const pid of productIds) {
     revalidatePath(`/produits/${pid}`);
     emitProductEvent({ type: "STOCK_CHANGED", productId: pid });
-    triggerPfsSync(pid);
   }
 
   return { updated: variants.length };
@@ -1923,23 +1578,6 @@ export async function revalidateAfterImport() {
 }
 
 /**
- * Mark a marketplace sync as "pending" in DB immediately.
- * Called from banners before firing the actual sync, so navigating away shows correct status.
- */
-export async function markMarketplaceSyncPending(
-  productId: string,
-  marketplace: "pfs" | "ankorstore",
-): Promise<void> {
-  await requireAdmin();
-  await prisma.product.update({
-    where: { id: productId },
-    data: marketplace === "pfs"
-      ? { pfsSyncStatus: "pending", pfsSyncError: null }
-      : { ankorsSyncStatus: "pending", ankorsSyncError: null },
-  });
-}
-
-/**
  * Get detailed product statistics for the admin product stats tab.
  */
 export async function fetchProductFormAttributes() {
@@ -1951,7 +1589,7 @@ export async function fetchProductFormAttributes() {
     }),
     prisma.color.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
+      select: { id: true, name: true, hex: true, patternImage: true },
     }),
     prisma.composition.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -1967,7 +1605,7 @@ export async function fetchProductFormAttributes() {
   ]);
   return {
     categories,
-    colors: colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage, pfsColorRef: c.pfsColorRef })),
+    colors: colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage })),
     compositions,
     tags,
     manufacturingCountries,

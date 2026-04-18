@@ -12,13 +12,8 @@ import {
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
-import { usePfsRefresh } from "@/components/admin/pfs/PfsRefreshContext";
-import { useAnkorstoreRefresh } from "@/components/admin/ankorstore/AnkorstoreRefreshContext";
-import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import { useProductStream } from "@/hooks/useProductStream";
-import ImportProgressBanner from "@/components/admin/products/ImportProgressBanner";
-import { SyncStatusDot } from "@/components/admin/products/SyncStatusBadge";
-import type { MarketplaceId } from "@/lib/product-events";
+import MarketplaceExportButton from "@/components/admin/products/MarketplaceExportButton";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -51,10 +46,6 @@ interface AdminProduct {
   name: string;
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
-  pfsSyncStatus: "synced" | "pending" | "failed" | null;
-  pfsSyncError: string | null;
-  ankorsSyncStatus: "synced" | "pending" | "failed" | null;
-  ankorsSyncError: string | null;
   categoryName: string;
   subCategoryName: string | null;
   createdAt: string;
@@ -66,8 +57,6 @@ interface AdminProduct {
 interface Props {
   products: AdminProduct[];
   totalCount: number;
-  hasPfsConfig?: boolean;
-  hasAnkorstoreConfig?: boolean;
 }
 
 // ─── Variant Editor Row ────────────────────────────────────────────────────────
@@ -329,8 +318,6 @@ function ProductRow({
   selectedVariantIds,
   onToggleVariant,
   onToggleAllVariants,
-  hasPfsConfig = false,
-  hasAnkorstoreConfig = false,
   isNew = false,
   isDeleting = false,
 }: {
@@ -342,19 +329,11 @@ function ProductRow({
   selectedVariantIds: Set<string>;
   onToggleVariant: (id: string) => void;
   onToggleAllVariants: (ids: string[], select: boolean) => void;
-  hasPfsConfig?: boolean;
-  hasAnkorstoreConfig?: boolean;
   isNew?: boolean;
   isDeleting?: boolean;
 }) {
   const [refreshing, startRefresh] = useTransition();
   const { confirm } = useConfirm();
-  const pfsRefresh = usePfsRefresh();
-  const ankorsRefresh = useAnkorstoreRefresh();
-  const pfsRefreshing = pfsRefresh?.isRefreshing(product.id) ?? false;
-  const ankorsRefreshing = ankorsRefresh?.isRefreshing(product.id) ?? false;
-  const refreshPfsRef = useRef(true);
-  const refreshAnkorsRef = useRef(true);
 
   // Group UNIT variants by colorId + ordered sub-colors (PACK variants excluded — no single color)
   const uniqueColors = [...new Map(product.colors
@@ -546,7 +525,7 @@ function ProductRow({
                   Stock partiel
                 </span>
               )}
-              {isDeleting ? (
+              {isDeleting && (
                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200">
                   <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -554,15 +533,6 @@ function ProductRow({
                   </svg>
                   Suppression...
                 </span>
-              ) : (
-                <SyncStatusDot
-                  pfsSyncStatus={product.pfsSyncStatus}
-                  pfsSyncError={product.pfsSyncError}
-                  ankorsSyncStatus={product.ankorsSyncStatus}
-                  ankorsSyncError={product.ankorsSyncError}
-                  hasPfsConfig={hasPfsConfig}
-                  hasAnkorstoreConfig={hasAnkorstoreConfig}
-                />
               )}
             </div>
           </div>
@@ -604,27 +574,11 @@ function ProductRow({
             <button
               type="button"
               onClick={async () => {
-                const hasAnyMarketplace = hasPfsConfig || hasAnkorstoreConfig;
-
-                const checkboxes: { id: string; label: string; defaultChecked: boolean; onChange: (checked: boolean) => void }[] = [];
-                if (hasPfsConfig) {
-                  checkboxes.push({ id: "pfs", label: "Rafraîchir sur Paris Fashion Shop", defaultChecked: true, onChange: (v) => { refreshPfsRef.current = v; } });
-                }
-                if (hasAnkorstoreConfig) {
-                  checkboxes.push({ id: "ankorstore", label: "Rafraîchir sur Ankorstore", defaultChecked: true, onChange: (v) => { refreshAnkorsRef.current = v; } });
-                }
-                refreshPfsRef.current = true;
-                refreshAnkorsRef.current = true;
-
-                const message = "Le produit sera remis en \"Nouveauté\" avec la date du jour."
-                  + (hasAnyMarketplace ? "\nSur les marketplaces sélectionnées, le produit sera supprimé puis recréé comme nouveau." : "");
-
                 const ok = await confirm({
                   type: "warning",
                   title: "Rafraîchir ce produit ?",
-                  message,
+                  message: "Le produit sera remis en \"Nouveauté\" avec la date du jour.",
                   confirmLabel: "Rafraîchir",
-                  ...(checkboxes.length > 0 ? { checkboxes, checkboxesLabel: "Marketplaces" } : {}),
                 });
                 if (!ok) return;
                 startRefresh(async () => {
@@ -634,19 +588,13 @@ function ProductRow({
                     // silently ignore
                   }
                 });
-                if (hasPfsConfig && refreshPfsRef.current && pfsRefresh) {
-                  pfsRefresh.enqueue(product.id, product.name, product.reference);
-                }
-                if (hasAnkorstoreConfig && refreshAnkorsRef.current && ankorsRefresh) {
-                  ankorsRefresh.enqueue(product.id, product.name, product.reference);
-                }
               }}
-              disabled={refreshing || pfsRefreshing || ankorsRefreshing}
-              className={`p-2.5 text-text-muted hover:text-text-primary transition-colors ${refreshing || pfsRefreshing || ankorsRefreshing ? "opacity-50 cursor-wait" : ""}`}
+              disabled={refreshing}
+              className={`p-2.5 text-text-muted hover:text-text-primary transition-colors ${refreshing ? "opacity-50 cursor-wait" : ""}`}
               title="Rafraîchir (remettre en Nouveauté)"
               aria-label="Rafraîchir le produit"
             >
-              <svg className={`w-4.5 h-4.5 ${refreshing || pfsRefreshing || ankorsRefreshing ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-4.5 h-4.5 ${refreshing ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
               </svg>
             </button>
@@ -1050,7 +998,7 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, hasPfsConfig = false, hasAnkorstoreConfig = false, newProductIds, deletingIds,
+  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, newProductIds, deletingIds,
 }: {
   products: AdminProduct[];
   selectedIds: Set<string>;
@@ -1062,8 +1010,6 @@ function TableWithTopScroll({
   selectedVariantIds: Set<string>;
   toggleVariant: (id: string) => void;
   toggleAllVariants: (ids: string[], select: boolean) => void;
-  hasPfsConfig?: boolean;
-  hasAnkorstoreConfig?: boolean;
   newProductIds: Set<string>;
   deletingIds: Set<string>;
 }) {
@@ -1163,8 +1109,6 @@ function TableWithTopScroll({
                 selectedVariantIds={selectedVariantIds}
                 onToggleVariant={toggleVariant}
                 onToggleAllVariants={toggleAllVariants}
-                hasPfsConfig={hasPfsConfig}
-                hasAnkorstoreConfig={hasAnkorstoreConfig}
                 isNew={newProductIds.has(product.id)}
                 isDeleting={deletingIds.has(product.id)}
               />
@@ -1178,18 +1122,15 @@ function TableWithTopScroll({
 
 // ─── Main Table ────────────────────────────────────────────────────────────────
 
-export default function AdminProductsTable({ products, totalCount: _totalCount, hasPfsConfig = false, hasAnkorstoreConfig = false }: Props) {
+export default function AdminProductsTable({ products, totalCount: _totalCount }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
-  const { startSync } = useMarketplaceSync();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
-  const [confirmRefresh, setConfirmRefresh] = useState(false);
-  const pfsRefresh = usePfsRefresh();
 
   // ─── Real-time new products via SSE ──
   const [liveProducts, setLiveProducts] = useState<AdminProduct[]>([]);
@@ -1323,14 +1264,6 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       try {
         const result = await bulkUpdateProductStatus(ids, status);
 
-        // Show marketplace sync overlay for successfully updated products
-        const marketplaces: MarketplaceId[] = [];
-        if (hasPfsConfig) marketplaces.push("pfs");
-        if (hasAnkorstoreConfig) marketplaces.push("ankorstore");
-        if (marketplaces.length > 0 && result.success.length > 0) {
-          startSync(result.success, marketplaces);
-        }
-
         const msgs: string[] = [];
         if (result.success.length > 0) {
           msgs.push(`${result.success.length} produit${result.success.length > 1 ? "s" : ""} ${label.verb}`);
@@ -1350,49 +1283,28 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
         hideLoading();
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, hasPfsConfig, hasAnkorstoreConfig, startSync]);
-
-  const deleteFromPfsRef = useRef(true);
-  const deleteFromAnkorstoreRef = useRef(true);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
     const count = ids.length;
-    deleteFromPfsRef.current = true;
-    deleteFromAnkorstoreRef.current = true;
-
-    const deleteCheckboxes: { id: string; label: string; defaultChecked: boolean; onChange: (v: boolean) => void }[] = [];
-    if (hasPfsConfig) deleteCheckboxes.push({ id: "pfs", label: "Supprimer sur Paris Fashion Shop", defaultChecked: true, onChange: (v) => { deleteFromPfsRef.current = v; } });
-    if (hasAnkorstoreConfig) deleteCheckboxes.push({ id: "ankorstore", label: "Supprimer sur Ankorstore", defaultChecked: true, onChange: (v) => { deleteFromAnkorstoreRef.current = v; } });
 
     const confirmed = await confirm({
       type: "danger",
       title: `Supprimer ${count} produit${count > 1 ? "s" : ""} ?`,
-      message: `Cette action est irréversible. Les produits sans commandes seront définitivement supprimés.`,
+      message: "Cette action est irréversible. Les produits sans commandes seront définitivement supprimés (également sur PFS et Ankorstore si le produit y est trouvé).",
       confirmLabel: "Supprimer",
       cancelLabel: "Annuler",
-      ...(deleteCheckboxes.length > 0 ? { checkboxes: deleteCheckboxes, checkboxesLabel: "Supprimer des marketplaces" } : {}),
     });
     if (!confirmed) return;
 
-    // Determine which marketplaces will be synced for deletion
-    const marketplaces: MarketplaceId[] = [];
-    if (deleteFromPfsRef.current && hasPfsConfig) marketplaces.push("pfs");
-    if (deleteFromAnkorstoreRef.current && hasAnkorstoreConfig) marketplaces.push("ankorstore");
-
-    // Show marketplace overlay before server action so we catch events emitted during deletion
-    if (marketplaces.length > 0) {
-      startSync(ids, marketplaces);
-    }
-
     setBulkMessage(null);
     setDeletingIds(new Set(ids));
-    if (marketplaces.length === 0) showLoading();
+    showLoading();
     startTransition(async () => {
       try {
-        const result = await bulkDeleteProducts(ids, deleteFromPfsRef.current, deleteFromAnkorstoreRef.current);
+        const result = await bulkDeleteProducts(ids, true, true, false);
 
-        // If marketplace errors occurred, ask user if they want to force local delete
         if (result.marketplaceErrors.length > 0) {
           const errorLines = result.marketplaceErrors.map(
             (e) => `• ${e.reference} (${e.marketplace}) : ${e.error}`
@@ -1400,7 +1312,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
           const forceConfirmed = await confirm({
             type: "warning",
             title: "Échec de suppression sur les marketplaces",
-            message: `La suppression a échoué sur certaines marketplaces :\n\n${errorLines.join("\n")}\n\nVoulez-vous quand même supprimer ${ids.length > 1 ? "ces produits" : "ce produit"} de l'application ? ${ids.length > 1 ? "Ils resteront" : "Il restera"} présent${ids.length > 1 ? "s" : ""} sur les marketplaces concernées.`,
+            message: `La suppression a échoué sur certaines marketplaces :\n\n${errorLines.join("\n")}\n\nSupprimer localement quand même ?`,
             confirmLabel: "Supprimer localement",
             cancelLabel: "Annuler",
           });
@@ -1414,7 +1326,6 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
             return;
           }
 
-          // Force local delete (skip marketplace)
           const forceResult = await bulkDeleteProducts(ids, false, false, true);
           const msgs: string[] = [];
           if (forceResult.deleted > 0) {
@@ -1425,24 +1336,15 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
             const refs = forceResult.protected.map((p) => p.reference).join(", ");
             msgs.push(`${forceResult.protected.length} protégé(s) (commandes existantes) : ${refs} — utilisez l'archivage`);
           }
-          setBulkMessage({
-            type: "error",
-            text: msgs.join(" — "),
-          });
+          setBulkMessage({ type: "error", text: msgs.join(" — ") });
           setSelectedIds(new Set());
           return;
         }
 
         const msgs: string[] = [];
-        if (result.deleted > 0) {
-          msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""}`);
-        }
-        if (result.pfsDeleted > 0) {
-          msgs.push(`${result.pfsDeleted} supprimé${result.pfsDeleted > 1 ? "s" : ""} de PFS`);
-        }
-        if (result.ankorsDeleted > 0) {
-          msgs.push(`${result.ankorsDeleted} supprimé${result.ankorsDeleted > 1 ? "s" : ""} d'Ankorstore`);
-        }
+        if (result.deleted > 0) msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""}`);
+        if (result.pfsDeleted > 0) msgs.push(`${result.pfsDeleted} sur PFS`);
+        if (result.ankorsDeleted > 0) msgs.push(`${result.ankorsDeleted} sur Ankorstore`);
         if (result.protected.length > 0) {
           const refs = result.protected.map((p) => p.reference).join(", ");
           msgs.push(`${result.protected.length} protégé(s) (commandes existantes) : ${refs} — utilisez l'archivage`);
@@ -1455,29 +1357,11 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
       } finally {
-        if (marketplaces.length === 0) hideLoading();
+        hideLoading();
         setDeletingIds(new Set());
       }
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, startTransition, showLoading, hideLoading, hasPfsConfig, hasAnkorstoreConfig, startSync]);
-
-  const handleBulkPfsRefresh = useCallback(() => {
-    if (!pfsRefresh) return;
-    const items = allProducts
-      .filter((p) => selectedIds.has(p.id))
-      .map((p) => ({ productId: p.id, productName: p.name, reference: p.reference }));
-    // Also refresh createdAt locally
-    startTransition(async () => {
-      for (const p of items) {
-        try { await refreshProduct(p.productId); } catch { /* continue */ }
-      }
-    });
-    pfsRefresh.enqueueBulk(items);
-    setSelectedIds(new Set());
-    setConfirmRefresh(false);
-    setBulkMessage({ type: "success", text: `${items.length} produit${items.length > 1 ? "s" : ""} en cours de rafraîchissement Paris Fashion Shop` });
-  }, [selectedIds, allProducts, pfsRefresh, startTransition]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm]);
 
   // ─── Bulk variant actions ──
   const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {
@@ -1541,9 +1425,6 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
 
   return (
     <div className="space-y-3">
-      {/* Bannière de progression d'import */}
-      <ImportProgressBanner />
-
       {/* Barre d'actions en masse (produits) */}
       {someSelected && (
         <div className="flex items-center gap-3 bg-bg-dark text-text-inverse rounded-2xl px-5 py-3.5 animate-fadeIn shadow-lg">
@@ -1585,43 +1466,8 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
             </svg>
             Archiver
           </button>
-          {hasPfsConfig && (
-            <>
-              <div className="h-4 w-px bg-bg-primary/20" />
-              {!confirmRefresh ? (
-                <button
-                  type="button"
-                  onClick={() => setConfirmRefresh(true)}
-                  disabled={isPending}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/80 text-white text-xs font-medium rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors font-body"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
-                  </svg>
-                  Rafraîchir Paris Fashion Shop
-                </button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-blue-300 font-body">Rafraîchir {selectedIds.size} produit{selectedIds.size > 1 ? "s" : ""} sur Paris Fashion Shop ?</span>
-                  <button
-                    type="button"
-                    onClick={handleBulkPfsRefresh}
-                    disabled={isPending}
-                    className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-body"
-                  >
-                    Confirmer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmRefresh(false)}
-                    className="px-3 py-1.5 bg-bg-primary/10 text-text-inverse text-xs rounded-lg hover:bg-bg-primary/20 transition-colors font-body"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+          <div className="h-4 w-px bg-bg-primary/20" />
+          <MarketplaceExportButton productIds={Array.from(selectedIds)} disabled={isPending} />
           <div className="h-4 w-px bg-bg-primary/20" />
           <button
             type="button"
@@ -1636,7 +1482,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
           </button>
           <button
             type="button"
-            onClick={() => { setSelectedIds(new Set()); setConfirmRefresh(false); }}
+            onClick={() => { setSelectedIds(new Set()); }}
             className="ml-auto text-xs text-text-inverse/50 hover:text-text-inverse transition-colors font-body"
           >
             Désélectionner
@@ -1663,7 +1509,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount, 
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={hasAnkorstoreConfig} newProductIds={newProductIds} deletingIds={deletingIds} />
+      <TableWithTopScroll products={allProducts} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} newProductIds={newProductIds} deletingIds={deletingIds} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

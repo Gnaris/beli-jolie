@@ -49,7 +49,7 @@ export default function SizesManager({
   initialSizes: SizeItem[];
   categories: CategoryOption[];
   pfsEnabled?: boolean;
-  pfsSizes?: { reference: string }[];
+  pfsSizes?: { reference: string; label: string }[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();

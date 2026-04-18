@@ -22,9 +22,11 @@
     "@stripe/react-stripe-js": "^5.6.1",
     "@stripe/stripe-js": "^8.9.0",
     "@types/bcryptjs": "^2.4.6",
+    "@types/jszip": "^3.4.0",
     "@types/nodemailer": "^7.0.11",
     "bcryptjs": "^3.0.3",
     "exceljs": "^4.4.0",
+    "jszip": "^3.10.1",
     "next": "16.1.6",
     "next-auth": "^4.24.13",
     "next-intl": "^4.8.3",
@@ -49,10 +51,10 @@
     "dotenv": "^17.3.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "playwright": "^1.58.2",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5",
-    "playwright": "^1.58.2",
     "vitest": "^4.1.2"
   }
 }

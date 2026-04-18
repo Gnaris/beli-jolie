@@ -1,21 +1,12 @@
-export default function PfsCorrespondancesLoading() {
+export default function Loading() {
   return (
-    <div className="space-y-4 animate-pulse">
-      <div className="flex items-center justify-between">
-        <div className="h-8 w-52 bg-bg-tertiary rounded-lg" />
-        <div className="h-10 w-28 bg-bg-tertiary rounded-xl" />
+    <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
+      <div className="space-y-2">
+        <div className="h-8 w-80 bg-bg-secondary rounded" />
+        <div className="h-4 w-full max-w-2xl bg-bg-secondary rounded" />
       </div>
-      <div className="card overflow-hidden">
-        <div className="table-header h-12" />
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="table-row h-14 flex items-center gap-4 px-4">
-            <div className="h-4 w-32 bg-bg-tertiary rounded" />
-            <div className="h-4 w-24 bg-bg-tertiary rounded" />
-            <div className="flex-1" />
-            <div className="h-5 w-20 bg-bg-tertiary rounded-full" />
-          </div>
-        ))}
-      </div>
+      <div className="h-10 w-full bg-bg-secondary rounded-xl" />
+      <div className="h-96 w-full bg-bg-secondary rounded-xl" />
     </div>
   );
 }

@@ -90,75 +90,29 @@ export async function updateColorDirect(
 }
 
 /**
- * Update the PFS color reference for an existing color.
- * Used when linking a BJ color to a PFS color for reverse sync.
+ * Persist the PFS color label selected in the mapping UI (e.g. "Noir", "Doré").
+ * Value corresponds to one of the entries in `ANNEXE Couleurs` of the PFS template.
  */
 export async function updateColorPfsRef(id: string, pfsColorRef: string | null) {
   await requireAdmin();
-  if (pfsColorRef) {
-    const conflict = await prisma.color.findFirst({
-      where: { pfsColorRef, id: { not: id } },
-      select: { id: true, name: true },
-    });
-    if (conflict) {
-      throw new Error(`Cette référence PFS est déjà utilisée par la couleur « ${conflict.name} ».`);
-    }
-  }
-  await prisma.color.update({ where: { id }, data: { pfsColorRef } });
-  revalidatePath("/admin/produits");
+  await prisma.color.update({
+    where: { id },
+    data: { pfsColorRef: pfsColorRef?.trim() || null },
+  });
+  revalidatePath("/admin/pfs/correspondances");
   revalidateTag("colors", "default");
 }
 
-/**
- * Fetch PFS colors list + existing BJ→PFS mappings.
- * Used in the color assignment modal for marketplace mapping.
- */
 export async function fetchPfsColorsForMapping(): Promise<{
   pfsColors: { reference: string; value: string; image: string | null; label: string }[];
   existingMappings: Record<string, { colorId: string; colorName: string }>;
 }> {
   await requireAdmin();
-
-  const { pfsGetColors } = await import("@/lib/pfs-api-write");
-
-  const [pfsColors, mappedColors] = await Promise.all([
-    pfsGetColors(),
-    prisma.color.findMany({
-      where: { pfsColorRef: { not: null } },
-      select: { id: true, name: true, pfsColorRef: true },
-    }),
-  ]);
-
-  const existingMappings: Record<string, { colorId: string; colorName: string }> = {};
-  for (const c of mappedColors) {
-    if (c.pfsColorRef) {
-      existingMappings[c.pfsColorRef] = { colorId: c.id, colorName: c.name };
-    }
-  }
-
-  return {
-    pfsColors: pfsColors.map((c) => ({
-      reference: c.reference,
-      value: c.value,
-      image: c.image,
-      label: c.labels?.fr || c.reference,
-    })),
-    existingMappings,
-  };
+  return { pfsColors: [], existingMappings: {} };
 }
 
-/**
- * Update the PFS color reference override for a ProductColor (variant).
- * Used for multi-color combinations that need to map to a single PFS color.
- */
-export async function updateProductColorPfsRef(productColorId: string, pfsColorRef: string | null) {
+export async function updateProductColorPfsRef(_productColorId: string, _pfsColorRef: string | null) {
   await requireAdmin();
-  await prisma.productColor.update({
-    where: { id: productColorId },
-    data: { pfsColorRef: pfsColorRef || null },
-  });
-  // Pas de revalidateTag ici — le state client se met à jour localement
-  // et un revalidate provoquerait un remount du composant
 }
 
 /**
@@ -169,10 +123,11 @@ export async function getColorsForLinking(): Promise<
   { id: string; name: string; hex: string | null; patternImage: string | null; pfsColorRef: string | null }[]
 > {
   await requireAdmin();
-  return prisma.color.findMany({
+  const rows = await prisma.color.findMany({
     orderBy: { name: "asc" },
-    select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
+    select: { id: true, name: true, hex: true, patternImage: true },
   });
+  return rows.map((c) => ({ ...c, pfsColorRef: null }));
 }
 
 export async function deleteColor(id: string) {

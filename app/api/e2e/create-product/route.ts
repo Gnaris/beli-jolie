@@ -43,7 +43,6 @@ export async function POST(req: Request) {
       subCategoryIds: [],
       status: "OFFLINE",
       isIncomplete: false,
-      skipPfsSync: true,
       isBestSeller: false,
       colors: [{
         colorId: color.id,

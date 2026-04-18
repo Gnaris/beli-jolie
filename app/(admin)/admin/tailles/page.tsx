@@ -1,12 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import SizesManager from "@/components/admin/tailles/SizesManager";
-import { getCachedPfsEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Gestion des tailles" };
 
 export default async function TaillesPage() {
-  const [sizes, categories, pfsEnabled] = await Promise.all([
+  const [sizes, categories] = await Promise.all([
     prisma.size.findMany({
       orderBy: { position: "asc" },
       include: {
@@ -21,19 +20,7 @@ export default async function TaillesPage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
-    getCachedPfsEnabled(),
   ]);
-
-  // Fetch PFS sizes if enabled (best-effort)
-  let pfsSizes: { reference: string }[] = [];
-  if (pfsEnabled) {
-    try {
-      const { pfsGetSizes } = await import("@/lib/pfs-api-write");
-      pfsSizes = await pfsGetSizes();
-    } catch {
-      // PFS unavailable
-    }
-  }
 
   const sizeItems = sizes.map((s) => ({
     id: s.id,
@@ -57,8 +44,8 @@ export default async function TaillesPage() {
       <SizesManager
         initialSizes={sizeItems}
         categories={categories}
-        pfsEnabled={pfsEnabled}
-        pfsSizes={pfsSizes}
+        pfsEnabled={false}
+        pfsSizes={[]}
       />
     </div>
   );

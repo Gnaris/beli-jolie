@@ -679,6 +679,7 @@ export interface MarketplaceMarkupSettings {
   pfs: { type: MarkupType; value: number; rounding: RoundingMode };
   ankorstoreWholesale: { type: MarkupType; value: number; rounding: RoundingMode };
   ankorstoreRetail: { type: MarkupType; value: number; rounding: RoundingMode };
+  ankorstoreVatRate: number; // percent (e.g. 20)
 }
 
 export async function updateMarketplaceMarkup(
@@ -697,6 +698,7 @@ export async function updateMarketplaceMarkup(
       { key: "ankorstore_retail_markup_type", value: settings.ankorstoreRetail.type },
       { key: "ankorstore_retail_markup_value", value: String(settings.ankorstoreRetail.value) },
       { key: "ankorstore_retail_markup_rounding", value: settings.ankorstoreRetail.rounding },
+      { key: "ankorstore_default_vat_rate", value: String(settings.ankorstoreVatRate) },
     ];
 
     await Promise.all(

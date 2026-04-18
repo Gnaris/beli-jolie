@@ -38,11 +38,17 @@ function computeChecklist(input: ChecklistInput): CheckItem[] {
     done: !!input.name.trim(),
   });
 
-  // 3. Description
+  // 3. Description (30 chars min for Ankorstore)
+  const descLen = input.description.trim().length;
   items.push({
     key: "description",
-    label: "Description (FR)",
-    done: !!input.description.trim(),
+    label: "Description (FR, 30 car. min)",
+    done: descLen >= 30,
+    detail: descLen === 0
+      ? "vide"
+      : descLen < 30
+        ? `${descLen} / 30 car.`
+        : undefined,
   });
 
   // 4. Category

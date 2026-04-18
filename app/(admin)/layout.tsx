@@ -12,13 +12,8 @@ import AdminClientModeButton from "@/components/admin/AdminClientModeButton";
 import LiveCountBadge from "@/components/admin/LiveCountBadge";
 import AdminChatBadge from "@/components/admin/AdminChatBadge";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
-import { PfsRefreshProvider } from "@/components/admin/pfs/PfsRefreshContext";
-import PfsRefreshWidget from "@/components/admin/pfs/PfsRefreshWidget";
-import { AnkorstoreRefreshProvider } from "@/components/admin/ankorstore/AnkorstoreRefreshContext";
-import AnkorstoreRefreshWidget from "@/components/admin/ankorstore/AnkorstoreRefreshWidget";
-import { MarketplaceSyncProvider } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
-import { getCachedSiteConfig, getCachedPfsEnabled, getCachedAnkorstoreEnabled, getCachedAdminUnreadCount } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedAdminUnreadCount } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -32,22 +27,18 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     ? session.user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
     : "A";
 
-  // Fetch all layout data in parallel (was 6 sequential awaits)
+  // Fetch all layout data in parallel
   const [
     shopName,
     warnings,
     deeplConfig,
     autoTranslateConfig,
-    pfsEnabled,
-    ankorsEnabled,
     unreadMessageCount,
   ] = await Promise.all([
     getCachedShopName(),
     getCachedAdminWarnings(),
     getCachedSiteConfig("deepl_api_key"),
     getCachedSiteConfig("auto_translate_enabled"),
-    getCachedPfsEnabled(),
-    getCachedAnkorstoreEnabled(),
     getCachedAdminUnreadCount(),
   ]);
 
@@ -69,14 +60,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     "/admin/produits": totalAttributeWarnings > 0 ? { count: totalAttributeWarnings, tooltip: `${totalAttributeWarnings} élément${totalAttributeWarnings > 1 ? "s" : ""} nécessitant attention` } : undefined,
   };
 
-  const PfsWrapper = pfsEnabled ? PfsRefreshProvider : React.Fragment;
-  const AnkorsWrapper = ankorsEnabled ? AnkorstoreRefreshProvider : React.Fragment;
-
   return (
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
-    <MarketplaceSyncProvider>
-    <PfsWrapper>
-    <AnkorsWrapper>
     <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
 
       {/* ===== SIDEBAR - fixed left (desktop) ===== */}
@@ -199,13 +184,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </main>
       </div>
 
-      {pfsEnabled && <PfsRefreshWidget />}
-      {ankorsEnabled && <AnkorstoreRefreshWidget />}
       <AdminChatWidgetLoader />
     </div>
-    </AnkorsWrapper>
-    </PfsWrapper>
-    </MarketplaceSyncProvider>
     </DeeplConfigProvider>
   );
 }
@@ -309,6 +289,20 @@ const ADMIN_NAV_SECTIONS_BASE: NavSection[] = [
         icon: (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z M6 6h.008v.008H6V6z" />
+          </svg>
+        ),
+      },
+    ],
+  },
+  {
+    title: "Marketplaces",
+    items: [
+      {
+        label: "Correspondances PFS",
+        href: "/admin/pfs/correspondances",
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
           </svg>
         ),
       },

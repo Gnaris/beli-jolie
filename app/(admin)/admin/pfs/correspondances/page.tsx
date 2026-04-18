@@ -1,21 +1,22 @@
-import { redirect } from "next/navigation";
-import Link from "next/link";
-import { getCachedPfsEnabled } from "@/lib/cached-data";
 import { prisma } from "@/lib/prisma";
-import PfsMappingClient from "@/components/pfs/PfsMappingClient";
+import type { Metadata } from "next";
+import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
+import PfsMappingClient from "@/components/admin/pfs-mapping/PfsMappingClient";
+
+export const metadata: Metadata = {
+  title: "Correspondances PFS",
+};
 
 export default async function PfsCorrespondancesPage() {
-  const pfsEnabled = await getCachedPfsEnabled();
-  if (!pfsEnabled) redirect("/admin/pfs");
-
-  const [colors, categories, compositions, countries, seasons, sizes, multiColorVariants] = await Promise.all([
+  const [annexes, categories, colors, compositions, countries, seasons, sizes] = await Promise.all([
+    getPfsAnnexes(),
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, pfsGender: true, pfsFamilyName: true },
+    }),
     prisma.color.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true },
-    }),
-    prisma.category.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true },
     }),
     prisma.composition.findMany({
       orderBy: { name: "asc" },
@@ -32,59 +33,45 @@ export default async function PfsCorrespondancesPage() {
     prisma.size.findMany({
       orderBy: { position: "asc" },
       select: {
-        id: true, name: true,
-        pfsMappings: { select: { pfsSizeRef: true } },
-        categories: { select: { category: { select: { name: true } } } },
-      },
-    }),
-    prisma.productColor.findMany({
-      where: {
-        saleType: "UNIT",
-        subColors: { some: {} },
-        colorId: { not: null },
-      },
-      select: {
         id: true,
-        pfsColorRef: true,
-        color: { select: { id: true, name: true, hex: true, patternImage: true, pfsColorRef: true } },
-        subColors: {
-          select: { color: { select: { id: true, name: true, hex: true, patternImage: true } }, position: true },
-          orderBy: { position: "asc" },
-        },
-        product: { select: { id: true, name: true, reference: true } },
+        name: true,
+        pfsMappings: { select: { pfsSizeRef: true } },
       },
-      orderBy: { createdAt: "asc" },
     }),
   ]);
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="flex items-center gap-2 text-sm font-body text-text-muted mb-2">
-        <Link href="/admin/pfs" className="hover:text-text-primary transition-colors">Paris Fashion Shop</Link>
-        <span>/</span>
-        <span className="text-text-secondary">Correspondances</span>
-      </div>
-
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="page-title">Correspondances Paris Fashion Shop</h1>
-          <p className="page-subtitle">
-            Liez chaque attribut de votre boutique à son équivalent Paris Fashion Shop. Tous les attributs doivent avoir une correspondance pour pouvoir importer.
-          </p>
-        </div>
-        <Link href="/admin/pfs" className="btn-secondary text-sm shrink-0">
-          Retour
-        </Link>
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div>
+        <h1 className="page-title">Correspondances Paris Fashion Shop</h1>
+        <p className="page-subtitle font-body">
+          Associez chaque attribut de votre catalogue à sa valeur officielle dans le
+          modèle Excel PFS. Ces correspondances sont utilisées lors de l&apos;export marketplace
+          pour produire un fichier directement uploadable sur Paris Fashion Shop.
+        </p>
       </div>
 
       <PfsMappingClient
-        colors={colors}
-        categories={categories}
-        compositions={compositions}
-        countries={countries}
-        seasons={seasons}
-        sizes={sizes}
-        multiColorVariants={multiColorVariants.filter((v): v is typeof v & { color: NonNullable<typeof v.color> } => v.color !== null)}
+        annexes={{
+          families: annexes.families,
+          categories: annexes.categories,
+          colors: annexes.colors,
+          compositions: annexes.compositions,
+          countries: annexes.countries,
+          sizes: annexes.sizes,
+        }}
+        data={{
+          categories,
+          colors,
+          compositions,
+          countries,
+          seasons,
+          sizes: sizes.map((s) => ({
+            id: s.id,
+            name: s.name,
+            pfsRefs: s.pfsMappings.map((m) => m.pfsSizeRef),
+          })),
+        }}
       />
     </div>
   );

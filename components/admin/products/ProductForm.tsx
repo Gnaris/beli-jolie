@@ -478,25 +478,11 @@ export default function ProductForm({
       const mp = event.marketplaceSync;
       if (!mp) return;
 
-      // Unlock form on completion
+      // Legacy marketplace sync tracking removed — marketplaces are populated
+      // via manual Excel upload now.
       if (mp.status === "success" || mp.status === "error") {
         setDbSyncing(false);
       }
-
-      // Update header badge in real-time
-      updateHeader((prev) => {
-        const current = prev.marketplaceSync;
-        if (!current) return prev;
-        const syncStatus = mp.status === "success" ? "synced" as const
-          : mp.status === "error" ? "failed" as const
-          : "pending" as const;
-        if (mp.marketplace === "pfs") {
-          return { ...prev, marketplaceSync: { ...current, pfsSyncStatus: syncStatus, pfsSyncError: mp.error ?? null } };
-        } else if (mp.marketplace === "ankorstore") {
-          return { ...prev, marketplaceSync: { ...current, ankorsSyncStatus: syncStatus, ankorsSyncError: mp.error ?? null } };
-        }
-        return prev;
-      });
     });
     return unsub;
   }, [productId, updateHeader]);
@@ -877,11 +863,8 @@ export default function ProductForm({
   }
 
   // ── Color quick-create handler ────────────────────────────────────────
-  async function handleQuickCreateColor(colorName: string, hex: string | null, patternImage: string | null): Promise<AvailableColor> {
-    const { createColorQuick } = await import("@/app/actions/admin/quick-create");
-    const created = await createColorQuick({ fr: colorName }, hex, patternImage);
-    setLocalColors((prev) => [...prev, created]);
-    return created;
+  async function handleQuickCreateColor(_colorName: string, _hex: string | null, _patternImage: string | null): Promise<AvailableColor> {
+    throw new Error("La création rapide de couleur a été désactivée. Créer la couleur depuis /admin/produits > Couleurs.");
   }
 
   // ── Size quick-create handler ────────────────────────────────────────
@@ -972,6 +955,7 @@ export default function ProductForm({
     if (!reference.trim())    errors.push("Référence produit manquante");
     if (!name.trim())         errors.push("Nom du produit manquant");
     if (!description.trim())  errors.push("Description manquante");
+    else if (description.trim().length < 30) errors.push("Description trop courte (30 caractères minimum)");
     if (!categoryId)          errors.push("Catégorie non sélectionnée");
     if (compositions.length === 0) {
       errors.push("Au moins une composition est requise");
@@ -1426,8 +1410,6 @@ export default function ProductForm({
       isBestSeller,
       status: finalStatus,
       isIncomplete,
-      skipPfsSync: !shouldSyncPfs.current,
-      skipAnkorstoreSync: !shouldSyncAnkorstore.current,
       dimensionLength:        dimLength        ? parseFloat(dimLength)        : null,
       dimensionWidth:         dimWidth         ? parseFloat(dimWidth)         : null,
       dimensionHeight:        dimHeight        ? parseFloat(dimHeight)        : null,
@@ -1441,66 +1423,34 @@ export default function ProductForm({
     };
 
     // Determine which marketplaces will be synced
-    const syncMarketplaces: MarketplaceId[] = [];
-    const willSync = !isIncomplete;
-    if (willSync && shouldSyncPfs.current && hasPfsConfig) syncMarketplaces.push("pfs");
-    if (willSync && shouldSyncAnkorstore.current && hasAnkorstoreConfig) syncMarketplaces.push("ankorstore");
+    // Marketplace publishing is no longer triggered from the form — the admin
+    // generates a marketplace Excel archive from /admin/produits after saving.
+    void startSync;
 
-    // For edit mode: start SSE listener before server action so we don't miss early events
-    const hasSyncOverlay = syncMarketplaces.length > 0;
-    if (mode === "edit" && productId && hasSyncOverlay) {
-      startSync(productId, syncMarketplaces);
-      // Immediately update header badge to "pending" for syncing marketplaces
-      updateHeader((prev) => {
-        const current = prev.marketplaceSync;
-        if (!current) return prev;
-        return {
-          ...prev,
-          marketplaceSync: {
-            ...current,
-            ...(syncMarketplaces.includes("pfs") ? { pfsSyncStatus: "pending" as const, pfsSyncError: null } : {}),
-            ...(syncMarketplaces.includes("ankorstore") ? { ankorsSyncStatus: "pending" as const, ankorsSyncError: null } : {}),
-          },
-        };
-      });
-    }
-
-    // Skip loading overlay when sync overlay is active — the sync overlay
-    // provides its own visual feedback and sits at z-[9999]. Showing the
-    // loading overlay (z-[9998]) underneath causes the page to be blocked
-    // if the user minimizes the sync overlay before the save completes.
-    if (!hasSyncOverlay) showLoading();
+    showLoading();
     startTransition(async () => {
       try {
         if (productId) {
           await updateProduct(productId, payload);
-          // Draft continuation: redirect to product page after finalizing
           if (mode === "create") {
             isDirty.current = false;
-            if (syncMarketplaces.length > 0) {
-              startSync(productId, syncMarketplaces);
-            }
             router.push(`/admin/produits/${productId}/modifier`);
             return;
           }
         } else {
           const result = await createProduct(payload);
           if (result?.id) {
-            if (syncMarketplaces.length > 0) {
-              startSync(result.id, syncMarketplaces);
-            }
             router.push(`/admin/produits/${result.id}/modifier`);
             return;
           }
         }
         setProductStatus(finalStatus);
-        // Reset dirty flag after successful save
         initialSnapshot.current = buildSnapshot();
         isDirty.current = false;
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
       } finally {
-        if (!hasSyncOverlay) hideLoading();
+        hideLoading();
       }
     });
   }
@@ -1733,18 +1683,26 @@ export default function ProductForm({
                   <label className="block text-sm font-body font-semibold text-text-secondary">
                     Description *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
                   </label>
+                  {activeLocale === "fr" && (
+                    <span className={`text-[11px] font-body ${description.trim().length < 30 ? "text-[#EF4444]" : "text-text-tertiary"}`}>
+                      {description.trim().length} / 30 min
+                    </span>
+                  )}
                 </div>
                 <textarea
                   value={activeDescription}
                   onChange={(e) => setActiveDescription(e.target.value)}
                   onBlur={() => { if (activeLocale === "fr") markTouched("description"); }}
                   rows={4}
-                  placeholder={activeLocale === "fr" ? "Description commerciale du produit…" : `Description en ${LOCALE_LABELS[activeLocale]}…`}
-                  className={`field-input resize-none${activeLocale === "fr" && touchedFields.has("description") && !description.trim() ? " field-error" : ""}`}
+                  placeholder={activeLocale === "fr" ? "Description commerciale du produit (30 caractères minimum pour Ankorstore)…" : `Description en ${LOCALE_LABELS[activeLocale]}…`}
+                  className={`field-input resize-none${activeLocale === "fr" && touchedFields.has("description") && (!description.trim() || description.trim().length < 30) ? " field-error" : ""}`}
                   required={activeLocale === "fr"}
                 />
                 {activeLocale === "fr" && touchedFields.has("description") && !description.trim() && (
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">La description est requise pour la mise en ligne.</p>
+                )}
+                {activeLocale === "fr" && touchedFields.has("description") && description.trim() && description.trim().length < 30 && (
+                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">Minimum 30 caractères requis (Ankorstore). Actuellement : {description.trim().length}.</p>
                 )}
               </div>
             </div>

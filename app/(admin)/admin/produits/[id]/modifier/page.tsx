@@ -3,13 +3,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
-import RefreshButton from "@/components/admin/products/RefreshButton";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
-import { getCachedPfsEnabled } from "@/lib/cached-data";
-import PfsSyncBanner from "@/components/pfs/PfsSyncBanner";
-import AnkorstoreSyncBanner from "@/components/admin/ankorstore/AnkorstoreSyncBanner";
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
-import { getCachedSiteConfig } from "@/lib/cached-data";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
 
@@ -27,9 +22,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  // Split queries into two batches to avoid exhausting Prisma connection pool
-  // during concurrent marketplace sync operations
-  const [product, existingTranslations, colorImagesDb, hasPfsConfig, ankorsEnabled] = await Promise.all([
+  const [product, existingTranslations, colorImagesDb] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -46,7 +39,7 @@ export default async function ModifierProduitPage({
             },
             variantSizes: {
               orderBy: { size: { position: "asc" } },
-              include: { size: { include: { pfsMappings: { select: { pfsSizeRef: true } } } } },
+              include: { size: true },
             },
             packColorLines: {
               orderBy: { position: "asc" },
@@ -76,9 +69,7 @@ export default async function ModifierProduitPage({
                 name: true,
                 reference: true,
                 category: { select: { name: true } },
-                colors: {
-                  select: { unitPrice: true },
-                },
+                colors: { select: { unitPrice: true } },
               },
             },
           },
@@ -91,9 +82,7 @@ export default async function ModifierProduitPage({
                 name: true,
                 reference: true,
                 category: { select: { name: true } },
-                colors: {
-                  select: { unitPrice: true },
-                },
+                colors: { select: { unitPrice: true } },
               },
             },
           },
@@ -106,9 +95,7 @@ export default async function ModifierProduitPage({
                 name: true,
                 reference: true,
                 category: { select: { name: true } },
-                colors: {
-                  select: { unitPrice: true },
-                },
+                colors: { select: { unitPrice: true } },
               },
             },
           },
@@ -124,16 +111,12 @@ export default async function ModifierProduitPage({
       where:   { productId: id },
       orderBy: { order: "asc" },
     }),
-    getCachedPfsEnabled(),
-    getCachedSiteConfig("ankors_enabled"),
   ]);
 
   if (!product) notFound();
 
-  // Draft detection: incomplete + OFFLINE → show creation UI with pre-filled data
   const isDraft = product.isIncomplete && product.status === "OFFLINE";
 
-  // Fetch first image for all related products (similar, bundle children, bundle parents)
   const relatedIds = [
     ...product.similarProducts.map((sp) => sp.similar.id),
     ...product.bundleChildren.map((b) => b.child.id),
@@ -150,7 +133,6 @@ export default async function ModifierProduitPage({
     if (!relatedImageMap.has(img.productId)) relatedImageMap.set(img.productId, img.path);
   }
 
-  // Map ProductColor rows → flat VariantState[]
   const initialVariants: VariantState[] = product.colors.map((pc) => ({
     tempId:        uid(),
     dbId:          pc.id,
@@ -164,7 +146,6 @@ export default async function ModifierProduitPage({
     })),
     packColorLines: (() => {
       const hasPerLineSizes = pc.packColorLines.some((pcl) => pcl.sizes && pcl.sizes.length > 0);
-      // Shared sizeEntries for backward compat (old data without per-line sizes)
       const sharedSizeEntries = pc.variantSizes.map((vs) => ({
         tempId: uid(),
         sizeId: vs.sizeId,
@@ -185,11 +166,11 @@ export default async function ModifierProduitPage({
               sizeName: pcs.size.name,
               quantity: String(pcs.quantity),
             }))
-          : sharedSizeEntries.map((se) => ({ ...se, tempId: uid() })), // Backward compat: copy shared sizes to each line
+          : sharedSizeEntries.map((se) => ({ ...se, tempId: uid() })),
       }));
     })(),
     sizeEntries:   pc.saleType === "PACK"
-      ? [] // PACK sizes now live in packColorLines
+      ? []
       : pc.variantSizes.map((vs) => ({
           tempId:       uid(),
           sizeId:       vs.sizeId,
@@ -198,9 +179,7 @@ export default async function ModifierProduitPage({
           pricePerUnit: vs.pricePerUnit != null ? String(vs.pricePerUnit) : undefined,
         })),
     unitPrice:     (() => {
-      // DB stores totalPackPrice for PACK (unitPrice × totalQty) — convert back to per-unit
       if (pc.saleType === "PACK") {
-        // Try per-line sizes first
         const hasPerLineSizes = pc.packColorLines.some((pcl) => pcl.sizes && pcl.sizes.length > 0);
         const totalQty = hasPerLineSizes
           ? pc.packColorLines.reduce((sum, pcl) => sum + (pcl.sizes ?? []).reduce((s, pcs) => s + pcs.quantity, 0), 0)
@@ -214,11 +193,9 @@ export default async function ModifierProduitPage({
     isPrimary:     pc.isPrimary,
     saleType:      pc.saleType,
     packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
-    pfsColorRef:   pc.pfsColorRef ?? "",
     sku:           pc.sku ?? "",
   }));
 
-  // Build group key for each ProductColor — must match imageGroupKeyFromVariant() in ColorVariantManager
   function editGroupKey(pc: {
     id: string; colorId: string | null; saleType: string;
     subColors: { colorId: string; color: { name: string } }[];
@@ -226,7 +203,6 @@ export default async function ModifierProduitPage({
   }): string {
     if (pc.saleType === "PACK") {
       if (pc.packColorLines.length === 0) return `pack::${pc.id}`;
-      // Each line has one color — use sorted color IDs as key (mirrors imageGroupKeyFromVariant)
       const colorIds = pc.packColorLines
         .map((pcl) => pcl.colors[0]?.colorId)
         .filter(Boolean)
@@ -240,27 +216,23 @@ export default async function ModifierProduitPage({
     return `${pc.colorId}::${pc.subColors.map(sc => sc.colorId).join(",")}`;
   }
 
-  // Map ProductColor.id (dbId) → groupKey
   const dbIdToGroupKey = new Map<string, string>();
   for (const pc of product.colors) {
     dbIdToGroupKey.set(pc.id, editGroupKey(pc));
   }
 
-  // Group ProductColorImage by groupKey → ColorImageState[] (one per color group, shared across UNIT/PACK)
   const colorImageMap = new Map<string, ColorImageState>();
   for (const img of colorImagesDb) {
     const pcId = img.productColorId ?? img.colorId;
     const gk = dbIdToGroupKey.get(pcId) ?? img.colorId;
-    if (!gk) continue; // skip unmapped entries
+    if (!gk) continue;
     if (!colorImageMap.has(gk)) {
       const colorMeta = img.productColorId
         ? product.colors.find((pc) => pc.id === img.productColorId)
         : product.colors.find((pc) => pc.colorId === img.colorId);
-      // Build full display name (main + sub-colors, or pack color lines)
       let allNames: string[];
       let displayHex = "#9CA3AF";
       if (colorMeta?.saleType === "PACK") {
-        // PACK: build name from packColorLines
         allNames = colorMeta.packColorLines.map((pcl) =>
           pcl.colors.map((c) => c.color.name).join(" + ")
         );
@@ -285,7 +257,6 @@ export default async function ModifierProduitPage({
       });
     }
     const entry = colorImageMap.get(gk)!;
-    // Avoid duplicate images (same path from multiple variants in the same group)
     if (!entry.uploadedPaths.includes(img.path)) {
       entry.imagePreviews.push(img.path);
       entry.uploadedPaths.push(img.path);
@@ -294,77 +265,6 @@ export default async function ModifierProduitPage({
   }
   const initialColorImages: ColorImageState[] = [...colorImageMap.values()];
 
-  // ── Vérification des mappings PFS (seulement si PFS configuré) ──────────────
-  const mappingIssues: string[] = [];
-
-  if (hasPfsConfig) {
-    if (!product.category?.pfsCategoryId) {
-      mappingIssues.push(`Catégorie "${product.category?.name ?? '?'}" sans correspondance`);
-    }
-    for (const c of product.compositions) {
-      if (!c.composition.pfsCompositionRef) {
-        mappingIssues.push(`Composition "${c.composition.name}" sans correspondance`);
-      }
-    }
-    const _seenColorIds = new Set<string>();
-    const _seenSizeIds = new Set<string>();
-    for (const variant of product.colors) {
-      const hasOverride = !!variant.pfsColorRef;
-      const isMultiColor = variant.subColors.length > 0;
-      // PACK is truly multi-color only when it has multiple distinct colors across all lines
-      const packDistinctColors = variant.saleType === "PACK"
-        ? new Set(variant.packColorLines.flatMap((l) => l.colors.map((c) => c.colorId)))
-        : new Set<string>();
-      const isPackMultiColor = packDistinctColors.size > 1;
-
-      // Multi-color variants (UNIT with sub-colors or PACK with multiple distinct colors) need an override
-      if (!hasOverride && (isMultiColor || isPackMultiColor)) {
-        const colorNames = isMultiColor
-          ? [variant.color?.name, ...variant.subColors.map((sc) => sc.color.name)].filter(Boolean).join(" + ")
-          : variant.packColorLines.flatMap((l) => l.colors.map((c) => c.color.name)).join(" + ");
-        mappingIssues.push(`Variante multi-couleur "${colorNames}" sans correspondance Paris Fashion Shop (sélectionner une couleur Paris Fashion Shop dans la variante)`);
-      }
-
-      if (!hasOverride && variant.colorId && variant.color && !_seenColorIds.has(variant.colorId)) {
-        _seenColorIds.add(variant.colorId);
-        if (!variant.color.pfsColorRef) mappingIssues.push(`Couleur "${variant.color.name}" sans correspondance`);
-      }
-      if (!hasOverride) {
-        for (const sc of variant.subColors) {
-          if (!_seenColorIds.has(sc.colorId)) {
-            _seenColorIds.add(sc.colorId);
-            if (!sc.color.pfsColorRef) mappingIssues.push(`Couleur "${sc.color.name}" sans correspondance`);
-          }
-        }
-      }
-      if (!hasOverride) {
-        for (const pcl of variant.packColorLines) {
-          for (const c of pcl.colors) {
-            if (!_seenColorIds.has(c.colorId)) {
-              _seenColorIds.add(c.colorId);
-              if (!c.color.pfsColorRef) mappingIssues.push(`Couleur "${c.color.name}" sans correspondance`);
-            }
-          }
-        }
-      }
-      for (const vs of variant.variantSizes) {
-        if (!_seenSizeIds.has(vs.sizeId)) {
-          _seenSizeIds.add(vs.sizeId);
-          if (!vs.size.pfsMappings || vs.size.pfsMappings.length === 0) {
-            mappingIssues.push(`Taille "${vs.size.name}" sans correspondance`);
-          }
-        }
-      }
-    }
-    if (product.manufacturingCountry && !product.manufacturingCountry.pfsCountryRef) {
-      mappingIssues.push(`Pays "${product.manufacturingCountry.name}" sans correspondance`);
-    }
-    if (product.season && !product.season.pfsRef) {
-      mappingIssues.push(`Saison "${product.season.name}" sans correspondance`);
-    }
-  }
-
-  // ── Initial header state ─────────────────────────────────────────────────
   const initialProductStatus = (product.status === "SYNCING" ? "OFFLINE" : product.status) as "OFFLINE" | "ONLINE" | "ARCHIVED";
   const variantsWithStock = product.colors.filter(c => c.stock !== null && c.stock !== undefined);
   const outOfStockCount = variantsWithStock.filter(c => c.stock === 0).length;
@@ -379,17 +279,8 @@ export default async function ModifierProduitPage({
     productStatus: initialProductStatus,
     isIncomplete: initialIsIncomplete,
     stockState: initialStockState,
-    marketplaceSync: {
-      pfsSyncStatus: (product.pfsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
-      pfsSyncError: product.pfsSyncError ?? null,
-      ankorsSyncStatus: (product.ankorsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
-      ankorsSyncError: product.ankorsSyncError ?? null,
-      hasPfsConfig,
-      hasAnkorstoreConfig: ankorsEnabled?.value === "true",
-    },
   };
 
-  // ── Draft: simple layout like create page ──────────────────────────────────
   if (isDraft) {
     return (
       <DraftPageWrapper>
@@ -418,8 +309,6 @@ export default async function ModifierProduitPage({
         <ProductForm
           mode="create"
           productId={product.id}
-          hasPfsConfig={hasPfsConfig}
-          hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
           initialData={{
             reference:         product.reference,
             name:              product.name,
@@ -477,36 +366,11 @@ export default async function ModifierProduitPage({
     );
   }
 
-  // ── Normal edit mode ──────────────────────────────────────────────────────
   return (
     <ProductEditWrapper
       initial={initialHeaderState}
       staticHeader={
         <>
-          {ankorsEnabled?.value === "true" && (
-            <div className="mb-3">
-              <AnkorstoreSyncBanner
-                productId={product.id}
-                productReference={product.reference}
-                ankorsProductId={product.ankorsProductId}
-                ankorsSyncStatus={product.ankorsSyncStatus as "synced" | "pending" | "failed" | "not_found" | null}
-                ankorsSyncError={product.ankorsSyncError}
-                ankorsSyncedAt={product.ankorsSyncedAt?.toISOString() ?? null}
-              />
-            </div>
-          )}
-          {hasPfsConfig && (
-            <div className="mb-3">
-              <PfsSyncBanner
-                productId={product.id}
-                pfsProductId={product.pfsProductId}
-                pfsSyncStatus={product.pfsSyncStatus as "synced" | "pending" | "failed" | "not_found" | null}
-                pfsSyncError={product.pfsSyncError}
-                pfsSyncedAt={product.pfsSyncedAt?.toISOString() ?? null}
-                mappingIssues={mappingIssues}
-              />
-            </div>
-          )}
           <nav className="flex items-center gap-1.5 text-[13px] font-body text-text-muted mb-3">
             <Link href="/admin/produits" className="hover:text-text-primary transition-colors">Produits</Link>
             <svg className="w-3.5 h-3.5 text-text-muted/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -550,14 +414,6 @@ export default async function ModifierProduitPage({
                 </svg>
                 Voir
               </Link>
-              <RefreshButton
-                href={`/admin/produits/${product.id}/modifier`}
-                productId={product.id}
-                productName={product.name}
-                productReference={product.reference}
-                hasPfsConfig={hasPfsConfig}
-                hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
-              />
             </div>
           </div>
         </>
@@ -566,9 +422,6 @@ export default async function ModifierProduitPage({
       <ProductForm
         mode="edit"
         productId={product.id}
-        hasPfsConfig={hasPfsConfig}
-        hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
-        initialSyncing={product.pfsSyncStatus === "pending" || product.ankorsSyncStatus === "pending"}
         initialData={{
           reference:         product.reference,
           name:              product.name,

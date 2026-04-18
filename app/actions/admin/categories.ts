@@ -51,6 +51,7 @@ export async function updateCategoryPfsId(
   pfsCategoryId: string | null,
   pfsGender?: string | null,
   pfsFamilyId?: string | null,
+  pfsFamilyName?: string | null,
 ) {
   await requireAdmin();
   if (pfsCategoryId) {
@@ -68,8 +69,33 @@ export async function updateCategoryPfsId(
       pfsCategoryId,
       pfsGender: pfsCategoryId ? (pfsGender || null) : null,
       pfsFamilyId: pfsCategoryId ? (pfsFamilyId || null) : null,
+      pfsFamilyName: pfsFamilyName?.trim() || null,
     },
   });
+  revalidatePath("/admin/produits");
+  revalidatePath("/admin/pfs/correspondances");
+  revalidateTag("categories", "default");
+}
+
+/**
+ * Lightweight alternative used by the mapping UI — only updates Genre + Famille
+ * (the two fields the Excel exporter actually needs). Leaves the legacy
+ * pfsCategoryId/pfsFamilyId in place for the DELETE API path.
+ */
+export async function updateCategoryPfsTaxonomy(
+  id: string,
+  pfsGender: string | null,
+  pfsFamilyName: string | null,
+) {
+  await requireAdmin();
+  await prisma.category.update({
+    where: { id },
+    data: {
+      pfsGender: pfsGender?.trim() || null,
+      pfsFamilyName: pfsFamilyName?.trim() || null,
+    },
+  });
+  revalidatePath("/admin/pfs/correspondances");
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
 }

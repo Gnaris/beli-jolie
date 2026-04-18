@@ -26,9 +26,9 @@ Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middl
 ### Key layers
 
 - **Server actions** (`app/actions/admin/`, `app/actions/client/`) — all mutations. `requireAdmin()` / `requireAuth()` obligatoire.
-- **API routes** (`app/api/`) — webhooks (Stripe, heartbeat), SSE streams, file-serving, PFS sync endpoints.
-- **Lib** (`lib/`) — business logic: `pfs-*.ts` (PFS sync ecosystem), `stripe.ts`, `easy-express.ts`, `cached-data.ts`, `security.ts`, `image-processor.ts`, `r2.ts` (Cloudflare R2 storage).
-- **Components** — `components/admin/` (backoffice), `components/client/` (espace-pro), `components/pfs/` (PFS mapping UI), `components/ui/` (shared primitives), `components/home/` (landing page).
+- **API routes** (`app/api/`) — webhooks (Stripe, heartbeat), SSE streams, file-serving, marketplace Excel export.
+- **Lib** (`lib/`) — business logic: `marketplace-excel/` (PFS + Ankorstore Excel generators), `pfs-api.ts` / `pfs-api-write.ts` (read + delete), `ankorstore-api.ts` / `ankorstore-api-write.ts` (read + delete), `stripe.ts`, `easy-express.ts`, `cached-data.ts`, `security.ts`, `image-processor.ts`, `r2.ts` (Cloudflare R2 storage).
+- **Components** — `components/admin/` (backoffice), `components/client/` (espace-pro), `components/ui/` (shared primitives), `components/home/` (landing page).
 
 ### Observability
 
@@ -43,17 +43,30 @@ Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib
 
 `Product` → `ProductColor[]` (variantes UNIT ou PACK) → images, sizes, sub-colors, pack color lines. Pricing: UNIT = `unitPrice` direct, PACK = calculé via `computeTotalPrice()`.
 
-### PFS sync (bidirectional)
+### Marketplace publishing via Excel export (`lib/marketplace-excel/`)
 
-`lib/pfs-reverse-sync.ts` (local→PFS push), `lib/pfs-sync.ts` (PFS→local import), `lib/pfs-api.ts` (read), `lib/pfs-api-write.ts` (write). Auth via `lib/pfs-auth.ts` (token cache). PFS Refresh (`lib/pfs-refresh.ts`) also applies markup.
+Create / update on PFS + Ankorstore is handled via **manual Excel upload** (no live API push). Admin sélectionne des produits dans `/admin/produits`, clique **Exporter Marketplaces**, télécharge un `.zip` contenant :
+- `excel/pfs.xlsx` — 1 ligne par (produit × SaleType), format ANNEXE PFS (27 colonnes)
+- `excel/ankorstore.xlsx` — 1 ligne par variante SKU (45 colonnes, URLs images R2 inline)
+- `images/` — images JPEG (WebP → JPEG via sharp) pour upload manuel PFS
+- `AVERTISSEMENTS.txt` — warnings (famille PFS manquante, desc < 30 chars, etc.)
+
+Fichiers clés :
+- `lib/marketplace-excel/pfs-export.ts` — workbook PFS (utilise `PFS_GENDER_LABELS` pour mapper WOMAN→Femme)
+- `lib/marketplace-excel/ankorstore-export.ts` — workbook Ankorstore
+- `lib/marketplace-excel/build-archive.ts` — assemble ZIP + télécharge images R2 + convertit WebP→JPEG
+- `lib/marketplace-excel/load-products.ts` — charge produits + markups + TVA depuis DB
+- `lib/marketplace-excel/pfs-taxonomy.ts` — mapping statique Genre/Famille PFS
+- `app/api/admin/marketplace-export/route.ts` — POST `{ productIds, includePfs, includeAnkorstore }` → stream ZIP
+- `components/admin/products/MarketplaceExportButton.tsx` — bouton dans la barre d'actions multi-sélection
+
+**Delete** reste automatique (fire-and-forget via API) : `pfsCheckReference(ref)` ou `ankorstoreSearchProductsByRef(ref)` → récupère l'ID distant → DELETE. Aucun ID marketplace n'est plus stocké en DB.
+
+**Famille PFS** : stockée dans `Category.pfsFamilyName` (renseignée manuellement dans l'UI catégorie). `pfsCategoryId`/`pfsGender`/`pfsFamilyId` (IDs Salesforce) conservés pour l'API delete.
 
 ### Marketplace pricing (`lib/marketplace-pricing.ts`)
 
-Configurable markup per marketplace via SiteConfig keys. Three markup types: `percent` (+X%), `fixed` (+X€), `multiplier` (×X). Three rounding modes: `none`, `up` (ceil to 0.1€), `down` (floor to 0.1€). SiteConfig keys follow the pattern `{marketplace}_markup_{type|value|rounding}` — e.g. `pfs_price_markup_type`, `ankorstore_wholesale_markup_value`, `ankorstore_retail_markup_rounding`. PACK pricing: markup applies to **per-unit price** (with rounding), then multiply by pack quantity. Retail markup on Ankorstore applies **on top of wholesale** (not base price).
-
-### Marketplace sync overlay (`components/admin/marketplace/MarketplaceSyncOverlay.tsx`)
-
-Full-screen overlay during marketplace sync with per-marketplace progress cards. Users can click "Mettre en arrière-plan" to minimize to a compact widget (bottom-right). The widget is **only visible on the product page being synced** (URL matching via `usePathname`). Auto-dismisses on success.
+Configurable markup per marketplace via SiteConfig keys. Three markup types: `percent` (+X%), `fixed` (+X€), `multiplier` (×X). Three rounding modes: `none`, `up` (ceil to 0.1€), `down` (floor to 0.1€). SiteConfig keys follow the pattern `{marketplace}_markup_{type|value|rounding}` — e.g. `pfs_price_markup_type`, `ankorstore_wholesale_markup_value`, `ankorstore_retail_markup_rounding`. PACK pricing: markup applies to **per-unit price** (unitPrice / packQuantity), then multiply back by pack quantity. Retail markup on Ankorstore applies **on top of wholesale HT**, then VAT applied to produce retail TTC (colonne "Prix de détail/unité" de l'Excel). TVA configurable via `ankorstore_default_vat_rate` (défaut 20).
 
 ### Auth
 
@@ -69,7 +82,7 @@ next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (R
 
 ### Key Prisma enums
 
-`ProductStatus` (OFFLINE|ONLINE|ARCHIVED|SYNCING), `SaleType` (UNIT|PACK), `OrderStatus` (PENDING|PROCESSING|SHIPPED|DELIVERED|CANCELLED), `UserRole` (ADMIN|CLIENT), `UserStatus` (PENDING|APPROVED|REJECTED), `PfsSyncStatus`, `ImportDraftStatus`, `ImportJobStatus`. Full definitions in `prisma/schema.prisma`.
+`ProductStatus` (OFFLINE|ONLINE|ARCHIVED|SYNCING), `SaleType` (UNIT|PACK), `OrderStatus` (PENDING|PROCESSING|SHIPPED|DELIVERED|CANCELLED), `UserRole` (ADMIN|CLIENT), `UserStatus` (PENDING|APPROVED|REJECTED), `ImportDraftStatus`, `ImportJobStatus`. Full definitions in `prisma/schema.prisma`. (`PfsSyncStatus` / `PfsStagedStatus` et modèles `PfsSyncJob` / `PfsPrepareJob` / `PfsStagedProduct` / `PfsMapping` ont été retirés avec la bascule vers l'export Excel.)
 
 `StripeWebhookEvent` model exists for webhook deduplication (idempotency check before processing).
 

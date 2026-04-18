@@ -8,7 +8,7 @@ import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedSiteConfig } from "@/lib/cached-data";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -151,19 +151,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     where.status = statusFilter;
   }
 
-  // Sync marketplace filter — uses AND to combine with existing search OR
-  if (syncStatusFilter === "synced" || syncStatusFilter === "pending" || syncStatusFilter === "failed") {
-    where.AND = [
-      ...(where.AND ?? []),
-      { OR: [{ pfsSyncStatus: syncStatusFilter }, { ankorsSyncStatus: syncStatusFilter }] },
-    ];
-  } else if (syncStatusFilter === "none") {
-    where.AND = [
-      ...(where.AND ?? []),
-      { pfsSyncStatus: { not: "synced" } },
-      { ankorsSyncStatus: { not: "synced" } },
-    ];
-  }
+  // Sync marketplace filter removed — marketplaces are now populated via Excel export.
+  void syncStatusFilter;
 
   if (minPrice !== null || maxPrice !== null) {
     where.colors = {
@@ -188,7 +177,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     where.colors = { ...where.colors, some: { ...where.colors?.some, stock: { lte: stockBelow } } };
   }
 
-  const [products, totalCount, categories, hasPfsConfig, ankorsEnabled, sectionCounts] = await Promise.all([
+  const [products, totalCount, categories, sectionCounts] = await Promise.all([
     prisma.product.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -217,8 +206,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     }),
     prisma.product.count({ where }),
     prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    getCachedPfsEnabled(),
-    getCachedSiteConfig("ankors_enabled"),
     // Section counts for tabs (lightweight parallel queries)
     Promise.all([
       prisma.product.count(),
@@ -250,10 +237,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     name:            p.name,
     status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
     isIncomplete:    p.isIncomplete,
-    pfsSyncStatus:   (p.pfsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
-    pfsSyncError:    p.pfsSyncError ?? null,
-    ankorsSyncStatus: (p.ankorsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
-    ankorsSyncError: p.ankorsSyncError ?? null,
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),
@@ -355,7 +338,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       </div>
 
       {/* Tableau */}
-      <AdminProductsTable products={serializedProducts} totalCount={totalCount} hasPfsConfig={hasPfsConfig} hasAnkorstoreConfig={ankorsEnabled?.value === "true"} />
+      <AdminProductsTable products={serializedProducts} totalCount={totalCount} />
 
       {/* Pagination */}
       {totalPages > 1 && (
@@ -460,7 +443,7 @@ async function CouleursContent() {
     name: c.name,
     hex: c.hex,
     patternImage: c.patternImage,
-    pfsColorRef: c.pfsColorRef,
+    pfsColorRef: null,
     productCount: c._count.productColors,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));
@@ -603,7 +586,7 @@ async function SaisonsContent() {
    TAB: Tailles
    ═══════════════════════════════════════════════════════════════════════════ */
 async function TaillesContent() {
-  const [sizes, categories, pfsEnabled] = await Promise.all([
+  const [sizes, categories] = await Promise.all([
     prisma.size.findMany({
       orderBy: { position: "asc" },
       include: {
@@ -618,19 +601,10 @@ async function TaillesContent() {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
-    getCachedPfsEnabled(),
   ]);
 
-  // Fetch PFS sizes if enabled (best-effort)
-  let pfsSizes: { reference: string }[] = [];
-  if (pfsEnabled) {
-    try {
-      const { pfsGetSizes } = await import("@/lib/pfs-api-write");
-      pfsSizes = await pfsGetSizes();
-    } catch {
-      // PFS unavailable
-    }
-  }
+  // PFS size mapping UI removed — marketplaces are populated via manual Excel upload.
+  const pfsSizes: { reference: string }[] = [];
 
   const sizeItems = sizes.map((s) => ({
     id: s.id,
@@ -654,8 +628,8 @@ async function TaillesContent() {
       <SizesManager
         initialSizes={sizeItems}
         categories={categories}
-        pfsEnabled={pfsEnabled}
-        pfsSizes={pfsSizes}
+        pfsEnabled={false}
+        pfsSizes={pfsSizes.map((s) => ({ reference: s.reference, label: s.reference }))}
       />
     </div>
   );

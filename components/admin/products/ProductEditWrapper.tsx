@@ -1,6 +1,5 @@
 "use client";
 import { ProductFormHeaderProvider, ProductFormHeaderState, useProductFormHeader } from "./ProductFormHeaderContext";
-import SyncStatusBadge from "./SyncStatusBadge";
 
 function StatusToggle({ mode }: { mode: "create" | "edit" }) {
   const { productStatus, isIncomplete, statusToggle } = useProductFormHeader();
@@ -69,7 +68,7 @@ function StatusToggle({ mode }: { mode: "create" | "edit" }) {
 }
 
 function HeaderBadges() {
-  const { productStatus, isIncomplete, stockState, marketplaceSync } = useProductFormHeader();
+  const { productStatus, isIncomplete, stockState } = useProductFormHeader();
 
   return (
     <>
@@ -80,16 +79,6 @@ function HeaderBadges() {
           </svg>
           Brouillon
         </span>
-      )}
-      {marketplaceSync && (
-        <SyncStatusBadge
-          pfsSyncStatus={marketplaceSync.pfsSyncStatus}
-          pfsSyncError={marketplaceSync.pfsSyncError}
-          ankorsSyncStatus={marketplaceSync.ankorsSyncStatus}
-          ankorsSyncError={marketplaceSync.ankorsSyncError}
-          hasPfsConfig={marketplaceSync.hasPfsConfig}
-          hasAnkorstoreConfig={marketplaceSync.hasAnkorstoreConfig}
-        />
       )}
       {stockState === "all_out" && (
         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold font-body bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]">

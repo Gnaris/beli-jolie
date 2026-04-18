@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { updateUserStatus } from "@/app/actions/admin/updateUserStatus";
 import DeleteUserButton from "@/components/admin/users/DeleteUserButton";
 import ClientDiscountForm from "@/components/admin/users/ClientDiscountForm";
+import VatVerificationCard from "@/components/admin/users/VatVerificationCard";
 import type { UserStatus } from "@prisma/client";
 
 /** Correspondance statut → styles */
@@ -166,6 +167,7 @@ export default async function ClientDetailPage({
               { label: "Email",     value: user.email },
               { label: "Téléphone", value: user.phone },
               { label: "SIRET",     value: user.siret, mono: true },
+              { label: "N° TVA",    value: user.vatNumber ?? "— Non renseigné", mono: true },
               { label: "Rôle",      value: user.role },
             ].map(({ label, value, mono }) => (
               <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
@@ -231,6 +233,9 @@ export default async function ClientDetailPage({
           </div>
         </div>
       </div>
+
+      {/* -- Vérification VIES (chargée en parallèle côté client) -- */}
+      <VatVerificationCard vatNumber={user.vatNumber} />
 
       {/* -- Message d'inscription -- */}
       {user.registrationMessage && (

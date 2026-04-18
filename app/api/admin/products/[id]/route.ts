@@ -59,7 +59,6 @@ export async function GET(
     name: product.name,
     status: product.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
     isIncomplete: product.isIncomplete,
-    pfsSyncStatus: (product.pfsSyncStatus as "synced" | "pending" | "failed" | null) ?? null,
     categoryName: product.category.name,
     subCategoryName: product.subCategories[0]?.name ?? null,
     createdAt: product.createdAt.toISOString(),

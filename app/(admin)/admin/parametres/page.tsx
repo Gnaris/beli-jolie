@@ -352,6 +352,7 @@ async function MarketplacesTab() {
             "pfs_price_markup_type", "pfs_price_markup_value", "pfs_price_markup_rounding",
             "ankorstore_wholesale_markup_type", "ankorstore_wholesale_markup_value", "ankorstore_wholesale_markup_rounding",
             "ankorstore_retail_markup_type", "ankorstore_retail_markup_value", "ankorstore_retail_markup_rounding",
+            "ankorstore_default_vat_rate",
           ],
         },
       },
@@ -383,6 +384,7 @@ async function MarketplacesTab() {
             value: Number(markupMap.get("ankorstore_retail_markup_value")) || 0,
             rounding: (markupMap.get("ankorstore_retail_markup_rounding") as "none" | "down" | "up") || "none",
           },
+          ankorstoreVatRate: Number(markupMap.get("ankorstore_default_vat_rate")) || 20,
         }}
       />
     </div>

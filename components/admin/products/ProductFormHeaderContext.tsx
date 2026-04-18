@@ -3,22 +3,10 @@ import { createContext, useContext, useState, useCallback } from "react";
 
 export type StockState = "ok" | "partial_out" | "all_out";
 
-type SyncStatus = "synced" | "pending" | "failed" | null;
-
-export interface MarketplaceSyncInfo {
-  pfsSyncStatus: SyncStatus;
-  pfsSyncError: string | null;
-  ankorsSyncStatus: SyncStatus;
-  ankorsSyncError: string | null;
-  hasPfsConfig: boolean;
-  hasAnkorstoreConfig: boolean;
-}
-
 export interface ProductFormHeaderState {
   productStatus: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
   stockState: StockState;
-  marketplaceSync?: MarketplaceSyncInfo;
 }
 
 /** Callbacks exposed by ProductForm to let the header toggle status */
