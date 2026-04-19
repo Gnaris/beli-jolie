@@ -371,21 +371,6 @@ async function CategoriesContent() {
     },
   });
 
-  // Resolve PFS category names (best-effort, don't block if PFS is down)
-  let pfsCategoryNames: Record<string, string> = {};
-  const pfsCategoryIds = categories.map((c) => c.pfsCategoryId).filter(Boolean) as string[];
-  if (pfsCategoryIds.length > 0) {
-    try {
-      const { pfsGetCategories } = await import("@/lib/pfs-api-write");
-      const pfsCategories = await pfsGetCategories();
-      pfsCategoryNames = Object.fromEntries(
-        pfsCategories.map((pc) => [pc.id, pc.labels?.fr || pc.labels?.en || pc.id])
-      );
-    } catch {
-      // PFS unavailable — fall back to showing IDs
-    }
-  }
-
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       <div>
@@ -409,9 +394,9 @@ async function CategoriesContent() {
         categories={categories.map((c) => ({
           id: c.id,
           name: c.name,
-          pfsCategoryId: c.pfsCategoryId,
           pfsGender: c.pfsGender,
-          pfsFamilyId: c.pfsFamilyId,
+          pfsFamilyName: c.pfsFamilyName,
+          pfsCategoryName: c.pfsCategoryName,
           productCount: c._count.products,
           translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
           subCategories: c.subCategories.map((s) => ({
@@ -420,7 +405,6 @@ async function CategoriesContent() {
             translations: Object.fromEntries(s.translations.map((t) => [t.locale, t.name])),
           })),
         }))}
-        pfsCategoryNames={pfsCategoryNames}
       />
     </div>
   );

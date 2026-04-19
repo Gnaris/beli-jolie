@@ -49,9 +49,9 @@ export default async function CategoriesPage() {
       <CategoriesManager categories={categories.map((c) => ({
         id: c.id,
         name: c.name,
-        pfsCategoryId: c.pfsCategoryId,
         pfsGender: c.pfsGender,
-        pfsFamilyId: c.pfsFamilyId,
+        pfsFamilyName: c.pfsFamilyName,
+        pfsCategoryName: c.pfsCategoryName,
         productCount: c._count.products,
         translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
         subCategories: c.subCategories.map((s) => ({

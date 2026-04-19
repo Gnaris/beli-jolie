@@ -26,6 +26,7 @@ function unitProduct(overrides: Partial<ExportProduct> = {}): ExportProduct {
     description: "Un joli collier en acier inoxydable pour les tests.",
     pfsGenderCode: "WOMAN",
     pfsFamilyName: "Bijoux_Fantaisie",
+    pfsCategoryName: "Colliers",
     categoryName: "Colliers",
     seasonPfsRef: "AH2025",
     manufacturingCountryName: "Chine",

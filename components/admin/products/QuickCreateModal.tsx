@@ -15,7 +15,7 @@ import {
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
-import MarketplaceMappingSection, { type MappableEntityType } from "@/components/admin/MarketplaceMappingSection";
+import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 
 export type QuickCreateType = "category" | "subcategory" | "composition" | "color" | "tag" | "country" | "season";
 
@@ -27,9 +27,8 @@ interface QuickCreateModalProps {
   categoryId?: string;
   defaultName?: string;
   defaultPfsRef?: string;
-  defaultPfsCategoryId?: string;
-  defaultPfsCategoryGender?: string;
-  defaultPfsCategoryFamilyId?: string;
+  defaultPfsGender?: string;
+  defaultPfsFamilyName?: string;
   defaultHex?: string | null;
   pfsEnabled?: boolean;
   /** Edit mode — if set, the modal edits instead of creating */
@@ -40,15 +39,15 @@ interface QuickCreateModalProps {
     hex?: string | null;
     patternImage?: string | null;
     pfsRef?: string | null;
-    pfsCategoryId?: string | null;
-    pfsCategoryGender?: string | null;
-    pfsCategoryFamilyId?: string | null;
+    pfsGender?: string | null;
+    pfsFamilyName?: string | null;
+    pfsCategoryName?: string | null;
     onSave: (
       name: string,
       translations: Record<string, string>,
       hex?: string,
       patternImage?: string | null,
-      pfs?: { ref?: string; categoryId?: string; categoryGender?: string | null; categoryFamilyId?: string | null },
+      pfs?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
     ) => Promise<void>;
   };
 }
@@ -88,7 +87,7 @@ const RTL = ["ar"];
 
 export default function QuickCreateModal({
   type, open, onClose, onCreated, categoryId, defaultName, defaultPfsRef,
-  defaultPfsCategoryId, defaultPfsCategoryGender, defaultPfsCategoryFamilyId,
+  defaultPfsGender, defaultPfsFamilyName,
   defaultHex, editMode, pfsEnabled = true,
 }: QuickCreateModalProps) {
   const isEdit = !!editMode;
@@ -104,10 +103,10 @@ export default function QuickCreateModal({
   const backdrop = useBackdropClose(onClose);
 
   // Marketplace mapping state
-  const [pfsRef, setPfsRef] = useState("");
-  const [pfsCategoryId, setPfsCategoryId] = useState("");
-  const [pfsCategoryGender, setPfsCategoryGender] = useState<string | null>(null);
-  const [pfsCategoryFamilyId, setPfsCategoryFamilyId] = useState<string | null>(null);
+  const [pfsRef, setPfsRef] = useState<string | null>(null);
+  const [pfsGender, setPfsGender] = useState<string | null>(null);
+  const [pfsFamilyName, setPfsFamilyName] = useState<string | null>(null);
+  const [pfsCategoryName, setPfsCategoryName] = useState<string | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -120,10 +119,10 @@ export default function QuickCreateModal({
         setPatternFile(null);
         setPatternPreview(editMode.patternImage ?? null);
         setError("");
-        setPfsRef(editMode.pfsRef ?? "");
-        setPfsCategoryId(editMode.pfsCategoryId ?? "");
-        setPfsCategoryGender(editMode.pfsCategoryGender ?? null);
-        setPfsCategoryFamilyId(editMode.pfsCategoryFamilyId ?? null);
+        setPfsRef(editMode.pfsRef ?? null);
+        setPfsGender(editMode.pfsGender ?? null);
+        setPfsFamilyName(editMode.pfsFamilyName ?? null);
+        setPfsCategoryName(editMode.pfsCategoryName ?? null);
       } else {
         setNames(defaultName ? { fr: defaultName } : {});
         setHex(defaultHex || "#9CA3AF");
@@ -131,10 +130,10 @@ export default function QuickCreateModal({
         setPatternFile(null);
         setPatternPreview(null);
         setError("");
-        setPfsRef(defaultPfsRef ?? "");
-        setPfsCategoryId(defaultPfsCategoryId ?? "");
-        setPfsCategoryGender(defaultPfsCategoryGender ?? null);
-        setPfsCategoryFamilyId(defaultPfsCategoryFamilyId ?? null);
+        setPfsRef(defaultPfsRef ?? null);
+        setPfsGender(defaultPfsGender ?? null);
+        setPfsFamilyName(defaultPfsFamilyName ?? null);
+        setPfsCategoryName(null);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -160,11 +159,7 @@ export default function QuickCreateModal({
     setPatternPreview(URL.createObjectURL(file));
   }
 
-  function handlePfsCategoryChange(catId: string, gender: string | null, familyId: string | null) {
-    setPfsCategoryId(catId);
-    setPfsCategoryGender(gender);
-    setPfsCategoryFamilyId(familyId);
-  }
+  // No longer needed — gender & family are set directly via MarketplaceMappingSection callbacks
 
   async function handleSubmit() {
     const frName = names["fr"]?.trim();
@@ -202,28 +197,23 @@ export default function QuickCreateModal({
           finalPatternImage,
           {
             ref: pfsRef || undefined,
-            categoryId: pfsCategoryId || undefined,
-            categoryGender: pfsCategoryGender,
-            categoryFamilyId: pfsCategoryFamilyId,
+            pfsGender,
+            pfsFamilyName,
+            pfsCategoryName,
           },
         );
         onClose();
         return;
       }
 
-      // Create mode — enforce PFS mapping for mappable types (only when PFS is enabled)
-      if (pfsEnabled && MAPPABLE_TYPES.has(type)) {
-        if (type === "category" && !pfsCategoryId) {
-          setError("La correspondance Paris Fashion Shop est requise."); setLoading(false); return;
-        }
-        if (type !== "category" && !pfsRef) {
-          setError("La correspondance Paris Fashion Shop est requise."); setLoading(false); return;
-        }
+      // Create mode — enforce PFS mapping for non-category mappable types (only when PFS is enabled)
+      if (pfsEnabled && MAPPABLE_TYPES.has(type) && type !== "category" && !pfsRef) {
+        setError("La correspondance Paris Fashion Shop est requise."); setLoading(false); return;
       }
 
       let result: { id: string; name: string; hex?: string | null; patternImage?: string | null; subCategories?: { id: string; name: string }[] };
       if (type === "category") {
-        result = await createCategoryQuick(names, pfsCategoryId || null, pfsCategoryGender, pfsCategoryFamilyId);
+        result = await createCategoryQuick(names, pfsGender, pfsFamilyName, pfsCategoryName);
       } else if (type === "subcategory") {
         if (!categoryId) throw new Error("Catégorie parente requise.");
         result = await createSubCategoryQuick(names, categoryId);
@@ -430,8 +420,12 @@ export default function QuickCreateModal({
                 {type === "category" ? (
                   <MarketplaceMappingSection
                     entityType="category"
-                    pfsCategoryId={pfsCategoryId}
-                    onPfsCategoryChange={handlePfsCategoryChange}
+                    pfsGender={pfsGender}
+                    pfsFamilyName={pfsFamilyName}
+                    pfsCategoryName={pfsCategoryName}
+                    onPfsGenderChange={setPfsGender}
+                    onPfsFamilyNameChange={setPfsFamilyName}
+                    onPfsCategoryNameChange={setPfsCategoryName}
                   />
                 ) : (
                   <MarketplaceMappingSection

@@ -32,9 +32,9 @@ function slugify(name: string): string {
 
 export async function createCategoryQuick(
   translations: Record<string, string>,
-  pfsCategoryId?: string | null,
   pfsGender?: string | null,
-  pfsFamilyId?: string | null,
+  pfsFamilyName?: string | null,
+  pfsCategoryName?: string | null,
 ): Promise<{ id: string; name: string; subCategories: { id: string; name: string }[] }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -44,9 +44,9 @@ export async function createCategoryQuick(
     data: {
       name,
       slug,
-      pfsCategoryId: pfsCategoryId ?? undefined,
       pfsGender: pfsGender ?? undefined,
-      pfsFamilyId: pfsFamilyId ?? undefined,
+      pfsFamilyName: pfsFamilyName ?? undefined,
+      pfsCategoryName: pfsCategoryName ?? undefined,
     },
   });
   for (const [locale, value] of Object.entries(translations)) {
@@ -90,13 +90,13 @@ export async function createColorQuick(
   translations: Record<string, string>,
   hex: string | null | undefined,
   patternImage: string | null | undefined,
-  _pfsRef?: string | null,
+  pfsColorRef?: string | null,
 ): Promise<{ id: string; name: string; hex: string | null; patternImage: string | null }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
   const created = await prisma.color.create({
-    data: { name, hex: hex ?? null, patternImage: patternImage ?? null },
+    data: { name, hex: hex ?? null, patternImage: patternImage ?? null, pfsColorRef: pfsColorRef ?? null },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
@@ -112,12 +112,12 @@ export async function createColorQuick(
 
 export async function createCompositionQuick(
   translations: Record<string, string>,
-  _pfsRef?: string | null,
+  pfsCompositionRef?: string | null,
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
-  const created = await prisma.composition.create({ data: { name } });
+  const created = await prisma.composition.create({ data: { name, pfsCompositionRef: pfsCompositionRef ?? null } });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
     await prisma.compositionTranslation.upsert({
@@ -133,13 +133,13 @@ export async function createCompositionQuick(
 export async function createManufacturingCountryQuick(
   translations: Record<string, string>,
   isoCode?: string | null,
-  _pfsRef?: string | null,
+  pfsCountryRef?: string | null,
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
   const created = await prisma.manufacturingCountry.create({
-    data: { name, isoCode: isoCode ?? null },
+    data: { name, isoCode: isoCode ?? null, pfsCountryRef: pfsCountryRef ?? null },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;

@@ -26,18 +26,18 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
     include: {
-      category: { select: { name: true, pfsGender: true, pfsFamilyName: true, pfsFamilyId: true } },
+      category: { select: { name: true, pfsGender: true, pfsFamilyName: true, pfsCategoryName: true } },
       season: { select: { pfsRef: true } },
-      manufacturingCountry: { select: { name: true, isoCode: true } },
+      manufacturingCountry: { select: { name: true, isoCode: true, pfsCountryRef: true } },
       compositions: {
-        include: { composition: { select: { name: true } } },
+        include: { composition: { select: { name: true, pfsCompositionRef: true } } },
       },
       translations: { select: { locale: true, name: true, description: true } },
       colors: {
         include: {
-          color: { select: { name: true } },
+          color: { select: { name: true, pfsColorRef: true } },
           subColors: {
-            include: { color: { select: { name: true } } },
+            include: { color: { select: { name: true, pfsColorRef: true } } },
             orderBy: { position: "asc" },
           },
           variantSizes: {
@@ -46,7 +46,7 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
           packColorLines: {
             include: {
               colors: {
-                include: { color: { select: { name: true } } },
+                include: { color: { select: { name: true, pfsColorRef: true } } },
                 orderBy: { position: "asc" },
               },
               sizes: {
@@ -79,9 +79,12 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
       const colorNames: string[] = [];
       const subColorNames: string[] = [];
       if (c.saleType === "UNIT") {
-        if (c.color?.name) colorNames.push(c.color.name);
+        // Prefer PFS ref over local name for export
+        const pfsName = c.color?.pfsColorRef || c.color?.name;
+        if (pfsName) colorNames.push(pfsName);
         for (const sc of c.subColors) {
-          if (sc.color?.name) subColorNames.push(sc.color.name);
+          const scName = sc.color?.pfsColorRef || sc.color?.name;
+          if (scName) subColorNames.push(scName);
         }
       }
 
@@ -91,7 +94,7 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
         colorNames,
         subColorNames,
         packColorLines: c.packColorLines.map((line) => ({
-          colors: line.colors.map((lc) => lc.color?.name).filter((n): n is string => !!n),
+          colors: line.colors.map((lc) => lc.color?.pfsColorRef || lc.color?.name).filter((n): n is string => !!n),
           sizes: line.sizes.map((ls) => ({ name: ls.size.name, quantity: ls.quantity })),
         })),
         packQuantity: c.packQuantity,
@@ -111,12 +114,13 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
       description: p.description,
       pfsGenderCode: p.category.pfsGender,
       pfsFamilyName: p.category.pfsFamilyName,
+      pfsCategoryName: p.category.pfsCategoryName ?? null,
       categoryName: p.category.name,
       seasonPfsRef: p.season?.pfsRef ?? null,
-      manufacturingCountryName: p.manufacturingCountry?.name ?? null,
+      manufacturingCountryName: (p.manufacturingCountry?.pfsCountryRef || p.manufacturingCountry?.name) ?? null,
       manufacturingCountryIso: p.manufacturingCountry?.isoCode ?? null,
       compositions: p.compositions.map((c) => ({
-        name: c.composition.name,
+        name: c.composition.pfsCompositionRef || c.composition.name,
         percentage: c.percentage,
       })),
       translations,

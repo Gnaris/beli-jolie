@@ -8,7 +8,7 @@ import {
   deleteCategory,
   deleteSubCategory,
   updateCategoryDirect,
-  updateCategoryPfsId,
+  updateCategoryPfsTaxonomy,
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
@@ -24,15 +24,15 @@ interface SubCategoryItem {
 interface Category {
   id: string;
   name: string;
-  pfsCategoryId: string | null;
   pfsGender: string | null;
-  pfsFamilyId: string | null;
+  pfsFamilyName: string | null;
+  pfsCategoryName: string | null;
   productCount: number;
   translations: Record<string, string>;
   subCategories: SubCategoryItem[];
 }
 
-export default function CategoriesManager({ categories, pfsCategoryNames = {} }: { categories: Category[]; pfsCategoryNames?: Record<string, string> }) {
+export default function CategoriesManager({ categories }: { categories: Category[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [subModalOpen, setSubModalOpen] = useState(false);
   const [subModalCatId, setSubModalCatId] = useState<string | null>(null);
@@ -68,18 +68,15 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
     translations: Record<string, string>,
     _hex?: string,
     _patternImage?: string | null,
-    pfs?: { ref?: string; categoryId?: string; categoryGender?: string | null; categoryFamilyId?: string | null },
+    pfs?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
   ) {
     if (!editCat) return;
     await updateCategoryDirect(editCat.id, name, translations);
-    const newPfsCatId = pfs?.categoryId || null;
-    if (newPfsCatId !== (editCat.pfsCategoryId ?? null)) {
-      await updateCategoryPfsId(
-        editCat.id,
-        newPfsCatId,
-        pfs?.categoryGender ?? null,
-        pfs?.categoryFamilyId ?? null,
-      );
+    const newGender = pfs?.pfsGender ?? null;
+    const newFamily = pfs?.pfsFamilyName ?? null;
+    const newCategory = pfs?.pfsCategoryName ?? null;
+    if (newGender !== editCat.pfsGender || newFamily !== editCat.pfsFamilyName || newCategory !== editCat.pfsCategoryName) {
+      await updateCategoryPfsTaxonomy(editCat.id, newGender, newFamily, newCategory);
     }
     router.refresh();
   }
@@ -248,16 +245,21 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
                         </td>
                         {/* PFS */}
                         <td className="px-4 py-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
-                          {cat.pfsCategoryId ? (
+                          {cat.pfsGender && cat.pfsFamilyName && cat.pfsCategoryName ? (
                             <div className="flex flex-col gap-0.5">
                               <span className="badge badge-purple text-[10px]">
-                                PFS: {pfsCategoryNames[cat.pfsCategoryId] || cat.pfsCategoryId}
+                                {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
                               </span>
-                              {cat.pfsGender && (
-                                <span className="text-[10px] text-text-muted">
-                                  {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
-                                </span>
-                              )}
+                              <span className="text-[10px] text-text-muted">
+                                {cat.pfsFamilyName.replace(/_/g, " ")} &gt; {cat.pfsCategoryName}
+                              </span>
+                            </div>
+                          ) : cat.pfsGender ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="badge badge-warning text-[10px]">
+                                {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
+                              </span>
+                              <span className="text-[10px] text-amber-600">Mapping incomplet</span>
                             </div>
                           ) : (
                             <span className="text-text-muted text-xs">—</span>
@@ -400,9 +402,9 @@ export default function CategoriesManager({ categories, pfsCategoryNames = {} }:
             id: editCat.id,
             name: editCat.name,
             translations: editCat.translations,
-            pfsCategoryId: editCat.pfsCategoryId,
-            pfsCategoryGender: editCat.pfsGender,
-            pfsCategoryFamilyId: editCat.pfsFamilyId,
+            pfsGender: editCat.pfsGender,
+            pfsFamilyName: editCat.pfsFamilyName,
+            pfsCategoryName: editCat.pfsCategoryName,
             onSave: handleSaveCat,
           }}
         />

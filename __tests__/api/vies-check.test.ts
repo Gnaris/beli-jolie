@@ -12,13 +12,22 @@ vi.mock("@/lib/logger", () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    user: {
+      update: vi.fn().mockResolvedValue({}),
+    },
+  },
+}));
+
 import { getServerSession } from "next-auth";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/admin/vies-check/route";
 
-function makeReq(vat?: string | null): NextRequest {
+function makeReq(vat?: string | null, userId?: string): NextRequest {
   const url = new URL("http://localhost/api/admin/vies-check");
   if (vat !== undefined && vat !== null) url.searchParams.set("vat", vat);
+  if (userId) url.searchParams.set("userId", userId);
   return new NextRequest(url.toString());
 }
 
@@ -128,8 +137,9 @@ describe("GET /api/admin/vies-check", () => {
     expect(body.address).toBeNull();
   });
 
-  it("surfaces userError from VIES", async () => {
+  it("retries then surfaces userError from VIES", async () => {
     mockAdmin();
+    // SERVICE_UNAVAILABLE is retryable — mock returns it every time → after retries it surfaces
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -141,6 +151,21 @@ describe("GET /api/admin/vies-check", () => {
     const body = await res.json();
 
     expect(body.serviceError).toContain("SERVICE_UNAVAILABLE");
+  }, 30_000);
+
+  it("surfaces non-retryable userError immediately", async () => {
+    mockAdmin();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ isValid: false, userError: "INVALID_INPUT" }), { status: 200 })
+      )
+    );
+
+    const res = await GET(makeReq("BE0506978319"));
+    const body = await res.json();
+
+    expect(body.serviceError).toContain("INVALID_INPUT");
   });
 
   it("handles VIES non-200 gracefully (no 5xx leak)", async () => {
@@ -165,7 +190,7 @@ describe("GET /api/admin/vies-check", () => {
     expect(res.status).toBe(200);
     expect(body.valid).toBe(false);
     expect(body.serviceError).toMatch(/VIES/);
-  });
+  }, 30_000);
 
   it("handles abort/timeout gracefully", async () => {
     mockAdmin();
@@ -175,8 +200,8 @@ describe("GET /api/admin/vies-check", () => {
     const res = await GET(makeReq("BE0506978319"));
     const body = await res.json();
 
-    expect(body.serviceError).toMatch(/10 secondes/);
-  });
+    expect(body.serviceError).toMatch(/tentatives/);
+  }, 30_000);
 
   it("accepts XI (Northern Ireland) as a valid member state", async () => {
     mockAdmin();

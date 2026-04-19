@@ -86,6 +86,7 @@ export async function updateCategoryPfsTaxonomy(
   id: string,
   pfsGender: string | null,
   pfsFamilyName: string | null,
+  pfsCategoryName?: string | null,
 ) {
   await requireAdmin();
   await prisma.category.update({
@@ -93,6 +94,7 @@ export async function updateCategoryPfsTaxonomy(
     data: {
       pfsGender: pfsGender?.trim() || null,
       pfsFamilyName: pfsFamilyName?.trim() || null,
+      pfsCategoryName: pfsCategoryName?.trim() || null,
     },
   });
   revalidatePath("/admin/pfs/correspondances");

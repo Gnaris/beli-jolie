@@ -46,7 +46,8 @@ export interface ExportProduct {
   // PFS taxonomy
   pfsGenderCode: string | null; // WOMAN | MAN | KID | SUPPLIES
   pfsFamilyName: string | null; // ex: "Bijoux_Fantaisie"
-  categoryName: string; // local name, reused as PFS category name
+  pfsCategoryName: string | null; // ex: "Bagues", "Colliers" — PFS column 4
+  categoryName: string; // local name, fallback when pfsCategoryName is null
 
   // Season
   seasonPfsRef: string | null; // "AH2025" | "PE2026" | …

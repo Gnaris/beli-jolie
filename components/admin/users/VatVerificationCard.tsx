@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 /**
- * Carte de vérification VIES — chargée en parallèle lorsque l'admin
- * consulte une demande d'inscription. Purement informatif :
- * l'admin garde la main sur la décision finale.
+ * Carte de vérification VIES — affiche le résultat stocké en DB (issu de l'inscription).
+ * Le bouton « Relancer » re-interroge VIES et met à jour la DB.
  */
 
 interface ViesResult {
@@ -18,21 +17,58 @@ interface ViesResult {
   serviceError?: string;
 }
 
+interface ViesDbData {
+  viesValid: boolean | null;
+  viesName: string | null;
+  viesAddress: string | null;
+  viesRequestDate: string | null;
+  viesError: string | null;
+}
+
 type State =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "result"; data: ViesResult };
 
-export default function VatVerificationCard({ vatNumber }: { vatNumber: string | null }) {
-  const [state, setState] = useState<State>(vatNumber ? { kind: "loading" } : { kind: "idle" });
+function dbToViesResult(vatNumber: string, db: ViesDbData): ViesResult {
+  const cleaned = vatNumber.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  return {
+    valid: db.viesValid === true,
+    countryCode: cleaned.slice(0, 2),
+    vatNumber: cleaned.slice(2),
+    name: db.viesName,
+    address: db.viesAddress,
+    requestDate: db.viesRequestDate,
+    serviceError: db.viesError ?? undefined,
+  };
+}
+
+interface Props {
+  vatNumber: string | null;
+  userId: string;
+  savedVies: ViesDbData | null;
+}
+
+export default function VatVerificationCard({ vatNumber, userId, savedVies }: Props) {
+  // Déterminer l'état initial d'après les données DB
+  const initialState: State = !vatNumber
+    ? { kind: "idle" }
+    : savedVies && savedVies.viesValid !== null
+      ? { kind: "result", data: dbToViesResult(vatNumber, savedVies) }
+      : savedVies?.viesError
+        ? { kind: "error", message: savedVies.viesError }
+        : { kind: "error", message: "Échec du chargement lors de l'inscription. Relancez la vérification." };
+
+  const [state, setState] = useState<State>(initialState);
 
   const check = useCallback(async (vat: string) => {
     setState({ kind: "loading" });
     try {
-      const res = await fetch(`/api/admin/vies-check?vat=${encodeURIComponent(vat)}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/admin/vies-check?vat=${encodeURIComponent(vat)}&userId=${encodeURIComponent(userId)}`,
+        { cache: "no-store" },
+      );
       const json = await res.json().catch(() => null);
       if (!res.ok) {
         setState({
@@ -48,11 +84,7 @@ export default function VatVerificationCard({ vatNumber }: { vatNumber: string |
         message: err instanceof Error ? err.message : "Erreur réseau",
       });
     }
-  }, []);
-
-  useEffect(() => {
-    if (vatNumber) void check(vatNumber);
-  }, [vatNumber, check]);
+  }, [userId]);
 
   return (
     <div className="card overflow-hidden">
@@ -95,7 +127,7 @@ export default function VatVerificationCard({ vatNumber }: { vatNumber: string |
         {state.kind === "error" && (
           <div className="flex flex-col gap-3">
             <div className="flex items-start gap-2">
-              <span className="badge badge-error font-body shrink-0">Erreur</span>
+              <span className="badge badge-warning font-body shrink-0">Échec</span>
               <p className="text-sm text-text-primary font-body">{state.message}</p>
             </div>
             {vatNumber && (

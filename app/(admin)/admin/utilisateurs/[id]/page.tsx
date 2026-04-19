@@ -234,8 +234,18 @@ export default async function ClientDetailPage({
         </div>
       </div>
 
-      {/* -- Vérification VIES (chargée en parallèle côté client) -- */}
-      <VatVerificationCard vatNumber={user.vatNumber} />
+      {/* -- Vérification VIES (résultat stocké en DB) -- */}
+      <VatVerificationCard
+        vatNumber={user.vatNumber}
+        userId={user.id}
+        savedVies={{
+          viesValid: user.viesValid ?? null,
+          viesName: user.viesName ?? null,
+          viesAddress: user.viesAddress ?? null,
+          viesRequestDate: user.viesRequestDate ?? null,
+          viesError: user.viesError ?? null,
+        }}
+      />
 
       {/* -- Message d'inscription -- */}
       {user.registrationMessage && (

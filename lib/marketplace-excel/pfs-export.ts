@@ -85,7 +85,7 @@ function rowsForProduct(p: ExportProduct, ctx: ExportContext): (string | number)
   const brand = ctx.shopName;
   const gender = pfsGenderLabel(p.pfsGenderCode);
   const family = p.pfsFamilyName ?? "";
-  const category = p.categoryName;
+  const category = p.pfsCategoryName || p.categoryName;
   const season = p.seasonPfsRef ?? "";
   const country = p.manufacturingCountryName ?? "";
   const composition = formatComposition(p);

@@ -43,6 +43,12 @@ model User {
   registrationMessage String? // Message libre lors de l'inscription
   address             String? // Adresse de l'entreprise
   vatNumber           String? // Numéro TVA intracommunautaire (ex: FR12345678901)
+  // Résultat VIES stocké à l'inscription (ou lors d'un re-check admin)
+  viesValid           Boolean?
+  viesName            String?
+  viesAddress         String?
+  viesRequestDate     String?
+  viesError           String? // null = OK, sinon message d'erreur VIES
   stripeCustomerId    String?             @unique // cus_xxx — requis pour le virement bancaire
   role                Role                @default(CLIENT)
   status              UserStatus          @default(PENDING)
@@ -115,7 +121,8 @@ model Category {
   pfsCategoryId String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
   pfsGender     String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
   pfsFamilyId   String? // ID famille PFS (ex: "a035J00000185J7QAI")
-  pfsFamilyName String? // Nom lisible de la famille PFS (ex: "Bijoux_Fantaisie") — pour export Excel
+  pfsFamilyName    String? // Nom lisible de la famille PFS (ex: "Bijoux_Fantaisie") — pour export Excel
+  pfsCategoryName  String? // Nom catégorie PFS (ex: "Bagues", "Colliers") — colonne 4 de l'export Excel
   subCategories SubCategory[]
   products      Product[]
   translations  CategoryTranslation[]

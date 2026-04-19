@@ -9,6 +9,7 @@ import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/secur
 import { cookies } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
+import { checkVies } from "@/lib/vies";
 
 /**
  * POST /api/auth/register
@@ -262,6 +263,26 @@ export async function POST(request: NextRequest) {
         status:              autoApproved ? "APPROVED" : "PENDING",
       },
     });
+
+    // ── Vérification VIES (fire-and-forget) ──────────────────────────────
+    if (newUser.vatNumber) {
+      checkVies(newUser.vatNumber)
+        .then((vies) =>
+          prisma.user.update({
+            where: { id: newUser.id },
+            data: {
+              viesValid: vies.valid,
+              viesName: vies.name,
+              viesAddress: vies.address,
+              viesRequestDate: vies.requestDate,
+              viesError: vies.serviceError ?? null,
+            },
+          })
+        )
+        .catch((err) =>
+          logger.error("[Register] VIES check failed", { error: err instanceof Error ? err.message : String(err) })
+        );
+    }
 
     // ── Log anti-spam (cooldown 3h) ─────────────────────────────────────
     await logRegistration(clientIp, data.email, data.phone, data.siret, data.company);
