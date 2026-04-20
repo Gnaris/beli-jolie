@@ -151,6 +151,7 @@ export default async function ModifierProduitPage({
     saleType:      pc.saleType,
     packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
     sku:           pc.sku ?? "",
+    disabled:      pc.disabled ?? false,
   }));
 
   function editGroupKey(pc: {

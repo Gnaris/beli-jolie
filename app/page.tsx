@@ -108,6 +108,7 @@ function serializeProducts(products: Array<Record<string, unknown>>): PrismaProd
 
 const COLOR_INCLUDE = {
   colors: {
+    where: { disabled: false },
     select: {
       id:            true,
       colorId:       true,

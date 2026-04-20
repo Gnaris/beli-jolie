@@ -427,6 +427,7 @@ model ProductColor {
   restockAlerts       RestockAlert[]
   stockMovements      StockMovement[]
   priceHistory        PriceHistory[]
+  disabled            Boolean                @default(false) // Masquer côté client sans supprimer
   sku                 String?                @unique // SKU universel: {ref}_{couleurs}_{UNIT|PACK}_{index}
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt

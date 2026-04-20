@@ -156,6 +156,7 @@ export default async function DashboardPage() {
             name: true,
             reference: true,
             colors: {
+              where: { disabled: false },
               orderBy: { isPrimary: "desc" },
               select:  { colorId: true, unitPrice: true },
               take:    1,

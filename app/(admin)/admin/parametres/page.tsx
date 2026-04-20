@@ -19,13 +19,14 @@ import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
+import ImageExportFormatsConfig from "@/components/admin/settings/ImageExportFormatsConfig";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
   return { title: `Paramètres — ${shopName} Admin` };
 }
 
-const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "paiement", "email", "livraison", "marketplaces", "horaires", "traduction"] as const;
+const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "paiement", "email", "livraison", "marketplaces", "horaires", "traduction", "exportation"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -64,6 +65,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           {activeTab === "marketplaces" && <MarketplacesTab />}
           {activeTab === "horaires" && <HorairesTab />}
           {activeTab === "traduction" && <TraductionTab />}
+          {activeTab === "exportation" && <ExportationTab />}
         </div>
       </div>
     </div>
@@ -434,6 +436,27 @@ async function TraductionTab() {
           <AutoTranslateConfig enabled={autoTranslateConfig?.value === "true"} />
         </div>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Exportation — Formats d'images pour l'export marketplace
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function ExportationTab() {
+  const row = await prisma.siteConfig.findUnique({ where: { key: "image_export_formats" } });
+  let formats: import("@/app/actions/admin/site-config").ImageExportFormat[] = [];
+  if (row?.value) {
+    try { formats = JSON.parse(row.value); } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Formats d&apos;images</h3>
+      <p className="text-sm text-text-secondary font-body mb-4">
+        Configurez les formats d&apos;export des images produit. Chaque format génère un dossier séparé lors de l&apos;export marketplace.
+      </p>
+      <ImageExportFormatsConfig initialFormats={formats} />
     </div>
   );
 }

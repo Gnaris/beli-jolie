@@ -25,6 +25,7 @@ const getProduct = cache(async (id: string) => {
       subCategories: { select: { name: true } },
       tags:          { include: { tag: { select: { id: true, name: true } } } },
       colors: {
+        where: { disabled: false },
         include: {
           color: { select: { name: true, hex: true, patternImage: true } },
           subColors: {

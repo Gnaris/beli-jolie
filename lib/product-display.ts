@@ -167,6 +167,7 @@ const CAROUSEL_SELECT = {
   discountPercent: true,
   category: { select: { name: true } },
   colors: {
+    where: { disabled: false },
     select: {
       id: true,
       colorId: true,

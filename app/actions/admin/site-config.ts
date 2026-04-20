@@ -755,3 +755,46 @@ export async function updateAnnouncementBanner(
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }
 }
+
+// ─── Image Export Formats ─────────────────────────────────────────────────────
+
+export interface ImageExportFormatPattern {
+  type: "text" | "variable";
+  value: string; // text content, or variable key: "reference" | "couleur" | "position"
+}
+
+export interface ImageExportFormat {
+  id: string;
+  name: string;
+  pattern: ImageExportFormatPattern[];
+  extension: "jpg" | "png" | "webp";
+  width: number | null;
+  height: number | null;
+}
+
+export async function updateImageExportFormats(
+  formats: ImageExportFormat[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+
+    for (const f of formats) {
+      if (!f.name.trim()) return { success: false, error: "Chaque format doit avoir un nom." };
+      if (f.pattern.length === 0) return { success: false, error: `Le format "${f.name}" n'a pas de modèle de nom.` };
+      if (f.width !== null && f.width < 1) return { success: false, error: `Largeur invalide pour "${f.name}".` };
+      if (f.height !== null && f.height < 1) return { success: false, error: `Hauteur invalide pour "${f.name}".` };
+    }
+
+    await prisma.siteConfig.upsert({
+      where: { key: "image_export_formats" },
+      update: { value: JSON.stringify(formats) },
+      create: { key: "image_export_formats", value: JSON.stringify(formats) },
+    });
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}

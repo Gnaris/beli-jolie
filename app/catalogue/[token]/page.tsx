@@ -30,6 +30,7 @@ export default async function PublicCatalogPage({ params }: Props) {
             include: {
               colorImages: { orderBy: { order: "asc" } },
               colors: {
+                where: { disabled: false },
                 include: {
                   color: { select: { id: true, name: true, hex: true, patternImage: true } },
                   subColors: {

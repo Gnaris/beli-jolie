@@ -18,6 +18,7 @@ function variant(overrides: Partial<VariantState> = {}): VariantState {
     packQuantity: "",
     pfsColorRef: "",
     sku: "",
+    disabled: false,
     ...overrides,
   };
 }

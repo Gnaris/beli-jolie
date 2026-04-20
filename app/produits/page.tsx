@@ -27,6 +27,7 @@ const PRODUCT_INCLUDE = {
   subCategories: { select: { name: true }, take: 1 },
   tags:          { include: { tag: { select: { id: true, name: true } } } },
   colors: {
+    where: { disabled: false },
     select: {
       id:            true,
       colorId:       true,

@@ -106,6 +106,7 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
     packQuantity: "",
     pfsColorRef: "",
     sku: "",
+    disabled: false,
   };
 }
 
@@ -1074,6 +1075,7 @@ export default function ProductForm({
             .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
             .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
           pfsColorRef:   v.pfsColorRef || null,
+          disabled:      v.disabled ?? false,
         })),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
       imagePaths: colorImages.flatMap((ci) => {
@@ -1334,6 +1336,7 @@ export default function ProductForm({
             quantity:     parseInt(se.quantity) || 1,
           })),
         pfsColorRef:   v.pfsColorRef || null,
+        disabled:      v.disabled ?? false,
       })),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
       imagePaths: colorImages.flatMap((ci) => {

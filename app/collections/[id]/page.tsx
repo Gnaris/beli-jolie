@@ -39,6 +39,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
               category:      { select: { name: true } },
               subCategories: { select: { name: true }, take: 1 },
               colors: {
+                where: { disabled: false },
                 select: {
                   id:           true,
                   colorId:      true,

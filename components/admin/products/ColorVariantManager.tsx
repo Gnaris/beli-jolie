@@ -51,6 +51,8 @@ export interface VariantState {
   pfsColorRef?: string;
   // SKU auto-généré: {ref}_{couleurs}_{UNIT|PACK}_{index}
   sku: string;
+  // Variante désactivée (masquée côté client)
+  disabled: boolean;
 }
 
 export interface ColorImageState {
@@ -227,6 +229,7 @@ function defaultVariant(): VariantState {
     packQuantity: "",
     pfsColorRef: "",
     sku: "",
+    disabled: false,
   };
 }
 
@@ -1827,6 +1830,7 @@ function QuickAddModal({
         packQuantity: isUnitType ? "" : String(totalQty || 1),
         pfsColorRef: line.pfsColorRef || "",
         sku: "",
+        disabled: false,
       };
     });
     onConfirm(newVariants);
@@ -2172,6 +2176,10 @@ export default function ColorVariantManager({
   // ── Quick-add modal state ─────────────────────────────────────────────────
   const [showQuickAdd, setShowQuickAdd] = useState(false);
 
+  // ── Action dropdown state ─────────────────────────────────────────────────
+  const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (selectAllRef.current) {
       const allSelected  = selectedIds.size === variants.length && variants.length > 0;
@@ -2179,6 +2187,18 @@ export default function ColorVariantManager({
       selectAllRef.current.indeterminate = someSelected;
     }
   }, [selectedIds, variants.length]);
+
+  // Close action dropdown on outside click
+  useEffect(() => {
+    if (!actionMenuId) return;
+    function handleClick(e: MouseEvent) {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setActionMenuId(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [actionMenuId]);
 
   const totalPhotos   = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
   const hasAnyMissingImages = colorImages.some((c) => c.uploadedPaths.length === 0);
@@ -2222,6 +2242,10 @@ export default function ColorVariantManager({
     next.delete(tempId);
     setSelectedIds(next);
     onChange(newVariants);
+  }
+
+  function toggleVariantDisabled(tempId: string) {
+    onChange(variants.map((v) => v.tempId === tempId ? { ...v, disabled: !v.disabled } : v));
   }
 
   function handleMultiColorChange(tempIds: Set<string>, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) {
@@ -2424,7 +2448,7 @@ export default function ColorVariantManager({
       ) : (
         <div className="space-y-3">
           {/* ── Variants CARDS (mobile only) ── */}
-          <div className="block md:hidden border border-border rounded-xl overflow-hidden divide-y divide-[#F0F0F0]">
+          <div className="block md:hidden border border-border rounded-xl overflow-visible divide-y divide-[#F0F0F0]">
             {/* Mobile bulk bar */}
             <div className={`px-3 py-2 flex items-center gap-2 ${showBulkRow ? "bg-[#F0FDF4]" : "bg-[#FAFAFA]"}`}>
               <input type="checkbox"
@@ -2470,7 +2494,7 @@ export default function ColorVariantManager({
 
               return (
                 <div key={v.tempId} className={`p-3 space-y-2.5 ${pfsMissing ? "ring-2 ring-[#EF4444]/50 rounded-lg bg-[#FEF2F2]/40" : isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
-                  {/* Row 1: checkbox + type + image badge + delete */}
+                  {/* Row 1: checkbox + status dot + type + image badge + action */}
                   <div className="flex items-center gap-2">
                     <input type="checkbox" checked={isSelected}
                       onChange={(e) => {
@@ -2479,7 +2503,11 @@ export default function ColorVariantManager({
                         setSelectedIds(next);
                       }}
                       className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
-                    <CustomSelect
+                    <span
+                      title={v.disabled ? "Désactivée" : "Active"}
+                      className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`}
+                    />
+                    <div className={v.disabled ? "opacity-50" : ""}><CustomSelect
                       value={v.saleType}
                       onChange={(val) => {
                         if (val === "PACK" && v.saleType === "UNIT") {
@@ -2491,7 +2519,7 @@ export default function ColorVariantManager({
                         }
                       }}
                       options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
-                      size="sm" className="w-[75px]" />
+                      size="sm" className="w-[75px]" /></div>
                     <div className="flex-1" />
                     {/* Image count badge */}
                     <span
@@ -2507,14 +2535,30 @@ export default function ColorVariantManager({
                       </svg>
                       {imgCount}/5
                     </span>
-                                          <button type="button" onClick={() => removeVariant(v.tempId)} title="Supprimer"
-                        className="p-1 text-text-muted hover:text-[#EF4444] transition-colors">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                    {/* Action dropdown */}
+                    <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
+                      <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
+                        className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
+                        Action
                       </button>
+                      {actionMenuId === v.tempId && (
+                        <div className="absolute right-0 top-full mt-1 bg-bg-primary border border-border rounded-lg shadow-md z-50 min-w-[140px] py-1">
+                          <button type="button"
+                            onClick={() => { setActionMenuId(null); toggleVariantDisabled(v.tempId); }}
+                            className="w-full text-left px-3 py-1.5 text-xs font-body hover:bg-bg-secondary transition-colors">
+                            {v.disabled ? "Activer" : "Désactiver"}
+                          </button>
+                          <button type="button"
+                            onClick={() => { setActionMenuId(null); removeVariant(v.tempId); }}
+                            className="w-full text-left px-3 py-1.5 text-xs font-body text-[#EF4444] hover:bg-[#FEF2F2] transition-colors">
+                            Supprimer
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
+                  <div className={v.disabled ? "opacity-50 space-y-2.5" : "space-y-2.5"}>
                   {/* SKU */}
                   {v.sku && (
                     <div className="text-[10px] text-text-muted font-mono truncate" title={v.sku}>
@@ -2585,13 +2629,14 @@ export default function ColorVariantManager({
                       <div className="text-xs pt-1.5">{renderTotalPrice(v)}</div>
                     </div>
                   </div>
+                  </div>{/* end dim wrapper */}
                 </div>
               );
             })}
           </div>
 
           {/* ── Variants TABLE (desktop only) ── */}
-          <div className="hidden md:block border border-border rounded-xl overflow-hidden">
+          <div className="hidden md:block border border-border rounded-xl overflow-visible">
               <table className="w-full table-fixed text-xs font-body">
                 <thead>
                   {/* Column headers */}
@@ -2607,14 +2652,16 @@ export default function ColorVariantManager({
                         className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5"
                       />
                     </th>
-                    <th className="w-[68px] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Type</th>
-                    <th className="w-[22%] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Couleur / SKU</th>
-                    <th className="px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Tailles</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Stock</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Poids</th>
-                    <th className="px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Prix/unité</th>
-                    <th className="w-[60px] px-2 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Total</th>
-                    <th className="w-[52px] px-2 py-2"></th>
+                    <th className="w-6 px-0 py-2 text-center" title="Statut"></th>
+                    <th className="w-[78px] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Type</th>
+                    <th className="w-[20%] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Couleur</th>
+                    <th className="w-[11%] px-1 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">SKU</th>
+                    <th className="w-[14%] px-1 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Tailles</th>
+                    <th className="w-[60px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Stock</th>
+                    <th className="w-[62px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Poids</th>
+                    <th className="w-[68px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Prix/u.</th>
+                    <th className="w-[56px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Total</th>
+                    <th className="w-[80px] px-1 py-2 text-center text-[10px] uppercase tracking-wider text-text-muted font-semibold">Actions</th>
                   </tr>
                   {/* Bulk edit row — inline in thead */}
                   <tr className={`border-b transition-colors ${showBulkRow ? "bg-[#F0FDF4] border-[#BBF7D0]" : "bg-[#FAFAFA] border-border"}`}>
@@ -2623,41 +2670,41 @@ export default function ColorVariantManager({
                         {showBulkRow ? selectedIds.size : "—"}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5" colSpan={2}>
+                    <td className="px-2 py-1.5" colSpan={4}>
                       <span className={`text-[10px] font-body ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
                         {showBulkRow
                           ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}`
                           : "Modification en masse"}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5">
+                    <td className="px-1 py-1.5">
                       {/* Tailles: not bulk-editable */}
                     </td>
-                    <td className="px-2 py-1.5">
+                    <td className="px-1 py-1.5">
                       <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock} disabled={!showBulkRow}
                         onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
                         className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
                           showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
                         }`} />
                     </td>
-                    <td className="px-2 py-1.5">
+                    <td className="px-1 py-1.5">
                       <input type="number" min="0" step="0.001" placeholder="Poids" value={bulkEdit.weight} disabled={!showBulkRow}
                         onChange={(e) => setBulkEdit((b) => ({ ...b, weight: e.target.value }))}
                         className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
                           showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
                         }`} />
                     </td>
-                    <td className="px-2 py-1.5">
+                    <td className="px-1 py-1.5">
                       <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice} disabled={!showBulkRow}
                         onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
                         className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
                           showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
                         }`} />
                     </td>
-                    <td className="px-2 py-1.5">
+                    <td className="px-1 py-1.5">
                       {/* Total: computed */}
                     </td>
-                    <td className="px-2 py-1.5 text-center">
+                    <td className="px-1 py-1.5 text-center">
                       <button type="button" onClick={applyBulk} disabled={!showBulkRow}
                         title="Appliquer en masse"
                         className={`p-1 rounded transition-colors ${
@@ -2682,6 +2729,7 @@ export default function ColorVariantManager({
                     const imgGkD = imageGroupKeyFromVariant(v);
                     const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
                     const imgCountD = imgEntryD?.uploadedPaths.length ?? 0;
+                    const dimCls = v.disabled ? " opacity-50" : "";
 
                     return (
                       <tr
@@ -2691,7 +2739,7 @@ export default function ColorVariantManager({
                         }`}
                       >
                         {/* Checkbox */}
-                        <td className="px-2 py-2 text-center">
+                        <td className={`px-2 py-2 text-center${dimCls}`}>
                           <input type="checkbox" checked={isSelected}
                             onChange={(e) => {
                               const next = new Set(selectedIds);
@@ -2701,8 +2749,16 @@ export default function ColorVariantManager({
                             className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5" />
                         </td>
 
+                        {/* Status dot */}
+                        <td className="px-0 py-2 text-center">
+                          <span
+                            title={v.disabled ? "Désactivée" : "Active"}
+                            className={`inline-block w-2.5 h-2.5 rounded-full ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`}
+                          />
+                        </td>
+
                         {/* Type */}
-                        <td className="px-2 py-2">
+                        <td className={`px-2 py-2${dimCls}`}>
                           <CustomSelect
                             value={v.saleType}
                             onChange={(val) => {
@@ -2719,12 +2775,12 @@ export default function ColorVariantManager({
                               { value: "PACK", label: "Pack" },
                             ]}
                             size="sm"
-                            className="w-[65px]"
+                            className="w-[72px]"
                           />
                         </td>
 
-                        {/* Color + SKU */}
-                        <td className="px-2 py-2">
+                        {/* Color */}
+                        <td className={`px-2 py-2${dimCls}`}>
                           <MultiColorSelect
                             selected={v.colorId ? [
                               { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
@@ -2750,13 +2806,17 @@ export default function ColorVariantManager({
                               Correspondance Paris Fashion Shop manquante
                             </span>
                           )}
-                          <span className="text-[10px] text-text-muted font-mono truncate block mt-1" title={v.sku || "—"}>
+                        </td>
+
+                        {/* SKU */}
+                        <td className={`px-1 py-2${dimCls}`}>
+                          <span className="text-[10px] text-text-muted font-mono truncate block" title={v.sku || "—"}>
                             {v.sku || "—"}
                           </span>
                         </td>
 
                         {/* Sizes — click to open modal */}
-                        <td className="px-2 py-2">
+                        <td className={`px-1 py-2${dimCls}`}>
                           <button
                             type="button"
                             onClick={() => setSizeModalVariantId(v.tempId)}
@@ -2771,46 +2831,46 @@ export default function ColorVariantManager({
                         </td>
 
                         {/* Stock */}
-                        <td className="px-2 py-2">
+                        <td className={`px-1 py-2${dimCls}`}>
                           <input
                             type="number" min="0" step="1"
                             value={v.stock}
                             placeholder="0"
                             onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
-                            className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
+                            className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
                           />
                         </td>
 
                         {/* Weight */}
-                        <td className="px-2 py-2">
+                        <td className={`px-1 py-2${dimCls}`}>
                           <input
                             type="number" min="0" step="0.001"
                             value={v.weight}
                             placeholder="0.000"
                             onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
-                            className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
+                            className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
                           />
                         </td>
 
 
                         {/* Unit Price */}
-                        <td className="px-2 py-2">
+                        <td className={`px-1 py-2${dimCls}`}>
                           <input
                             type="number" min="0" step="0.01"
                             value={v.unitPrice}
                             placeholder="0.00"
                             onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
-                            className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
+                            className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
                           />
                         </td>
 
                         {/* Total price */}
-                        <td className="px-2 py-2 text-right text-xs">
+                        <td className={`px-1 py-2 text-right text-xs${dimCls}`}>
                           {renderTotalPrice(v)}
                         </td>
 
                         {/* Actions */}
-                        <td className="px-2 py-2 text-center">
+                        <td className="px-1 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <span
                               title={imgCountD === 0 ? "Aucune image" : `${imgCountD} image${imgCountD > 1 ? "s" : ""}`}
@@ -2825,12 +2885,27 @@ export default function ColorVariantManager({
                               </svg>
                               {imgCountD}
                             </span>
-                              <button type="button" onClick={() => removeVariant(v.tempId)}
-                                title="Supprimer" className="p-1 text-text-muted hover:text-[#EF4444] transition-colors">
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
+                              {/* Action dropdown */}
+                              <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
+                                <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
+                                  className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
+                                  Action
+                                </button>
+                                {actionMenuId === v.tempId && (
+                                  <div className="absolute right-0 top-full mt-1 bg-bg-primary border border-border rounded-lg shadow-md z-50 min-w-[140px] py-1">
+                                    <button type="button"
+                                      onClick={() => { setActionMenuId(null); toggleVariantDisabled(v.tempId); }}
+                                      className="w-full text-left px-3 py-1.5 text-xs font-body hover:bg-bg-secondary transition-colors">
+                                      {v.disabled ? "Activer" : "Désactiver"}
+                                    </button>
+                                    <button type="button"
+                                      onClick={() => { setActionMenuId(null); removeVariant(v.tempId); }}
+                                      className="w-full text-left px-3 py-1.5 text-xs font-body text-[#EF4444] hover:bg-[#FEF2F2] transition-colors">
+                                      Supprimer
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                           </div>
                         </td>
                       </tr>

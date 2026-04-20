@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
       reference: true,
       category: { select: { name: true } },
       colors: {
+        where: { disabled: false },
         orderBy: { isPrimary: "desc" },
         select:  { unitPrice: true },
         take:    1,

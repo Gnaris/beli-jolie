@@ -15,6 +15,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       subCategories: { select: { name: true }, take: 1 },
       tags:          { include: { tag: { select: { id: true, name: true } } } },
       colors: {
+        where: { disabled: false },
         select: {
           id: true, colorId: true, unitPrice: true, stock: true,
           isPrimary: true, saleType: true, packQuantity: true,

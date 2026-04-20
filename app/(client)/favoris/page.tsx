@@ -99,6 +99,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
             subCategories: { select: { name: true }, take: 1 },
             tags:          { include: { tag: { select: { id: true, name: true } } } },
             colors: {
+              where: { disabled: false },
               orderBy: { isPrimary: "desc" },
               select: {
                 id:           true,
