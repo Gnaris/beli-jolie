@@ -82,11 +82,11 @@ Flow: load BJ product → PFS AI translations (`POST /ai/translations` → fr/en
 | `ManufacturingCountry.pfsCountryRef` | "CN", "TR" | country_of_manufacture |
 | `Season.pfsSeasonRef` | "PE2026", "AH2025" | season_name |
 | `ProductColor.pfsVariantId` | PFS variant ID | variant update/delete |
-| `Size` via `SizePfsMapping` | M2M toggle | size mapping |
+| `Size.pfsSizeRef` | "TU", "XS", "52" | size mapping (1:1, obligatoire) |
 
-Uniqueness enforced: each PFS ref → ONE BJ entity. Mapping UI disables already-used refs.
-Admin UI: `/admin/pfs/mapping` — 6 tabs (Couleurs, Categories, Compositions, Pays, Saisons, Tailles).
-Server actions: `updateColorPfsRef()`, `updateCategoryPfsId()`, `updateCompositionPfsRef()`, `updateManufacturingCountryPfsRef()`, `updateSeasonPfsRef()`, `toggleSizePfsMapping()`.
+Uniqueness enforced: each PFS ref → ONE BJ entity (sauf pour les tailles, où plusieurs noms BJ peuvent pointer vers la même réf PFS).
+Admin UI: mapping renseigné directement dans chaque page d'entité (`/admin/categories`, `/admin/couleurs`, `/admin/compositions`, `/admin/pays`, `/admin/seasons`, `/admin/tailles`) via `MarketplaceMappingSection` + `PfsSuggestions`. Le mapping sera rendu obligatoire côté UI pour garantir la complétude avant export.
+Server actions: `updateColorPfsRef()`, `updateCategoryPfsId()`, `updateCompositionPfsRef()`, `updateManufacturingCountryPfsRef()`, `updateSeasonPfsRef()`, `setSizePfsMapping(sizeId, pfsSizeRef | null)`.
 Quick-create: `createColorQuick()`, `createCategoryQuick()`, `createCompositionQuick()` accept optional PFS ref params.
 
 ## Critical PFS Constraints

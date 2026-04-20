@@ -16,17 +16,6 @@ interface SubColorInfo {
   patternImage?: string | null;
 }
 
-interface PackColorLineColorInfo {
-  name: string;
-  hex: string;
-  patternImage?: string | null;
-}
-
-interface PackColorLineInfo {
-  colors: PackColorLineColorInfo[];
-  sizes?: { name: string; quantity: number }[];
-}
-
 interface VariantData {
   id: string;
   groupKey: string;              // Unique key: colorId + ordered sub-color names (order matters)
@@ -42,7 +31,6 @@ interface VariantData {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   sizes: { name: string; quantity: number; pricePerUnit?: number }[];
-  packColorLines?: PackColorLineInfo[];
 }
 
 interface ColorImageData {
@@ -667,36 +655,7 @@ export default function ProductDetail({
                           <p className="text-sm font-medium text-text-primary font-body">
                             {t("packOption", { qty: v.packQuantity ?? 1 })}
                           </p>
-                          {/* Pack color lines with per-color sizes */}
-                          {(v.packColorLines?.length ?? 0) > 0 && (
-                            <div className="mt-1.5 space-y-2">
-                              {v.packColorLines!.map((line, lineIdx) => (
-                                <div key={lineIdx} className="flex items-start gap-2">
-                                  {line.colors?.[0] && (
-                                    <ColorSwatch
-                                      hex={line.colors[0]?.hex ?? "#9CA3AF"}
-                                      patternImage={line.colors[0]?.patternImage}
-                                      size={18}
-                                      rounded="full"
-                                      border={true}
-                                    />
-                                  )}
-                                  <div className="min-w-0 flex-1">
-                                    <span className="text-xs text-text-secondary font-body font-medium">
-                                      {line.colors?.map(c => c.name).join(" / ") || "?"}
-                                    </span>
-                                    {(line.sizes?.length ?? 0) > 0 && (
-                                      <p className="text-[11px] text-text-muted font-body">
-                                        {line.sizes!.map((s) => `${s.name} × ${s.quantity}`).join(", ")}
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {/* Fallback: shared sizes (backward compat) */}
-                          {(v.packColorLines?.length ?? 0) === 0 && v.sizes?.length > 0 && (
+                          {v.sizes?.length > 0 && (
                             <div className="mt-1 space-y-0.5">
                               {v.sizes.map((s) => (
                                 <p key={s.name} className="text-xs text-text-muted font-body">

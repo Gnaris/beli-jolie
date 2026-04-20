@@ -41,12 +41,6 @@ async function main() {
   const variantSizes = await prisma.variantSize.deleteMany();
   console.log(`  VariantSize         : ${variantSizes.count}`);
 
-  const packColorLineColors = await prisma.packColorLineColor.deleteMany();
-  console.log(`  PackColorLineColor  : ${packColorLineColors.count}`);
-
-  const packColorLines = await prisma.packColorLine.deleteMany();
-  console.log(`  PackColorLine       : ${packColorLines.count}`);
-
   const productColors = await prisma.productColor.deleteMany();
   console.log(`  ProductColor        : ${productColors.count}`);
 
@@ -120,12 +114,6 @@ async function main() {
   console.log(`  ManufacturingCountry: ${countries.count}`);
 
   // 5. Sizes
-  const sizePfsMappings = await prisma.sizePfsMapping.deleteMany();
-  console.log(`  SizePfsMapping      : ${sizePfsMappings.count}`);
-
-  const sizeCategoryLinks = await prisma.sizeCategoryLink.deleteMany();
-  console.log(`  SizeCategoryLink    : ${sizeCategoryLinks.count}`);
-
   const sizes = await prisma.size.deleteMany();
   console.log(`  Size                : ${sizes.count}`);
 

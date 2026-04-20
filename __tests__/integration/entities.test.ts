@@ -114,21 +114,6 @@ describe("Entity CRUD (real DB)", () => {
       ).rejects.toThrow();
     });
 
-    it("should link size to category", async () => {
-      const size = await prisma.size.create({
-        data: { name: `${TEST_PREFIX}XL`, position: 10 },
-      });
-
-      await prisma.sizeCategoryLink.create({
-        data: { sizeId: size.id, categoryId },
-      });
-
-      const links = await prisma.sizeCategoryLink.findMany({
-        where: { categoryId },
-      });
-      expect(links.length).toBeGreaterThanOrEqual(1);
-    });
-
     it("should update category PFS mapping", async () => {
       const updated = await prisma.category.update({
         where: { id: categoryId },
@@ -141,7 +126,6 @@ describe("Entity CRUD (real DB)", () => {
 
     it("should delete sub-category then category", async () => {
       await prisma.subCategory.delete({ where: { id: subCategoryId } });
-      await prisma.sizeCategoryLink.deleteMany({ where: { categoryId } });
       await prisma.category.delete({ where: { id: categoryId } });
 
       const found = await prisma.category.findUnique({ where: { id: categoryId } });
@@ -198,31 +182,34 @@ describe("Entity CRUD (real DB)", () => {
       expect(size.position).toBe(99);
     });
 
-    it("should create PFS size mapping", async () => {
-      await prisma.sizePfsMapping.create({
-        data: { sizeId, pfsSizeRef: "XXL" },
+    it("should set a single PFS size ref on a size", async () => {
+      await prisma.size.update({
+        where: { id: sizeId },
+        data: { pfsSizeRef: "XXL" },
       });
-
-      const mappings = await prisma.sizePfsMapping.findMany({
-        where: { sizeId },
-      });
-      expect(mappings).toHaveLength(1);
-      expect(mappings[0].pfsSizeRef).toBe("XXL");
+      const size = await prisma.size.findUnique({ where: { id: sizeId } });
+      expect(size?.pfsSizeRef).toBe("XXL");
     });
 
-    it("should support multiple PFS mappings per size", async () => {
-      await prisma.sizePfsMapping.create({
-        data: { sizeId, pfsSizeRef: "XXXL" },
+    it("should allow replacing the PFS ref (1:1 relation)", async () => {
+      await prisma.size.update({
+        where: { id: sizeId },
+        data: { pfsSizeRef: "XXXL" },
       });
-
-      const mappings = await prisma.sizePfsMapping.findMany({
-        where: { sizeId },
-      });
-      expect(mappings).toHaveLength(2);
+      const size = await prisma.size.findUnique({ where: { id: sizeId } });
+      expect(size?.pfsSizeRef).toBe("XXXL");
     });
 
-    it("should delete size and its mappings", async () => {
-      await prisma.sizePfsMapping.deleteMany({ where: { sizeId } });
+    it("should allow clearing the PFS ref", async () => {
+      await prisma.size.update({
+        where: { id: sizeId },
+        data: { pfsSizeRef: null },
+      });
+      const size = await prisma.size.findUnique({ where: { id: sizeId } });
+      expect(size?.pfsSizeRef).toBeNull();
+    });
+
+    it("should delete the size", async () => {
       await prisma.size.delete({ where: { id: sizeId } });
       const found = await prisma.size.findUnique({ where: { id: sizeId } });
       expect(found).toBeNull();

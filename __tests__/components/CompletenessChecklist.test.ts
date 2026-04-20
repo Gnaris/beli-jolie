@@ -10,7 +10,6 @@ function makeVariant(overrides: Partial<VariantState> = {}): VariantState {
     colorName: "Rouge",
     colorHex: "#FF0000",
     subColors: [],
-    packColorLines: [],
     sizeEntries: [{ tempId: "s1", sizeId: "sz1", sizeName: "TU", quantity: "1" }],
     unitPrice: "10",
     weight: "0.5",
@@ -152,6 +151,31 @@ describe("computeChecklist", () => {
     const items = computeChecklist(
       makeInput({ variants: [makeVariant({ sizeEntries: [] })] })
     );
+    const s = items.find((i) => i.key === "sizes");
+    expect(s?.done).toBe(false);
+  });
+
+  it("marks PACK sizes as done when the variant has size entries", () => {
+    const packVariant = makeVariant({
+      saleType: "PACK",
+      packQuantity: "2",
+      sizeEntries: [
+        { tempId: "s1", sizeId: "sz1", sizeName: "M", quantity: "1" },
+        { tempId: "s2", sizeId: "sz2", sizeName: "L", quantity: "1" },
+      ],
+    });
+    const items = computeChecklist(makeInput({ variants: [packVariant] }));
+    const s = items.find((i) => i.key === "sizes");
+    expect(s?.done).toBe(true);
+  });
+
+  it("marks PACK sizes as NOT done when sizeEntries is empty", () => {
+    const packVariant = makeVariant({
+      saleType: "PACK",
+      packQuantity: "1",
+      sizeEntries: [],
+    });
+    const items = computeChecklist(makeInput({ variants: [packVariant] }));
     const s = items.find((i) => i.key === "sizes");
     expect(s?.done).toBe(false);
   });

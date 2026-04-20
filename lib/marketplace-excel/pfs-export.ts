@@ -25,26 +25,16 @@ import type { ExportContext, ExportProduct, ExportVariant, SaleTypeKey } from ".
 const TEMPLATE_PATH = path.join(process.cwd(), "lib", "marketplace-excel", "templates", "pfs-template.xlsx");
 const DATA_SHEET_NAME = "Données";
 
+function sizeLabelForPfs(s: { name: string; pfsSizeRef?: string | null }): string {
+  return s.pfsSizeRef ?? s.name;
+}
+
 function formatSizes(variant: ExportVariant): string {
-  // Per-line sizes for PACK (fallback to variant.sizes if line has none)
-  if (variant.saleType === "PACK" && variant.packColorLines.length > 0) {
-    const parts: string[] = [];
-    for (const line of variant.packColorLines) {
-      const srcSizes = line.sizes.length > 0 ? line.sizes : variant.sizes;
-      for (const s of srcSizes) parts.push(`${s.quantity}*${s.name}`);
-    }
-    if (parts.length > 0) return parts.join(", ");
-  }
-  return variant.sizes.map((s) => `${s.quantity}*${s.name}`).join(", ");
+  return variant.sizes.map((s) => `${s.quantity}*${sizeLabelForPfs(s)}`).join(", ");
 }
 
 function formatColors(variant: ExportVariant): string {
-  if (variant.saleType === "UNIT") {
-    return [...variant.colorNames, ...variant.subColorNames].join(", ");
-  }
-  // PACK: first pack line's color composition (PFS expects a single set of colors per row)
-  const first = variant.packColorLines[0];
-  return first ? first.colors.join(", ") : "";
+  return [...variant.colorNames, ...variant.subColorNames].join(", ");
 }
 
 function formatComposition(product: ExportProduct): string {
@@ -108,7 +98,7 @@ function rowsForProduct(p: ExportProduct, ctx: ExportContext): (string | number)
     const sizeParts = new Set<string>();
     const colorParts = new Set<string>();
     let totalStock = 0;
-    let firstVariant = group[0];
+    const firstVariant = group[0];
 
     for (const v of group) {
       totalStock += v.stock;
@@ -190,10 +180,24 @@ export async function buildPfsWorkbook(
   clearDataRows(ws);
 
   for (const p of products) {
-    if (!p.pfsGenderCode) warnings.push({ reference: p.reference, message: "Genre PFS manquant — renseigner dans /admin/pfs/correspondances (onglet Catégories)" });
-    if (!p.pfsFamilyName) warnings.push({ reference: p.reference, message: "Famille PFS manquante — renseigner dans /admin/pfs/correspondances (onglet Catégories)" });
-    if (!p.seasonPfsRef) warnings.push({ reference: p.reference, message: "Saison PFS manquante — renseigner dans /admin/pfs/correspondances (onglet Saisons)" });
+    if (!p.pfsGenderCode) warnings.push({ reference: p.reference, message: "Genre PFS manquant — renseigner dans /admin/categories" });
+    if (!p.pfsFamilyName) warnings.push({ reference: p.reference, message: "Famille PFS manquante — renseigner dans /admin/categories" });
+    if (!p.seasonPfsRef) warnings.push({ reference: p.reference, message: "Saison PFS manquante — renseigner dans /admin/seasons" });
     if (!ctx.shopName) warnings.push({ reference: p.reference, message: "Nom de la boutique manquant — renseigner CompanyInfo.shopName" });
+
+    // Warn on sizes missing a PFS mapping (will fall back to BJ name in the export)
+    const seenOrphans = new Set<string>();
+    for (const v of p.variants) {
+      for (const s of v.sizes) {
+        if (!s.pfsSizeRef && !seenOrphans.has(s.name)) {
+          seenOrphans.add(s.name);
+          warnings.push({
+            reference: p.reference,
+            message: `Taille « ${s.name} » sans référence PFS — fallback utilisé = "${s.name}". À mapper dans /admin/tailles.`,
+          });
+        }
+      }
+    }
 
     const rows = rowsForProduct(p, ctx);
     for (const row of rows) ws.addRow(row);

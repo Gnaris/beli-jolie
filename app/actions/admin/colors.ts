@@ -17,9 +17,11 @@ export async function createColor(formData: FormData) {
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
   const hex  = (formData.get("hex")  as string)?.trim() || null;
+  const pfsColorRef = (formData.get("pfsColorRef") as string)?.trim() || null;
   if (!name) throw new Error("Le nom est requis.");
+  if (!pfsColorRef) throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
 
-  const color = await prisma.color.create({ data: { name, hex } });
+  const color = await prisma.color.create({ data: { name, hex, pfsColorRef } });
   autoTranslateColor(color.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
@@ -99,7 +101,6 @@ export async function updateColorPfsRef(id: string, pfsColorRef: string | null) 
     where: { id },
     data: { pfsColorRef: pfsColorRef?.trim() || null },
   });
-  revalidatePath("/admin/pfs/correspondances");
   revalidateTag("colors", "default");
 }
 

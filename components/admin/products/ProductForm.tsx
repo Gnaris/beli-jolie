@@ -2,10 +2,9 @@
 
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, packDisplayName, packDisplayHex, computeTotalPrice } from "./ColorVariantManager";
+import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice } from "./ColorVariantManager";
 import CompletenessChecklist from "./CompletenessChecklist";
 import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller, fetchProductFormAttributes } from "@/app/actions/admin/products";
-import { createSize, toggleSizePfsMapping, assignSizeToCategory } from "@/app/actions/admin/sizes";
 
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
@@ -98,7 +97,6 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
     colorName:    first?.name ?? "",
     colorHex:     first?.hex  ?? "#9CA3AF",
     subColors:    [],
-    packColorLines: [],
     sizeEntries:  [],
     unitPrice:    "",
     weight:       "",
@@ -379,6 +377,7 @@ export default function ProductForm({
   const [localTags,         setLocalTags]         = useState<{ id: string; name: string }[]>(_initialTags ?? []);
   const [localCountries,    setLocalCountries]    = useState<{ id: string; name: string; isoCode: string | null }[]>(_initialCountries ?? []);
   const [localSeasons,      setLocalSeasons]      = useState<{ id: string; name: string }[]>(_initialSeasons ?? []);
+  const [pfsSizes,          setPfsSizes]          = useState<{ reference: string; label: string }[]>([]);
   const [attributesLoaded,  setAttributesLoaded]  = useState(false);
 
   // Fetch all attributes from DB on mount (background, no cache)
@@ -393,6 +392,7 @@ export default function ProductForm({
       setLocalTags(data.tags);
       setLocalCountries(data.manufacturingCountries);
       setLocalSeasons(data.seasons);
+      setPfsSizes(data.pfsSizes ?? []);
       setAttributesLoaded(true);
     });
     return () => { cancelled = true; };
@@ -496,7 +496,7 @@ export default function ProductForm({
 
   const buildSnapshot = useCallback(() => JSON.stringify({
     reference, name, description, categoryId, subCategoryIds,
-    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, packColorLines: v.packColorLines })),
+    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
@@ -585,39 +585,20 @@ export default function ProductForm({
   const hasUnsavedChanges = snapshotReady.current && initialSnapshot.current !== null && buildSnapshot() !== initialSnapshot.current;
 
   // ── Sync colorImages when variant colors change ───────────────────────
-  // One ColorImageState per color group: UNIT shares by colorId+sub-colors, PACK gets one per variant
-  // Uses fingerprint (includes packColorLines content) so effect re-runs when colors change
+  // One ColorImageState per color group (colorId + sub-colors) — UNIT and PACK share the same scheme
   const variantColorKey = variants
     .map((v) => variantColorFingerprint(v))
     .filter(Boolean)
     .sort()
     .join("|");
   useEffect(() => {
-    // Build unique groups: groupKey → display info
     const groupMap = new Map<string, { colorId: string; name: string; hex: string }>();
     for (const v of variants) {
-      if (v.saleType === "PACK") {
-        if (v.packColorLines.length === 0) continue;
-        const gk = imageGroupKeyFromVariant(v);
-        // If group already registered (e.g. by a UNIT variant), skip
-        if (!groupMap.has(gk)) {
-          // Derive display info from first line's colors
-          const firstLineColors = v.packColorLines[0]?.colors ?? [];
-          const colorNames = firstLineColors.map((c) => c.colorName);
-          groupMap.set(gk, {
-            colorId: firstLineColors[0]?.colorId ?? "",
-            name: colorNames.join(" / "),
-            hex: firstLineColors[0]?.colorHex || packDisplayHex(v),
-          });
-        }
-      } else {
-        // UNIT: group by colorId + sub-colors
-        if (!v.colorId) continue;
-        const gk = variantGroupKeyFromState(v);
-        if (!groupMap.has(gk)) {
-          const allNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)];
-          groupMap.set(gk, { colorId: v.colorId, name: allNames.join(" / "), hex: v.colorHex });
-        }
+      if (!v.colorId) continue;
+      const gk = variantGroupKeyFromState(v);
+      if (!groupMap.has(gk)) {
+        const allNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)];
+        groupMap.set(gk, { colorId: v.colorId, name: allNames.join(" / "), hex: v.colorHex });
       }
     }
     setColorImages((prev) => {
@@ -784,8 +765,6 @@ export default function ProductForm({
   const selectedCategory = localCategories.find((c) => c.id === categoryId);
   const subCategories    = selectedCategory?.subCategories ?? [];
 
-  // Filter sizes to only those linked to the selected category
-  // If a size has no categoryIds (old data) or no category set, show all
   // Per-variant field errors for red highlighting (price/weight/stock/sizes)
   const variantErrors = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -867,26 +846,9 @@ export default function ProductForm({
     throw new Error("La création rapide de couleur a été désactivée. Créer la couleur depuis /admin/produits > Couleurs.");
   }
 
-  // ── Size quick-create handler ────────────────────────────────────────
-  async function handleQuickCreateSize(name: string, categoryIds: string[], pfsSizeRefs: string[]): Promise<AvailableSize> {
-    const created = await createSize(name, categoryIds);
-    // Create PFS size mappings
-    await Promise.all(pfsSizeRefs.map((ref) => toggleSizePfsMapping(created.id, ref)));
-    const newSize: AvailableSize = { id: created.id, name: created.name, categoryIds };
-    setLocalSizes((prev) => [...prev, newSize]);
-    return newSize;
-  }
-
-  // ── Assign existing size to category ─────────────────────────────────
-  async function handleAssignSizeToCategory(sizeId: string, categoryId: string) {
-    await assignSizeToCategory(sizeId, categoryId);
-    setLocalSizes((prev) =>
-      prev.map((s) =>
-        s.id === sizeId
-          ? { ...s, categoryIds: [...(s.categoryIds ?? []), categoryId] }
-          : s
-      )
-    );
+  // ── Size added handler (invoked by QuickCreateSizeModal) ────────────
+  function handleSizeAdded(newSize: AvailableSize) {
+    setLocalSizes((prev) => (prev.some((s) => s.id === newSize.id) ? prev : [...prev, newSize]));
   }
 
   // ── Quick-create modal handlers ──────────────────────────────────────
@@ -980,10 +942,8 @@ export default function ProductForm({
       // Variant-level completeness
       for (const v of variants) {
         const label = v.colorName || "variante pack";
-        if (v.saleType === "UNIT" && !v.colorId)
+        if (!v.colorId)
           errors.push(`Variante "${label}" : couleur non sélectionnée`);
-        if (v.saleType === "PACK" && (v.packColorLines.length === 0 || v.packColorLines[0]?.colors.length === 0))
-          errors.push(`Variante "${label}" : composition de couleurs manquante`);
         const w = parseFloat(v.weight);
         if (isNaN(w) || w <= 0)
           errors.push(`Variante "${label}" : poids invalide`);
@@ -1005,15 +965,13 @@ export default function ProductForm({
           }
         }
       }
-      // Duplicate check
-      const unitByGroup = new Map<string, boolean>();
+      // Duplicate check: same color composition + same sale type
+      const byGroup = new Map<string, boolean>();
       for (const v of variants) {
-        if (v.saleType === "UNIT") {
-          const gk = variantGroupKeyFromState(v);
-          if (unitByGroup.has(gk))
-            errors.push(`Variante "${v.colorName}" : doublon (même couleur)`);
-          unitByGroup.set(gk, true);
-        }
+        const gk = `${v.saleType}::${variantGroupKeyFromState(v)}`;
+        if (byGroup.has(gk))
+          errors.push(`Variante "${v.colorName}" : doublon (même couleur et type)`);
+        byGroup.set(gk, true);
       }
     }
     return errors;
@@ -1036,13 +994,29 @@ export default function ProductForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerStatusToggle, reference, name, description, categoryId, compositions, variants, colorImages]);
 
+  // Erreurs dures qui doivent bloquer l'enregistrement (même en brouillon)
+  function getBlockingErrors(): string[] {
+    const errors: string[] = [];
+    const seen = new Set<string>();
+    for (const v of variants) {
+      if (!v.colorId) continue;
+      const key = `${v.saleType}::${variantGroupKeyFromState(v)}`;
+      if (seen.has(key)) {
+        errors.push(`Doublon : deux variantes ${v.saleType} ont la même composition de couleurs (${v.colorName})`);
+      }
+      seen.add(key);
+    }
+    return errors;
+  }
+
   // Variante avec prix, poids ou stock manquant → bloque la synchro PFS
   function hasVariantsWithMissingPriceWeightOrStock(): boolean {
     return variants.some(v => {
       const price = parseFloat(v.unitPrice);
       const w = parseFloat(v.weight);
       const stockNotSet = v.stock === "" || v.stock === undefined || v.stock === null;
-      return (isNaN(price) || price <= 0) || (isNaN(w) || w <= 0) || stockNotSet || v.sizeEntries.length === 0;
+      const noSizes = v.sizeEntries.length === 0;
+      return (isNaN(price) || price <= 0) || (isNaN(w) || w <= 0) || stockNotSet || noSizes;
     });
   }
 
@@ -1051,6 +1025,10 @@ export default function ProductForm({
     if (isSyncLocked) return;
     setError("");
     setOnlineErrors([]);
+
+    // Hard-block: invalid state that DB/server-side also rejects
+    const blocking = getBlockingErrors();
+    if (blocking.length > 0) return setError(blocking.join(" · "));
 
     // Images still uploading — block
     if (colorImages.some((ci) => ci.uploading))
@@ -1072,15 +1050,7 @@ export default function ProductForm({
     const validSizeIds = new Set(localSizes.map((s) => s.id));
 
     // Filter variants: only include those with valid FK references
-    const draftVariants = variants.filter((v) => {
-      if (v.saleType === "UNIT") {
-        return !!v.colorId && validColorIds.has(v.colorId);
-      }
-      // PACK: must have at least one color line with valid colors
-      return v.packColorLines.length > 0
-        && v.packColorLines[0]?.colors.length > 0
-        && v.packColorLines[0].colors.every((c) => validColorIds.has(c.colorId));
-    });
+    const draftVariants = variants.filter((v) => !!v.colorId && validColorIds.has(v.colorId));
 
     const payload = {
       reference:     draftRef,
@@ -1098,22 +1068,11 @@ export default function ProductForm({
           isPrimary:     v.isPrimary,
           saleType:      v.saleType,
           packQuantity:  v.saleType === "PACK"
-            ? (v.packColorLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0), 0) || 1)
+            ? (v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0) || 1)
             : null,
-          sizeEntries:   v.saleType === "PACK"
-            ? [] // PACK sizes live in packColorLines
-            : v.sizeEntries
-                .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
-                .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
-          packColorLines: v.saleType === "PACK"
-            ? v.packColorLines.map((pcl, pos) => ({
-                colorIds: pcl.colors.filter((c) => validColorIds.has(c.colorId)).map((c) => c.colorId),
-                position: pos,
-                sizeEntries: pcl.sizeEntries
-                  .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
-                  .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
-              }))
-            : [],
+          sizeEntries:   v.sizeEntries
+            .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
+            .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
           pfsColorRef:   v.pfsColorRef || null,
         })),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
@@ -1128,7 +1087,7 @@ export default function ProductForm({
         if (!ci.colorId || !validColorIds.has(ci.colorId)) return [];
         return matching.map(({ vr, idx }) => ({
           colorId: ci.colorId,
-          subColorIds: vr.saleType === "PACK" ? [] : vr.subColors.filter((sc) => validColorIds.has(sc.colorId)).map((sc) => sc.colorId),
+          subColorIds: vr.subColors.filter((sc) => validColorIds.has(sc.colorId)).map((sc) => sc.colorId),
           variantDbId: vr.dbId ?? undefined,
           variantIndex: idx,
           paths: ci.uploadedPaths,
@@ -1184,6 +1143,10 @@ export default function ProductForm({
     if (isSyncLocked) return;
     setError("");
     setOnlineErrors([]);
+
+    // Hard-block: invalid state that DB/server-side also rejects
+    const blocking = getBlockingErrors();
+    if (blocking.length > 0) return setError(blocking.join(" · "));
 
     // Compute completeness
     const completenessErrors = getCompletenessErrors();
@@ -1362,38 +1325,26 @@ export default function ProductForm({
         isPrimary:     v.isPrimary,
         saleType:      v.saleType,
         packQuantity:  v.saleType === "PACK"
-          ? (v.packColorLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0), 0) || 1)
+          ? (v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0) || 1)
           : null,
-        sizeEntries:   v.saleType === "PACK"
-          ? [] // PACK sizes live in packColorLines
-          : v.sizeEntries
-              .filter((se) => se.sizeId)
-              .map((se) => ({
-                sizeId:       se.sizeId,
-                quantity:     parseInt(se.quantity) || 1,
-              })),
-        packColorLines: v.saleType === "PACK"
-          ? v.packColorLines.map((pcl, pos) => ({
-              colorIds: pcl.colors.map((c) => c.colorId),
-              position: pos,
-              sizeEntries: pcl.sizeEntries
-                .filter((se) => se.sizeId)
-                .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
-            }))
-          : [],
+        sizeEntries:   v.sizeEntries
+          .filter((se) => se.sizeId)
+          .map((se) => ({
+            sizeId:       se.sizeId,
+            quantity:     parseInt(se.quantity) || 1,
+          })),
         pfsColorRef:   v.pfsColorRef || null,
       })),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
       imagePaths: colorImages.flatMap((ci) => {
         if (ci.uploadedPaths.length === 0) return [];
-        // Find ALL variants sharing this image group key
         const matching = variants
           .map((vr, idx) => ({ vr, idx }))
           .filter(({ vr }) => imageGroupKeyFromVariant(vr) === ci.groupKey);
         if (matching.length === 0) return [];
         return matching.map(({ vr, idx }) => ({
           colorId: ci.colorId,
-          subColorIds: vr.saleType === "PACK" ? [] : vr.subColors.map((sc) => sc.colorId),
+          subColorIds: vr.subColors.map((sc) => sc.colorId),
           variantDbId: vr.dbId ?? undefined,
           variantIndex: idx,
           paths: ci.uploadedPaths,
@@ -1858,14 +1809,12 @@ export default function ProductForm({
             colorImages={colorImages}
             availableColors={localColors}
             availableSizes={localSizes}
+            pfsSizes={pfsSizes}
             onChange={setVariants}
             onChangeImages={setColorImages}
             onQuickCreateColor={handleQuickCreateColor}
             onColorAdded={(color) => setLocalColors((prev) => prev.some((c) => c.id === color.id) ? prev : [...prev, color])}
-            categoryId={categoryId}
-            allCategories={localCategories.map((c) => ({ id: c.id, name: c.name }))}
-            onQuickCreateSize={handleQuickCreateSize}
-            onAssignSizeToCategory={handleAssignSizeToCategory}
+            onSizeAdded={handleSizeAdded}
             variantErrors={variantErrors}
           />
         </section>

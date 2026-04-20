@@ -37,7 +37,7 @@ describe("Orders & Bestsellers (real DB)", () => {
         saleType: "UNIT",
         packQuantity: null,
         sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-        packColorLines: [],
+
       }],
       compositions: [],
       similarProductIds: [],
@@ -70,7 +70,7 @@ describe("Orders & Bestsellers (real DB)", () => {
         saleType: "UNIT",
         packQuantity: null,
         sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-        packColorLines: [],
+
       }],
       compositions: [],
       similarProductIds: [],

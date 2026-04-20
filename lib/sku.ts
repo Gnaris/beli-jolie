@@ -23,8 +23,7 @@ function normalizeColorName(name: string): string {
 
 /**
  * Build the color part of a SKU from a list of color names.
- * For UNIT: [mainColor, ...subColors]
- * For PACK: all colors from the single PackColorLine
+ * Format: [mainColor, ...subColors] (UNIT and PACK).
  */
 export function buildSkuColorPart(colorNames: string[]): string {
   if (colorNames.length === 0) return "SANS-COULEUR";

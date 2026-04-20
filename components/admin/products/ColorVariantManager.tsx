@@ -8,8 +8,8 @@ import ColorSwatch from "@/components/ui/ColorSwatch";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 import { fetchPfsColorsForMapping, updateColorPfsRef, updateProductColorPfsRef } from "@/app/actions/admin/colors";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
+import QuickCreateSizeModal, { type QuickCreateSizeModalResult } from "@/components/admin/products/QuickCreateSizeModal";
 import { usePfsAttributes } from "@/components/admin/MarketplaceMappingSection";
-import PfsSizeMultiSelect from "@/components/pfs/PfsSizeMultiSelect";
 
 // ─────────────────────────────────────────────
 // Exported types
@@ -29,23 +29,15 @@ export interface SizeEntryState {
   pricePerUnit?: string; // kept for backward compat during migration — ignored in new UI
 }
 
-export interface PackColorLineState {
-  tempId: string;
-  colors: { colorId: string; colorName: string; colorHex: string }[];
-  sizeEntries: SizeEntryState[];  // Per-line sizes (each color has its own sizes/quantities)
-}
-
 export interface VariantState {
   tempId: string;
   dbId?: string;           // ProductColor.id when editing
-  // UNIT: color composition (colorId = 1ère couleur, subColors = suivantes)
-  colorId: string;         // "" for PACK (colors are in packColorLines)
+  // Color composition (colorId = 1ère couleur, subColors = suivantes) — UNIT and PACK
+  colorId: string;
   colorName: string;
   colorHex: string;
   subColors: SubColorState[];
-  // PACK: multiple color lines (each = a color composition)
-  packColorLines: PackColorLineState[];
-  // Sizes with quantities (shared across all color lines for PACK)
+  // Sizes with quantities (UNIT ou PACK)
   sizeEntries: SizeEntryState[];
   // Pricing & metadata
   unitPrice: string;       // Prix HT par unité
@@ -83,7 +75,6 @@ export interface AvailableColor {
 export interface AvailableSize {
   id: string;
   name: string;
-  categoryIds?: string[];
 }
 
 interface Props {
@@ -91,14 +82,14 @@ interface Props {
   colorImages: ColorImageState[];
   availableColors: AvailableColor[];
   availableSizes: AvailableSize[];
+  /** PFS size references (from the Excel annexes) for the quick-create size modal. */
+  pfsSizes?: { reference: string; label: string }[];
   onChange: (variants: VariantState[]) => void;
   onChangeImages: (images: ColorImageState[]) => void;
   onQuickCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
   onColorAdded?: (color: AvailableColor) => void;
-  categoryId?: string;
-  allCategories?: { id: string; name: string }[];
-  onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
-  onAssignSizeToCategory?: (sizeId: string, categoryId: string) => Promise<void>;
+  /** Called after a size is created via the quick-create modal — parent should add to availableSizes */
+  onSizeAdded?: (size: AvailableSize) => void;
   variantErrors?: Map<string, Set<string>>;
 }
 
@@ -108,32 +99,11 @@ interface Props {
 
 /** Total price = unitPrice × total quantity across all sizes.
  *  For UNIT: if no sizes, total = unitPrice × 1.
- *  For PACK: total = unitPrice × sum(quantities across ALL pack color lines). */
+ *  For PACK: total = unitPrice × sum(quantities across sizes). */
 export function computeTotalPrice(v: VariantState): number | null {
   const unit = parseFloat(v.unitPrice);
   if (isNaN(unit) || unit <= 0) return null;
-  if (v.saleType === "PACK") {
-    // Sum quantities across all pack color lines
-    let totalQty = 0;
-    for (const pcl of v.packColorLines) {
-      for (const se of pcl.sizeEntries) {
-        const qty = parseInt(se.quantity);
-        if (isNaN(qty) || qty <= 0) return null;
-        totalQty += qty;
-      }
-    }
-    // Fallback: if no per-line sizes, try shared sizeEntries (backward compat)
-    if (totalQty === 0 && v.sizeEntries.length > 0) {
-      for (const se of v.sizeEntries) {
-        const qty = parseInt(se.quantity);
-        if (isNaN(qty) || qty <= 0) return null;
-        totalQty += qty;
-      }
-    }
-    return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : unit;
-  }
-  // UNIT
-  if (v.sizeEntries.length === 0) return unit;
+  if (v.sizeEntries.length === 0) return v.saleType === "PACK" ? null : unit;
   let totalQty = 0;
   for (const se of v.sizeEntries) {
     const qty = parseInt(se.quantity);
@@ -143,23 +113,8 @@ export function computeTotalPrice(v: VariantState): number | null {
   return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : unit;
 }
 
-/** Get total quantity across all pack color lines (for PACK) or sizeEntries (for UNIT). */
+/** Get total quantity across all size entries. */
 export function computePackTotalQty(v: VariantState): number {
-  if (v.saleType === "PACK") {
-    let total = 0;
-    for (const pcl of v.packColorLines) {
-      for (const se of pcl.sizeEntries) {
-        total += parseInt(se.quantity) || 0;
-      }
-    }
-    // Fallback to shared sizeEntries
-    if (total === 0) {
-      for (const se of v.sizeEntries) {
-        total += parseInt(se.quantity) || 0;
-      }
-    }
-    return total;
-  }
   let total = 0;
   for (const se of v.sizeEntries) {
     total += parseInt(se.quantity) || 0;
@@ -192,24 +147,12 @@ export function uid() { return Math.random().toString(36).slice(2, 9); }
 // Duplicate detection (saleType + color composition + sizes/quantities)
 // ─────────────────────────────────────────────
 function buildVariantDuplicateKey(v: VariantState): string {
-  if (v.saleType === "UNIT") {
-    const sizeKey = [...v.sizeEntries]
-      .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
-      .map((s) => `${s.sizeId}:${s.quantity}`)
-      .join(",");
-    const subColorKey = v.subColors.map((sc) => sc.colorId).join(",");
-    return `UNIT::${v.colorId}::${subColorKey}::${sizeKey}`;
-  }
-  // PACK: per-line color + sizes
-  const lineKeys = v.packColorLines.map((pcl) => {
-    const colorKey = pcl.colors.map((c) => c.colorId).sort().join("+");
-    const sizeKey = [...pcl.sizeEntries]
-      .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
-      .map((s) => `${s.sizeId}:${s.quantity}`)
-      .join(",");
-    return `${colorKey}|${sizeKey}`;
-  }).sort().join("//");
-  return `PACK::${lineKeys}`;
+  const sizeKey = [...v.sizeEntries]
+    .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
+    .map((s) => `${s.sizeId}:${s.quantity}`)
+    .join(",");
+  const subColorKey = v.subColors.map((sc) => sc.colorId).join(",");
+  return `${v.saleType}::${v.colorId}::${subColorKey}::${sizeKey}`;
 }
 
 function findDuplicateVariantTempIds(variants: VariantState[]): Set<string> {
@@ -233,54 +176,39 @@ export function variantGroupKeyFromState(v: { colorId: string; subColors: { colo
   return `${v.colorId}::${v.subColors.map(sc => sc.colorId).join(",")}`;
 }
 
-/** Image group key — works for both UNIT and PACK variants.
- *  Variants with the same color composition share images regardless of saleType.
- *  UNIT: colorId + sub-colors
- *  PACK: if all lines have the same color combo → same key as UNIT with those colors
- *        otherwise (mixed lines) → unique key per variant */
+/** Image group key — based on color composition (UNIT and PACK use the same scheme). */
 export function imageGroupKeyFromVariant(v: VariantState): string {
-  if (v.saleType === "PACK") {
-    if (v.packColorLines.length === 0) return `pack::${v.dbId || v.tempId}`;
-    // Each line now has one color — use sorted color IDs as key
-    const colorIds = v.packColorLines
-      .map((pcl) => pcl.colors[0]?.colorId)
-      .filter(Boolean)
-      .sort();
-    if (colorIds.length === 0) return `pack::${v.dbId || v.tempId}`;
-    if (colorIds.length === 1) return colorIds[0];
-    return `${colorIds[0]}::${colorIds.slice(1).join(",")}`;
-  }
   return variantGroupKeyFromState(v);
 }
 
-/** Fingerprint of a variant's color state — changes when colors change.
- *  Used as useEffect dependency to detect color edits on both UNIT and PACK. */
+/** Fingerprint of a variant's color state — changes when colors change. */
 export function variantColorFingerprint(v: VariantState): string {
-  if (v.saleType === "PACK") {
-    const pclKey = v.packColorLines
-      .map((pcl) => pcl.colors[0]?.colorId || "")
-      .join("|");
-    return `pack::${v.dbId || v.tempId}::${pclKey}`;
-  }
   if (!v.colorId) return "";
   return variantGroupKeyFromState(v);
 }
 
-/** Display name for a PACK variant's color composition */
-export function packDisplayName(v: VariantState): string {
-  if (v.packColorLines.length === 0) return "Paquet (sans couleur)";
-  const names = v.packColorLines.map((pcl) => pcl.colors.map((c) => c.colorName).join(" + "));
-  return names.join(" / ");
-}
-
-/** First hex from a PACK variant's color lines */
-export function packDisplayHex(v: VariantState): string {
-  for (const pcl of v.packColorLines) {
-    for (const c of pcl.colors) {
-      if (c.colorHex && c.colorHex !== "#9CA3AF") return c.colorHex;
-    }
+/** Unique color combinations across a variant set — one entry per distinct
+ *  color composition, regardless of UNIT vs PACK. */
+export function computeExistingColorCombos(
+  existingVariants: VariantState[],
+): { key: string; colors: { colorId: string; colorName: string; colorHex: string }[]; pfsColorRef?: string }[] {
+  const seen = new Set<string>();
+  const combos: { key: string; colors: { colorId: string; colorName: string; colorHex: string }[]; pfsColorRef?: string }[] = [];
+  for (const v of existingVariants) {
+    if (!v.colorId) continue;
+    const gk = variantGroupKeyFromState(v);
+    if (seen.has(gk)) continue;
+    seen.add(gk);
+    combos.push({
+      key: gk,
+      colors: [
+        { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
+        ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
+      ],
+      pfsColorRef: v.pfsColorRef || undefined,
+    });
   }
-  return "#9CA3AF";
+  return combos;
 }
 
 function defaultVariant(): VariantState {
@@ -290,7 +218,6 @@ function defaultVariant(): VariantState {
     colorName:    "",
     colorHex:     "#9CA3AF",
     subColors:    [],
-    packColorLines: [],
     sizeEntries:  [],
     unitPrice:    "",
     weight:       "",
@@ -572,10 +499,6 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
         if (!ov.pfsColorRef) continue;
         if (ov.colorId && ov.subColors.length > 0) {
           const vIds = [ov.colorId, ...ov.subColors.map((sc) => sc.colorId)].sort().join("+");
-          if (vIds === draftComboKey) { setDraftPfsColorRef(ov.pfsColorRef); return; }
-        }
-        if (ov.saleType === "PACK" && ov.packColorLines[0]) {
-          const vIds = ov.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
           if (vIds === draftComboKey) { setDraftPfsColorRef(ov.pfsColorRef); return; }
         }
       }
@@ -1237,26 +1160,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   function getSwatchSegments(groupKey: string): { main: { hex?: string | null; patternImage?: string | null }; subs: { hex?: string | null; patternImage?: string | null }[] } {
     const v = findVariantByGroupKey(groupKey);
     if (!v) return { main: { hex: "#9CA3AF" }, subs: [] };
-    // PACK: build swatches from packColorLines — deduplicate unique colors
-    if (v.saleType === "PACK") {
-      const seen = new Set<string>();
-      const unique: { colorId: string; colorHex: string }[] = [];
-      for (const pcl of v.packColorLines) {
-        for (const c of pcl.colors) {
-          if (!seen.has(c.colorId)) { seen.add(c.colorId); unique.push(c); }
-        }
-      }
-      if (unique.length === 0) return { main: { hex: "#9CA3AF" }, subs: [] };
-      const first = unique[0];
-      const firstOpt = availableColors.find((c) => c.id === first.colorId);
-      const main = { hex: first.colorHex || firstOpt?.hex, patternImage: firstOpt?.patternImage ?? null };
-      const subs = unique.slice(1).map((sc) => {
-        const scOpt = availableColors.find((c) => c.id === sc.colorId);
-        return { hex: sc.colorHex || scOpt?.hex, patternImage: scOpt?.patternImage ?? null };
-      });
-      return { main, subs };
-    }
-    // UNIT
     const mainOpt = availableColors.find((c) => c.id === v.colorId);
     const main = { hex: v.colorHex || mainOpt?.hex, patternImage: mainOpt?.patternImage ?? null };
     const subs = v.subColors.map((sc) => {
@@ -1542,54 +1445,24 @@ interface SizeModalProps {
   onClose: () => void;
   variant: VariantState;
   availableSizes: AvailableSize[];
-  categoryId?: string;
-  allCategories?: { id: string; name: string }[];
+  pfsSizes: { reference: string; label: string }[];
   onSave: (entries: SizeEntryState[]) => void;
-  onSavePackSizes?: (lineSizes: { tempId: string; sizeEntries: SizeEntryState[] }[]) => void;
-  onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
-  onAssignSizeToCategory?: (sizeId: string, categoryId: string) => Promise<void>;
+  /** Called after a size is created via the quick-create modal — parent should add to its availableSizes list */
+  onSizeAdded?: (size: AvailableSize) => void;
 }
 
-function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCategories, onSave, onSavePackSizes, onQuickCreateSize, onAssignSizeToCategory }: SizeModalProps) {
+function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, onSizeAdded }: SizeModalProps) {
   const backdrop = useBackdropClose(onClose);
   const isUnit = variant.saleType === "UNIT";
   const isPack = variant.saleType === "PACK";
 
-  // UNIT: single draft
   const [draft, setDraft] = useState<SizeEntryState[]>(variant.sizeEntries);
-  // PACK: per-line drafts (keyed by packColorLine tempId)
-  const [packDrafts, setPackDrafts] = useState<Map<string, SizeEntryState[]>>(() => {
-    const m = new Map<string, SizeEntryState[]>();
-    for (const pcl of variant.packColorLines) {
-      m.set(pcl.tempId, [...pcl.sizeEntries]);
-    }
-    return m;
-  });
-  const [activeLineId, setActiveLineId] = useState<string>(variant.packColorLines[0]?.tempId ?? "");
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
 
-  const [showCreate, setShowCreate] = useState(false);
-  const [newSizeName, setNewSizeName] = useState("");
-  const [newSizeCatIds, setNewSizeCatIds] = useState<Set<string>>(categoryId ? new Set([categoryId]) : new Set());
-  const [createSaving, setCreateSaving] = useState(false);
-  const [createError, setCreateError] = useState("");
-  const [newPfsSizeRefs, setNewPfsSizeRefs] = useState<Set<string>>(new Set());
-  const [assigningId, setAssigningId] = useState<string | null>(null);
-  const { data: pfsData, loading: pfsLoading } = usePfsAttributes();
-
-  // Reset drafts when variant changes
   useEffect(() => {
     setDraft(variant.sizeEntries);
-    const m = new Map<string, SizeEntryState[]>();
-    for (const pcl of variant.packColorLines) {
-      m.set(pcl.tempId, [...pcl.sizeEntries]);
-    }
-    setPackDrafts(m);
-    if (variant.packColorLines.length > 0 && !variant.packColorLines.find((p) => p.tempId === activeLineId)) {
-      setActiveLineId(variant.packColorLines[0]?.tempId ?? "");
-    }
-  }, [variant.sizeEntries, variant.packColorLines]);
+  }, [variant.sizeEntries]);
 
-  // Lock body scroll
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -1597,31 +1470,11 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  // Current draft = for UNIT or for the active PACK line
-  const currentDraft = isPack ? (packDrafts.get(activeLineId) ?? []) : draft;
+  const currentDraft = draft;
   const usedSizeIds = new Set(currentDraft.map((s) => s.sizeId));
 
-  // Filter sizes by category
-  const filteredSizes = categoryId
-    ? availableSizes.filter((s) => !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId))
-    : availableSizes;
-  const remainingSizes = filteredSizes.filter((s) => !usedSizeIds.has(s.id));
-
-  // Sizes that exist but are NOT linked to the current category
-  const unlinkedSizes = categoryId
-    ? availableSizes.filter((s) => s.categoryIds && s.categoryIds.length > 0 && !s.categoryIds.includes(categoryId))
-    : [];
-
   function setCurrentDraft(newDraft: SizeEntryState[]) {
-    if (isPack) {
-      setPackDrafts((prev) => {
-        const m = new Map(prev);
-        m.set(activeLineId, newDraft);
-        return m;
-      });
-    } else {
-      setDraft(newDraft);
-    }
+    setDraft(newDraft);
   }
 
   function toggleSize(size: AvailableSize) {
@@ -1640,66 +1493,24 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
     setCurrentDraft(currentDraft.map((s) => s.sizeId === sizeId ? { ...s, quantity: qty } : s));
   }
 
-  function copySizesFrom(sourceLineId: string) {
-    const source = packDrafts.get(sourceLineId);
-    if (!source) return;
-    setCurrentDraft(source.map((s) => ({ ...s, tempId: uid() })));
-  }
-
   function handleSave() {
-    if (isPack && onSavePackSizes) {
-      const lineSizes = variant.packColorLines.map((pcl) => ({
-        tempId: pcl.tempId,
-        sizeEntries: packDrafts.get(pcl.tempId) ?? [],
-      }));
-      onSavePackSizes(lineSizes);
-    } else {
-      onSave(draft);
-    }
+    onSave(draft);
     onClose();
   }
 
-  async function handleCreateSize() {
-    if (!newSizeName.trim() || !onQuickCreateSize) return;
-    if (newPfsSizeRefs.size === 0) {
-      setCreateError("Au moins une correspondance Paris Fashion Shop est requise.");
-      return;
+  function handleSizeCreated(result: QuickCreateSizeModalResult) {
+    const newSize: AvailableSize = { id: result.id, name: result.name };
+    onSizeAdded?.(newSize);
+    if (isUnit) {
+      setCurrentDraft([{ tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
+    } else {
+      setCurrentDraft([...currentDraft, { tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
     }
-    setCreateSaving(true);
-    setCreateError("");
-    try {
-      const created = await onQuickCreateSize(newSizeName.trim(), Array.from(newSizeCatIds), Array.from(newPfsSizeRefs));
-      if (!(isUnit && currentDraft.length >= 1)) {
-        setCurrentDraft([...currentDraft, { tempId: uid(), sizeId: created.id, sizeName: created.name, quantity: "1" }]);
-      }
-      setNewSizeName("");
-      setNewPfsSizeRefs(new Set());
-      setShowCreate(false);
-    } catch (e: unknown) {
-      setCreateError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setCreateSaving(false);
-    }
+    setQuickCreateOpen(false);
   }
 
-  async function handleAssignAndSelect(size: AvailableSize) {
-    if (!onAssignSizeToCategory || !categoryId) return;
-    setAssigningId(size.id);
-    try {
-      await onAssignSizeToCategory(size.id, categoryId);
-      if (!(isUnit && currentDraft.length >= 1)) {
-        setCurrentDraft([...currentDraft, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
-      } else {
-        setCurrentDraft([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
-      }
-    } finally {
-      setAssigningId(null);
-    }
-  }
-
-  // Pack totals
   const packTotalQty = isPack
-    ? Array.from(packDrafts.values()).reduce((sum, entries) => sum + entries.reduce((s, e) => s + (parseInt(e.quantity) || 0), 0), 0)
+    ? currentDraft.reduce((s, e) => s + (parseInt(e.quantity) || 0), 0)
     : 0;
 
   if (!open) return null;
@@ -1716,10 +1527,10 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
             <h3 className="text-base font-semibold font-heading text-text-primary">
-              {isUnit ? "Taille" : "Tailles & quantités par couleur"}
+              {isUnit ? "Taille" : "Tailles & quantités"}
             </h3>
             <p className="text-xs text-text-muted font-body mt-0.5">
-              {isUnit ? "Sélectionnez une taille (max 1)" : "Chaque couleur du paquet a ses propres tailles et quantités"}
+              {isUnit ? "Sélectionnez une taille (max 1)" : "Configurez les tailles et quantités du paquet"}
             </p>
           </div>
           <button type="button" onClick={onClose} className="p-2 hover:bg-bg-secondary rounded-xl transition-colors" aria-label="Fermer">
@@ -1729,66 +1540,8 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
           </button>
         </div>
 
-        {/* PACK: color line tabs */}
-        {isPack && variant.packColorLines.length > 0 && (
-          <div className="flex items-center gap-1 px-6 pt-3 pb-0 overflow-x-auto">
-            {variant.packColorLines.map((pcl) => {
-              const colorName = pcl.colors[0]?.colorName || "?";
-              const colorHex = pcl.colors[0]?.colorHex || "#9CA3AF";
-              const lineQty = (packDrafts.get(pcl.tempId) ?? []).reduce((s, e) => s + (parseInt(e.quantity) || 0), 0);
-              const isActive = pcl.tempId === activeLineId;
-              return (
-                <button
-                  key={pcl.tempId}
-                  type="button"
-                  onClick={() => setActiveLineId(pcl.tempId)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t-lg border border-b-0 transition-colors font-body shrink-0 ${
-                    isActive
-                      ? "bg-bg-primary border-border text-text-primary"
-                      : "bg-bg-secondary border-transparent text-text-muted hover:text-text-secondary"
-                  }`}
-                >
-                  <span className="w-3 h-3 rounded-full border border-border shrink-0" style={{ backgroundColor: colorHex }} />
-                  {colorName}
-                  {lineQty > 0 && <span className="text-[10px] text-text-muted">({lineQty})</span>}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-
-          {/* PACK: copy sizes button */}
-          {isPack && variant.packColorLines.length > 1 && (() => {
-            const otherLines = variant.packColorLines.filter((p) => p.tempId !== activeLineId && (packDrafts.get(p.tempId) ?? []).length > 0);
-            if (otherLines.length === 0) return null;
-            return (
-              <div className="flex flex-wrap gap-1.5">
-                {otherLines.map((pcl) => (
-                  <button
-                    key={pcl.tempId}
-                    type="button"
-                    onClick={() => copySizesFrom(pcl.tempId)}
-                    className="text-[11px] text-text-secondary hover:text-text-primary font-body hover:underline flex items-center gap-1 px-2 py-1 bg-bg-secondary rounded-md border border-border transition-colors"
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copier de {pcl.colors[0]?.colorName || "?"}
-                  </button>
-                ))}
-              </div>
-            );
-          })()}
-
-          {/* PACK with no color lines: show warning */}
-          {isPack && variant.packColorLines.length === 0 && (
-            <p className="text-xs text-amber-600 font-body">
-              Ajoutez d&apos;abord des couleurs au paquet pour configurer les tailles.
-            </p>
-          )}
 
           {/* Selected sizes with quantity */}
           {currentDraft.length > 0 && (
@@ -1828,13 +1581,13 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
             <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
               Tailles disponibles
             </p>
-            {filteredSizes.length === 0 ? (
+            {availableSizes.length === 0 ? (
               <p className="text-xs text-amber-600 font-body">
-                Aucune taille disponible pour cette catégorie. Créez-en une ci-dessous.
+                Aucune taille dans la bibliothèque. Créez-en une ci-dessous.
               </p>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {filteredSizes.map((size) => {
+                {availableSizes.map((size) => {
                   const isSelected = usedSizeIds.has(size.id);
                   return (
                     <button
@@ -1855,121 +1608,19 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
             )}
           </div>
 
-          {/* Unlinked sizes — existing sizes from other categories */}
-          {onAssignSizeToCategory && categoryId && unlinkedSizes.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
-                Autres tailles existantes
-              </p>
-              <p className="text-[11px] text-text-muted font-body">
-                Ces tailles ne sont pas encore liées à cette catégorie. Cliquez pour les ajouter.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {unlinkedSizes.map((size) => {
-                  const isSelected = usedSizeIds.has(size.id);
-                  const isAssigning = assigningId === size.id;
-                  return (
-                    <button
-                      key={size.id}
-                      type="button"
-                      disabled={isAssigning}
-                      onClick={() => isSelected ? toggleSize(size) : handleAssignAndSelect(size)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed transition-colors font-body ${
-                        isAssigning
-                          ? "opacity-50 cursor-wait border-border text-text-muted"
-                          : isSelected
-                            ? "bg-bg-dark text-text-inverse border-[#1A1A1A] border-solid"
-                            : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark hover:text-text-primary"
-                      }`}
-                    >
-                      {isAssigning ? "..." : size.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Quick create size */}
-          {onQuickCreateSize && (
+          {/* Quick create size — opens dedicated modal */}
+          {onSizeAdded && (
             <div className="border-t border-border pt-4">
-              {!showCreate ? (
-                <button
-                  type="button"
-                  onClick={() => { setShowCreate(true); setNewSizeCatIds(categoryId ? new Set([categoryId]) : new Set()); }}
-                  className="text-sm text-text-primary font-medium hover:underline flex items-center gap-2 font-body"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Créer une taille
-                </button>
-              ) : (
-                <div className="space-y-3 bg-bg-secondary p-4 rounded-xl">
-                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">Nouvelle taille</p>
-                  <input
-                    className="field-input w-full text-sm"
-                    placeholder="Nom (ex: 36, S, TU...)"
-                    value={newSizeName}
-                    onChange={(e) => setNewSizeName(e.target.value)}
-                    autoFocus
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateSize(); } }}
-                  />
-                  {/* Category checkboxes */}
-                  {allCategories && allCategories.length > 0 && (
-                    <div>
-                      <p className="text-[11px] text-text-secondary font-body mb-1.5">Catégories associées</p>
-                      <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto">
-                        {allCategories.map((cat) => (
-                          <label key={cat.id} className="flex items-center gap-1.5 text-xs font-body cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={newSizeCatIds.has(cat.id)}
-                              onChange={() => {
-                                const next = new Set(newSizeCatIds);
-                                if (next.has(cat.id)) next.delete(cat.id); else next.add(cat.id);
-                                setNewSizeCatIds(next);
-                              }}
-                              className="accent-[#1A1A1A] w-3.5 h-3.5"
-                            />
-                            {cat.name}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {/* PFS size mapping (mandatory) */}
-                  <div>
-                    <p className="text-[11px] text-text-secondary font-body mb-1.5">
-                      Correspondance Paris Fashion Shop <span className="text-[#EF4444]">*</span>
-                    </p>
-                    {pfsLoading ? (
-                      <p className="text-xs text-text-muted">Chargement des tailles Paris Fashion Shop…</p>
-                    ) : pfsData?.sizes ? (
-                      <PfsSizeMultiSelect
-                        pfsSizes={pfsData.sizes}
-                        selected={newPfsSizeRefs}
-                        onToggle={(ref) => {
-                          const next = new Set(newPfsSizeRefs);
-                          if (next.has(ref)) next.delete(ref); else next.add(ref);
-                          setNewPfsSizeRefs(next);
-                        }}
-                        disabled={false}
-                        className="w-full"
-                      />
-                    ) : (
-                      <p className="text-xs text-text-muted">Tailles Paris Fashion Shop non disponibles</p>
-                    )}
-                  </div>
-                  {createError && <p className="text-xs text-[#EF4444] font-body">{createError}</p>}
-                  <div className="flex gap-2">
-                    <button type="button" onClick={handleCreateSize} disabled={createSaving || !newSizeName.trim() || newPfsSizeRefs.size === 0}
-                      className="btn-primary text-xs disabled:opacity-50">{createSaving ? "Création..." : "Créer"}</button>
-                    <button type="button" onClick={() => { setShowCreate(false); setCreateError(""); setNewPfsSizeRefs(new Set()); }}
-                      className="btn-secondary text-xs">Annuler</button>
-                  </div>
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setQuickCreateOpen(true)}
+                className="text-sm text-text-primary font-medium hover:underline flex items-center gap-2 font-body"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Créer une taille
+              </button>
             </div>
           )}
         </div>
@@ -2001,6 +1652,13 @@ function SizeModal({ open, onClose, variant, availableSizes, categoryId, allCate
           </div>
         </div>
       </div>
+
+      <QuickCreateSizeModal
+        open={quickCreateOpen}
+        onClose={() => setQuickCreateOpen(false)}
+        pfsSizes={pfsSizes}
+        onCreated={handleSizeCreated}
+      />
     </div>
   );
 
@@ -2023,18 +1681,16 @@ interface QuickAddModalProps {
   existingVariants: VariantState[];
   availableColors: AvailableColor[];
   availableSizes: AvailableSize[];
-  categoryId?: string;
+  pfsSizes: { reference: string; label: string }[];
   onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
   onColorAdded?: (color: AvailableColor) => void;
-  onQuickCreateSize?: (name: string, categoryIds: string[], pfsSizeRefs: string[]) => Promise<AvailableSize>;
-  onAssignSizeToCategory?: (sizeId: string, categoryId: string) => Promise<void>;
-  allCategories?: { id: string; name: string }[];
+  onSizeAdded?: (size: AvailableSize) => void;
   onConfirm: (variants: VariantState[]) => void;
 }
 
 function QuickAddModal({
-  open, onClose, existingVariants, availableColors, availableSizes,
-  categoryId, onCreateColor, onColorAdded, onQuickCreateSize, onAssignSizeToCategory, allCategories, onConfirm,
+  open, onClose, existingVariants, availableColors, availableSizes, pfsSizes,
+  onCreateColor, onColorAdded, onSizeAdded, onConfirm,
 }: QuickAddModalProps) {
   const backdrop = useBackdropClose(onClose);
 
@@ -2060,14 +1716,8 @@ function QuickAddModal({
   const [weight, setWeight] = useState("");
   const [sizeEntries, setSizeEntries] = useState<SizeEntryState[]>([]);
 
-  // Size picker inline
-  const [showSizePicker, setShowSizePicker] = useState(false);
-  const [showSizeCreate, setShowSizeCreate] = useState(false);
-  const [newSizeName, setNewSizeName] = useState("");
-  const [newSizeCatIds, setNewSizeCatIds] = useState<Set<string>>(categoryId ? new Set([categoryId]) : new Set());
-  const [sizeCreateSaving, setSizeCreateSaving] = useState(false);
-  const [sizeCreateError, setSizeCreateError] = useState("");
-  const [newPfsSizeRefs2, setNewPfsSizeRefs2] = useState<Set<string>>(new Set());
+  // Size quick-create modal
+  const [sizeQuickCreateOpen, setSizeQuickCreateOpen] = useState(false);
 
   // Lock body scroll
   useEffect(() => {
@@ -2086,67 +1736,13 @@ function QuickAddModal({
       setStock("");
       setWeight("");
       setSizeEntries([]);
-      setShowSizePicker(false);
     }
   }, [open]);
 
   // Existing color combos for quick-select (with pfsColorRef if already mapped)
-  const existingCombos = useMemo(() => {
-    const seen = new Set<string>();
-    const combos: { key: string; colors: { colorId: string; colorName: string; colorHex: string }[]; pfsColorRef?: string }[] = [];
-    for (const v of existingVariants) {
-      if (!v.colorId) continue;
-      const gk = variantGroupKeyFromState(v);
-      if (seen.has(gk)) continue;
-      seen.add(gk);
-      combos.push({
-        key: gk,
-        colors: [
-          { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
-          ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
-        ],
-        pfsColorRef: v.pfsColorRef || undefined,
-      });
-    }
-    // Also add PACK color lines (each line = one color)
-    for (const v of existingVariants) {
-      if (v.saleType !== "PACK") continue;
-      for (const line of v.packColorLines) {
-        if (line.colors.length === 0) continue;
-        const gk = `pack::${line.colors[0].colorId}`;
-        if (seen.has(gk)) continue;
-        seen.add(gk);
-        combos.push({ key: gk, colors: line.colors });
-      }
-    }
-    return combos;
-  }, [existingVariants]);
+  const existingCombos = useMemo(() => computeExistingColorCombos(existingVariants), [existingVariants]);
 
-  const [assigningId2, setAssigningId2] = useState<string | null>(null);
-
-  // Filtered sizes by category
-  const filteredSizes = categoryId
-    ? availableSizes.filter((s) => !s.categoryIds || s.categoryIds.length === 0 || s.categoryIds.includes(categoryId))
-    : availableSizes;
   const usedSizeIds = new Set(sizeEntries.map((s) => s.sizeId));
-  const unlinkedSizes2 = categoryId
-    ? availableSizes.filter((s) => s.categoryIds && s.categoryIds.length > 0 && !s.categoryIds.includes(categoryId))
-    : [];
-
-  async function handleAssignAndSelect2(size: AvailableSize) {
-    if (!onAssignSizeToCategory || !categoryId) return;
-    setAssigningId2(size.id);
-    try {
-      await onAssignSizeToCategory(size.id, categoryId);
-      if (!(saleType === "UNIT" && sizeEntries.length >= 1)) {
-        setSizeEntries((prev) => [...prev, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
-      } else {
-        setSizeEntries([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
-      }
-    } finally {
-      setAssigningId2(null);
-    }
-  }
 
   function addColorLine() {
     setColorLines((prev) => [...prev, { id: uid(), colors: [] }]);
@@ -2157,22 +1753,13 @@ function QuickAddModal({
   }
 
   function updateColorLine(lineId: string, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRef?: string) {
-    // Auto-fill pfsColorRef from existing variant with same color combination
     let resolvedRef = pfsColorRef;
     if (resolvedRef === undefined && colors.length > 0) {
       const sortedIds = colors.map((c) => c.colorId).sort().join("+");
       for (const v of existingVariants) {
-        if (v.pfsColorRef) {
-          // Check UNIT multi-color match
-          if (v.colorId && v.subColors.length > 0) {
-            const vIds = [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+");
-            if (vIds === sortedIds) { resolvedRef = v.pfsColorRef; break; }
-          }
-          // Check PACK color line match
-          if (v.saleType === "PACK" && v.packColorLines[0]) {
-            const vIds = v.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
-            if (vIds === sortedIds) { resolvedRef = v.pfsColorRef; break; }
-          }
+        if (v.pfsColorRef && v.colorId && v.subColors.length > 0) {
+          const vIds = [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+");
+          if (vIds === sortedIds) { resolvedRef = v.pfsColorRef; break; }
         }
       }
     }
@@ -2204,27 +1791,15 @@ function QuickAddModal({
     setSizeEntries((prev) => prev.map((s) => s.sizeId === sizeId ? { ...s, quantity: qty } : s));
   }
 
-  async function handleCreateSize() {
-    if (!newSizeName.trim() || !onQuickCreateSize) return;
-    if (newPfsSizeRefs2.size === 0) {
-      setSizeCreateError("Au moins une correspondance Paris Fashion Shop est requise.");
-      return;
+  function handleQuickAddSizeCreated(result: QuickCreateSizeModalResult) {
+    const newSize: AvailableSize = { id: result.id, name: result.name };
+    onSizeAdded?.(newSize);
+    if (saleType === "UNIT" && sizeEntries.length >= 1) {
+      setSizeEntries([{ tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
+    } else {
+      setSizeEntries((prev) => [...prev, { tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
     }
-    setSizeCreateSaving(true);
-    setSizeCreateError("");
-    try {
-      const created = await onQuickCreateSize(newSizeName.trim(), Array.from(newSizeCatIds), Array.from(newPfsSizeRefs2));
-      if (!(saleType === "UNIT" && sizeEntries.length >= 1)) {
-        setSizeEntries((prev) => [...prev, { tempId: uid(), sizeId: created.id, sizeName: created.name, quantity: "1" }]);
-      }
-      setNewSizeName("");
-      setNewPfsSizeRefs2(new Set());
-      setShowSizeCreate(false);
-    } catch (e: unknown) {
-      setSizeCreateError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setSizeCreateSaving(false);
-    }
+    setSizeQuickCreateOpen(false);
   }
 
   const validLines = colorLines.filter((l) => l.colors.length > 0);
@@ -2232,38 +1807,9 @@ function QuickAddModal({
 
   function handleConfirm() {
     const isUnitType = saleType === "UNIT";
+    const totalQty = sizeEntries.reduce((s, e) => s + (parseInt(e.quantity) || 0), 0);
 
-    if (!isUnitType) {
-      // PACK: all color lines become ONE variant with multiple packColorLines
-      const packColorLines: PackColorLineState[] = validLines.map((line) => ({
-        tempId: uid(),
-        colors: line.colors.length > 0 ? [line.colors[0]] : [], // one color per line
-        sizeEntries: sizeEntries.map((se) => ({ ...se, tempId: uid() })),
-      }));
-      const totalQty = packColorLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0), 0);
-      const newVariant: VariantState = {
-        tempId: uid(),
-        colorId: "",
-        colorName: "",
-        colorHex: "#9CA3AF",
-        subColors: [],
-        packColorLines,
-        sizeEntries: [],
-        unitPrice,
-        weight,
-        stock,
-        isPrimary: existingVariants.length === 0,
-        saleType: "PACK",
-        packQuantity: String(totalQty || 1),
-        pfsColorRef: "",
-        sku: "",
-      };
-      onConfirm([newVariant]);
-      onClose();
-      return;
-    }
-
-    // UNIT: one variant per color line (unchanged)
+    // One variant per color line — PACK and UNIT use the same structure
     const newVariants: VariantState[] = validLines.map((line, i) => {
       const [main, ...rest] = line.colors;
       return {
@@ -2272,14 +1818,13 @@ function QuickAddModal({
         colorName: main?.colorName ?? "",
         colorHex: main?.colorHex ?? "#9CA3AF",
         subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
-        packColorLines: [],
         sizeEntries: sizeEntries.map((se) => ({ ...se, tempId: uid() })),
         unitPrice,
         weight,
         stock,
         isPrimary: i === 0 && existingVariants.length === 0,
-        saleType: "UNIT",
-        packQuantity: "",
+        saleType: isUnitType ? "UNIT" : "PACK",
+        packQuantity: isUnitType ? "" : String(totalQty || 1),
         pfsColorRef: line.pfsColorRef || "",
         sku: "",
       };
@@ -2299,16 +1844,16 @@ function QuickAddModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
-            <h3 className="text-base font-semibold font-heading text-text-primary">
-              Création rapide de variantes
+            <h3 className="text-lg font-semibold font-heading text-text-primary">
+              Ajouter des couleurs
             </h3>
-            <p className="text-xs text-text-muted font-body mt-0.5">
-              Chaque ligne de couleur = 1 variante. Les autres champs sont partagés.
+            <p className="text-xs text-text-muted font-body mt-1">
+              Les paramètres de prix, stock et tailles s’appliqueront à chacune.
             </p>
           </div>
-          <button type="button" onClick={onClose} className="p-2 hover:bg-bg-secondary rounded-xl transition-colors" aria-label="Fermer">
+          <button type="button" onClick={onClose} className="p-2 -mr-1 hover:bg-bg-secondary rounded-xl transition-colors" aria-label="Fermer">
             <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -2316,60 +1861,29 @@ function QuickAddModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
 
-          {/* ── Color lines ── */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
-                Couleurs ({colorLines.length} variante{colorLines.length > 1 ? "s" : ""})
+          {/* ── Section 1 : Couleurs ── */}
+          <section className="space-y-3">
+            <div>
+              <h4 className="text-sm font-semibold text-text-primary font-body">
+                Quelles couleurs ?
+              </h4>
+              <p className="text-xs text-text-muted font-body mt-0.5">
+                Une couleur peut combiner plusieurs teintes (ex. rouge + blanc).
               </p>
-              <button type="button" onClick={addColorLine}
-                className="text-xs text-text-primary font-medium hover:underline flex items-center gap-1 font-body">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Ligne
-              </button>
             </div>
 
-            {colorLines.map((line, idx) => (
-              <div key={line.id} className="flex items-center gap-2">
-                <span className="text-[10px] text-text-muted font-semibold w-5 text-right shrink-0 font-body">{idx + 1}</span>
-                <div className="flex-1">
-                  <MultiColorSelect
-                    selected={line.colors}
-                    options={availableColors}
-                    onChange={(colors, pfsRef) => updateColorLine(line.id, colors, pfsRef)}
-                    existingVariants={existingVariants}
-                    onCreateColor={onCreateColor}
-                    onColorAdded={onColorAdded}
-                    pfsColorRef={line.pfsColorRef}
-                    pfsColorRefLabel={line.pfsColorRef ? (pfsColorLabels.get(line.pfsColorRef) ?? undefined) : undefined}
-                    mappedCombos={pfsAttrData?.mappedCombos}
-                  />
-                </div>
-                {colorLines.length > 1 && (
-                  <button type="button" onClick={() => removeColorLine(line.id)}
-                    className="p-1 text-text-muted hover:text-[#EF4444] transition-colors shrink-0">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            ))}
-
-            {/* Quick-add existing combos */}
+            {/* Réutiliser des couleurs déjà créées sur ce produit */}
             {existingCombos.length > 0 && (
-              <div className="pt-2 border-t border-border-light">
+              <div className="rounded-xl bg-bg-secondary/60 border border-border-light p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-[10px] text-text-muted font-semibold uppercase tracking-wide font-body">
-                    Couleurs existantes
+                  <p className="text-xs text-text-secondary font-body">
+                    Déjà sur ce produit — cliquez pour réutiliser
                   </p>
                   <button type="button" onClick={addAllExistingCombos}
-                    className="text-[10px] text-text-secondary hover:text-text-primary font-body hover:underline transition-colors">
-                    Tout ajouter
+                    className="text-[11px] text-text-secondary hover:text-text-primary font-body hover:underline transition-colors">
+                    Toutes les ajouter
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -2378,7 +1892,7 @@ function QuickAddModal({
                       key={combo.key}
                       type="button"
                       onClick={() => addExistingCombo(combo)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-bg-primary hover:border-[#9CA3AF] transition-colors text-left"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-bg-primary hover:border-bg-dark hover:shadow-sm transition-all text-left"
                     >
                       <div className="flex -space-x-1">
                         {combo.colors.slice(0, 4).map((c, ci) => {
@@ -2399,218 +1913,195 @@ function QuickAddModal({
                 </div>
               </div>
             )}
-          </div>
 
-          {/* ── Shared fields ── */}
-          <div className="space-y-3 border-t border-border pt-4">
-            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
-              Attributs partagés
-            </p>
+            {/* Liste éditable */}
+            <div className="space-y-2">
+              {colorLines.map((line) => (
+                <div key={line.id} className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <MultiColorSelect
+                      selected={line.colors}
+                      options={availableColors}
+                      onChange={(colors, pfsRef) => updateColorLine(line.id, colors, pfsRef)}
+                      existingVariants={existingVariants}
+                      onCreateColor={onCreateColor}
+                      onColorAdded={onColorAdded}
+                      pfsColorRef={line.pfsColorRef}
+                      pfsColorRefLabel={line.pfsColorRef ? (pfsColorLabels.get(line.pfsColorRef) ?? undefined) : undefined}
+                      mappedCombos={pfsAttrData?.mappedCombos}
+                    />
+                  </div>
+                  {colorLines.length > 1 && (
+                    <button type="button" onClick={() => removeColorLine(line.id)}
+                      aria-label="Retirer cette couleur"
+                      className="p-1.5 text-text-muted hover:text-[#EF4444] hover:bg-red-50 rounded-lg transition-colors shrink-0">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
 
-            {/* Type + Price row */}
+              <button type="button" onClick={addColorLine}
+                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-text-secondary font-medium font-body border border-dashed border-border rounded-xl hover:border-bg-dark hover:text-text-primary transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Ajouter une autre couleur
+              </button>
+            </div>
+          </section>
+
+          {/* ── Section 2 : Mode de vente ── */}
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-text-primary font-body">
+              Mode de vente
+            </h4>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button"
+                onClick={() => { setSaleType("UNIT"); if (sizeEntries.length > 1) setSizeEntries(sizeEntries.slice(0, 1)); }}
+                className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-all font-body ${
+                  saleType === "UNIT"
+                    ? "border-[#1A1A1A] bg-bg-secondary ring-1 ring-[#1A1A1A]"
+                    : "border-border bg-bg-primary hover:border-bg-dark"
+                }`}>
+                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${saleType === "UNIT" ? "border-[#1A1A1A]" : "border-border"}`}>
+                  {saleType === "UNIT" && <div className="w-2 h-2 rounded-full bg-[#1A1A1A]" />}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-text-primary">À l’unité</p>
+                  <p className="text-[11px] text-text-muted mt-0.5">Vente individuelle, une taille par couleur</p>
+                </div>
+              </button>
+              <button type="button"
+                onClick={() => setSaleType("PACK")}
+                className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-all font-body ${
+                  saleType === "PACK"
+                    ? "border-[#7C3AED] bg-[#FAF5FF] ring-1 ring-[#7C3AED]"
+                    : "border-border bg-bg-primary hover:border-bg-dark"
+                }`}>
+                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${saleType === "PACK" ? "border-[#7C3AED]" : "border-border"}`}>
+                  {saleType === "PACK" && <div className="w-2 h-2 rounded-full bg-[#7C3AED]" />}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-text-primary">En pack</p>
+                  <p className="text-[11px] text-text-muted mt-0.5">Plusieurs pièces groupées, qté par taille</p>
+                </div>
+              </button>
+            </div>
+          </section>
+
+          {/* ── Section 3 : Prix, stock, poids ── */}
+          <section className="space-y-3">
+            <h4 className="text-sm font-semibold text-text-primary font-body">
+              Prix & stock
+            </h4>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-text-muted font-semibold font-body">Type</label>
-                <div className="flex gap-1.5 mt-1">
-                  <button type="button"
-                    onClick={() => { setSaleType("UNIT"); if (sizeEntries.length > 1) setSizeEntries(sizeEntries.slice(0, 1)); }}
-                    className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors font-body ${
-                      saleType === "UNIT" ? "bg-[#4B5563] text-white" : "border border-[#D5D5D5] text-text-secondary hover:border-bg-dark"
-                    }`}>Unité</button>
-                  <button type="button"
-                    onClick={() => setSaleType("PACK")}
-                    className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors font-body ${
-                      saleType === "PACK" ? "bg-[#7C3AED] text-white" : "border border-[#D5D5D5] text-text-secondary hover:border-bg-dark"
-                    }`}>Pack</button>
+                <label className="block text-xs font-medium text-text-secondary font-body mb-1">Prix unitaire</label>
+                <div className="relative">
+                  <input type="number" min="0" step="0.01" value={unitPrice} placeholder="0,00"
+                    onChange={(e) => setUnitPrice(e.target.value)}
+                    className="field-input w-full text-sm pr-7" />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-text-muted font-body">€</span>
                 </div>
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-text-muted font-semibold font-body">Prix/unité (€)</label>
-                <input type="number" min="0" step="0.01" value={unitPrice} placeholder="0.00"
-                  onChange={(e) => setUnitPrice(e.target.value)}
-                  className="w-full mt-1 border border-border bg-bg-primary px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-body" />
-              </div>
-            </div>
-
-            {/* Stock + Weight row */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-text-muted font-semibold font-body">Stock</label>
+                <label className="block text-xs font-medium text-text-secondary font-body mb-1">Stock</label>
                 <input type="number" min="0" step="1" value={stock} placeholder="0"
                   onChange={(e) => setStock(e.target.value)}
-                  className="w-full mt-1 border border-border bg-bg-primary px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-body" />
+                  className="field-input w-full text-sm" />
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-text-muted font-semibold font-body">Poids (kg)</label>
-                <input type="number" min="0" step="0.001" value={weight} placeholder="0.000"
-                  onChange={(e) => setWeight(e.target.value)}
-                  className="w-full mt-1 border border-border bg-bg-primary px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-body" />
+                <label className="block text-xs font-medium text-text-secondary font-body mb-1">Poids</label>
+                <div className="relative">
+                  <input type="number" min="0" step="0.001" value={weight} placeholder="0,000"
+                    onChange={(e) => setWeight(e.target.value)}
+                    className="field-input w-full text-sm pr-8" />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-text-muted font-body">kg</span>
+                </div>
               </div>
             </div>
+          </section>
 
-            {/* Sizes */}
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] uppercase tracking-wider text-text-muted font-semibold font-body">
-                  Tailles {saleType === "UNIT" ? "(max 1)" : "& quantités"}
-                </label>
-                <button type="button" onClick={() => setShowSizePicker(!showSizePicker)}
-                  className="text-[10px] text-text-secondary hover:text-text-primary font-body hover:underline transition-colors">
-                  {showSizePicker ? "Masquer" : "Modifier"}
-                </button>
+          {/* ── Section 4 : Tailles ── */}
+          <section className="space-y-3">
+            <div className="flex items-baseline justify-between">
+              <h4 className="text-sm font-semibold text-text-primary font-body">
+                Tailles disponibles
+              </h4>
+              <p className="text-[11px] text-text-muted font-body">
+                {saleType === "UNIT" ? "Une seule taille possible" : "Définissez la quantité par taille"}
+              </p>
+            </div>
+
+            {/* Available sizes (toggle chips) */}
+            {availableSizes.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {availableSizes.map((size) => {
+                  const isSelected = usedSizeIds.has(size.id);
+                  return (
+                    <button key={size.id} type="button" onClick={() => toggleSize(size)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors font-body ${
+                        isSelected
+                          ? "bg-bg-dark text-text-inverse border-[#1A1A1A]"
+                          : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
+                      }`}>
+                      {size.name}
+                    </button>
+                  );
+                })}
               </div>
+            ) : (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 font-body">
+                Aucune taille dans la bibliothèque. Créez-en une ci-dessous.
+              </p>
+            )}
 
-              {/* Selected sizes summary */}
-              {sizeEntries.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {sizeEntries.map((se) => (
-                    <span key={se.tempId} className="inline-flex items-center gap-1 px-2 py-1 bg-[#F0FDF4] border border-[#BBF7D0] rounded-md text-xs font-body">
-                      {se.sizeName}
-                      {saleType === "PACK" && <span className="text-text-secondary">×{se.quantity}</span>}
-                      <button type="button" onClick={() => setSizeEntries((prev) => prev.filter((s) => s.sizeId !== se.sizeId))}
-                        className="text-text-muted hover:text-[#EF4444] ml-0.5">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-text-muted italic mt-1 font-body">Aucune taille</p>
-              )}
-
-              {/* Size picker dropdown */}
-              {showSizePicker && (
-                <div className="mt-2 p-3 bg-[#FAFAFA] border border-border rounded-xl space-y-3">
-                  {/* Available sizes as toggle buttons */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {filteredSizes.map((size) => {
-                      const isSelected = usedSizeIds.has(size.id);
-                      return (
-                        <button key={size.id} type="button" onClick={() => toggleSize(size)}
-                          className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors font-body ${
-                            isSelected ? "bg-bg-dark text-text-inverse border-[#1A1A1A]" : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
-                          }`}>
-                          {size.name}
-                        </button>
-                      );
-                    })}
-                    {filteredSizes.length === 0 && (
-                      <p className="text-xs text-amber-600 font-body">Aucune taille pour cette catégorie.</p>
-                    )}
+            {/* PACK : pièces par taille */}
+            {saleType === "PACK" && sizeEntries.length > 0 && (
+              <div className="rounded-xl bg-bg-secondary/60 border border-border-light p-3 space-y-1.5">
+                <p className="text-[11px] text-text-muted font-body mb-1">
+                  Pièces par taille dans un pack
+                </p>
+                {sizeEntries.map((se) => (
+                  <div key={se.tempId} className="flex items-center gap-2">
+                    <span className="text-xs text-text-primary font-medium flex-1 font-body">{se.sizeName}</span>
+                    <input type="number" min="1" step="1" value={se.quantity}
+                      onChange={(e) => updateSizeQty(se.sizeId, e.target.value)}
+                      className="w-16 border border-border bg-bg-primary px-2 py-1 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body"
+                    />
+                    <span className="text-[10px] text-text-muted font-body w-10">pièces</span>
                   </div>
+                ))}
+              </div>
+            )}
 
-                  {/* Unlinked sizes from other categories */}
-                  {onAssignSizeToCategory && categoryId && unlinkedSizes2.length > 0 && (
-                    <div>
-                      <p className="text-[11px] text-text-muted font-body mb-1">Autres tailles existantes :</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {unlinkedSizes2.map((size) => {
-                          const isSelected = usedSizeIds.has(size.id);
-                          const isAssigning = assigningId2 === size.id;
-                          return (
-                            <button key={size.id} type="button" disabled={isAssigning}
-                              onClick={() => isSelected ? toggleSize(size) : handleAssignAndSelect2(size)}
-                              className={`px-2.5 py-1 text-xs font-medium rounded-md border border-dashed transition-colors font-body ${
-                                isAssigning ? "opacity-50 cursor-wait border-border text-text-muted"
-                                  : isSelected ? "bg-bg-dark text-text-inverse border-[#1A1A1A] border-solid"
-                                  : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
-                              }`}>
-                              {isAssigning ? "..." : size.name}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* PACK: quantity per size */}
-                  {saleType === "PACK" && sizeEntries.length > 0 && (
-                    <div className="space-y-1.5">
-                      {sizeEntries.map((se) => (
-                        <div key={se.tempId} className="flex items-center gap-2">
-                          <span className="text-xs text-text-primary font-medium w-16 font-body">{se.sizeName}</span>
-                          <input type="number" min="1" step="1" value={se.quantity}
-                            onChange={(e) => updateSizeQty(se.sizeId, e.target.value)}
-                            className="w-16 border border-border bg-bg-primary px-2 py-1 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body"
-                          />
-                          <span className="text-[10px] text-text-muted font-body">pièces</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Quick create size */}
-                  {onQuickCreateSize && (
-                    !showSizeCreate ? (
-                      <button type="button" onClick={() => { setShowSizeCreate(true); setNewSizeCatIds(categoryId ? new Set([categoryId]) : new Set()); }}
-                        className="text-xs text-text-secondary hover:text-text-primary flex items-center gap-1 font-body hover:underline transition-colors">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                        Créer une taille
-                      </button>
-                    ) : (
-                      <div className="space-y-2 bg-bg-primary p-3 rounded-lg border border-border">
-                        <input className="field-input w-full text-sm" placeholder="Nom (ex: 36, S, TU...)" value={newSizeName}
-                          onChange={(e) => setNewSizeName(e.target.value)} autoFocus
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateSize(); } }} />
-                        {allCategories && allCategories.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {allCategories.map((cat) => (
-                              <label key={cat.id} className="flex items-center gap-1 text-[11px] font-body cursor-pointer">
-                                <input type="checkbox" checked={newSizeCatIds.has(cat.id)}
-                                  onChange={() => { const n = new Set(newSizeCatIds); if (n.has(cat.id)) n.delete(cat.id); else n.add(cat.id); setNewSizeCatIds(n); }}
-                                  className="accent-[#1A1A1A] w-3 h-3" />
-                                {cat.name}
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                        {/* PFS size mapping (mandatory) */}
-                        <div>
-                          <p className="text-[11px] text-text-secondary font-body mb-1">
-                            Correspondance Paris Fashion Shop <span className="text-[#EF4444]">*</span>
-                          </p>
-                          {pfsAttrData?.sizes ? (
-                            <PfsSizeMultiSelect
-                              pfsSizes={pfsAttrData.sizes}
-                              selected={newPfsSizeRefs2}
-                              onToggle={(ref) => {
-                                const next = new Set(newPfsSizeRefs2);
-                                if (next.has(ref)) next.delete(ref); else next.add(ref);
-                                setNewPfsSizeRefs2(next);
-                              }}
-                              disabled={false}
-                              className="w-full"
-                            />
-                          ) : (
-                            <p className="text-xs text-text-muted">Chargement…</p>
-                          )}
-                        </div>
-                        {sizeCreateError && <p className="text-xs text-[#EF4444]">{sizeCreateError}</p>}
-                        <div className="flex gap-2">
-                          <button type="button" onClick={handleCreateSize} disabled={sizeCreateSaving || !newSizeName.trim() || newPfsSizeRefs2.size === 0}
-                            className="btn-primary text-xs disabled:opacity-50">{sizeCreateSaving ? "..." : "Créer"}</button>
-                          <button type="button" onClick={() => { setShowSizeCreate(false); setSizeCreateError(""); setNewPfsSizeRefs2(new Set()); }}
-                            className="btn-secondary text-xs">Annuler</button>
-                        </div>
-                      </div>
-                    )
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+            {/* Créer une taille */}
+            {onSizeAdded && (
+              <button
+                type="button"
+                onClick={() => setSizeQuickCreateOpen(true)}
+                className="text-xs text-text-secondary hover:text-text-primary flex items-center gap-1 font-body hover:underline transition-colors"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Créer une nouvelle taille
+              </button>
+            )}
+          </section>
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
-          <span className="text-sm text-text-muted font-body">
+          <span className="text-sm text-text-secondary font-body">
             {validLines.length === 0
-              ? "Aucune couleur sélectionnée"
-              : `${validLines.length} variante${validLines.length > 1 ? "s" : ""} à créer`
+              ? "Choisissez au moins une couleur"
+              : validLines.length === 1
+                ? "Prêt à ajouter 1 couleur"
+                : `Prêt à ajouter ${validLines.length} couleurs`
             }
           </span>
           <div className="flex items-center gap-2.5">
@@ -2619,10 +2110,17 @@ function QuickAddModal({
             >Annuler</button>
             <button type="button" onClick={handleConfirm} disabled={!canConfirm}
               className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >Créer {validLines.length > 0 ? `${validLines.length} variante${validLines.length > 1 ? "s" : ""}` : ""}</button>
+            >Ajouter</button>
           </div>
         </div>
       </div>
+
+      <QuickCreateSizeModal
+        open={sizeQuickCreateOpen}
+        onClose={() => setSizeQuickCreateOpen(false)}
+        pfsSizes={pfsSizes}
+        onCreated={handleQuickAddSizeCreated}
+      />
     </div>
   );
 
@@ -2639,14 +2137,12 @@ export default function ColorVariantManager({
   colorImages,
   availableColors,
   availableSizes,
+  pfsSizes = [],
   onChange,
   onChangeImages,
   onQuickCreateColor,
   onColorAdded,
-  categoryId,
-  allCategories,
-  onQuickCreateSize,
-  onAssignSizeToCategory,
+  onSizeAdded,
   variantErrors,
 }: Props) {
   const { confirm: confirmDialog } = useConfirm();
@@ -2745,10 +2241,6 @@ export default function ColorVariantManager({
             const vIds = [ov.colorId, ...ov.subColors.map((sc) => sc.colorId)].sort().join("+");
             if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
           }
-          if (ov.saleType === "PACK" && ov.packColorLines[0]) {
-            const vIds = ov.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
-            if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
-          }
         }
       }
       // 2. Check cross-product mapped combinations from DB (skip if already used by another variant)
@@ -2787,106 +2279,21 @@ export default function ColorVariantManager({
             return { ...v, pfsColorRef: finalPfsRef };
           }
         }
-        if (v.saleType === "PACK" && v.packColorLines[0]) {
-          const vIds = v.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
-          if (vIds === finalComboSortedIds) {
-            if (v.dbId) { updateProductColorPfsRef(v.dbId, finalPfsRef).catch(() => {}); }
-            return { ...v, pfsColorRef: finalPfsRef };
-          }
-        }
       }
       return v;
     }));
-  }
-
-  // ── Pack color line management ─────────────────────────────────────────────
-  function addPackColorLine(variantTempId: string) {
-    const v = variants.find((x) => x.tempId === variantTempId);
-    if (!v) return;
-    updateVariant(variantTempId, {
-      packColorLines: [...v.packColorLines, { tempId: uid(), colors: [], sizeEntries: [] }],
-    });
-  }
-
-  function removePackColorLine(variantTempId: string, lineTempId: string) {
-    const v = variants.find((x) => x.tempId === variantTempId);
-    if (!v) return;
-    const newLines = v.packColorLines.filter((pcl) => pcl.tempId !== lineTempId);
-    // Recalculate packQuantity
-    const totalQty = newLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0), 0);
-    updateVariant(variantTempId, {
-      packColorLines: newLines,
-      packQuantity: String(totalQty || 1),
-    });
-  }
-
-  function updatePackColorLineColor(variantTempId: string, lineTempId: string, color: { colorId: string; colorName: string; colorHex: string } | null) {
-    const v = variants.find((x) => x.tempId === variantTempId);
-    if (!v) return;
-    const updatedLines = v.packColorLines.map((pcl) => {
-      if (pcl.tempId !== lineTempId) return pcl;
-      return { ...pcl, colors: color ? [color] : [] };
-    });
-    updateVariant(variantTempId, { packColorLines: updatedLines });
-  }
-
-  // Legacy: for backward compat with old single-line pack UI
-  function updatePackColorLine(variantTempId: string, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) {
-    const v = variants.find((x) => x.tempId === variantTempId);
-    if (!v) return;
-    const line = v.packColorLines[0] ?? { tempId: uid(), colors: [], sizeEntries: [] };
-    const patch: Partial<VariantState> = {
-      packColorLines: [{ ...line, colors }],
-    };
-    let resolvedRef = pfsColorRefOverride;
-    if (resolvedRef === undefined && colors.length > 1) {
-      const sortedIds = colors.map((c) => c.colorId).sort().join("+");
-      for (const ov of variants) {
-        if (ov.tempId === variantTempId || !ov.pfsColorRef) continue;
-        if (ov.colorId && ov.subColors.length > 0) {
-          const vIds = [ov.colorId, ...ov.subColors.map((sc) => sc.colorId)].sort().join("+");
-          if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
-        }
-        if (ov.saleType === "PACK" && ov.packColorLines[0]) {
-          const vIds = ov.packColorLines[0].colors.map((c) => c.colorId).sort().join("+");
-          if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
-        }
-      }
-      if (resolvedRef === undefined && pfsAttrData?.mappedCombos?.[sortedIds]) {
-        const candidate = pfsAttrData.mappedCombos[sortedIds];
-        const alreadyUsed = variants.some((ov) => ov.tempId !== variantTempId && ov.pfsColorRef === candidate);
-        if (!alreadyUsed) resolvedRef = candidate;
-      }
-    }
-    if (resolvedRef !== undefined) {
-      patch.pfsColorRef = resolvedRef;
-    }
-    updateVariant(variantTempId, patch);
   }
 
   // ── Size modal save ─────────────────────────────────────────────────────
   function handleSizeSave(variantTempId: string, entries: SizeEntryState[]) {
     const v = variants.find((x) => x.tempId === variantTempId);
     if (!v) return;
-    // UNIT: save shared sizeEntries
-    updateVariant(variantTempId, { sizeEntries: entries });
-  }
-
-  function handlePackSizeSave(variantTempId: string, lineSizes: { tempId: string; sizeEntries: SizeEntryState[] }[]) {
-    const v = variants.find((x) => x.tempId === variantTempId);
-    if (!v) return;
-    // Update each packColorLine's sizeEntries
-    const updatedLines = v.packColorLines.map((pcl) => {
-      const match = lineSizes.find((ls) => ls.tempId === pcl.tempId);
-      return match ? { ...pcl, sizeEntries: match.sizeEntries } : pcl;
-    });
-    // Auto-calculate packQuantity = total pieces across all lines
-    const totalQty = updatedLines.reduce((sum, pcl) => sum + pcl.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0), 0);
-    updateVariant(variantTempId, {
-      packColorLines: updatedLines,
-      packQuantity: String(totalQty || 1),
-      sizeEntries: [], // Clear shared sizeEntries for PACK
-    });
+    const patch: Partial<VariantState> = { sizeEntries: entries };
+    if (v.saleType === "PACK") {
+      const totalQty = entries.reduce((sum, se) => sum + (parseInt(se.quantity) || 0), 0);
+      patch.packQuantity = String(totalQty || 1);
+    }
+    updateVariant(variantTempId, patch);
   }
 
   // ── Bulk apply ─────────────────────────────────────────────────────────────
@@ -2928,26 +2335,11 @@ export default function ColorVariantManager({
 
   // ── Render helper: size summary cell ──────────────────────────────────────
   function renderSizeSummary(v: VariantState) {
+    if (v.sizeEntries.length === 0) return <span className="text-text-muted italic">—</span>;
     if (v.saleType === "UNIT") {
-      if (v.sizeEntries.length === 0) return <span className="text-text-muted italic">—</span>;
       return <span className="text-text-primary font-medium">{v.sizeEntries[0]?.sizeName}</span>;
     }
-    // PACK: per-color sizes
-    const lines = v.packColorLines.filter((pcl) => pcl.sizeEntries.length > 0);
-    if (lines.length === 0) {
-      // Fallback: shared sizeEntries (backward compat)
-      if (v.sizeEntries.length === 0) return <span className="text-text-muted italic">—</span>;
-      return (
-        <span className="truncate text-text-primary font-medium" title={v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}>
-          {v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}
-        </span>
-      );
-    }
-    const summary = lines.map((pcl) => {
-      const colorName = pcl.colors[0]?.colorName || "?";
-      const sizes = pcl.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ");
-      return `${colorName}: ${sizes}`;
-    }).join(" / ");
+    const summary = v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ");
     return (
       <span className="truncate text-text-primary font-medium" title={summary}>
         {summary}
@@ -2988,20 +2380,15 @@ export default function ColorVariantManager({
     if (!pfsRef) return;
     // Compute the color combo key for this variant
     let targetIds = "";
-    if (variant.saleType === "UNIT" && variant.colorId && variant.subColors.length > 0) {
+    if (variant.colorId && variant.subColors.length > 0) {
       targetIds = [variant.colorId, ...variant.subColors.map((sc) => sc.colorId)].sort().join("+");
-    } else if (variant.saleType === "PACK" && variant.packColorLines.length > 1) {
-      targetIds = variant.packColorLines.map((pcl) => pcl.colors[0]?.colorId).filter(Boolean).sort().join("+");
     }
     if (!targetIds) return;
     // Find siblings with same combo (propagate to ALL siblings)
     const siblings = variants.filter((v) => {
       if (v.tempId === variant.tempId) return false;
-      if (v.saleType === "UNIT" && v.colorId && v.subColors.length > 0) {
+      if (v.colorId && v.subColors.length > 0) {
         return [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+") === targetIds;
-      }
-      if (v.saleType === "PACK" && v.packColorLines.length > 1) {
-        return v.packColorLines.map((pcl) => pcl.colors[0]?.colorId).filter(Boolean).sort().join("+") === targetIds;
       }
       return false;
     });
@@ -3015,13 +2402,6 @@ export default function ColorVariantManager({
     const map = new Map<string, string>();
     for (const ov of variants) {
       if (ov.tempId === excludeTempId) continue;
-      // PACK variants with pfsColorRef override
-      if (ov.saleType === "PACK" && ov.pfsColorRef) {
-        const label = ov.packColorLines.map((pcl) => pcl.colors[0]?.colorName).filter(Boolean).join(" + ") || "Pack";
-        map.set(ov.pfsColorRef, label);
-        continue;
-      }
-      // UNIT variants
       if (!ov.colorId) continue;
       if (ov.subColors.length > 0 && ov.pfsColorRef) {
         map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / "));
@@ -3082,9 +2462,7 @@ export default function ColorVariantManager({
               const isDuplicate = duplicateTempIds.has(v.tempId);
               const isUnit = v.saleType === "UNIT";
               const vErrs = variantErrors?.get(v.tempId);
-              const isMultiColor = isUnit
-                ? v.subColors.length > 0
-                : (v.packColorLines[0]?.colors.length ?? 0) > 1;
+              const isMultiColor = v.subColors.length > 0;
               const pfsMissing = !!pfsAttrData && isMultiColor && !v.pfsColorRef;
               const imgGk = imageGroupKeyFromVariant(v);
               const imgEntry = colorImages.find((c) => c.groupKey === imgGk);
@@ -3105,18 +2483,11 @@ export default function ColorVariantManager({
                       value={v.saleType}
                       onChange={(val) => {
                         if (val === "PACK" && v.saleType === "UNIT") {
-                          const migratedColors: { colorId: string; colorName: string; colorHex: string }[] = [];
-                          if (v.colorId) migratedColors.push({ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex });
-                          v.subColors.forEach((sc) => migratedColors.push({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }));
-                          const lines: PackColorLineState[] = migratedColors.length > 0
-                            ? migratedColors.map((c) => ({ tempId: uid(), colors: [c], sizeEntries: v.sizeEntries.map((se) => ({ ...se, tempId: uid() })) }))
-                            : [{ tempId: uid(), colors: [], sizeEntries: [] }];
-                          updateVariant(v.tempId, { saleType: "PACK", colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [], packColorLines: lines, packQuantity: "1", sizeEntries: [] });
+                          const totalQty = v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0);
+                          updateVariant(v.tempId, { saleType: "PACK", packQuantity: String(totalQty || 1) });
                         } else if (val === "UNIT" && v.saleType === "PACK") {
-                          const firstLine = v.packColorLines[0];
-                          const firstColor = firstLine?.colors[0];
-                          const restoredSizes = (firstLine?.sizeEntries ?? []).slice(0, 1);
-                          updateVariant(v.tempId, { saleType: "UNIT", colorId: firstColor?.colorId ?? "", colorName: firstColor?.colorName ?? "", colorHex: firstColor?.colorHex ?? "#9CA3AF", subColors: [], packColorLines: [], packQuantity: "", sizeEntries: restoredSizes });
+                          const restoredSizes = v.sizeEntries.slice(0, 1);
+                          updateVariant(v.tempId, { saleType: "UNIT", packQuantity: "", sizeEntries: restoredSizes });
                         }
                       }}
                       options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
@@ -3152,65 +2523,20 @@ export default function ColorVariantManager({
                   )}
 
                   {/* Row 2: color */}
-                  {isUnit ? (
-                    <MultiColorSelect
-                      selected={v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }, ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }))] : []}
-                      options={availableColors}
-                      onChange={(colors, pfsRef) => handleMultiColorChange(new Set([v.tempId]), colors, pfsRef)}
-                      existingVariants={variants}
-                      editingGroupKey={variantGroupKeyFromState(v)}
-                      pfsColorRef={v.pfsColorRef}
-                      pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                      onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
-                      usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
-                      onCreateColor={onQuickCreateColor}
-                      onColorAdded={onColorAdded}
-                      mappedCombos={pfsAttrData?.mappedCombos}
-                    />
-                  ) : (
-                    /* PACK mobile: per-line color selectors */
-                    <div className="space-y-1.5">
-                      {v.packColorLines.map((pcl) => (
-                        <div key={pcl.tempId} className="flex items-center gap-1.5">
-                          <CustomSelect
-                            value={pcl.colors[0]?.colorId ?? ""}
-                            onChange={(val) => {
-                              const colorObj = availableColors.find((c) => c.id === val);
-                              if (colorObj) {
-                                updatePackColorLineColor(v.tempId, pcl.tempId, {
-                                  colorId: colorObj.id,
-                                  colorName: colorObj.name,
-                                  colorHex: colorObj.hex || "#9CA3AF",
-                                });
-                              }
-                            }}
-                            options={availableColors.map((c) => ({
-                              value: c.id,
-                              label: c.name,
-                            }))}
-                            size="sm"
-                            placeholder="Couleur..."
-                            className="flex-1 min-w-0"
-                          />
-                          {v.packColorLines.length > 1 && (
-                            <button type="button" onClick={() => removePackColorLine(v.tempId, pcl.tempId)}
-                              className="p-1 text-text-muted hover:text-[#EF4444] transition-colors shrink-0">
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                      <button type="button" onClick={() => addPackColorLine(v.tempId)}
-                        className="text-xs text-text-secondary hover:text-text-primary font-body hover:underline flex items-center gap-1 transition-colors">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                        Ajouter une couleur
-                      </button>
-                    </div>
-                  )}
+                  <MultiColorSelect
+                    selected={v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }, ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }))] : []}
+                    options={availableColors}
+                    onChange={(colors, pfsRef) => handleMultiColorChange(new Set([v.tempId]), colors, pfsRef)}
+                    existingVariants={variants}
+                    editingGroupKey={variantGroupKeyFromState(v)}
+                    pfsColorRef={v.pfsColorRef}
+                    pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
+                    onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
+                    usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
+                    onCreateColor={onQuickCreateColor}
+                    onColorAdded={onColorAdded}
+                    mappedCombos={pfsAttrData?.mappedCombos}
+                  />
                   {pfsMissing && (
                     <span className="flex items-center gap-1 text-[10px] text-[#DC2626] font-medium">
                       <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor">
@@ -3348,14 +2674,10 @@ export default function ColorVariantManager({
                   {sortedVariants.map((v) => {
                     const isSelected  = selectedIds.has(v.tempId);
                     const isDuplicate = duplicateTempIds.has(v.tempId);
-                    const isUnit = v.saleType === "UNIT";
                     const vErrs = variantErrors?.get(v.tempId);
-                    const colorDisplayName = isUnit
-                      ? ([v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ") || "Sans couleur")
-                      : (v.packColorLines.map((pcl) => pcl.colors[0]?.colorName).filter(Boolean).join(" + ") || "Aucune couleur");
-                    const isMultiColorD = isUnit
-                      ? v.subColors.length > 0
-                      : v.packColorLines.length > 1;
+                    const colorDisplayName = [v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ") || "Sans couleur";
+                    void colorDisplayName;
+                    const isMultiColorD = v.subColors.length > 0;
                     const pfsMissingD = !!pfsAttrData && isMultiColorD && !v.pfsColorRef;
                     const imgGkD = imageGroupKeyFromVariant(v);
                     const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
@@ -3385,38 +2707,11 @@ export default function ColorVariantManager({
                             value={v.saleType}
                             onChange={(val) => {
                               if (val === "PACK" && v.saleType === "UNIT") {
-                                // Migrate UNIT colors to separate pack color lines (one per color)
-                                const allColors: { colorId: string; colorName: string; colorHex: string }[] = [];
-                                if (v.colorId) allColors.push({ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex });
-                                v.subColors.forEach((sc) => allColors.push({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }));
-                                const lines: PackColorLineState[] = allColors.length > 0
-                                  ? allColors.map((c) => ({ tempId: uid(), colors: [c], sizeEntries: v.sizeEntries.map((se) => ({ ...se, tempId: uid() })) }))
-                                  : [{ tempId: uid(), colors: [], sizeEntries: [] }];
-                                updateVariant(v.tempId, {
-                                  saleType: "PACK",
-                                  colorId: "",
-                                  colorName: "",
-                                  colorHex: "#9CA3AF",
-                                  subColors: [],
-                                  packColorLines: lines,
-                                  packQuantity: "1",
-                                  sizeEntries: [], // Clear shared; sizes now in packColorLines
-                                });
+                                const totalQty = v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0);
+                                updateVariant(v.tempId, { saleType: "PACK", packQuantity: String(totalQty || 1) });
                               } else if (val === "UNIT" && v.saleType === "PACK") {
-                                const firstLine = v.packColorLines[0];
-                                const firstColor = firstLine?.colors[0];
-                                // Restore first line's sizes as shared sizeEntries
-                                const restoredSizes = (firstLine?.sizeEntries ?? []).slice(0, 1);
-                                updateVariant(v.tempId, {
-                                  saleType: "UNIT",
-                                  colorId: firstColor?.colorId ?? "",
-                                  colorName: firstColor?.colorName ?? "",
-                                  colorHex: firstColor?.colorHex ?? "#9CA3AF",
-                                  subColors: [],
-                                  packColorLines: [],
-                                  packQuantity: "",
-                                  sizeEntries: restoredSizes,
-                                });
+                                const restoredSizes = v.sizeEntries.slice(0, 1);
+                                updateVariant(v.tempId, { saleType: "UNIT", packQuantity: "", sizeEntries: restoredSizes });
                               }
                             }}
                             options={[
@@ -3430,68 +2725,23 @@ export default function ColorVariantManager({
 
                         {/* Color + SKU */}
                         <td className="px-2 py-2">
-                          {isUnit ? (
-                            <MultiColorSelect
-                              selected={v.colorId ? [
-                                { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
-                                ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
-                              ] : []}
-                              options={availableColors}
-                              onChange={(colors, pfsRef) => handleMultiColorChange(new Set([v.tempId]), colors, pfsRef)}
-                              existingVariants={variants}
-                              editingGroupKey={variantGroupKeyFromState(v)}
-                              pfsColorRef={v.pfsColorRef}
-                              pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                              onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
-                              usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
-                              onCreateColor={onQuickCreateColor}
-                              onColorAdded={onColorAdded}
-                              mappedCombos={pfsAttrData?.mappedCombos}
-                            />
-                          ) : (
-                            /* PACK: per-line color selectors */
-                            <div className="space-y-1">
-                              {v.packColorLines.map((pcl) => (
-                                <div key={pcl.tempId} className="flex items-center gap-1">
-                                  <CustomSelect
-                                    value={pcl.colors[0]?.colorId ?? ""}
-                                    onChange={(val) => {
-                                      const colorObj = availableColors.find((c) => c.id === val);
-                                      if (colorObj) {
-                                        updatePackColorLineColor(v.tempId, pcl.tempId, {
-                                          colorId: colorObj.id,
-                                          colorName: colorObj.name,
-                                          colorHex: colorObj.hex || "#9CA3AF",
-                                        });
-                                      }
-                                    }}
-                                    options={availableColors.map((c) => ({
-                                      value: c.id,
-                                      label: c.name,
-                                    }))}
-                                    size="sm"
-                                    placeholder="Couleur..."
-                                    className="flex-1 min-w-0"
-                                  />
-                                  {v.packColorLines.length > 1 && (
-                                    <button type="button" onClick={() => removePackColorLine(v.tempId, pcl.tempId)}
-                                      className="p-0.5 text-text-muted hover:text-[#EF4444] transition-colors shrink-0">
-                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                      </svg>
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                              <button type="button" onClick={() => addPackColorLine(v.tempId)}
-                                className="text-[10px] text-text-secondary hover:text-text-primary font-body hover:underline flex items-center gap-0.5 transition-colors">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                </svg>
-                                Couleur
-                              </button>
-                            </div>
-                          )}
+                          <MultiColorSelect
+                            selected={v.colorId ? [
+                              { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
+                              ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
+                            ] : []}
+                            options={availableColors}
+                            onChange={(colors, pfsRef) => handleMultiColorChange(new Set([v.tempId]), colors, pfsRef)}
+                            existingVariants={variants}
+                            editingGroupKey={variantGroupKeyFromState(v)}
+                            pfsColorRef={v.pfsColorRef}
+                            pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
+                            onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
+                            usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
+                            onCreateColor={onQuickCreateColor}
+                            onColorAdded={onColorAdded}
+                            mappedCombos={pfsAttrData?.mappedCombos}
+                          />
                           {pfsMissingD && (
                             <span className="flex items-center gap-1 mt-1 text-[10px] text-[#DC2626] font-medium">
                               <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor">
@@ -3676,12 +2926,9 @@ export default function ColorVariantManager({
           onClose={() => setSizeModalVariantId(null)}
           variant={sizeModalVariant}
           availableSizes={availableSizes}
-          categoryId={categoryId}
-          allCategories={allCategories}
+          pfsSizes={pfsSizes}
           onSave={(entries) => handleSizeSave(sizeModalVariant.tempId, entries)}
-          onSavePackSizes={(lineSizes) => handlePackSizeSave(sizeModalVariant.tempId, lineSizes)}
-          onQuickCreateSize={onQuickCreateSize}
-          onAssignSizeToCategory={onAssignSizeToCategory}
+          onSizeAdded={onSizeAdded}
         />
       )}
 
@@ -3692,12 +2939,10 @@ export default function ColorVariantManager({
         existingVariants={variants}
         availableColors={availableColors}
         availableSizes={availableSizes}
-        categoryId={categoryId}
+        pfsSizes={pfsSizes}
         onCreateColor={onQuickCreateColor}
         onColorAdded={onColorAdded}
-        onQuickCreateSize={onQuickCreateSize}
-        onAssignSizeToCategory={onAssignSizeToCategory}
-        allCategories={allCategories}
+        onSizeAdded={onSizeAdded}
         onConfirm={handleQuickAddConfirm}
       />
     </div>

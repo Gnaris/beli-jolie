@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## À qui tu parles
+
+La personne avec qui tu discutes **n'est pas développeuse, pas informaticienne**. C'est elle qui dirige le projet, c'est tout.
+
+Donc quand tu lui expliques ce que tu as fait, parle-lui comme tu parlerais à un client qui veut simplement savoir ce qui a changé sur son site. Pas comme à un collègue technicien.
+
+Concrètement ça veut dire :
+- Pas de mots techniques (pas de "fonction", "endpoint", "cache", "revalidate", "schema", "SSR"…). Si tu es obligé d'en utiliser un, explique-le en une phrase avec des mots de tous les jours.
+- Dis ce qui change **pour elle et pour ses clients** quand ils utilisent le site, pas ce que tu as touché dans le code. Par exemple : *"Maintenant, quand vous cliquez sur Exporter, le fichier Excel contient aussi les prix de détail."*
+- Sois court, en français simple. Pas de grosses listes à puces techniques.
+- Quand tu lui proposes un test, écris-le comme un trajet à suivre dans le site (*"Ouvrez l'admin, allez dans Produits, cliquez sur…"*) — jamais une commande à taper dans un terminal.
+- Les détails techniques (noms de fichiers, lignes de code, etc.) restent entre toi et le code. Pas besoin de les lui raconter.
+
 > **Architecture** : `docs/architecture.md` (routes, auth, data models, components, integrations)
 > **PFS Sync** : `docs/pfs-system.md` (sync, reverse sync, mapping, prepare flow)
 > **Styling** : `docs/styling.md` (palette, CSS utilities, conventions)
@@ -156,7 +169,7 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 - **`Color.patternImage`** prioritaire sur `Color.hex` pour le rendu
 - **groupKey** : toujours `colorId + sub-colors tries` pour identifier couleurs. Jamais `colorId` seul ni `variantTempId`. Helper: `variantGroupKeyFromState()`
 - **Couleurs completes** : toujours afficher TOUTES les couleurs d'une composition, jamais juste la principale
-- **PACK** : `colorId` = null, couleurs dans `PackColorLine[]`. `unitPrice` = `computeTotalPrice(v)` (prix total du pack en BDD, pas unitaire). `packQuantity >= 1`
+- **PACK** : même structure qu'UNIT (`colorId` + `subColors` + `VariantSize`). `unitPrice` = `computeTotalPrice(v)` (prix total du pack en BDD, pas unitaire). `packQuantity >= 1`. Une seule composition de couleurs par pack — les lignes multiples ont été supprimées.
 - **PACK pricing Ankorstore** : markup s'applique au prix unitaire (total ÷ qty), arrondi, puis × qty. Jamais markup sur le total directement
 - **UNIT** : max 1 taille. Tailles = description du contenu, pas selection client
 - **handleMultiColorChange** : un seul `onChange` avec `Set<string>`, jamais `updateVariant` en boucle

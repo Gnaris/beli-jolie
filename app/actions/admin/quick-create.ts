@@ -39,14 +39,19 @@ export async function createCategoryQuick(
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
+  const gender = pfsGender?.trim() || null;
+  const familyName = pfsFamilyName?.trim() || null;
+  if (!gender || !familyName) {
+    throw new Error("Le genre et la famille Paris Fashion Shop sont obligatoires.");
+  }
   const slug = slugify(name);
   const created = await prisma.category.create({
     data: {
       name,
       slug,
-      pfsGender: pfsGender ?? undefined,
-      pfsFamilyName: pfsFamilyName ?? undefined,
-      pfsCategoryName: pfsCategoryName ?? undefined,
+      pfsGender: gender,
+      pfsFamilyName: familyName,
+      pfsCategoryName: pfsCategoryName?.trim() || null,
     },
   });
   for (const [locale, value] of Object.entries(translations)) {
@@ -95,8 +100,12 @@ export async function createColorQuick(
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
+  const normalizedRef = pfsColorRef?.trim() || null;
+  if (!normalizedRef) {
+    throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
+  }
   const created = await prisma.color.create({
-    data: { name, hex: hex ?? null, patternImage: patternImage ?? null, pfsColorRef: pfsColorRef ?? null },
+    data: { name, hex: hex ?? null, patternImage: patternImage ?? null, pfsColorRef: normalizedRef },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
@@ -138,8 +147,12 @@ export async function createManufacturingCountryQuick(
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
+  const normalizedRef = pfsCountryRef?.trim() || null;
+  if (!normalizedRef) {
+    throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
+  }
   const created = await prisma.manufacturingCountry.create({
-    data: { name, isoCode: isoCode ?? null, pfsCountryRef: pfsCountryRef ?? null },
+    data: { name, isoCode: isoCode ?? null, pfsCountryRef: normalizedRef },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
@@ -160,8 +173,12 @@ export async function createSeasonQuick(
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
+  const normalizedRef = pfsRef?.trim().toUpperCase() || null;
+  if (!normalizedRef) {
+    throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
+  }
   const created = await prisma.season.create({
-    data: { name, pfsRef: pfsRef ?? null },
+    data: { name, pfsRef: normalizedRef },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;

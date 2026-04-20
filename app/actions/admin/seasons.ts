@@ -14,8 +14,10 @@ async function requireAdmin() {
 export async function createSeason(formData: FormData) {
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
+  const pfsRef = (formData.get("pfsRef") as string)?.trim().toUpperCase() || null;
   if (!name) throw new Error("Le nom est requis.");
-  const season = await prisma.season.create({ data: { name } });
+  if (!pfsRef) throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
+  const season = await prisma.season.create({ data: { name, pfsRef } });
   autoTranslateSeason(season.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");

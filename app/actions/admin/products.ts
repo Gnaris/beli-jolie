@@ -17,6 +17,7 @@ import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { generateSku } from "@/lib/sku";
 import { deleteMultipleFromR2, r2KeyFromDbPath } from "@/lib/r2";
 import { getImagePaths } from "@/lib/image-utils";
+import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
 
 // Legacy sync functions intentionally removed — Create/Update on marketplaces is now
 // handled via manual Excel upload (lib/marketplace-excel). Only DELETE remains automated,
@@ -38,15 +39,9 @@ export interface SizeEntryInput {
   pricePerUnit?: number; // PACK only — prix par unité pour cette taille
 }
 
-export interface PackColorLineInput {
-  colorIds: string[];   // Ordered color IDs for this line
-  position: number;
-  sizeEntries: SizeEntryInput[];  // Per-line sizes (each color has its own sizes/quantities)
-}
-
 export interface ColorInput {
   dbId?: string;         // ProductColor.id when editing existing (undefined for new)
-  colorId: string | null; // Couleur principale (UNIT) — null pour PACK multi-couleur
+  colorId: string | null; // Couleur principale
   subColorIds?: string[]; // IDs de sous-couleurs optionnelles (ex: Doré → [Rouge, Noir])
   unitPrice: number;
   weight: number;
@@ -54,8 +49,7 @@ export interface ColorInput {
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  sizeEntries: SizeEntryInput[];         // Tailles avec quantités
-  packColorLines: PackColorLineInput[];  // PACK: lignes de couleur
+  sizeEntries: SizeEntryInput[]; // Tailles avec quantités (UNIT ou PACK)
 }
 
 export interface CompositionInput {
@@ -108,41 +102,26 @@ function colorInputGroupKey(c: ColorInput): string {
 }
 
 function validateVariants(colors: ColorInput[]): void {
-  // No two UNIT variants with same color group (colorId + ordered sub-colors)
-  const unitByColor = new Map<string, boolean>();
+  // No two variants with same sale type + color group (colorId + ordered sub-colors)
+  const seenGroups = new Map<string, boolean>();
   for (const c of colors) {
-    if (c.saleType === "UNIT") {
-      if (!c.colorId) throw new Error("Une variante UNIT doit avoir une couleur.");
-      const gk = colorInputGroupKey(c);
-      if (unitByColor.has(gk)) {
-        throw new Error("Une couleur ne peut avoir qu'une variante à l'unité.");
-      }
-      unitByColor.set(gk, true);
+    if (!c.colorId) throw new Error("Chaque variante doit avoir une couleur.");
+    const gk = `${c.saleType}::${colorInputGroupKey(c)}`;
+    if (seenGroups.has(gk)) {
+      throw new Error("Deux variantes ne peuvent pas avoir la même composition de couleurs et le même type.");
     }
+    seenGroups.set(gk, true);
   }
 
-  // PACK variants: must have at least one color line + packQuantity >= 1
   for (const c of colors) {
     if (c.saleType === "PACK") {
-      if (c.packColorLines.length < 1) {
-        throw new Error("Un paquet doit avoir au moins une ligne de couleur.");
-      }
-      for (const pcl of c.packColorLines) {
-        if (pcl.colorIds.length < 1) {
-          throw new Error("Chaque ligne de couleur doit avoir au moins une couleur.");
-        }
-        if (!pcl.sizeEntries || pcl.sizeEntries.length < 1) {
-          throw new Error("Chaque ligne de couleur doit avoir au moins une taille.");
-        }
-      }
       if (c.packQuantity == null || c.packQuantity < 1) {
         throw new Error("Un paquet doit avoir une quantité d'au moins 1.");
       }
+      if (!c.sizeEntries || c.sizeEntries.length < 1) {
+        throw new Error("Un paquet doit avoir au moins une taille.");
+      }
     }
-  }
-
-  // UNIT variants: max 1 size entry
-  for (const c of colors) {
     if (c.saleType === "UNIT" && c.sizeEntries.length > 1) {
       throw new Error("Une variante à l'unité ne peut avoir qu'une seule taille.");
     }
@@ -177,36 +156,16 @@ async function assignVariantSkus(
         orderBy: { position: "asc" },
         select: { color: { select: { name: true } } },
       },
-      packColorLines: {
-        orderBy: { position: "asc" },
-        take: 1,
-        select: {
-          colors: {
-            orderBy: { position: "asc" },
-            select: { color: { select: { name: true } } },
-          },
-        },
-      },
     },
   });
 
   const updates: Promise<unknown>[] = [];
   for (let i = 0; i < variants.length; i++) {
     const v = variants[i];
-    // Build color names array
-    let colorNames: string[];
-    if (v.saleType === "UNIT") {
-      colorNames = [
-        v.color?.name,
-        ...v.subColors.map((sc) => sc.color.name),
-      ].filter(Boolean) as string[];
-    } else {
-      // PACK: colors from the single PackColorLine
-      const line = v.packColorLines[0];
-      colorNames = line
-        ? line.colors.map((c) => c.color.name)
-        : [];
-    }
+    const colorNames = [
+      v.color?.name,
+      ...v.subColors.map((sc) => sc.color.name),
+    ].filter(Boolean) as string[];
 
     const sku = generateSku(
       reference.trim().toUpperCase(),
@@ -328,8 +287,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     });
     createdVariants.push(variant);
 
-    // Create variant sizes (UNIT only — PACK sizes live in PackColorLineSize)
-    if (color.saleType !== "PACK" && color.sizeEntries && color.sizeEntries.length > 0) {
+    // Create variant sizes (UNIT and PACK)
+    if (color.sizeEntries && color.sizeEntries.length > 0) {
       await prisma.variantSize.createMany({
         data: color.sizeEntries.map((se) => ({
           productColorId: variant.id,
@@ -338,37 +297,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
           ...(se.pricePerUnit != null ? { pricePerUnit: se.pricePerUnit } : {}),
         })),
       });
-    }
-
-    // Create pack color lines for PACK variants (each line has its own colors + sizes)
-    if (color.saleType === "PACK" && color.packColorLines.length > 0) {
-      for (const pcl of color.packColorLines) {
-        const line = await prisma.packColorLine.create({
-          data: {
-            productColorId: variant.id,
-            position: pcl.position,
-          },
-        });
-        if (pcl.colorIds.length > 0) {
-          await prisma.packColorLineColor.createMany({
-            data: pcl.colorIds.map((cId, pos) => ({
-              packColorLineId: line.id,
-              colorId: cId,
-              position: pos,
-            })),
-          });
-        }
-        // Per-line sizes
-        if (pcl.sizeEntries && pcl.sizeEntries.length > 0) {
-          await prisma.packColorLineSize.createMany({
-            data: pcl.sizeEntries.map((se) => ({
-              packColorLineId: line.id,
-              sizeId: se.sizeId,
-              quantity: se.quantity,
-            })),
-          });
-        }
-      }
     }
   }
 
@@ -403,11 +331,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       }
       if (!matched) continue;
       usedVariantIds.add(matched.id);
-      // For PACK, colorId may be empty — use the first packColorLine color or fallback
-      const effectiveColorId = group.colorId
-        || input.colors[group.variantIndex ?? -1]?.packColorLines?.[0]?.colorIds?.[0]
-        || matched.colorId
-        || "";
+      const effectiveColorId = group.colorId || matched.colorId || "";
       if (!effectiveColorId) continue; // Cannot create image without a colorId FK
       group.paths.forEach((path, idx) => {
         const order = group.orders?.[idx] ?? idx;
@@ -697,8 +621,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       await tx.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
     }
 
-    // ── Variant sizes: full replace for UNIT variants only ──────────
-    // (PACK sizes now live in PackColorLineSize, not VariantSize)
+    // ── Variant sizes: full replace for UNIT and PACK ──────────
     if (allVariantIds.length > 0) {
       await tx.variantSize.deleteMany({
         where: { productColorId: { in: allVariantIds } },
@@ -706,7 +629,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
     const variantSizeData: { productColorId: string; sizeId: string; quantity: number; pricePerUnit?: number }[] = [];
     for (const { colorInput, variantId } of variantIdMap) {
-      if (colorInput.saleType !== "PACK" && colorInput.sizeEntries && colorInput.sizeEntries.length > 0) {
+      if (colorInput.sizeEntries && colorInput.sizeEntries.length > 0) {
         for (const se of colorInput.sizeEntries) {
           variantSizeData.push({
             productColorId: variantId,
@@ -719,41 +642,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
     if (variantSizeData.length > 0) {
       await tx.variantSize.createMany({ data: variantSizeData });
-    }
-
-    // ── Pack color lines: full replace for all PACK variants (with per-line sizes) ──────────
-    if (allVariantIds.length > 0) {
-      await tx.packColorLine.deleteMany({
-        where: { productColorId: { in: allVariantIds } },
-      });
-    }
-    for (const { colorInput, variantId } of variantIdMap) {
-      if (colorInput.saleType === "PACK" && colorInput.packColorLines.length > 0) {
-        for (const pcl of colorInput.packColorLines) {
-          const line = await tx.packColorLine.create({
-            data: { productColorId: variantId, position: pcl.position },
-          });
-          if (pcl.colorIds.length > 0) {
-            await tx.packColorLineColor.createMany({
-              data: pcl.colorIds.map((cId, pos) => ({
-                packColorLineId: line.id,
-                colorId: cId,
-                position: pos,
-              })),
-            });
-          }
-          // Per-line sizes
-          if (pcl.sizeEntries && pcl.sizeEntries.length > 0) {
-            await tx.packColorLineSize.createMany({
-              data: pcl.sizeEntries.map((se) => ({
-                packColorLineId: line.id,
-                sizeId: se.sizeId,
-                quantity: se.quantity,
-              })),
-            });
-          }
-        }
-      }
     }
 
     // ── Assign/update SKUs for all variants ──────────
@@ -810,11 +698,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         }
         if (!variant) continue;
         usedVariantIds.add(variant.id);
-        // For PACK, colorId may be empty — derive from packColorLines or variant
-        const effectiveColorId = group.colorId
-          || input.colors[group.variantIndex ?? -1]?.packColorLines?.[0]?.colorIds?.[0]
-          || variant.colorId
-          || "";
+        const effectiveColorId = group.colorId || variant.colorId || "";
         if (!effectiveColorId) continue; // Cannot create image without a colorId FK
         group.paths.forEach((path, idx) => {
           const order = group.orders?.[idx] ?? idx;
@@ -1582,7 +1466,7 @@ export async function revalidateAfterImport() {
  */
 export async function fetchProductFormAttributes() {
   await requireAdmin();
-  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes] = await Promise.all([
+  const [categories, colors, compositions, tags, manufacturingCountries, seasons, sizes, annexes] = await Promise.all([
     prisma.category.findMany({
       orderBy: { name: "asc" },
       include: { subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } } },
@@ -1600,9 +1484,11 @@ export async function fetchProductFormAttributes() {
     prisma.season.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.size.findMany({
       orderBy: { position: "asc" },
-      select: { id: true, name: true, categories: { select: { categoryId: true } } },
+      select: { id: true, name: true },
     }),
+    getPfsAnnexes().catch(() => null),
   ]);
+  const pfsSizes = (annexes?.sizes ?? []).map((ref) => ({ reference: ref, label: ref }));
   return {
     categories,
     colors: colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex, patternImage: c.patternImage })),
@@ -1610,7 +1496,8 @@ export async function fetchProductFormAttributes() {
     tags,
     manufacturingCountries,
     seasons,
-    sizes: sizes.map((s) => ({ id: s.id, name: s.name, categoryIds: s.categories.map((c) => c.categoryId) })),
+    sizes: sizes.map((s) => ({ id: s.id, name: s.name })),
+    pfsSizes,
   };
 }
 

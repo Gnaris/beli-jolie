@@ -57,7 +57,6 @@ function baseInput(overrides: Partial<ProductInput> = {}): ProductInput {
         saleType: "UNIT",
         packQuantity: null,
         sizeEntries: [{ sizeId: "s-1", quantity: 5 }],
-        packColorLines: [],
       },
     ],
     compositions: [],

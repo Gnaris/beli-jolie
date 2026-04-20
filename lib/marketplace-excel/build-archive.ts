@@ -37,11 +37,7 @@ function imageFileName(product: ExportProduct, variantIdx: number, variantLabel:
 function variantColorSlug(product: ExportProduct, idx: number): string {
   const v = product.variants[idx];
   if (!v) return `v${idx + 1}`;
-  if (v.saleType === "UNIT") {
-    return [...v.colorNames, ...v.subColorNames].join("_") || `v${idx + 1}`;
-  }
-  const first = v.packColorLines[0];
-  return first ? first.colors.join("_") : `pack_${idx + 1}`;
+  return [...v.colorNames, ...v.subColorNames].join("_") || `v${idx + 1}`;
 }
 
 async function webpBufferToJpeg(buffer: Buffer): Promise<Buffer> {

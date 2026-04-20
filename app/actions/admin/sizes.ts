@@ -12,16 +12,29 @@ async function requireAdmin() {
   }
 }
 
-/** Create a new size and optionally link it to categories. Returns created size. */
-export async function createSize(name: string, categoryIds: string[]) {
+function normalizePfsRef(ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  const t = ref.trim();
+  return t.length > 0 ? t : null;
+}
+
+/** Create a new size. PFS ref is mandatory. */
+export async function createSize(name: string, pfsSizeRef: string) {
   await requireAdmin();
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Le nom est requis.");
 
-  const existing = await prisma.size.findUnique({ where: { name: trimmed }, select: { id: true, name: true } });
+  const normalizedRef = normalizePfsRef(pfsSizeRef);
+  if (!normalizedRef) {
+    throw new Error("La référence Paris Fashion Shop est obligatoire.");
+  }
+
+  const existing = await prisma.size.findUnique({
+    where: { name: trimmed },
+    select: { id: true, name: true, pfsSizeRef: true },
+  });
   if (existing) return existing;
 
-  // Get max position for ordering
   const maxPos = await prisma.size.aggregate({ _max: { position: true } });
   const position = (maxPos._max.position ?? -1) + 1;
 
@@ -29,90 +42,38 @@ export async function createSize(name: string, categoryIds: string[]) {
     data: {
       name: trimmed,
       position,
-      categories: {
-        create: categoryIds.map((categoryId) => ({ categoryId })),
-      },
+      pfsSizeRef: normalizedRef,
     },
+    select: { id: true, name: true, pfsSizeRef: true },
   });
 
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/tailles");
   revalidateTag("sizes", "default");
 
-  return { id: created.id, name: created.name };
+  return created;
 }
 
-/** Create multiple sizes at once. Returns created count and any skipped names. */
-export async function createSizesBatch(names: string[], categoryIds: string[]) {
-  await requireAdmin();
-
-  const trimmedNames = names.map((n) => n.trim()).filter(Boolean);
-  if (trimmedNames.length === 0) throw new Error("Au moins un nom est requis.");
-
-  // Check existing
-  const existing = await prisma.size.findMany({
-    where: { name: { in: trimmedNames } },
-    select: { name: true },
-  });
-  const existingSet = new Set(existing.map((e) => e.name));
-
-  const toCreate = trimmedNames.filter((n) => !existingSet.has(n));
-  const skipped = trimmedNames.filter((n) => existingSet.has(n));
-
-  if (toCreate.length === 0) {
-    throw new Error(`Toutes les tailles existent déjà : ${skipped.join(", ")}`);
-  }
-
-  // Get max position
-  const maxPos = await prisma.size.aggregate({ _max: { position: true } });
-  let position = (maxPos._max.position ?? -1) + 1;
-
-  // Create all in transaction
-  await prisma.$transaction(
-    toCreate.map((name) =>
-      prisma.size.create({
-        data: {
-          name,
-          position: position++,
-          categories: {
-            create: categoryIds.map((categoryId) => ({ categoryId })),
-          },
-        },
-      })
-    )
-  );
-
-  revalidatePath("/admin/produits");
-  revalidateTag("sizes", "default");
-
-  return { created: toCreate.length, skipped };
-}
-
-/** Update a size name and its category links */
-export async function updateSize(
-  id: string,
-  name: string,
-  categoryIds: string[]
-) {
+/** Update name, and optionally pfsSizeRef. */
+export async function updateSize(id: string, name: string, pfsSizeRef?: string | null) {
   await requireAdmin();
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Le nom est requis.");
 
-  // Check uniqueness
   const conflict = await prisma.size.findFirst({
     where: { name: trimmed, id: { not: id } },
   });
   if (conflict) throw new Error(`La taille « ${trimmed} » existe déjà.`);
 
-  // Update name + replace category links
-  await prisma.$transaction([
-    prisma.size.update({ where: { id }, data: { name: trimmed } }),
-    prisma.sizeCategoryLink.deleteMany({ where: { sizeId: id } }),
-    ...categoryIds.map((categoryId) =>
-      prisma.sizeCategoryLink.create({ data: { sizeId: id, categoryId } })
-    ),
-  ]);
+  const updateData: { name: string; pfsSizeRef?: string | null } = { name: trimmed };
+  if (pfsSizeRef !== undefined) {
+    updateData.pfsSizeRef = normalizePfsRef(pfsSizeRef);
+  }
+
+  await prisma.size.update({ where: { id }, data: updateData });
 
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/tailles");
   revalidateTag("sizes", "default");
 }
 
@@ -120,9 +81,7 @@ export async function updateSize(
 export async function deleteSize(id: string) {
   await requireAdmin();
 
-  const usageCount = await prisma.variantSize.count({
-    where: { sizeId: id },
-  });
+  const usageCount = await prisma.variantSize.count({ where: { sizeId: id } });
   if (usageCount > 0) {
     throw new Error(
       `Impossible de supprimer : cette taille est utilisée par ${usageCount} variante(s).`
@@ -131,62 +90,30 @@ export async function deleteSize(id: string) {
 
   await prisma.size.delete({ where: { id } });
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/tailles");
   revalidateTag("sizes", "default");
 }
 
-/** Toggle a PFS size mapping for a BJ size (M2M: one BJ size can link to multiple PFS sizes) */
-export async function toggleSizePfsMapping(sizeId: string, pfsSizeRef: string) {
+/** Set or clear the single PFS size reference for a BJ size (1:1 relation). */
+export async function setSizePfsMapping(
+  sizeId: string,
+  pfsSizeRef: string | null
+): Promise<{ pfsSizeRef: string | null }> {
   await requireAdmin();
 
-  const trimmedRef = pfsSizeRef.trim();
-  if (!trimmedRef) throw new Error("La référence PFS est requise.");
+  const normalized = normalizePfsRef(pfsSizeRef);
 
-  // Check if mapping already exists
-  const existing = await prisma.sizePfsMapping.findUnique({
-    where: { sizeId_pfsSizeRef: { sizeId, pfsSizeRef: trimmedRef } },
-  });
-
-  if (existing) {
-    // Remove mapping
-    await prisma.sizePfsMapping.delete({ where: { id: existing.id } });
-  } else {
-    // Create mapping
-    await prisma.sizePfsMapping.create({
-      data: { sizeId, pfsSizeRef: trimmedRef },
-    });
-  }
-
-  revalidateTag("sizes", "default");
-
-  // Return updated mappings for this size
-  const mappings = await prisma.sizePfsMapping.findMany({
-    where: { sizeId },
+  const updated = await prisma.size.update({
+    where: { id: sizeId },
+    data: { pfsSizeRef: normalized },
     select: { pfsSizeRef: true },
   });
-  return mappings.map((m) => m.pfsSizeRef);
-}
 
-/** Assign an existing size to a category (creates SizeCategoryLink if not exists) */
-export async function assignSizeToCategory(sizeId: string, categoryId: string) {
-  await requireAdmin();
-
-  const [size, category] = await Promise.all([
-    prisma.size.findUnique({ where: { id: sizeId }, select: { id: true } }),
-    prisma.category.findUnique({ where: { id: categoryId }, select: { id: true } }),
-  ]);
-  if (!size) return { success: false, error: "Taille introuvable" };
-  if (!category) return { success: false, error: "Catégorie introuvable" };
-
-  const existing = await prisma.sizeCategoryLink.findUnique({
-    where: { sizeId_categoryId: { sizeId, categoryId } },
-  });
-  if (existing) return; // Already linked
-
-  await prisma.sizeCategoryLink.create({
-    data: { sizeId, categoryId },
-  });
-
+  revalidatePath("/admin/produits");
+  revalidatePath("/admin/tailles");
   revalidateTag("sizes", "default");
+
+  return { pfsSizeRef: updated.pfsSizeRef };
 }
 
 /** Reorder sizes by providing an ordered array of ids */
@@ -200,5 +127,6 @@ export async function reorderSizes(orderedIds: string[]) {
   );
 
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/tailles");
   revalidateTag("sizes", "default");
 }

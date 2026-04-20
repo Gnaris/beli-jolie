@@ -41,19 +41,7 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
             orderBy: { position: "asc" },
           },
           variantSizes: {
-            include: { size: { select: { name: true } } },
-          },
-          packColorLines: {
-            include: {
-              colors: {
-                include: { color: { select: { name: true, pfsColorRef: true } } },
-                orderBy: { position: "asc" },
-              },
-              sizes: {
-                include: { size: { select: { name: true } } },
-              },
-            },
-            orderBy: { position: "asc" },
+            include: { size: { select: { name: true, pfsSizeRef: true } } },
           },
           images: {
             select: { path: true, order: true },
@@ -78,14 +66,11 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
     const variants: ExportVariant[] = p.colors.map((c) => {
       const colorNames: string[] = [];
       const subColorNames: string[] = [];
-      if (c.saleType === "UNIT") {
-        // Prefer PFS ref over local name for export
-        const pfsName = c.color?.pfsColorRef || c.color?.name;
-        if (pfsName) colorNames.push(pfsName);
-        for (const sc of c.subColors) {
-          const scName = sc.color?.pfsColorRef || sc.color?.name;
-          if (scName) subColorNames.push(scName);
-        }
+      const pfsName = c.color?.pfsColorRef || c.color?.name;
+      if (pfsName) colorNames.push(pfsName);
+      for (const sc of c.subColors) {
+        const scName = sc.color?.pfsColorRef || sc.color?.name;
+        if (scName) subColorNames.push(scName);
       }
 
       return {
@@ -93,12 +78,8 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
         saleType: c.saleType as SaleTypeKey,
         colorNames,
         subColorNames,
-        packColorLines: c.packColorLines.map((line) => ({
-          colors: line.colors.map((lc) => lc.color?.pfsColorRef || lc.color?.name).filter((n): n is string => !!n),
-          sizes: line.sizes.map((ls) => ({ name: ls.size.name, quantity: ls.quantity })),
-        })),
         packQuantity: c.packQuantity,
-        sizes: c.variantSizes.map((vs) => ({ name: vs.size.name, quantity: vs.quantity })),
+        sizes: c.variantSizes.map((vs) => ({ name: vs.size.name, quantity: vs.quantity, pfsSizeRef: vs.size.pfsSizeRef ?? null })),
         unitPrice: Number(c.unitPrice),
         weight: c.weight,
         stock: c.stock,

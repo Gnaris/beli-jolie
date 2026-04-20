@@ -31,10 +31,16 @@ async function requireAdmin() {
 export async function createCategory(formData: FormData) {
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
+  const pfsGender = (formData.get("pfsGender") as string)?.trim() || null;
+  const pfsFamilyName = (formData.get("pfsFamilyName") as string)?.trim() || null;
+  const pfsCategoryName = (formData.get("pfsCategoryName") as string)?.trim() || null;
   if (!name) throw new Error("Le nom est requis.");
+  if (!pfsGender || !pfsFamilyName) {
+    throw new Error("Le genre et la famille Paris Fashion Shop sont obligatoires.");
+  }
 
   const category = await prisma.category.create({
-    data: { name, slug: toSlug(name) },
+    data: { name, slug: toSlug(name), pfsGender, pfsFamilyName, pfsCategoryName },
   });
   await autoTranslateCategory(category.id, name);
   revalidatePath("/admin/produits");
@@ -73,7 +79,6 @@ export async function updateCategoryPfsId(
     },
   });
   revalidatePath("/admin/produits");
-  revalidatePath("/admin/pfs/correspondances");
   revalidateTag("categories", "default");
 }
 
@@ -97,7 +102,6 @@ export async function updateCategoryPfsTaxonomy(
       pfsCategoryName: pfsCategoryName?.trim() || null,
     },
   });
-  revalidatePath("/admin/pfs/correspondances");
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
 }

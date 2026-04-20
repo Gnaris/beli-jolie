@@ -16,7 +16,13 @@ export async function createManufacturingCountry(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
   const isoCode = (formData.get("isoCode") as string)?.trim() || null;
-  const country = await prisma.manufacturingCountry.create({ data: { name, isoCode } });
+  const pfsCountryRef = (formData.get("pfsCountryRef") as string)?.trim() || null;
+  if (!pfsCountryRef) {
+    throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
+  }
+  const country = await prisma.manufacturingCountry.create({
+    data: { name, isoCode, pfsCountryRef },
+  });
   autoTranslateManufacturingCountry(country.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("manufacturing-countries", "default");

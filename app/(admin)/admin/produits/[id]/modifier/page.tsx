@@ -41,19 +41,6 @@ export default async function ModifierProduitPage({
               orderBy: { size: { position: "asc" } },
               include: { size: true },
             },
-            packColorLines: {
-              orderBy: { position: "asc" },
-              include: {
-                colors: {
-                  orderBy: { position: "asc" },
-                  include: { color: true },
-                },
-                sizes: {
-                  orderBy: { size: { position: "asc" } },
-                  include: { size: true },
-                },
-              },
-            },
           },
         },
         compositions: {
@@ -144,46 +131,16 @@ export default async function ModifierProduitPage({
       colorName: sc.color.name,
       colorHex:  sc.color.hex ?? "#9CA3AF",
     })),
-    packColorLines: (() => {
-      const hasPerLineSizes = pc.packColorLines.some((pcl) => pcl.sizes && pcl.sizes.length > 0);
-      const sharedSizeEntries = pc.variantSizes.map((vs) => ({
-        tempId: uid(),
-        sizeId: vs.sizeId,
-        sizeName: vs.size.name,
-        quantity: String(vs.quantity),
-      }));
-      return pc.packColorLines.map((pcl) => ({
-        tempId: uid(),
-        colors: pcl.colors.map((c) => ({
-          colorId: c.colorId,
-          colorName: c.color.name,
-          colorHex: c.color.hex ?? "#9CA3AF",
-        })),
-        sizeEntries: hasPerLineSizes
-          ? (pcl.sizes ?? []).map((pcs) => ({
-              tempId: uid(),
-              sizeId: pcs.sizeId,
-              sizeName: pcs.size.name,
-              quantity: String(pcs.quantity),
-            }))
-          : sharedSizeEntries.map((se) => ({ ...se, tempId: uid() })),
-      }));
-    })(),
-    sizeEntries:   pc.saleType === "PACK"
-      ? []
-      : pc.variantSizes.map((vs) => ({
-          tempId:       uid(),
-          sizeId:       vs.sizeId,
-          sizeName:     vs.size.name,
-          quantity:     String(vs.quantity),
-          pricePerUnit: vs.pricePerUnit != null ? String(vs.pricePerUnit) : undefined,
-        })),
+    sizeEntries:   pc.variantSizes.map((vs) => ({
+      tempId:       uid(),
+      sizeId:       vs.sizeId,
+      sizeName:     vs.size.name,
+      quantity:     String(vs.quantity),
+      pricePerUnit: vs.pricePerUnit != null ? String(vs.pricePerUnit) : undefined,
+    })),
     unitPrice:     (() => {
       if (pc.saleType === "PACK") {
-        const hasPerLineSizes = pc.packColorLines.some((pcl) => pcl.sizes && pcl.sizes.length > 0);
-        const totalQty = hasPerLineSizes
-          ? pc.packColorLines.reduce((sum, pcl) => sum + (pcl.sizes ?? []).reduce((s, pcs) => s + pcs.quantity, 0), 0)
-          : pc.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0);
+        const totalQty = pc.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0);
         if (totalQty > 0) return String(Math.round(Number(pc.unitPrice) / totalQty * 100) / 100);
       }
       return String(pc.unitPrice);
@@ -197,20 +154,9 @@ export default async function ModifierProduitPage({
   }));
 
   function editGroupKey(pc: {
-    id: string; colorId: string | null; saleType: string;
+    id: string; colorId: string | null;
     subColors: { colorId: string; color: { name: string } }[];
-    packColorLines: { colors: { colorId: string; color: { id: string } }[] }[];
   }): string {
-    if (pc.saleType === "PACK") {
-      if (pc.packColorLines.length === 0) return `pack::${pc.id}`;
-      const colorIds = pc.packColorLines
-        .map((pcl) => pcl.colors[0]?.colorId)
-        .filter(Boolean)
-        .sort();
-      if (colorIds.length === 0) return `pack::${pc.id}`;
-      if (colorIds.length === 1) return colorIds[0];
-      return `${colorIds[0]}::${colorIds.slice(1).join(",")}`;
-    }
     if (!pc.colorId) return "";
     if (pc.subColors.length === 0) return pc.colorId;
     return `${pc.colorId}::${pc.subColors.map(sc => sc.colorId).join(",")}`;
@@ -230,21 +176,10 @@ export default async function ModifierProduitPage({
       const colorMeta = img.productColorId
         ? product.colors.find((pc) => pc.id === img.productColorId)
         : product.colors.find((pc) => pc.colorId === img.colorId);
-      let allNames: string[];
-      let displayHex = "#9CA3AF";
-      if (colorMeta?.saleType === "PACK") {
-        allNames = colorMeta.packColorLines.map((pcl) =>
-          pcl.colors.map((c) => c.color.name).join(" + ")
-        );
-        if (allNames.length === 0) allNames = ["Paquet"];
-        const firstColor = colorMeta.packColorLines[0]?.colors[0]?.color;
-        if (firstColor?.hex) displayHex = firstColor.hex;
-      } else {
-        allNames = colorMeta
-          ? [colorMeta.color?.name ?? img.colorId, ...colorMeta.subColors.map((sc) => sc.color.name)]
-          : [img.colorId];
-        displayHex = colorMeta?.color?.hex ?? "#9CA3AF";
-      }
+      const allNames = colorMeta
+        ? [colorMeta.color?.name ?? img.colorId, ...colorMeta.subColors.map((sc) => sc.color.name)]
+        : [img.colorId];
+      const displayHex = colorMeta?.color?.hex ?? "#9CA3AF";
       colorImageMap.set(gk, {
         groupKey:      gk,
         colorId:       img.colorId,

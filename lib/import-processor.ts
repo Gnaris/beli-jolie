@@ -635,14 +635,10 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                   const hasExplicitPrimary = resolvedColors.some(({ row }) => row.isPrimary);
                   return resolvedColors.map(({ row, mainColor, subColors }, ci) => {
                     const isPack = row.saleType === "PACK";
-                    const allColors = [mainColor, ...subColors];
                     return {
-                      // PACK variants: colorId is null, colors go into PackColorLine
-                      // UNIT variants: colorId = main color, sub-colors go into subColors
-                      colorId: isPack ? null : mainColor.id,
+                      colorId: mainColor.id,
                       unitPrice: (() => {
                         if (!isPack) return row.unitPrice;
-                        // PACK: unitPrice in file = per-piece price, DB stores total
                         const sizeEntries = parseSizeField(row.size, "PACK");
                         const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
                         return totalQty > 0 ? Math.round(row.unitPrice * totalQty * 100) / 100 : row.unitPrice;
@@ -658,13 +654,8 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                             return totalQty > 0 ? totalQty : (row.packQuantity ?? null);
                           })()
                         : null,
-                      // UNIT: sub-colors for multi-color variants (e.g. "Bleu/Rose/Vert")
-                      subColors: !isPack && subColors.length > 0
+                      subColors: subColors.length > 0
                         ? { create: subColors.map((sc, idx) => ({ colorId: sc.id, position: idx })) }
-                        : undefined,
-                      // PACK: all colors go into a single PackColorLine
-                      packColorLines: isPack
-                        ? { create: [{ position: 0, colors: { create: allColors.map((c, idx) => ({ colorId: c.id, position: idx })) } }] }
                         : undefined,
                     };
                   });
@@ -682,13 +673,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
               if (sizeEntries.length === 0) continue;
 
               // Find the matching ProductColor
-              // For PACK: compute expected total price to match
-              const expectedPrice = row.saleType === "PACK"
-                ? Math.round(row.unitPrice * sizeEntries.reduce((s, e) => s + e.quantity, 0) * 100) / 100
-                : row.unitPrice;
-              const pc = row.saleType === "PACK"
-                ? product.colors.find((c) => c.saleType === "PACK" && c.colorId === null && c.unitPrice.toString() === expectedPrice.toString())
-                : product.colors.find((c) => c.colorId === mainColor.id && c.saleType === row.saleType);
+              const pc = product.colors.find((c) => c.colorId === mainColor.id && c.saleType === row.saleType);
               if (!pc) continue;
 
               for (const entry of sizeEntries) {
@@ -697,14 +682,6 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                   create: { name: entry.name },
                   update: {},
                 });
-                // Link size to product's category if not already linked
-                if (productCategoryId) {
-                  await prisma.sizeCategoryLink.upsert({
-                    where: { sizeId_categoryId: { sizeId: sizeEntity.id, categoryId: productCategoryId } },
-                    create: { sizeId: sizeEntity.id, categoryId: productCategoryId },
-                    update: {},
-                  });
-                }
                 await prisma.variantSize.create({
                   data: {
                     productColorId: pc.id,

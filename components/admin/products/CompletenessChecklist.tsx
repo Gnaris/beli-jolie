@@ -118,9 +118,7 @@ function computeChecklist(input: ChecklistInput): CheckItem[] {
     });
 
     // 10. All variants have at least 1 size
-    const allSizesOk = input.variants.every(
-      (v) => v.sizeEntries.length > 0
-    );
+    const allSizesOk = input.variants.every((v) => v.sizeEntries.length > 0);
     items.push({
       key: "sizes",
       label: "Tailles renseignées",

@@ -63,18 +63,12 @@ export const getCachedManufacturingCountries = unstable_cache(
   { revalidate: 60, tags: ["manufacturing-countries"] }
 );
 
-// ─── Tailles (par catégorie) ──────────────────────────────────────────────────
+// ─── Tailles (bibliothèque globale) ───────────────────────────────────────────
 export const getCachedSizes = unstable_cache(
   async () =>
     prisma.size.findMany({
       orderBy: { position: "asc" },
-      select: {
-        id: true,
-        name: true,
-        categories: {
-          select: { categoryId: true },
-        },
-      },
+      select: { id: true, name: true },
     }),
   ["filter-sizes"],
   { revalidate: 60, tags: ["sizes"] }

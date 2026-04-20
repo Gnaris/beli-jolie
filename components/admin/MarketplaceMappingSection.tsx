@@ -81,10 +81,16 @@ const COMPOSITION_OPTIONS = PFS_COMPOSITIONS.map((c) => ({ value: c, label: c })
 const COUNTRY_OPTIONS = PFS_COUNTRIES.map((c) => ({ value: c, label: c }));
 
 /* ── Season format: PE20XX (Printemps/Été) or AH20XX (Automne/Hiver) ── */
-function generateSeasonOptions(): { value: string; label: string }[] {
+/**
+ * Generate season options covering [currentYear - 1, currentYear + 1] —
+ * the past season (leftover stock), the current year, and the next year
+ * (collection being prepared). Anything further is out of scope for a
+ * fashion catalogue and just clutters the picker.
+ */
+export function generateSeasonOptions(): { value: string; label: string }[] {
   const options: { value: string; label: string }[] = [];
   const currentYear = new Date().getFullYear();
-  for (let y = currentYear - 2; y <= currentYear + 3; y++) {
+  for (let y = currentYear - 1; y <= currentYear + 1; y++) {
     options.push({ value: `PE${y}`, label: `PE${y} — Printemps/Été ${y}` });
     options.push({ value: `AH${y}`, label: `AH${y} — Automne/Hiver ${y}` });
   }

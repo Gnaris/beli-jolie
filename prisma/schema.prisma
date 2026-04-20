@@ -126,7 +126,6 @@ model Category {
   subCategories SubCategory[]
   products      Product[]
   translations  CategoryTranslation[]
-  sizes         SizeCategoryLink[]
   promotions    PromotionCategory[]
   createdAt     DateTime              @default(now())
 }
@@ -179,7 +178,6 @@ model Color {
   colorImages         ProductColorImage[]
   translations        ColorTranslation[]
   subColorUsages      ProductColorSubColor[] // Utilisations en tant que sous-couleur
-  packColorLineColors PackColorLineColor[] // Utilisations dans les lignes de couleur des packs
 }
 
 model ColorTranslation {
@@ -406,12 +404,12 @@ model PendingSimilar {
 
 // Variante d'un produit
 // UNIT: une composition de couleurs + tailles×qty + prix/poids/stock
-// PACK: N lignes de couleurs + tailles×qty partagées + packQuantity + prix/poids/stock
+// PACK: une composition de couleurs + tailles×qty + packQuantity + prix/poids/stock
 model ProductColor {
   id                  String                 @id @default(cuid())
   productId           String
   product             Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
-  colorId             String? // Couleur principale (UNIT only — null pour PACK)
+  colorId             String? // Couleur principale (requise en business logic, nullable en DB pour legacy)
   color               Color?                 @relation(fields: [colorId], references: [id])
   unitPrice           Decimal                @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
   weight              Float // Poids en kg
@@ -419,12 +417,10 @@ model ProductColor {
   isPrimary           Boolean                @default(false)
   saleType            SaleType // UNIT ou PACK
   packQuantity        Int? // Quantité par paquet (null si UNIT)
-  // UNIT: composition de couleurs (colorId = 1ère couleur, subColors = couleurs suivantes)
+  // Composition de couleurs (colorId = 1ère couleur, subColors = couleurs suivantes)
   subColors           ProductColorSubColor[]
-  // Tailles avec quantités (partagées entre toutes les lignes couleur pour PACK)
+  // Tailles avec quantités (UNIT ou PACK)
   variantSizes        VariantSize[]
-  // PACK: lignes de couleur (chaque ligne = une composition de couleurs)
-  packColorLines      PackColorLine[]
   images              ProductColorImage[] // Images (UNIT seulement)
   cartItems           CartItem[]
   collectionOverrides CollectionProduct[]
@@ -457,48 +453,26 @@ model ProductColorSubColor {
 }
 
 // ─────────────────────────────────────────────
-// Tailles (gérées par l'admin, liées aux catégories)
+// Tailles (bibliothèque globale, indépendante des catégories)
 // ─────────────────────────────────────────────
 
 // Bibliothèque de tailles réutilisables (ex: "XS", "S", "17", "Taille unique")
+// pfsSizeRef: 1 correspondance Paris Fashion Shop par taille, obligatoire au niveau app.
+// Nullable en DB pour permettre la création batch puis mapping différé.
 model Size {
-  id             String             @id @default(cuid())
-  name           String             @unique
-  position       Int                @default(0)
-  pfsMappings    SizePfsMapping[]
-  categories     SizeCategoryLink[]
-  variantSizes       VariantSize[]
-  packColorLineSizes PackColorLineSize[]
-  stockMovements     StockMovement[]
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-}
+  id             String          @id @default(cuid())
+  name           String          @unique
+  position       Int             @default(0)
+  pfsSizeRef     String?
+  variantSizes   VariantSize[]
+  stockMovements StockMovement[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
-// M2M: taille BJ ↔ taille PFS (une taille BJ peut être liée à plusieurs tailles PFS et inversement)
-model SizePfsMapping {
-  id         String @id @default(cuid())
-  sizeId     String
-  size       Size   @relation(fields: [sizeId], references: [id], onDelete: Cascade)
-  pfsSizeRef String // Référence PFS (ex: "TU", "XS", "52", "T36")
-
-  @@unique([sizeId, pfsSizeRef])
-  @@index([sizeId])
   @@index([pfsSizeRef])
 }
 
-// M2M: taille ↔ catégorie (une taille peut appartenir à plusieurs catégories)
-model SizeCategoryLink {
-  id         String   @id @default(cuid())
-  sizeId     String
-  size       Size     @relation(fields: [sizeId], references: [id], onDelete: Cascade)
-  categoryId String
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-
-  @@unique([sizeId, categoryId])
-  @@index([categoryId])
-}
-
-// Taille × quantité dans une variante (UNIT ou PACK — partagées pour PACK)
+// Taille × quantité dans une variante (UNIT ou PACK)
 model VariantSize {
   id             String       @id @default(cuid())
   productColorId String
@@ -510,48 +484,6 @@ model VariantSize {
 
   @@unique([productColorId, sizeId])
   @@index([productColorId])
-}
-
-// ─────────────────────────────────────────────
-// Lignes de couleur pour PACK (N compositions de couleurs par paquet)
-// ─────────────────────────────────────────────
-
-// Une ligne de couleur dans un PACK (ex: ligne 1 = "Doré, Rouge" / ligne 2 = "Doré, Noir")
-model PackColorLine {
-  id             String               @id @default(cuid())
-  productColorId String
-  productColor   ProductColor         @relation(fields: [productColorId], references: [id], onDelete: Cascade)
-  position       Int                  @default(0) // Ordre d'affichage
-  colors         PackColorLineColor[]
-  sizes          PackColorLineSize[]  // Tailles/quantités propres à cette ligne
-
-  @@index([productColorId])
-}
-
-// Taille × quantité par ligne de couleur PACK (chaque couleur a ses propres tailles)
-model PackColorLineSize {
-  id              String        @id @default(cuid())
-  packColorLineId String
-  packColorLine   PackColorLine @relation(fields: [packColorLineId], references: [id], onDelete: Cascade)
-  sizeId          String
-  size            Size          @relation(fields: [sizeId], references: [id])
-  quantity        Int           @default(1)
-
-  @@unique([packColorLineId, sizeId])
-  @@index([packColorLineId])
-}
-
-// Couleur dans une ligne de couleur de PACK (ordonnée)
-model PackColorLineColor {
-  id              String        @id @default(cuid())
-  packColorLineId String
-  packColorLine   PackColorLine @relation(fields: [packColorLineId], references: [id], onDelete: Cascade)
-  colorId         String
-  color           Color         @relation(fields: [colorId], references: [id])
-  position        Int           @default(0) // Ordre dans la composition
-
-  @@unique([packColorLineId, colorId])
-  @@index([packColorLineId])
 }
 
 // Images liées à un variant spécifique (ProductColor)

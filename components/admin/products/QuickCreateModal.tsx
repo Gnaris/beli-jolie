@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 import {
@@ -15,7 +15,17 @@ import {
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
-import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
+import MarketplaceMappingSection, { generateSeasonOptions } from "@/components/admin/MarketplaceMappingSection";
+import PfsSuggestions, { type PfsCategoryTriple, type PfsRefOption } from "@/components/admin/pfs/PfsSuggestions";
+import {
+  PFS_COLORS,
+  PFS_COMPOSITIONS,
+  PFS_COUNTRIES,
+  PFS_FAMILIES_BY_GENDER,
+  PFS_SUBCATEGORIES_BY_FAMILY,
+  PFS_GENDER_LABELS,
+} from "@/lib/marketplace-excel/pfs-taxonomy";
+import { hexForPfsColor } from "@/lib/marketplace-excel/pfs-color-hex";
 
 export type QuickCreateType = "category" | "subcategory" | "composition" | "color" | "tag" | "country" | "season";
 
@@ -109,6 +119,55 @@ export default function QuickCreateModal({
   const [pfsCategoryName, setPfsCategoryName] = useState<string | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // Flatten the category taxonomy once for suggestion matching.
+  const pfsCategoryTriples = useMemo<PfsCategoryTriple[]>(() => {
+    const out: PfsCategoryTriple[] = [];
+    for (const [gender, families] of Object.entries(PFS_FAMILIES_BY_GENDER)) {
+      for (const family of families) {
+        const cats = PFS_SUBCATEGORIES_BY_FAMILY[family] ?? [];
+        for (const category of cats) {
+          out.push({ gender, family, category });
+        }
+      }
+    }
+    return out;
+  }, []);
+
+  function applyCategoryTriple(t: PfsCategoryTriple) {
+    // Reverse the FR gender label → stored code (WOMAN/MAN/KID/SUPPLIES)
+    const codeEntry = Object.entries(PFS_GENDER_LABELS).find(([, label]) => label === t.gender);
+    const genderCode = codeEntry ? codeEntry[0] : null;
+    setPfsGender(genderCode);
+    setPfsFamilyName(t.family);
+    setPfsCategoryName(t.category);
+  }
+
+  const currentCategoryTriple = useMemo<PfsCategoryTriple | null>(() => {
+    if (type !== "category" || !pfsGender || !pfsFamilyName || !pfsCategoryName) return null;
+    const genderLabel = PFS_GENDER_LABELS[pfsGender];
+    if (!genderLabel) return null;
+    return { gender: genderLabel, family: pfsFamilyName, category: pfsCategoryName };
+  }, [type, pfsGender, pfsFamilyName, pfsCategoryName]);
+
+  const suggestionOptions = useMemo<PfsRefOption[]>(() => {
+    switch (type) {
+      case "color": return PFS_COLORS;
+      case "composition": return PFS_COMPOSITIONS;
+      case "country": return PFS_COUNTRIES;
+      case "season": return generateSeasonOptions();
+      default: return [];
+    }
+  }, [type]);
+
+  /** Apply a suggested PFS ref — also auto-fills the hex picker for colors. */
+  function applySuggestedRef(ref: string) {
+    setPfsRef(ref);
+    if (type === "color" && colorMode === "hex") {
+      const suggestedHex = hexForPfsColor(ref);
+      if (suggestedHex) setHex(suggestedHex);
+    }
+  }
 
   useEffect(() => {
     if (open) {
@@ -206,9 +265,19 @@ export default function QuickCreateModal({
         return;
       }
 
-      // Create mode — enforce PFS mapping for non-category mappable types (only when PFS is enabled)
-      if (pfsEnabled && MAPPABLE_TYPES.has(type) && type !== "category" && !pfsRef) {
-        setError("La correspondance Paris Fashion Shop est requise."); setLoading(false); return;
+      // Create mode — enforce PFS mapping for all mappable types (only when PFS is enabled)
+      if (pfsEnabled && MAPPABLE_TYPES.has(type)) {
+        if (type === "category") {
+          if (!pfsGender || !pfsFamilyName) {
+            setError("Le genre et la famille Paris Fashion Shop sont obligatoires.");
+            setLoading(false);
+            return;
+          }
+        } else if (!pfsRef) {
+          setError("La correspondance Paris Fashion Shop est obligatoire.");
+          setLoading(false);
+          return;
+        }
       }
 
       let result: { id: string; name: string; hex?: string | null; patternImage?: string | null; subCategories?: { id: string; name: string }[] };
@@ -251,6 +320,11 @@ export default function QuickCreateModal({
 
   const frName = names["fr"]?.trim() ?? "";
   const hasMappableType = pfsEnabled && MAPPABLE_TYPES.has(type);
+  const mappingMissing = !isEdit && hasMappableType && (
+    type === "category"
+      ? (!pfsGender || !pfsFamilyName)
+      : !pfsRef
+  );
 
   return createPortal(
     <div
@@ -434,6 +508,32 @@ export default function QuickCreateModal({
                     onPfsRefChange={setPfsRef}
                   />
                 )}
+
+                {/* PFS suggestions — click to auto-fill the mapping fields above. */}
+                {type !== "category" && suggestionOptions.length > 0 && (
+                  <div className="mt-4">
+                    <PfsSuggestions
+                      mode="ref"
+                      query={names["fr"] ?? ""}
+                      options={suggestionOptions}
+                      currentValue={pfsRef}
+                      onPick={applySuggestedRef}
+                      label="Correspondance détectée d'après le nom"
+                    />
+                  </div>
+                )}
+                {type === "category" && (
+                  <div className="mt-4">
+                    <PfsSuggestions
+                      mode="category"
+                      query={names["fr"] ?? ""}
+                      triples={pfsCategoryTriples}
+                      currentValue={currentCategoryTriple}
+                      onPickCategory={applyCategoryTriple}
+                      label="Cascade détectée d'après le nom"
+                    />
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -457,8 +557,9 @@ export default function QuickCreateModal({
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={loading || !frName}
-              className="px-5 py-2 bg-bg-dark hover:bg-black text-text-inverse text-sm font-medium rounded-lg transition-colors disabled:opacity-50 font-body"
+              disabled={loading || !frName || mappingMissing}
+              title={mappingMissing ? "Complétez la correspondance Paris Fashion Shop." : undefined}
+              className="px-5 py-2 bg-bg-dark hover:bg-black text-text-inverse text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
             >
               {loading ? (isEdit ? "Enregistrement…" : "Création…") : (isEdit ? "Enregistrer" : "Créer")}
             </button>

@@ -15,6 +15,20 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useProductStream } from "@/hooks/useProductStream";
 import MarketplaceExportButton from "@/components/admin/products/MarketplaceExportButton";
 
+// ─── Rule helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Products in draft (OFFLINE or isIncomplete) and archived products don't
+ * expose a "rupture" / "stock partiel" signal — they're not sellable, so stock
+ * is irrelevant. Exported for unit testing.
+ */
+export function computeShowStockBadges(p: { status: string; isIncomplete: boolean }): boolean {
+  if (p.isIncomplete) return false;
+  if (p.status === "OFFLINE") return false;
+  if (p.status === "ARCHIVED") return false;
+  return true;
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface VariantSizeEntry {
@@ -352,6 +366,8 @@ function ProductRow({
   // Stock status
   const isFullyOutOfStock = product.colors.length > 0 && product.colors.every((c) => c.stock === 0);
   const hasPartialOutOfStock = !isFullyOutOfStock && product.colors.some((c) => c.stock === 0);
+  // Drafts & archived products don't expose a "rupture" state — they're not live.
+  const showStockBadges = computeShowStockBadges({ status: product.status, isIncomplete: product.isIncomplete });
 
   const allNonFrLocales = ["en", "ar", "zh", "de", "es", "it"];
   const existingLocales = new Set(product.translations.map((t) => t.locale));
@@ -445,7 +461,7 @@ function ProductRow({
               } else {
                 swatchStyle = { backgroundColor: mainHex };
               }
-              const isOos = c.stock === 0;
+              const isOos = c.stock === 0 && showStockBadges;
               const subNamesForKey = c.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
               const colorKey = subNamesForKey.length === 0 ? c.colorId : `${c.colorId}::${subNamesForKey.join(",")}`;
               return (
@@ -509,7 +525,7 @@ function ProductRow({
               )}
             </div>
             <div className="flex items-center gap-1.5 flex-nowrap">
-              {isFullyOutOfStock && (
+              {showStockBadges && isFullyOutOfStock && (
                 <span
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]"
                   title="Toutes les variantes sont en rupture de stock"
@@ -517,7 +533,7 @@ function ProductRow({
                   Rupture
                 </span>
               )}
-              {hasPartialOutOfStock && (
+              {showStockBadges && hasPartialOutOfStock && (
                 <span
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA]"
                   title="Certaines variantes sont en rupture de stock"

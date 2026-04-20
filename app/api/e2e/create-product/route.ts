@@ -54,7 +54,6 @@ export async function POST(req: Request) {
         packQuantity: null,
         subColorIds: [],
         sizeEntries: [],
-        packColorLines: [],
       }],
       imagePaths: [],
       compositions: [{ compositionId: composition.id, percentage: 100 }],

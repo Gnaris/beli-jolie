@@ -9,6 +9,7 @@ import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsT
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
 import { getCachedAdminWarnings, getCachedSiteConfig } from "@/lib/cached-data";
+import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -570,34 +571,24 @@ async function SaisonsContent() {
    TAB: Tailles
    ═══════════════════════════════════════════════════════════════════════════ */
 async function TaillesContent() {
-  const [sizes, categories] = await Promise.all([
+  const [sizes, annexes] = await Promise.all([
     prisma.size.findMany({
       orderBy: { position: "asc" },
       include: {
-        categories: {
-          include: { category: { select: { id: true, name: true } } },
-        },
-        pfsMappings: { select: { pfsSizeRef: true } },
         _count: { select: { variantSizes: true } },
       },
     }),
-    prisma.category.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
+    getPfsAnnexes().catch(() => null),
   ]);
 
-  // PFS size mapping UI removed — marketplaces are populated via manual Excel upload.
-  const pfsSizes: { reference: string }[] = [];
+  const pfsSizes = (annexes?.sizes ?? []).map((ref) => ({ reference: ref, label: ref }));
 
   const sizeItems = sizes.map((s) => ({
     id: s.id,
     name: s.name,
     position: s.position,
     variantCount: s._count.variantSizes,
-    categoryIds: s.categories.map((c) => c.category.id),
-    categoryNames: s.categories.map((c) => c.category.name),
-    pfsMappings: s.pfsMappings.map((m) => m.pfsSizeRef),
+    pfsSizeRef: s.pfsSizeRef,
   }));
 
   return (
@@ -605,16 +596,11 @@ async function TaillesContent() {
       <div>
         <h1 className="page-title">Gestion des tailles</h1>
         <p className="page-subtitle">
-          Créez les tailles et associez-les aux catégories de produits.
+          Bibliothèque de tailles : créez-les une fois, elles sont disponibles pour tous les produits.
         </p>
       </div>
 
-      <SizesManager
-        initialSizes={sizeItems}
-        categories={categories}
-        pfsEnabled={false}
-        pfsSizes={pfsSizes.map((s) => ({ reference: s.reference, label: s.reference }))}
-      />
+      <SizesManager initialSizes={sizeItems} pfsSizes={pfsSizes} />
     </div>
   );
 }

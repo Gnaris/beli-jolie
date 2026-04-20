@@ -38,7 +38,7 @@ describe("Product CRUD (real DB)", () => {
           saleType: "UNIT",
           packQuantity: null,
           sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-          packColorLines: [],
+
         },
       ],
       compositions: [{ compositionId: entities.composition.id, percentage: 100 }],
@@ -143,7 +143,7 @@ describe("Product CRUD (real DB)", () => {
             saleType: "UNIT",
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-            packColorLines: [],
+
           },
           {
             colorId: entities.color2.id,
@@ -154,7 +154,7 @@ describe("Product CRUD (real DB)", () => {
             saleType: "UNIT",
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-            packColorLines: [],
+
           },
         ],
       });
@@ -189,7 +189,8 @@ describe("Product CRUD (real DB)", () => {
         name: "Lot de bagues assorties",
         colors: [
           {
-            colorId: null,
+            colorId: entities.color1.id,
+            subColorIds: [entities.color2.id, entities.color3.id],
             unitPrice: 29.99,
             weight: 0.5,
             stock: 20,
@@ -199,9 +200,6 @@ describe("Product CRUD (real DB)", () => {
             sizeEntries: [
               { sizeId: entities.sizeS.id, quantity: 3, pricePerUnit: 5 },
               { sizeId: entities.sizeM.id, quantity: 3, pricePerUnit: 5 },
-            ],
-            packColorLines: [
-              { colorIds: [entities.color1.id, entities.color2.id, entities.color3.id], position: 0, sizeEntries: [{ sizeId: entities.sizeS.id, quantity: 3 }, { sizeId: entities.sizeM.id, quantity: 3 }] },
             ],
           },
         ],
@@ -215,11 +213,9 @@ describe("Product CRUD (real DB)", () => {
         include: {
           colors: {
             include: {
+              color: true,
+              subColors: { include: { color: true }, orderBy: { position: "asc" } },
               variantSizes: { include: { size: true }, orderBy: { size: { position: "asc" } } },
-              packColorLines: {
-                include: { colors: { include: { color: true }, orderBy: { position: "asc" } } },
-                orderBy: { position: "asc" },
-              },
             },
           },
         },
@@ -230,7 +226,7 @@ describe("Product CRUD (real DB)", () => {
 
       // PACK specific
       expect(variant.saleType).toBe("PACK");
-      expect(variant.colorId).toBeNull();
+      expect(variant.colorId).toBe(entities.color1.id);
       expect(variant.packQuantity).toBe(6);
 
       // Sizes
@@ -239,12 +235,11 @@ describe("Product CRUD (real DB)", () => {
       expect(variant.variantSizes[0].quantity).toBe(3);
       expect(variant.variantSizes[1].size.name).toBe(`${TEST_PREFIX}M`);
 
-      // Pack color lines
-      expect(variant.packColorLines).toHaveLength(1);
-      expect(variant.packColorLines[0].colors).toHaveLength(3);
-      expect(variant.packColorLines[0].colors[0].color.name).toBe(`${TEST_PREFIX}Doré`);
-      expect(variant.packColorLines[0].colors[1].color.name).toBe(`${TEST_PREFIX}Argenté`);
-      expect(variant.packColorLines[0].colors[2].color.name).toBe(`${TEST_PREFIX}Rose`);
+      // Color composition (main + sub-colors)
+      expect(variant.color?.name).toBe(`${TEST_PREFIX}Doré`);
+      expect(variant.subColors).toHaveLength(2);
+      expect(variant.subColors[0].color.name).toBe(`${TEST_PREFIX}Argenté`);
+      expect(variant.subColors[1].color.name).toBe(`${TEST_PREFIX}Rose`);
     });
   });
 
@@ -283,7 +278,7 @@ describe("Product CRUD (real DB)", () => {
             saleType: "UNIT",
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-            packColorLines: [],
+
           },
         ],
       }));
@@ -308,7 +303,7 @@ describe("Product CRUD (real DB)", () => {
             saleType: "UNIT",
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-            packColorLines: [],
+
           },
         ],
       }));
@@ -334,7 +329,7 @@ describe("Product CRUD (real DB)", () => {
             saleType: "UNIT",
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-            packColorLines: [],
+
           },
           {
             colorId: entities.color2.id,
@@ -345,7 +340,7 @@ describe("Product CRUD (real DB)", () => {
             saleType: "UNIT",
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-            packColorLines: [],
+
           },
         ],
       }));
@@ -377,7 +372,7 @@ describe("Product CRUD (real DB)", () => {
             saleType: "UNIT",
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-            packColorLines: [],
+
           },
         ],
         compositions: [
@@ -525,7 +520,7 @@ describe("Product CRUD (real DB)", () => {
             saleType: "UNIT",
             packQuantity: null,
             sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-            packColorLines: [],
+
           },
         ],
       }));

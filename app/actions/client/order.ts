@@ -104,7 +104,6 @@ export async function placeOrder(
                 product: { select: { id: true, name: true, reference: true, status: true, discountPercent: true, category: { select: { name: true } } } },
                 color:   { select: { id: true, name: true, hex: true } },
                 subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
-                packColorLines: { orderBy: { position: "asc" }, include: { colors: { orderBy: { position: "asc" }, include: { color: { select: { name: true } } } }, sizes: { orderBy: { size: { position: "asc" } }, include: { size: { select: { name: true } } } } } },
                 variantSizes: { include: { size: true } },
               },
             },
@@ -237,10 +236,6 @@ export async function placeOrder(
         name: vs.size.name,
         quantity: vs.quantity,
       })),
-      packColorLines: item.variant.packColorLines?.map((line: { colors: { color: { name: string } }[]; sizes?: { size: { name: string }; quantity: number }[] }) => ({
-        colors: line.colors.map((c) => c.color.name),
-        sizes: (line.sizes ?? []).map((s) => ({ name: s.size.name, quantity: s.quantity })),
-      })) ?? [],
     });
 
     return {
@@ -258,12 +253,7 @@ export async function placeOrder(
       sizesJson:   item.variant.variantSizes.length > 0
         ? JSON.stringify(item.variant.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({ name: vs.size.name, quantity: vs.quantity })))
         : null,
-      packDetails: item.variant.packColorLines && item.variant.packColorLines.length > 0
-        ? JSON.stringify(item.variant.packColorLines.map((line: { colors: { color: { name: string } }[]; sizes?: { size: { name: string }; quantity: number }[] }) => ({
-            colors: line.colors.map((c) => c.color.name),
-            sizes: (line.sizes ?? []).map((s) => ({ name: s.size.name, quantity: s.quantity })),
-          })))
-        : null,
+      packDetails: null,
       imagePath:   imagesByKey.get(imgKey) ?? null,
       unitPrice,
       quantity:    item.quantity,

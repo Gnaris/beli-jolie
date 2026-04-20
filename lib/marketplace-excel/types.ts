@@ -11,23 +11,17 @@ export type SaleTypeKey = "UNIT" | "PACK";
 export interface ExportVariantSize {
   name: string;
   quantity: number;
-}
-
-export interface ExportPackColorLine {
-  colors: string[]; // ordered color names (e.g. ["Doré", "Argent"])
-  sizes: ExportVariantSize[];
+  /** PFS reference (e.g. "TU", "XS", "52"). Null/undefined = size not mapped to PFS yet. */
+  pfsSizeRef?: string | null;
 }
 
 export interface ExportVariant {
   variantId: string;
   saleType: SaleTypeKey;
-  // For UNIT: primary color + optional sub-colors (composition)
-  // For PACK: empty, use packColorLines instead
+  // Primary color + optional sub-colors (composition) — UNIT and PACK
   colorNames: string[];
   subColorNames: string[];
-  packColorLines: ExportPackColorLine[];
   packQuantity: number | null;
-  // UNIT: shared sizes. PACK: shared sizes (fallback) or packColorLine-specific
   sizes: ExportVariantSize[];
   unitPrice: number; // from DB — total price for PACK, per-unit for UNIT (HT)
   weight: number; // kg per unit (UNIT) or per pack (PACK)

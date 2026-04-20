@@ -35,19 +35,6 @@ const getProduct = cache(async (id: string) => {
             orderBy: { size: { position: "asc" } },
             include: { size: true },
           },
-          packColorLines: {
-            orderBy: { position: "asc" },
-            include: {
-              colors: {
-                orderBy: { position: "asc" },
-                include: { color: { select: { name: true, hex: true, patternImage: true } } },
-              },
-              sizes: {
-                orderBy: { size: { position: "asc" } },
-                include: { size: { select: { name: true } } },
-              },
-            },
-          },
         },
         orderBy: { isPrimary: "desc" },
       },
@@ -362,17 +349,6 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                 saleType:      pc.saleType,
                 packQuantity:  pc.packQuantity,
                 sizes:         (pc.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity, pricePerUnit: vs.pricePerUnit != null ? Number(vs.pricePerUnit) : undefined })),
-                packColorLines: (pc.packColorLines ?? []).map((line: any) => ({
-                  colors: line.colors.map((lc: any) => ({
-                    name: lc.color.name,
-                    hex: lc.color.hex ?? "#9CA3AF",
-                    patternImage: lc.color.patternImage ?? null,
-                  })),
-                  sizes: (line.sizes ?? []).map((pcs: any) => ({
-                    name: pcs.size.name,
-                    quantity: pcs.quantity,
-                  })),
-                })),
               }))}
               colorImages={colorImagesForDetail}
               compositions={product.compositions.map((c) => ({

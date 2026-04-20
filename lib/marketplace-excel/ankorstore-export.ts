@@ -29,11 +29,7 @@ const TEMPLATE_PATH = path.join(process.cwd(), "lib", "marketplace-excel", "temp
 const DATA_SHEET_NAME = "Vos produits";
 
 function variantColorLabel(v: ExportVariant): string {
-  if (v.saleType === "UNIT") {
-    return [...v.colorNames, ...v.subColorNames].join(" / ");
-  }
-  const first = v.packColorLines[0];
-  return first ? first.colors.join(" / ") : "";
+  return [...v.colorNames, ...v.subColorNames].join(" / ");
 }
 
 function variantSizeLabel(v: ExportVariant): string {

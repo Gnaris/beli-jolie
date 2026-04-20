@@ -106,18 +106,6 @@ export async function cleanupTestData() {
     if (variantIds.length > 0) {
       await prisma.variantSize.deleteMany({ where: { productColorId: { in: variantIds } } });
       await prisma.productColorSubColor.deleteMany({ where: { productColorId: { in: variantIds } } });
-
-      const packLines = await prisma.packColorLine.findMany({
-        where: { productColorId: { in: variantIds } },
-        select: { id: true },
-      });
-      if (packLines.length > 0) {
-        await prisma.packColorLineColor.deleteMany({
-          where: { packColorLineId: { in: packLines.map((l) => l.id) } },
-        });
-        await prisma.packColorLine.deleteMany({ where: { productColorId: { in: variantIds } } });
-      }
-
       await prisma.productColor.deleteMany({ where: { id: { in: variantIds } } });
     }
 
@@ -126,9 +114,6 @@ export async function cleanupTestData() {
   }
 
   // Delete test entities (order matters for FK)
-  await prisma.sizeCategoryLink.deleteMany({
-    where: { size: { name: { startsWith: TEST_PREFIX } } },
-  });
   await prisma.tag.deleteMany({
     where: { OR: [
       { name: { startsWith: TEST_PREFIX } },

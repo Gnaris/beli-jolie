@@ -27,16 +27,6 @@ async function main() {
             orderBy: { position: "asc" },
             select: { color: { select: { name: true } } },
           },
-          packColorLines: {
-            orderBy: { position: "asc" },
-            take: 1,
-            select: {
-              colors: {
-                orderBy: { position: "asc" },
-                select: { color: { select: { name: true } } },
-              },
-            },
-          },
         },
       },
     },
@@ -50,16 +40,10 @@ async function main() {
     for (let i = 0; i < product.colors.length; i++) {
       const v = product.colors[i];
 
-      let colorNames: string[];
-      if (v.saleType === "UNIT") {
-        colorNames = [
-          v.color?.name,
-          ...v.subColors.map((sc) => sc.color.name),
-        ].filter(Boolean) as string[];
-      } else {
-        const line = v.packColorLines[0];
-        colorNames = line ? line.colors.map((c) => c.color.name) : [];
-      }
+      const colorNames = [
+        v.color?.name,
+        ...v.subColors.map((sc) => sc.color.name),
+      ].filter(Boolean) as string[];
 
       const sku = generateSku(
         product.reference.trim().toUpperCase(),

@@ -23,17 +23,16 @@ Types: `types/next-auth.d.ts`. Admin preview: `bj_admin_preview=1` cookie (8h TT
 ```
 Product
   ├── ProductColor[] (variant: saleType UNIT|PACK, unitPrice, weight, stock, discount*, packQuantity, pfsVariantId?)
-  │     ├── colorId: String? (UNIT=main color, PACK=null → colors in PackColorLine[])
-  │     ├── ProductColorSubColor[] (UNIT: optional sub-colors)
+  │     ├── colorId: String (main color — UNIT and PACK)
+  │     ├── ProductColorSubColor[] (optional sub-colors — UNIT and PACK)
   │     ├── VariantSize[] (sizeId + quantity + pricePerUnit? [PACK only])
-  │     ├── PackColorLine[] → PackColorLineColor[] (PACK: ordered color compositions)
   │     └── ProductColorImage[] (max 5, linked via productColorId)
   ├── ProductTranslation[] (en/ar/zh/de/es/it)
   ├── ProductSimilar[] / PendingSimilar[] (M2M self-relation)
   ├── ProductComposition[] (material + %)
   ├── ProductTag[]
   └── RestockAlert[]
-Size: name @unique, position, SizeCategoryLink[] (M2M), SizePfsMapping[] (M2M)
+Size: name @unique, position, pfsSizeRef (1:1, optional) — bibliothèque globale, aucun lien aux catégories
 ```
 
 PFS fields on entities: `Color.pfsColorRef`, `Category.pfsCategoryId`, `Composition.pfsCompositionRef`, `ManufacturingCountry.pfsCountryRef`, `Season.pfsSeasonRef`, `Product.pfsProductId/pfsSyncStatus/pfsSyncError/pfsSyncedAt`, `ProductColor.pfsVariantId`.
@@ -73,9 +72,8 @@ Manual rotation: `POST /api/admin/products/images/rotate` → 90° CW all 3 size
 - `TranslationQuota` (provider+monthYear)
 - `*Translation` tables: Category, SubCategory, Color, Composition, ManufacturingCountry, Season
 - `ManufacturingCountry` (name, isoCode, pfsCountryRef), `Season` (name, pfsSeasonRef)
-- `Size` (name, position), `SizeCategoryLink` (M2M), `SizePfsMapping` (M2M pfsSizeRef)
+- `Size` (name, position, pfsSizeRef 1:1) — bibliothèque globale
 - `VariantSize` (productColorId+sizeId unique, quantity, pricePerUnit? PACK only)
-- `PackColorLine` (position) → `PackColorLineColor` (colorId, position)
 - `RestockAlert` (client subscribes to out-of-stock variant)
 
 ## i18n
@@ -95,7 +93,7 @@ AI descriptions: Claude Sonnet via `lib/claude.ts`. Auto-translated: products, c
 - **Live tracking**: `LiveClientsTracker.tsx` at `/admin/suivi` + `CartModal.tsx`
 - **Reusable UI**: `ConfirmDialog` (useConfirm), `CustomSelect`, `Toast` (useToast), `ColorSwatch` (subColors, patternImage)
 - **Import**: `ImportHistoryClient.tsx` at `/admin/produits/importer/historique`
-- **PFS Sync**: `/admin/pfs`, `PfsMappingTab.tsx` → lazy-loads `PfsMappingClient` (5-tab mapping)
+- **PFS mapping**: renseigné inline dans chaque page d'entité (`/admin/categories`, `/admin/couleurs`, `/admin/compositions`, `/admin/pays`, `/admin/seasons`, `/admin/tailles`) via `MarketplaceMappingSection` + `PfsSuggestions`. Pas de page dédiée.
 
 ## Real-Time SSE (`lib/product-events.ts`)
 

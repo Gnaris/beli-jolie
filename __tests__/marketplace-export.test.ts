@@ -40,7 +40,6 @@ function unitProduct(overrides: Partial<ExportProduct> = {}): ExportProduct {
       saleType: "UNIT",
       colorNames: ["Doré"],
       subColorNames: [],
-      packColorLines: [],
       packQuantity: null,
       sizes: [{ name: "TU", quantity: 1 }],
       unitPrice: 10,
@@ -90,12 +89,11 @@ describe("PFS Excel export", () => {
     const p = unitProduct({
       variants: [
         {
-          variantId: "v1", saleType: "UNIT", colorNames: ["Or"], subColorNames: [], packColorLines: [],
+          variantId: "v1", saleType: "UNIT", colorNames: ["Or"], subColorNames: [],
           packQuantity: null, sizes: [{ name: "TU", quantity: 1 }], unitPrice: 10, weight: 0.1, stock: 5, sku: "a", imagePaths: [],
         },
         {
-          variantId: "v2", saleType: "PACK", colorNames: [], subColorNames: [],
-          packColorLines: [{ colors: ["Or"], sizes: [{ name: "TU", quantity: 12 }] }],
+          variantId: "v2", saleType: "PACK", colorNames: ["Or"], subColorNames: [],
           packQuantity: 12, sizes: [{ name: "TU", quantity: 12 }], unitPrice: 120, weight: 1, stock: 2, sku: "b", imagePaths: [],
         },
       ],
@@ -113,8 +111,8 @@ describe("Ankorstore Excel export", () => {
   it("emits one row per variant", async () => {
     const p = unitProduct({
       variants: [
-        { variantId: "v1", saleType: "UNIT", colorNames: ["Doré"], subColorNames: [], packColorLines: [], packQuantity: null, sizes: [{ name: "TU", quantity: 1 }], unitPrice: 10, weight: 0.035, stock: 5, sku: "A_DORE", imagePaths: [] },
-        { variantId: "v2", saleType: "UNIT", colorNames: ["Argent"], subColorNames: [], packColorLines: [], packQuantity: null, sizes: [{ name: "TU", quantity: 1 }], unitPrice: 10, weight: 0.035, stock: 5, sku: "A_ARG", imagePaths: [] },
+        { variantId: "v1", saleType: "UNIT", colorNames: ["Doré"], subColorNames: [], packQuantity: null, sizes: [{ name: "TU", quantity: 1 }], unitPrice: 10, weight: 0.035, stock: 5, sku: "A_DORE", imagePaths: [] },
+        { variantId: "v2", saleType: "UNIT", colorNames: ["Argent"], subColorNames: [], packQuantity: null, sizes: [{ name: "TU", quantity: 1 }], unitPrice: 10, weight: 0.035, stock: 5, sku: "A_ARG", imagePaths: [] },
       ],
     });
     const { buffer } = await buildAnkorstoreWorkbook([p], makeCtx());
@@ -142,8 +140,7 @@ describe("Ankorstore Excel export", () => {
   it("emits packQuantity as 'Nombre d'unités par paquet' for PACK", async () => {
     const p = unitProduct({
       variants: [{
-        variantId: "v1", saleType: "PACK", colorNames: [], subColorNames: [],
-        packColorLines: [{ colors: ["Doré"], sizes: [{ name: "TU", quantity: 12 }] }],
+        variantId: "v1", saleType: "PACK", colorNames: ["Doré"], subColorNames: [],
         packQuantity: 12, sizes: [{ name: "TU", quantity: 12 }], unitPrice: 120, weight: 1, stock: 3, sku: "PK", imagePaths: [],
       }],
     });
