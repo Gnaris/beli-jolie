@@ -6,7 +6,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
-import { fetchPfsColorsForMapping, updateColorPfsRef, updateProductColorPfsRef } from "@/app/actions/admin/colors";
+import { fetchPfsColorsForMapping, updateColorPfsRef } from "@/app/actions/admin/colors";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import QuickCreateSizeModal, { type QuickCreateSizeModalResult } from "@/components/admin/products/QuickCreateSizeModal";
 import { usePfsAttributes } from "@/components/admin/MarketplaceMappingSection";
@@ -2294,12 +2294,11 @@ export default function ColorVariantManager({
       }
       // Auto-propagate to sibling variants with same color combination
       // When override is explicit (user chose), propagate to ALL siblings; when auto-resolved, only unmapped ones
+      // Persistence happens on full-form save (updateProduct) — no inline DB write here.
       if (finalPfsRef && colors.length > 1 && (pfsColorRefOverride !== undefined || !v.pfsColorRef)) {
         if (v.colorId && v.subColors.length > 0) {
           const vIds = [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+");
           if (vIds === finalComboSortedIds) {
-            // Also save to DB if the sibling has a dbId
-            if (v.dbId) { updateProductColorPfsRef(v.dbId, finalPfsRef).catch(() => {}); }
             return { ...v, pfsColorRef: finalPfsRef };
           }
         }
@@ -2390,36 +2389,6 @@ export default function ColorVariantManager({
         )}
       </div>
     );
-  }
-
-  // ── Render helper: used PFS color refs (for conflict display) ──────────
-  // Save PFS color ref for a variant AND propagate DB saves to siblings with same color combination
-  // Note: local state propagation is handled by handleMultiColorChange, this only handles DB persistence
-  async function handlePfsRefChangeAndPropagate(variant: VariantState, ref: string) {
-    const pfsRef = ref || null;
-    // Save to DB for the target variant
-    if (variant.dbId) {
-      try { await updateProductColorPfsRef(variant.dbId, pfsRef); } catch (err) { console.error("[PFS] Failed to save pfsColorRef:", err); }
-    }
-    if (!pfsRef) return;
-    // Compute the color combo key for this variant
-    let targetIds = "";
-    if (variant.colorId && variant.subColors.length > 0) {
-      targetIds = [variant.colorId, ...variant.subColors.map((sc) => sc.colorId)].sort().join("+");
-    }
-    if (!targetIds) return;
-    // Find siblings with same combo (propagate to ALL siblings)
-    const siblings = variants.filter((v) => {
-      if (v.tempId === variant.tempId) return false;
-      if (v.colorId && v.subColors.length > 0) {
-        return [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+") === targetIds;
-      }
-      return false;
-    });
-    // Save siblings to DB (local state is handled by handleMultiColorChange via confirm())
-    if (siblings.length > 0) {
-      await Promise.all(siblings.filter((s) => s.dbId).map((s) => updateProductColorPfsRef(s.dbId!, pfsRef).catch(() => {})));
-    }
   }
 
   function getUsedPfsColorRefs(excludeTempId: string): Map<string, string> {
@@ -2575,7 +2544,6 @@ export default function ColorVariantManager({
                     editingGroupKey={variantGroupKeyFromState(v)}
                     pfsColorRef={v.pfsColorRef}
                     pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                    onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
                     usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                     onCreateColor={onQuickCreateColor}
                     onColorAdded={onColorAdded}
@@ -2792,7 +2760,6 @@ export default function ColorVariantManager({
                             editingGroupKey={variantGroupKeyFromState(v)}
                             pfsColorRef={v.pfsColorRef}
                             pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                            onPfsColorRefChange={(ref) => handlePfsRefChangeAndPropagate(v, ref)}
                             usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
                             onCreateColor={onQuickCreateColor}
                             onColorAdded={onColorAdded}

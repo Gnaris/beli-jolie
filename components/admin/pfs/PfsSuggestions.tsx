@@ -17,14 +17,9 @@
  */
 
 import { useMemo } from "react";
+import { normalizePfsQuery } from "@/lib/marketplace-excel/pfs-color-hex";
 
-export function normalizePfsQuery(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-}
+export { normalizePfsQuery };
 
 const normalize = normalizePfsQuery;
 

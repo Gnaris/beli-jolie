@@ -63,10 +63,11 @@ export default function ManufacturingCountriesManager({
     translations: Record<string, string>,
     _hex?: string,
     _patternImage?: string | null,
-    pfs?: { ref?: string },
+    pfs?: { ref?: string; isoCode?: string | null },
   ) {
     if (!editTarget) return;
-    await updateManufacturingCountryDirect(editTarget.id, name, editTarget.isoCode ?? null, translations);
+    const nextIso = pfs?.isoCode !== undefined ? pfs.isoCode : editTarget.isoCode ?? null;
+    await updateManufacturingCountryDirect(editTarget.id, name, nextIso ?? null, translations);
     const newRef = pfs?.ref || null;
     if (newRef !== (editTarget.pfsCountryRef ?? null)) {
       await updateManufacturingCountryPfsRef(editTarget.id, newRef);
@@ -141,7 +142,9 @@ export default function ManufacturingCountriesManager({
                       {item.isoCode ? (
                         <span className="badge badge-info text-[10px]">{item.isoCode}</span>
                       ) : (
-                        <span className="text-text-muted text-xs">—</span>
+                        <span className="badge badge-warning text-[10px]" title="Code ISO manquant — cliquez sur Modifier pour l'ajouter">
+                          À compléter
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -215,6 +218,7 @@ export default function ManufacturingCountriesManager({
             name: editTarget.name,
             translations: editTarget.translations,
             pfsRef: editTarget.pfsCountryRef,
+            isoCode: editTarget.isoCode,
             onSave: handleSave,
           }}
         />

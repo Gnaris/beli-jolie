@@ -78,6 +78,7 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
         saleType: c.saleType as SaleTypeKey,
         colorNames,
         subColorNames,
+        pfsColorOverride: c.pfsColorRef?.trim() || null,
         packQuantity: c.packQuantity,
         sizes: c.variantSizes.map((vs) => ({ name: vs.size.name, quantity: vs.quantity, pfsSizeRef: vs.size.pfsSizeRef ?? null })),
         unitPrice: Number(c.unitPrice),

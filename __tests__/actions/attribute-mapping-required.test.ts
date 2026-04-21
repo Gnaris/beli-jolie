@@ -4,6 +4,7 @@ const mockCategoryCreate = vi.fn();
 const mockColorCreate = vi.fn();
 const mockSeasonCreate = vi.fn();
 const mockCountryCreate = vi.fn();
+const mockCountryFindFirst = vi.fn();
 
 const mockCategoryTranslationUpsert = vi.fn();
 const mockColorTranslationUpsert = vi.fn();
@@ -15,7 +16,10 @@ vi.mock("@/lib/prisma", () => ({
     category: { create: (...a: unknown[]) => mockCategoryCreate(...a) },
     color: { create: (...a: unknown[]) => mockColorCreate(...a) },
     season: { create: (...a: unknown[]) => mockSeasonCreate(...a) },
-    manufacturingCountry: { create: (...a: unknown[]) => mockCountryCreate(...a) },
+    manufacturingCountry: {
+      create: (...a: unknown[]) => mockCountryCreate(...a),
+      findFirst: (...a: unknown[]) => mockCountryFindFirst(...a),
+    },
     categoryTranslation: { upsert: (...a: unknown[]) => mockCategoryTranslationUpsert(...a) },
     colorTranslation: { upsert: (...a: unknown[]) => mockColorTranslationUpsert(...a) },
     seasonTranslation: { upsert: (...a: unknown[]) => mockSeasonTranslationUpsert(...a) },
@@ -30,6 +34,7 @@ vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
   revalidateTag: vi.fn(),
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
 }));
 vi.mock("@/lib/auto-translate", () => ({
   autoTranslateCategory: vi.fn(),
@@ -63,6 +68,7 @@ describe("attribute creation — PFS mapping is required", () => {
     mockColorCreate.mockResolvedValue({ id: "col1", name: "Noir", hex: null, patternImage: null });
     mockSeasonCreate.mockResolvedValue({ id: "s1", name: "PE 2026" });
     mockCountryCreate.mockResolvedValue({ id: "co1", name: "Chine" });
+    mockCountryFindFirst.mockResolvedValue(null);
   });
 
   // ── createCategory (form-based) ──
@@ -186,6 +192,53 @@ describe("attribute creation — PFS mapping is required", () => {
     it("createManufacturingCountryQuick succeeds with pfsCountryRef", async () => {
       await createManufacturingCountryQuick({ fr: "Chine" }, "CN", "CN");
       expect(mockCountryCreate).toHaveBeenCalled();
+    });
+
+    it("createManufacturingCountryQuick throws when ISO is missing", async () => {
+      await expect(createManufacturingCountryQuick({ fr: "Chine" }, null, "CN")).rejects.toThrow(/ISO/);
+      expect(mockCountryCreate).not.toHaveBeenCalled();
+    });
+
+    it("createManufacturingCountryQuick throws when ISO is malformed", async () => {
+      await expect(createManufacturingCountryQuick({ fr: "Chine" }, "FRA", "CN")).rejects.toThrow(/2 lettres/);
+      expect(mockCountryCreate).not.toHaveBeenCalled();
+    });
+
+    it("createManufacturingCountryQuick throws when ISO is already used", async () => {
+      mockCountryFindFirst.mockResolvedValueOnce({ name: "France" });
+      await expect(createManufacturingCountryQuick({ fr: "Nouveau pays" }, "FR", "NP")).rejects.toThrow(/déjà utilisé/);
+      expect(mockCountryCreate).not.toHaveBeenCalled();
+    });
+
+    it("createManufacturingCountryQuick uppercases the ISO code", async () => {
+      await createManufacturingCountryQuick({ fr: "Chine" }, "cn", "CN");
+      expect(mockCountryCreate).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ isoCode: "CN" }),
+      }));
+    });
+  });
+
+  // ── createManufacturingCountry form action: ISO required ──
+  describe("createManufacturingCountry — ISO validation", () => {
+    it("throws when ISO is missing", async () => {
+      await expect(
+        createManufacturingCountry(fd({ name: "Chine", pfsCountryRef: "CN" }))
+      ).rejects.toThrow(/ISO/);
+      expect(mockCountryCreate).not.toHaveBeenCalled();
+    });
+
+    it("throws when ISO is malformed", async () => {
+      await expect(
+        createManufacturingCountry(fd({ name: "Chine", isoCode: "CHN", pfsCountryRef: "CN" }))
+      ).rejects.toThrow(/2 lettres/);
+      expect(mockCountryCreate).not.toHaveBeenCalled();
+    });
+
+    it("normalizes ISO to uppercase before saving", async () => {
+      await createManufacturingCountry(fd({ name: "France", isoCode: "fr", pfsCountryRef: "FR" }));
+      expect(mockCountryCreate).toHaveBeenCalledWith({
+        data: { name: "France", isoCode: "FR", pfsCountryRef: "FR" },
+      });
     });
   });
 });

@@ -12,6 +12,7 @@ import {
   createManufacturingCountryQuick,
   createSeasonQuick,
 } from "@/app/actions/admin/quick-create";
+import { fetchPfsColorOptions } from "@/app/actions/admin/colors";
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
@@ -25,7 +26,7 @@ import {
   PFS_SUBCATEGORIES_BY_FAMILY,
   PFS_GENDER_LABELS,
 } from "@/lib/marketplace-excel/pfs-taxonomy";
-import { hexForPfsColor } from "@/lib/marketplace-excel/pfs-color-hex";
+import { suggestIso2FromName } from "@/lib/marketplace-excel/country-iso";
 
 export type QuickCreateType = "category" | "subcategory" | "composition" | "color" | "tag" | "country" | "season";
 
@@ -52,12 +53,13 @@ interface QuickCreateModalProps {
     pfsGender?: string | null;
     pfsFamilyName?: string | null;
     pfsCategoryName?: string | null;
+    isoCode?: string | null;
     onSave: (
       name: string,
       translations: Record<string, string>,
       hex?: string,
       patternImage?: string | null,
-      pfs?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
+      pfs?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null; isoCode?: string | null },
     ) => Promise<void>;
   };
 }
@@ -118,7 +120,28 @@ export default function QuickCreateModal({
   const [pfsFamilyName, setPfsFamilyName] = useState<string | null>(null);
   const [pfsCategoryName, setPfsCategoryName] = useState<string | null>(null);
 
+  // ISO2 (country-only): required for Ankorstore export
+  const [isoCode, setIsoCode] = useState<string>("");
+  const [isoTouched, setIsoTouched] = useState(false);
+
+  // Live PFS colors (referential), fetched once when the modal opens for a color.
+  const [pfsColorOptions, setPfsColorOptions] = useState<
+    { value: string; label: string; hex: string }[] | null
+  >(null);
+
   useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    if (!open || type !== "color" || pfsColorOptions) return;
+    let cancelled = false;
+    fetchPfsColorOptions()
+      .then((rows) => {
+        if (cancelled) return;
+        setPfsColorOptions(rows.map((r) => ({ value: r.value, label: r.label, hex: r.hex })));
+      })
+      .catch(() => { /* fall back to static list */ });
+    return () => { cancelled = true; };
+  }, [open, type, pfsColorOptions]);
 
   // Flatten the category taxonomy once for suggestion matching.
   const pfsCategoryTriples = useMemo<PfsCategoryTriple[]>(() => {
@@ -152,20 +175,23 @@ export default function QuickCreateModal({
 
   const suggestionOptions = useMemo<PfsRefOption[]>(() => {
     switch (type) {
-      case "color": return PFS_COLORS;
+      case "color":
+        return pfsColorOptions
+          ? pfsColorOptions.map((o) => ({ value: o.value, label: o.label }))
+          : PFS_COLORS;
       case "composition": return PFS_COMPOSITIONS;
       case "country": return PFS_COUNTRIES;
       case "season": return generateSeasonOptions();
       default: return [];
     }
-  }, [type]);
+  }, [type, pfsColorOptions]);
 
   /** Apply a suggested PFS ref — also auto-fills the hex picker for colors. */
   function applySuggestedRef(ref: string) {
     setPfsRef(ref);
     if (type === "color" && colorMode === "hex") {
-      const suggestedHex = hexForPfsColor(ref);
-      if (suggestedHex) setHex(suggestedHex);
+      const match = pfsColorOptions?.find((o) => o.value === ref);
+      if (match?.hex) setHex(match.hex);
     }
   }
 
@@ -182,6 +208,8 @@ export default function QuickCreateModal({
         setPfsGender(editMode.pfsGender ?? null);
         setPfsFamilyName(editMode.pfsFamilyName ?? null);
         setPfsCategoryName(editMode.pfsCategoryName ?? null);
+        setIsoCode(editMode.isoCode ?? "");
+        setIsoTouched(!!editMode.isoCode);
       } else {
         setNames(defaultName ? { fr: defaultName } : {});
         setHex(defaultHex || "#9CA3AF");
@@ -193,10 +221,20 @@ export default function QuickCreateModal({
         setPfsGender(defaultPfsGender ?? null);
         setPfsFamilyName(defaultPfsFamilyName ?? null);
         setPfsCategoryName(null);
+        setIsoCode("");
+        setIsoTouched(false);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Auto-suggest ISO2 from FR name when the user hasn't typed it manually.
+  useEffect(() => {
+    if (type !== "country") return;
+    if (isoTouched) return;
+    const suggestion = suggestIso2FromName(names["fr"]);
+    if (suggestion && suggestion !== isoCode) setIsoCode(suggestion);
+  }, [type, names, isoTouched, isoCode]);
 
   function setName(locale: string, value: string) {
     setNames((prev) => ({ ...prev, [locale]: value }));
@@ -223,6 +261,17 @@ export default function QuickCreateModal({
   async function handleSubmit() {
     const frName = names["fr"]?.trim();
     if (!frName) { setError("Le nom en français est requis."); return; }
+    const normalizedIso = isoCode.trim().toUpperCase();
+    if (type === "country") {
+      if (!normalizedIso) {
+        setError("Le code ISO du pays (2 lettres) est obligatoire.");
+        return;
+      }
+      if (!/^[A-Z]{2}$/.test(normalizedIso)) {
+        setError("Le code ISO doit être composé de 2 lettres (ex: FR, CN, TR).");
+        return;
+      }
+    }
     setLoading(true);
     setError("");
     try {
@@ -259,6 +308,7 @@ export default function QuickCreateModal({
             pfsGender,
             pfsFamilyName,
             pfsCategoryName,
+            isoCode: type === "country" ? normalizedIso : undefined,
           },
         );
         onClose();
@@ -291,7 +341,7 @@ export default function QuickCreateModal({
       } else if (type === "tag") {
         result = await createTagQuick(names);
       } else if (type === "country") {
-        result = await createManufacturingCountryQuick(names, undefined, pfsRef || null);
+        result = await createManufacturingCountryQuick(names, normalizedIso, pfsRef || null);
       } else if (type === "season") {
         result = await createSeasonQuick(names, pfsRef || null);
       } else {
@@ -320,11 +370,15 @@ export default function QuickCreateModal({
 
   const frName = names["fr"]?.trim() ?? "";
   const hasMappableType = pfsEnabled && MAPPABLE_TYPES.has(type);
-  const mappingMissing = !isEdit && hasMappableType && (
+  const normalizedIsoPreview = isoCode.trim().toUpperCase();
+  const isoInvalid = type === "country" && !!normalizedIsoPreview && !/^[A-Z]{2}$/.test(normalizedIsoPreview);
+  const isoMissing = type === "country" && !normalizedIsoPreview;
+  const mappingMissing = (!isEdit && hasMappableType && (
     type === "category"
       ? (!pfsGender || !pfsFamilyName)
       : !pfsRef
-  );
+  )) || isoMissing || isoInvalid;
+  const suggestedIsoForName = type === "country" ? suggestIso2FromName(frName) : null;
 
   return createPortal(
     <div
@@ -509,6 +563,45 @@ export default function QuickCreateModal({
                   />
                 )}
 
+                {type === "country" && (
+                  <div className="mt-5 pt-5 border-t border-border space-y-2">
+                    <label className="block text-xs font-medium text-text-secondary font-body">
+                      Code pays Ankorstore (ISO) <span className="text-[#EF4444]">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={isoCode}
+                      onChange={(e) => {
+                        setIsoTouched(true);
+                        setIsoCode(e.target.value.toUpperCase().slice(0, 2));
+                      }}
+                      placeholder="Ex: FR, CN, TR"
+                      maxLength={2}
+                      className="field-input w-full font-mono uppercase tracking-widest text-center text-sm"
+                    />
+                    {isoInvalid && (
+                      <p className="text-[11px] text-[#EF4444] font-body">Le code doit faire exactement 2 lettres.</p>
+                    )}
+                    {!isoTouched && suggestedIsoForName && isoCode === suggestedIsoForName && (
+                      <p className="text-[11px] text-emerald-600 font-body">
+                        Code détecté automatiquement d'après le nom.
+                      </p>
+                    )}
+                    {isoTouched && suggestedIsoForName && suggestedIsoForName !== normalizedIsoPreview && (
+                      <button
+                        type="button"
+                        onClick={() => { setIsoCode(suggestedIsoForName); }}
+                        className="text-[11px] text-text-muted hover:text-text-primary underline font-body"
+                      >
+                        Utiliser la suggestion « {suggestedIsoForName} »
+                      </button>
+                    )}
+                    <p className="text-[11px] text-text-muted font-body">
+                      Utilisé par Ankorstore pour indiquer le pays de fabrication.
+                    </p>
+                  </div>
+                )}
+
                 {/* PFS suggestions — click to auto-fill the mapping fields above. */}
                 {type !== "category" && suggestionOptions.length > 0 && (
                   <div className="mt-4">
@@ -558,7 +651,15 @@ export default function QuickCreateModal({
               type="button"
               onClick={handleSubmit}
               disabled={loading || !frName || mappingMissing}
-              title={mappingMissing ? "Complétez la correspondance Paris Fashion Shop." : undefined}
+              title={
+                isoMissing
+                  ? "Le code ISO du pays est obligatoire."
+                  : isoInvalid
+                    ? "Le code ISO doit faire 2 lettres."
+                    : mappingMissing
+                      ? "Complétez la correspondance Paris Fashion Shop."
+                      : undefined
+              }
               className="px-5 py-2 bg-bg-dark hover:bg-black text-text-inverse text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
             >
               {loading ? (isEdit ? "Enregistrement…" : "Création…") : (isEdit ? "Enregistrer" : "Créer")}

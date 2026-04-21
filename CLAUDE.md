@@ -54,15 +54,18 @@ Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib
 
 ### Product model
 
-`Product` → `ProductColor[]` (variantes UNIT ou PACK) → images, sizes, sub-colors, pack color lines. Pricing: UNIT = `unitPrice` direct, PACK = calculé via `computeTotalPrice()`.
+`Product` → `ProductColor[]` (variantes UNIT ou PACK) → images, sizes, sub-colors, pack color lines. Pricing: UNIT = `unitPrice` direct, PACK = calculé via `computeTotalPrice()`. `ProductColor.pfsColorRef` (nullable) = override de couleur PFS pour une variante multi-couleurs (obligatoire pour l'export PFS quand `subColors.length > 0`). Persisté par `updateProductColorPfsRef()` (inline modal) ou par `updateProduct`/`createProduct` (save complet du produit).
 
 ### Marketplace publishing via Excel export (`lib/marketplace-excel/`)
 
-Create / update on PFS + Ankorstore is handled via **manual Excel upload** (no live API push). Admin sélectionne des produits dans `/admin/produits`, clique **Exporter Marketplaces**, télécharge un `.zip` contenant :
-- `excel/pfs.xlsx` — 1 ligne par (produit × SaleType), format ANNEXE PFS (27 colonnes)
-- `excel/ankorstore.xlsx` — 1 ligne par variante SKU (45 colonnes, URLs images R2 inline)
-- `images/` — images JPEG (WebP → JPEG via sharp) pour upload manuel PFS
-- `AVERTISSEMENTS.txt` — warnings (famille PFS manquante, desc < 30 chars, etc.)
+Create / update on PFS + Ankorstore is handled via **manual Excel upload** (no live API push). Admin sélectionne des produits dans `/admin/produits`, clique **Exporter Marketplaces**. Le serveur construit un bundle ZIP, mais le composant client (`MarketplaceExportButton`) le dézippe et déclenche **un téléchargement séparé par fichier** (Chrome/Firefox affichent un prompt "télécharger plusieurs fichiers" la 1re fois).
+
+**Strict gate** : le moindre avertissement (famille PFS manquante, desc < 30 chars, taille sans réf PFS, image R2 introuvable…) **bloque** le téléchargement. Le serveur renvoie HTTP 422 `{ error, warnings[] }`, le bouton affiche une modale listant chaque point à corriger — aucun fichier téléchargé tant que ce n'est pas corrigé.
+
+Fichiers téléchargés (en cas de succès, zéro avertissement) :
+- `pfs.xlsx` — 1 ligne par (produit × SaleType), format ANNEXE PFS (27 colonnes)
+- `ankorstore.xlsx` — 1 ligne par variante SKU (45 colonnes, URLs images R2 inline)
+- `images.zip` — ZIP contenant les images JPEG (WebP → JPEG via sharp) pour upload manuel PFS
 
 Fichiers clés :
 - `lib/marketplace-excel/pfs-export.ts` — workbook PFS (utilise `PFS_GENDER_LABELS` pour mapper WOMAN→Femme)

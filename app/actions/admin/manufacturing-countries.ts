@@ -15,13 +15,19 @@ export async function createManufacturingCountry(formData: FormData) {
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
-  const isoCode = (formData.get("isoCode") as string)?.trim() || null;
+  const rawIso = (formData.get("isoCode") as string)?.trim().toUpperCase() || null;
+  if (!rawIso) {
+    throw new Error("Le code ISO du pays (2 lettres) est obligatoire.");
+  }
+  if (!/^[A-Z]{2}$/.test(rawIso)) {
+    throw new Error("Le code ISO doit être composé de 2 lettres (ex: FR, CN, TR).");
+  }
   const pfsCountryRef = (formData.get("pfsCountryRef") as string)?.trim() || null;
   if (!pfsCountryRef) {
     throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
   }
   const country = await prisma.manufacturingCountry.create({
-    data: { name, isoCode, pfsCountryRef },
+    data: { name, isoCode: rawIso, pfsCountryRef },
   });
   autoTranslateManufacturingCountry(country.id, name);
   revalidatePath("/admin/produits");
@@ -32,8 +38,14 @@ export async function updateManufacturingCountry(id: string, formData: FormData)
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
-  const isoCode = (formData.get("isoCode") as string)?.trim() || null;
-  await prisma.manufacturingCountry.update({ where: { id }, data: { name, isoCode } });
+  const rawIso = (formData.get("isoCode") as string)?.trim().toUpperCase() || null;
+  if (!rawIso) {
+    throw new Error("Le code ISO du pays (2 lettres) est obligatoire.");
+  }
+  if (!/^[A-Z]{2}$/.test(rawIso)) {
+    throw new Error("Le code ISO doit être composé de 2 lettres (ex: FR, CN, TR).");
+  }
+  await prisma.manufacturingCountry.update({ where: { id }, data: { name, isoCode: rawIso } });
 
   for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
@@ -60,7 +72,21 @@ export async function updateManufacturingCountryDirect(
 ) {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
-  await prisma.manufacturingCountry.update({ where: { id }, data: { name: name.trim(), isoCode } });
+  const normalizedIso = isoCode?.trim().toUpperCase() || null;
+  if (!normalizedIso) {
+    throw new Error("Le code ISO du pays (2 lettres) est obligatoire.");
+  }
+  if (!/^[A-Z]{2}$/.test(normalizedIso)) {
+    throw new Error("Le code ISO doit être composé de 2 lettres (ex: FR, CN, TR).");
+  }
+  const isoConflict = await prisma.manufacturingCountry.findFirst({
+    where: { isoCode: normalizedIso, id: { not: id } },
+    select: { id: true, name: true },
+  });
+  if (isoConflict) {
+    throw new Error(`Ce code ISO est déjà utilisé par le pays « ${isoConflict.name} ».`);
+  }
+  await prisma.manufacturingCountry.update({ where: { id }, data: { name: name.trim(), isoCode: normalizedIso } });
 
   for (const locale of ["en", "ar", "zh", "de", "es", "it"]) {
     const val = translations[locale]?.trim();

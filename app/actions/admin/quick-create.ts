@@ -151,8 +151,22 @@ export async function createManufacturingCountryQuick(
   if (!normalizedRef) {
     throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
   }
+  const normalizedIso = isoCode?.trim().toUpperCase() || null;
+  if (!normalizedIso) {
+    throw new Error("Le code ISO du pays (2 lettres) est obligatoire.");
+  }
+  if (!/^[A-Z]{2}$/.test(normalizedIso)) {
+    throw new Error("Le code ISO doit être composé de 2 lettres (ex: FR, CN, TR).");
+  }
+  const isoConflict = await prisma.manufacturingCountry.findFirst({
+    where: { isoCode: normalizedIso },
+    select: { name: true },
+  });
+  if (isoConflict) {
+    throw new Error(`Ce code ISO est déjà utilisé par le pays « ${isoConflict.name} ».`);
+  }
   const created = await prisma.manufacturingCountry.create({
-    data: { name, isoCode: isoCode ?? null, pfsCountryRef: normalizedRef },
+    data: { name, isoCode: normalizedIso, pfsCountryRef: normalizedRef },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;

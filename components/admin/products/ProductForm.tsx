@@ -322,9 +322,6 @@ function TagsDropdown({
         <div className="flex items-center gap-4">
           <div className="flex-1">
             <p className="text-sm font-semibold text-text-primary font-heading">Remise produit</p>
-            <p className="text-xs text-text-muted font-body mt-0.5">
-              Appliquée sur toutes les variantes et synchronisée sur PFS &amp; Ankorstore.
-            </p>
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -497,7 +494,7 @@ export default function ProductForm({
 
   const buildSnapshot = useCallback(() => JSON.stringify({
     reference, name, description, categoryId, subCategoryIds,
-    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries })),
+    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, pfsColorRef: v.pfsColorRef ?? "", disabled: v.disabled ?? false })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,

@@ -212,7 +212,7 @@ function ConfirmModal({
       <div
         aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
-        className={`bg-bg-primary rounded-2xl shadow-xl border border-border w-full max-w-md overflow-hidden transition-all duration-200 ${
+        className={`bg-bg-primary rounded-2xl shadow-xl border border-border w-full max-w-lg overflow-hidden transition-all duration-200 ${
           closing ? "opacity-0 scale-95 translate-y-2" : "opacity-100 scale-100 translate-y-0"
         }`}
         style={{ animation: closing ? undefined : "confirmSlideUp 0.25s cubic-bezier(0.16,1,0.3,1)" }}
@@ -259,11 +259,11 @@ function ConfirmModal({
         <div className="h-px bg-border mx-6" />
 
         {/* Actions */}
-        <div className="px-6 py-4 flex items-center justify-end gap-2.5">
+        <div className="px-6 py-4 flex items-stretch gap-2.5">
           <button
             type="button"
             onClick={() => resolve(false)}
-            className="px-4 py-2 text-[13px] font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-lg hover:bg-bg-secondary hover:text-text-primary transition-all duration-150 active:scale-[0.98]"
+            className="flex-1 inline-flex items-center justify-center whitespace-nowrap px-4 py-2.5 text-[13px] font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-lg hover:bg-bg-secondary hover:text-text-primary transition-all duration-150 active:scale-[0.98]"
           >
             {opts.cancelLabel ?? "Annuler"}
           </button>
@@ -271,7 +271,7 @@ function ConfirmModal({
             <button
               type="button"
               onClick={() => resolve("secondary")}
-              className={`px-4 py-2 text-[13px] font-medium font-body rounded-lg border transition-all duration-150 active:scale-[0.98] ${
+              className={`flex-1 inline-flex items-center justify-center whitespace-nowrap px-4 py-2.5 text-[13px] font-medium font-body rounded-lg border transition-all duration-150 active:scale-[0.98] ${
                 opts.secondaryAction.style === "danger"
                   ? "text-red-600 border-red-200 bg-red-50 hover:bg-red-100 hover:border-red-300"
                   : "text-text-secondary border-border bg-bg-secondary hover:bg-[#E5E5E5] hover:text-text-primary"
@@ -284,7 +284,7 @@ function ConfirmModal({
             type="button"
             onClick={() => resolve(true)}
             autoFocus
-            className={`px-5 py-2 text-[13px] font-semibold font-body rounded-lg transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-1 ${c.btnClass}`}
+            className={`flex-1 inline-flex items-center justify-center whitespace-nowrap px-4 py-2.5 text-[13px] font-semibold font-body rounded-lg border border-transparent transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-1 ${c.btnClass}`}
           >
             {opts.confirmLabel ?? "Confirmer"}
           </button>

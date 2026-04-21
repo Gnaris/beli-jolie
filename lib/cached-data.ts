@@ -1,6 +1,17 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { decryptIfSensitive } from "@/lib/encryption";
+import { pfsGetColors } from "@/lib/pfs-api-write";
+import { PFS_COLORS } from "@/lib/marketplace-excel/pfs-taxonomy";
+import { hexForPfsColor } from "@/lib/marketplace-excel/pfs-color-hex";
+import { logger } from "@/lib/logger";
+
+export interface PfsLiveColor {
+  reference: string;
+  value: string;
+  image: string | null;
+  label: string;
+}
 
 // ─── Catégories (avec sous-catégories) ─────────────────────────────────────────
 export const getCachedCategories = unstable_cache(
@@ -183,6 +194,44 @@ export const getCachedPfsEnabled = unstable_cache(
   },
   ["pfs-enabled"],
   { revalidate: 300, tags: ["site-config"] }
+);
+
+// ─── PFS live colors (référentiel officiel, 142 couleurs, cache 1h) ───────
+function staticPfsColorFallback(): PfsLiveColor[] {
+  return PFS_COLORS.map((name) => ({
+    reference: name,
+    value: hexForPfsColor(name) ?? "",
+    image: null,
+    label: name,
+  }));
+}
+
+export const getCachedPfsColors = unstable_cache(
+  async (): Promise<PfsLiveColor[]> => {
+    try {
+      const colors = await pfsGetColors();
+      if (!Array.isArray(colors) || colors.length === 0) {
+        logger.warn("[PFS colors] empty response, using static fallback");
+        return staticPfsColorFallback();
+      }
+      return colors.map((c) => {
+        const frLabel = c.labels?.fr?.trim() || c.reference;
+        return {
+          reference: frLabel,
+          value: c.value || "",
+          image: c.image ?? null,
+          label: frLabel,
+        };
+      });
+    } catch (err) {
+      logger.warn("[PFS colors] live fetch failed, using static fallback", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return staticPfsColorFallback();
+    }
+  },
+  ["pfs-live-colors"],
+  { revalidate: 3600, tags: ["pfs-colors"] }
 );
 
 // ─── PFS credentials (from SiteConfig) ──────────────────────────────────────

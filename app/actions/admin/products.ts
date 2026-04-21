@@ -51,6 +51,7 @@ export interface ColorInput {
   packQuantity: number | null;
   sizeEntries: SizeEntryInput[]; // Tailles avec quantités (UNIT ou PACK)
   disabled?: boolean; // Variante désactivée (masquée côté client)
+  pfsColorRef?: string | null; // Correspondance couleur PFS (override variante multi-couleurs)
 }
 
 export interface CompositionInput {
@@ -281,6 +282,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         saleType:      color.saleType,
         packQuantity:  color.packQuantity,
         disabled:      color.disabled ?? false,
+        pfsColorRef:   color.pfsColorRef?.trim() || null,
         subColors: color.subColorIds && color.subColorIds.length > 0
           ? { create: color.subColorIds.map((scId, pos) => ({ colorId: scId, position: pos })) }
           : undefined,
@@ -584,6 +586,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
             disabled:      colorInput.disabled ?? false,
+            pfsColorRef:   colorInput.pfsColorRef?.trim() || null,
           },
         });
         variantIdMap.push({ colorInput, variantId: colorInput.dbId });
@@ -600,6 +603,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
             disabled:      colorInput.disabled ?? false,
+            pfsColorRef:   colorInput.pfsColorRef?.trim() || null,
           },
         });
         variantIdMap.push({ colorInput, variantId: created.id });

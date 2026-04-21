@@ -429,6 +429,7 @@ model ProductColor {
   priceHistory        PriceHistory[]
   disabled            Boolean                @default(false) // Masquer côté client sans supprimer
   sku                 String?                @unique // SKU universel: {ref}_{couleurs}_{UNIT|PACK}_{index}
+  pfsColorRef         String? // Correspondance couleur PFS pour variante multi-couleurs (override)
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 

@@ -5,6 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { autoTranslateColor } from "@/lib/auto-translate";
+import { getCachedPfsColors } from "@/lib/cached-data";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -109,11 +110,48 @@ export async function fetchPfsColorsForMapping(): Promise<{
   existingMappings: Record<string, { colorId: string; colorName: string }>;
 }> {
   await requireAdmin();
-  return { pfsColors: [], existingMappings: {} };
+
+  const pfsColors = await getCachedPfsColors();
+
+  const mapped = await prisma.color.findMany({
+    where: { pfsColorRef: { not: null } },
+    select: { id: true, name: true, pfsColorRef: true },
+  });
+  const existingMappings: Record<string, { colorId: string; colorName: string }> = {};
+  for (const c of mapped) {
+    if (c.pfsColorRef) existingMappings[c.pfsColorRef] = { colorId: c.id, colorName: c.name };
+  }
+
+  return { pfsColors, existingMappings };
 }
 
-export async function updateProductColorPfsRef(_productColorId: string, _pfsColorRef: string | null) {
+/**
+ * Return the live PFS colour list for client dropdowns (QuickCreate,
+ * MarketplaceMappingSection). Wraps the cached fetcher so client code
+ * doesn't import server-only modules.
+ */
+export async function fetchPfsColorOptions(): Promise<
+  { value: string; label: string; hex: string; image: string | null }[]
+> {
   await requireAdmin();
+  const colors = await getCachedPfsColors();
+  return colors.map((c) => ({
+    value: c.reference,
+    label: c.label,
+    hex: c.value,
+    image: c.image,
+  }));
+}
+
+export async function updateProductColorPfsRef(productColorId: string, pfsColorRef: string | null) {
+  await requireAdmin();
+  if (!productColorId) throw new Error("productColorId requis.");
+  const cleaned = pfsColorRef?.trim() || null;
+  await prisma.productColor.update({
+    where: { id: productColorId },
+    data: { pfsColorRef: cleaned },
+  });
+  revalidatePath("/admin/produits");
 }
 
 /**

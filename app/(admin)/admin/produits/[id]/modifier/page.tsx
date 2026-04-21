@@ -152,6 +152,7 @@ export default async function ModifierProduitPage({
     packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
     sku:           pc.sku ?? "",
     disabled:      pc.disabled ?? false,
+    pfsColorRef:   pc.pfsColorRef ?? "",
   }));
 
   function editGroupKey(pc: {

@@ -12,7 +12,13 @@
  * can look up using the raw PFS reference (case/diacritics preserved).
  */
 
-import { normalizePfsQuery } from "@/components/admin/pfs/PfsSuggestions";
+export function normalizePfsQuery(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
 
 const RAW: Record<string, string> = {
   // Neutres

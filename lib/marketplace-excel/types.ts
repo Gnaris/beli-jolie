@@ -21,6 +21,8 @@ export interface ExportVariant {
   // Primary color + optional sub-colors (composition) — UNIT and PACK
   colorNames: string[];
   subColorNames: string[];
+  /** Single PFS color chosen by admin for a multi-color combo. Overrides colorNames/subColorNames in PFS export. */
+  pfsColorOverride?: string | null;
   packQuantity: number | null;
   sizes: ExportVariantSize[];
   unitPrice: number; // from DB — total price for PACK, per-unit for UNIT (HT)

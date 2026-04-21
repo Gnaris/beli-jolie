@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CustomSelect from "@/components/ui/CustomSelect";
 import {
   PFS_GENDER_LABELS,
@@ -10,6 +10,7 @@ import {
   PFS_COMPOSITIONS,
   PFS_COUNTRIES,
 } from "@/lib/marketplace-excel/pfs-taxonomy";
+import { fetchPfsColorOptions } from "@/app/actions/admin/colors";
 
 export type MappableEntityType =
   | "color"
@@ -76,9 +77,40 @@ const GENDER_OPTIONS = Object.entries(PFS_GENDER_LABELS).map(([code, label]) => 
   label,
 }));
 
-const COLOR_OPTIONS = PFS_COLORS.map((c) => ({ value: c, label: c }));
+/** Fallback used on first render and if the PFS API is unavailable. */
+const STATIC_COLOR_OPTIONS = PFS_COLORS.map((c) => ({ value: c, label: c }));
 const COMPOSITION_OPTIONS = PFS_COMPOSITIONS.map((c) => ({ value: c, label: c }));
 const COUNTRY_OPTIONS = PFS_COUNTRIES.map((c) => ({ value: c, label: c }));
+
+// Process-level cache so every RefMapping instance shares one fetch.
+let liveColorOptionsCache: { value: string; label: string }[] | null = null;
+let liveColorOptionsPromise: Promise<{ value: string; label: string }[]> | null = null;
+
+function useLivePfsColorOptions() {
+  const [options, setOptions] = useState<{ value: string; label: string }[]>(
+    liveColorOptionsCache ?? STATIC_COLOR_OPTIONS,
+  );
+  useEffect(() => {
+    if (liveColorOptionsCache) return;
+    if (!liveColorOptionsPromise) {
+      liveColorOptionsPromise = fetchPfsColorOptions()
+        .then((rows) => {
+          const mapped = rows.map((r) => ({ value: r.value, label: r.label }));
+          liveColorOptionsCache = mapped;
+          return mapped;
+        })
+        .catch(() => STATIC_COLOR_OPTIONS);
+    }
+    let cancelled = false;
+    liveColorOptionsPromise.then((rows) => {
+      if (!cancelled) setOptions(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return options;
+}
 
 /* ── Season format: PE20XX (Printemps/Été) or AH20XX (Automne/Hiver) ── */
 /**
@@ -129,7 +161,7 @@ export default function MarketplaceMappingSection(props: Props) {
     case "category":
       return <CategoryMapping {...props} />;
     case "color":
-      return <RefMapping label="Couleur PFS" options={COLOR_OPTIONS} searchable pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} placeholder="Sélectionner une couleur" />;
+      return <ColorMapping pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} />;
     case "composition":
       return <RefMapping label="Matière PFS" options={COMPOSITION_OPTIONS} searchable pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} placeholder="Sélectionner une matière" />;
     case "country":
@@ -216,7 +248,29 @@ function CategoryMapping({ pfsGender, pfsFamilyName, pfsCategoryName, onPfsGende
   );
 }
 
-/* ── Single-ref mapping (color, composition, country, season) ── */
+/* ── Color mapping: live-fetched from the PFS API ── */
+
+function ColorMapping({
+  pfsRef,
+  onPfsRefChange,
+}: {
+  pfsRef?: string | null;
+  onPfsRefChange: (ref: string | null) => void;
+}) {
+  const options = useLivePfsColorOptions();
+  return (
+    <RefMapping
+      label="Couleur PFS"
+      options={options}
+      searchable
+      pfsRef={pfsRef}
+      onPfsRefChange={onPfsRefChange}
+      placeholder="Sélectionner une couleur"
+    />
+  );
+}
+
+/* ── Single-ref mapping (composition, country, season) ── */
 
 function RefMapping({
   label,

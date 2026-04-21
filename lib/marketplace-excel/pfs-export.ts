@@ -34,6 +34,7 @@ function formatSizes(variant: ExportVariant): string {
 }
 
 function formatColors(variant: ExportVariant): string {
+  if (variant.pfsColorOverride) return variant.pfsColorOverride;
   return [...variant.colorNames, ...variant.subColorNames].join(", ");
 }
 

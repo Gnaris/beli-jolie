@@ -41,13 +41,26 @@ export async function POST(req: Request) {
 
     logger.info("[marketplace-export] archive built", { ...counts, warnings: warnings.length, filename });
 
+    // Strict gate: any warning blocks the download so the admin must fix
+    // the underlying data before re-exporting.
+    if (warnings.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Export bloqué : avertissements à corriger",
+          warnings,
+          counts,
+        },
+        { status: 422 },
+      );
+    }
+
     return new NextResponse(zipBuffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Content-Length": String(zipBuffer.length),
-        "X-Export-Warnings": String(warnings.length),
+        "X-Export-Warnings": "0",
         "X-Export-Products": String(counts.products),
         "X-Export-Variants": String(counts.variants),
         "X-Export-Images": String(counts.images),
