@@ -91,7 +91,8 @@ export async function placeOrder(
       select: {
         firstName: true, lastName: true, company: true,
         email: true, phone: true, siret: true, vatNumber: true,
-        discountType: true, discountValue: true, freeShipping: true,
+        discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true,
+        freeShipping: true, shippingDiscountType: true, shippingDiscountValue: true,
       },
     }),
     prisma.cart.findUnique({
@@ -181,10 +182,27 @@ export async function placeOrder(
   // Remise commerciale client
   const clientDiscountType  = user.discountType  ?? null;
   const clientDiscountValue = user.discountValue != null ? Number(user.discountValue) : null;
+  const clientDiscountMode  = user.discountMode ?? "PERMANENT";
   const clientFreeShipping  = user.freeShipping;
 
+  const totalItemQuantity = cart.items.reduce((s, item) => s + item.quantity, 0);
+
+  // Check if discount applies based on mode
+  const discountApplies = (() => {
+    if (!clientDiscountType || !clientDiscountValue) return false;
+    if (clientDiscountMode === "THRESHOLD") {
+      const minAmount = user.discountMinAmount != null ? Number(user.discountMinAmount) : 0;
+      const minQty = user.discountMinQuantity ?? 0;
+      const amountOk = minAmount <= 0 || subtotalHT >= minAmount;
+      const qtyOk = minQty <= 0 || totalItemQuantity >= minQty;
+      // Both conditions must be met (if set)
+      return amountOk && qtyOk;
+    }
+    return true; // PERMANENT and NEXT_ORDER always apply
+  })();
+
   const clientDiscountAmt = (() => {
-    if (!clientDiscountType || !clientDiscountValue) return 0;
+    if (!discountApplies || !clientDiscountType || !clientDiscountValue) return 0;
     if (clientDiscountType === "PERCENT")
       return Math.min(subtotalHT, subtotalHT * (clientDiscountValue / 100));
     return Math.min(subtotalHT, clientDiscountValue);
@@ -198,8 +216,18 @@ export async function placeOrder(
     return { success: false, error: `Montant minimum de commande non atteint. Minimum requis : ${minHT.toFixed(2)} € HT.` };
   }
 
-  // Livraison offerte : on ignore le prix carrier passé par le client
-  const effectiveCarrierPrice = clientFreeShipping ? 0 : input.carrierPrice;
+  // Remise livraison : shipping discount (% ou montant), freeShipping = legacy fallback
+  const effectiveCarrierPrice = (() => {
+    if (clientFreeShipping) return 0;
+    if (user.shippingDiscountType && user.shippingDiscountValue != null) {
+      const sdv = Number(user.shippingDiscountValue);
+      if (user.shippingDiscountType === "PERCENT") {
+        return Math.max(0, input.carrierPrice * (1 - sdv / 100));
+      }
+      return Math.max(0, input.carrierPrice - sdv);
+    }
+    return input.carrierPrice;
+  })();
 
   const tvaAmount = subtotalAfterDiscount * input.tvaRate;
   const totalTTC  = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
@@ -407,7 +435,23 @@ export async function placeOrder(
   // Notification admin désactivée — remplacée par le digest horaire
   // (GET /api/cron/order-digest, 8h–19h)
 
-  // ── 7. Vider le panier ────────────────────────────────────────────────────
+  // ── 7. Auto-suppression remise NEXT_ORDER ──────────────────────────────
+
+  if (clientDiscountMode === "NEXT_ORDER" && discountApplies) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        discountType: null,
+        discountValue: null,
+        discountMode: null,
+        discountMinAmount: null,
+        discountNextOrderUsed: true,
+        freeShipping: false,
+      },
+    });
+  }
+
+  // ── 8. Vider le panier ────────────────────────────────────────────────────
 
   await prisma.cartItem.deleteMany({ where: { cartId: cart.id } });
 

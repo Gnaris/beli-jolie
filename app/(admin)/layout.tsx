@@ -9,7 +9,6 @@ import LogoutButton from "@/components/admin/LogoutModal";
 import AdminMobileNav from "@/components/admin/AdminMobileNav";
 import AdminClientModeButton from "@/components/admin/AdminClientModeButton";
 
-import LiveCountBadge from "@/components/admin/LiveCountBadge";
 import AdminChatBadge from "@/components/admin/AdminChatBadge";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
@@ -111,7 +110,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                         {item.icon}
                       </span>
                       <span className="flex-1">{item.label}</span>
-                      {item.href === "/admin/utilisateurs" && <LiveCountBadge />}
                       {item.href === "/admin/messages" && <AdminChatBadge initialCount={unreadMessageCount} />}
                       {item.href === "/admin/commandes" && pendingOrdersCount > 0 && (
                         <span className="relative group/tooltip">

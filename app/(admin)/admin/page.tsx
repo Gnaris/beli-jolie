@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getCachedDashboardStats, getCachedLowStockCount, getCachedVisitStats } from "@/lib/cached-data";
+import { getCachedDashboardStats, getCachedLowStockCount } from "@/lib/cached-data";
 import DashboardParticlesLoader from "@/components/admin/dashboard/DashboardParticlesLoader";
 import DashboardChartsLoader from "@/components/admin/dashboard/DashboardChartsLoader";
 import type { MonthlyPoint, StatusPoint, TopProduct } from "@/components/admin/dashboard/DashboardCharts";
@@ -18,35 +18,18 @@ export default async function AdminDashboardPage() {
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
   const now = new Date();
-  const onlineThreshold = new Date(Date.now() - 2 * 60 * 1000); // 2 minutes
 
   // Cached aggregate stats (5min TTL) + real-time queries in parallel
   const [
     stats,
     pendingCount,
     rejectedCount,
-    onlineCount,
-    onlineUsers,
     latestPending,
     lowStockCount,
-    visitStats,
-    recentClients,
   ] = await Promise.all([
     getCachedDashboardStats(),
     prisma.user.count({ where: { status: "PENDING" } }),
     prisma.user.count({ where: { status: "REJECTED" } }),
-    prisma.user.count({
-      where: { role: "CLIENT", activity: { lastSeenAt: { gte: onlineThreshold } } },
-    }),
-    prisma.user.findMany({
-      where: { role: "CLIENT", activity: { lastSeenAt: { gte: onlineThreshold } } },
-      orderBy: { activity: { lastSeenAt: "desc" } },
-      take: 5,
-      select: {
-        id: true, firstName: true, lastName: true, company: true,
-        activity: { select: { currentPage: true } },
-      },
-    }),
     prisma.user.findMany({
       where: { status: "PENDING" },
       orderBy: { createdAt: "desc" },
@@ -57,24 +40,6 @@ export default async function AdminDashboardPage() {
       },
     }),
     getCachedLowStockCount(),
-    getCachedVisitStats(),
-    prisma.visit.findMany({
-      orderBy: { createdAt: "desc" },
-      distinct: ["userId"],
-      take: 15,
-      select: {
-        createdAt: true,
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            company: true,
-            email: true,
-          },
-        },
-      },
-    }),
   ]);
 
   const {
@@ -250,173 +215,12 @@ export default async function AdminDashboardPage() {
         </Link>
       </div>
 
-      {/* ── VISITES ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="stat-card flex flex-col gap-1">
-          <div className="w-9 h-9 rounded-xl bg-[#EFF6FF] flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#3B82F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </div>
-          <p className="font-heading text-2xl font-bold text-text-primary">
-            {visitStats.today}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">Visites aujourd&apos;hui</p>
-        </div>
-
-        <div className="stat-card flex flex-col gap-1">
-          <div className="w-9 h-9 rounded-xl bg-[#EFF6FF] flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#3B82F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </div>
-          <p className="font-heading text-2xl font-bold text-text-primary">
-            {visitStats.thisWeek}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">Visites cette semaine</p>
-        </div>
-
-        <div className="stat-card flex flex-col gap-1">
-          <div className="w-9 h-9 rounded-xl bg-[#EFF6FF] flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#3B82F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </div>
-          <p className="font-heading text-2xl font-bold text-text-primary">
-            {visitStats.thisMonth}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">Visites ce mois</p>
-        </div>
-      </div>
-
-      {/* ── CLIENTS EN LIGNE ── */}
-      {onlineCount > 0 && (
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22C55E] opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#22C55E]" />
-              </span>
-              <h2 className="font-heading text-base font-semibold text-text-primary">
-                {onlineCount} client{onlineCount > 1 ? "s" : ""} en ligne
-              </h2>
-            </div>
-            <Link
-              href="/admin/utilisateurs?status=ONLINE"
-              className="text-sm text-text-secondary hover:text-text-primary font-body font-medium transition-colors underline underline-offset-2"
-            >
-              Voir tout
-            </Link>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {onlineUsers.map((u) => (
-              <Link
-                key={u.id}
-                href={`/admin/utilisateurs/${u.id}`}
-                className="flex items-center gap-2 bg-bg-secondary hover:bg-bg-tertiary rounded-lg px-3 py-2 transition-colors"
-              >
-                <span className="relative flex h-2 w-2">
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22C55E]" />
-                </span>
-                <span className="text-sm font-body font-medium text-text-primary">
-                  {u.firstName} {u.lastName}
-                </span>
-                <span className="text-xs text-text-muted font-body">
-                  {u.company}
-                </span>
-                {u.activity?.currentPage && (
-                  <span className="text-[11px] text-text-muted font-mono truncate max-w-[150px]">
-                    {u.activity.currentPage}
-                  </span>
-                )}
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── CHARTS ── */}
       <DashboardChartsLoader
         monthlyData={monthlyData}
         statusDist={statusDist}
         topProducts={topProducts}
       />
-
-      {/* ── DERNIERS CLIENTS ACTIFS ── */}
-      <div>
-        <h2 className="font-heading text-xl font-semibold text-text-primary mb-4">
-          Dernières visites clients
-        </h2>
-        {recentClients.length === 0 ? (
-          <div className="card p-8 text-center">
-            <p className="font-body text-text-secondary text-sm">
-              Aucune visite enregistrée pour le moment.
-            </p>
-          </div>
-        ) : (
-          <div className="card overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border table-header">
-                    <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">
-                      Client
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">
-                      Société
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">
-                      Email
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">
-                      Dernière visite
-                    </th>
-                    <th className="px-5 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentClients.map((visit) => (
-                    <tr key={visit.user.id} className="border-b border-border last:border-0 hover:bg-bg-secondary transition-colors">
-                      <td className="px-5 py-4">
-                        <p className="font-body font-semibold text-text-primary text-sm">
-                          {visit.user.firstName} {visit.user.lastName}
-                        </p>
-                      </td>
-                      <td className="px-5 py-4">
-                        <p className="font-body text-sm text-text-secondary">
-                          {visit.user.company}
-                        </p>
-                      </td>
-                      <td className="px-5 py-4">
-                        <p className="font-body text-sm text-text-secondary">
-                          {visit.user.email}
-                        </p>
-                      </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        <p className="font-body text-xs text-text-secondary">
-                          {new Date(visit.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                        </p>
-                      </td>
-                      <td className="px-5 py-4 text-right whitespace-nowrap">
-                        <Link
-                          href={`/admin/utilisateurs/${visit.user.id}`}
-                          className="text-sm text-text-secondary hover:text-text-primary font-body font-medium transition-colors underline underline-offset-2"
-                        >
-                          Voir
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* ── DEMANDES EN ATTENTE ── */}
       <div>

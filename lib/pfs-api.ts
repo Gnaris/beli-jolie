@@ -179,6 +179,14 @@ export interface PfsVariantsResponse {
 // Retry logic
 // ─────────────────────────────────────────────
 
+/** Erreur qui ne doit jamais être réessayée (404, 400, 403…) */
+class PfsNonRetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PfsNonRetryableError";
+  }
+}
+
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
@@ -216,9 +224,9 @@ async function _fetchWithRetryInner(
 
       if (res.ok) return res;
 
-      // 404 = resource not found — don't retry, clean error message
+      // 404 = resource not found — ne JAMAIS réessayer
       if (res.status === 404) {
-        throw new Error(`PFS API 404: ressource introuvable`);
+        throw new PfsNonRetryableError(`PFS API 404: ressource introuvable`);
       }
 
       // Rate limited or server error — retry with backoff + jitter
@@ -230,10 +238,13 @@ async function _fetchWithRetryInner(
         continue;
       }
 
-      // Other errors — don't retry
+      // Other client errors (400, 403…) — ne pas réessayer
       const text = await res.text().catch(() => "");
-      throw new Error(`PFS API ${res.status}: ${text.slice(0, 200)}`);
+      throw new PfsNonRetryableError(`PFS API ${res.status}: ${text.slice(0, 200)}`);
     } catch (err) {
+      // Erreurs non-retryables : remonter immédiatement sans réessayer
+      if (err instanceof PfsNonRetryableError) throw err;
+
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxRetries) {
         const jitter = Math.random() * 1000;

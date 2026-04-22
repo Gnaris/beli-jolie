@@ -79,7 +79,6 @@ export default function LogoutButton() {
               <button
                 type="button"
                 onClick={async () => {
-                  try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
                   signOut({ callbackUrl: "/connexion" });
                 }}
                 className="flex-1 px-4 py-2.5 text-sm font-body font-medium text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors"

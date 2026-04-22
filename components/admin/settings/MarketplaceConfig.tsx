@@ -4,10 +4,10 @@ import { useState, useTransition } from "react";
 import {
   updatePfsCredentials,
   validatePfsCredentials,
-  togglePfsEnabled,
+
   updateAnkorstoreCredentials,
   validateAnkorstoreCredentials,
-  toggleAnkorstoreEnabled,
+
   updateMarketplaceMarkup,
 } from "@/app/actions/admin/site-config";
 import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
@@ -22,9 +22,7 @@ interface MarkupState {
 
 interface Props {
   hasPfsConfig: boolean;
-  pfsEnabled: boolean;
   hasAnkorsConfig: boolean;
-  ankorsEnabled: boolean;
   markupSettings: {
     pfs: MarkupState;
     ankorstoreWholesale: MarkupState;
@@ -33,60 +31,106 @@ interface Props {
   };
 }
 
-// ─── Status dot + label ─────────────────────────────────────────────────────
-function StatusIndicator({ status }: { status: "none" | "valid" | "invalid" | "checking" }) {
-  const dotClass =
-    status === "valid" ? "bg-[#22C55E]" :
-    status === "invalid" ? "bg-[#EF4444]" :
-    status === "checking" ? "bg-[#F59E0B] animate-pulse" :
-    "bg-[#D1D1D1]";
-  const label =
-    status === "valid" ? "Connecté" :
-    status === "invalid" ? "Invalide" :
-    status === "checking" ? "Vérification..." :
-    "Non configuré";
+// ─── SVG Icons ──────────────────────────────────────────────────────────────
+function IconShop({ className }: { className?: string }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className={`w-2 h-2 rounded-full ${dotClass}`} />
-      <span className="font-body text-xs text-text-secondary">{label}</span>
-    </div>
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9l1.5-5h15L21 9" />
+      <path d="M3 9h18v12a1 1 0 01-1 1H4a1 1 0 01-1-1V9z" />
+      <path d="M9 21V13h6v8" />
+      <path d="M3 9c0 1.1.9 2 2 2s2-.9 2-2" />
+      <path d="M7 9c0 1.1.9 2 2 2s2-.9 2-2" />
+      <path d="M11 9c0 1.1.9 2 2 2s2-.9 2-2" />
+      <path d="M15 9c0 1.1.9 2 2 2s2-.9 2-2" />
+    </svg>
   );
 }
 
-// ─── Toggle switch ──────────────────────────────────────────────────────────
-function ToggleSwitch({
-  checked,
-  disabled,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  disabled: boolean;
-  onChange: () => void;
-  label: string;
-}) {
+function IconKey({ className }: { className?: string }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onChange}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 focus:ring-offset-2 disabled:opacity-50 ${
-        checked ? "bg-[#22C55E]" : "bg-[#D1D1D1]"
-      }`}
-    >
-      <span
-        className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-          checked ? "translate-x-6" : "translate-x-1"
-        }`}
-      />
-    </button>
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.78 7.78 5.5 5.5 0 017.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    </svg>
   );
 }
 
-// ─── Markup row (compact: value + type + rounding on one line) ──────────────
+function IconTag({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
+      <circle cx="7" cy="7" r="1" />
+    </svg>
+  );
+}
+
+function IconCheck({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
+function IconPencil({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+
+function IconX({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function IconLoader({ className }: { className?: string }) {
+  return (
+    <svg className={`animate-spin ${className ?? ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+    </svg>
+  );
+}
+
+// ─── Status badge ───────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: "none" | "valid" | "invalid" | "checking" }) {
+  if (status === "valid") {
+    return (
+      <span className="badge badge-success">
+        <span className="w-1.5 h-1.5 rounded-full bg-success" />
+        Connecté
+      </span>
+    );
+  }
+  if (status === "invalid") {
+    return (
+      <span className="badge badge-error">
+        <span className="w-1.5 h-1.5 rounded-full bg-error" />
+        Invalide
+      </span>
+    );
+  }
+  if (status === "checking") {
+    return (
+      <span className="badge badge-warning">
+        <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
+        Vérification…
+      </span>
+    );
+  }
+  return (
+    <span className="badge badge-neutral">
+      <span className="w-1.5 h-1.5 rounded-full bg-text-muted" />
+      Non configuré
+    </span>
+  );
+}
+
+// ─── Markup row ─────────────────────────────────────────────────────────────
 function MarkupRow({
   label,
   state,
@@ -96,74 +140,75 @@ function MarkupRow({
   state: MarkupState;
   onChange: (s: MarkupState) => void;
 }) {
+  const typeOptions: { value: MarkupType; label: string; title: string }[] = [
+    { value: "percent", label: "Pourcentage", title: "Ajouter un pourcentage au prix" },
+    { value: "fixed", label: "Fixe (€)", title: "Ajouter un montant fixe en euros" },
+    { value: "multiplier", label: "Coeff. (×)", title: "Multiplier le prix (ex: 3 = ×3)" },
+  ];
+
+  const roundingOptions: { value: RoundingMode; label: string; title: string }[] = [
+    { value: "none", label: "Aucun", title: "Pas d'arrondi" },
+    { value: "down", label: "Inférieur", title: "Arrondi vers le bas" },
+    { value: "up", label: "Supérieur", title: "Arrondi vers le haut" },
+  ];
+
   return (
-    <div className="space-y-2">
-      <label className="font-body text-xs font-medium text-text-secondary">{label}</label>
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          value={state.value}
-          onChange={(e) => onChange({ ...state, value: Number(e.target.value) || 0 })}
-          className="w-20 h-8 px-2 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-        />
-        <div className="flex rounded-lg border border-border overflow-hidden">
-          <button
-            type="button"
-            onClick={() => onChange({ ...state, type: "percent" })}
-            className={`h-8 px-2.5 text-xs font-body font-medium transition-colors ${
-              state.type === "percent"
-                ? "bg-bg-dark text-text-inverse"
-                : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
-            }`}
-          >
-            %
-          </button>
-          <button
-            type="button"
-            onClick={() => onChange({ ...state, type: "fixed" })}
-            className={`h-8 px-2.5 text-xs font-body font-medium transition-colors ${
-              state.type === "fixed"
-                ? "bg-bg-dark text-text-inverse"
-                : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
-            }`}
-          >
-            &euro;
-          </button>
-          <button
-            type="button"
-            title="Coefficient multiplicateur (ex: 300 = ×3)"
-            onClick={() => onChange({ ...state, type: "multiplier" })}
-            className={`h-8 px-2.5 text-xs font-body font-medium transition-colors ${
-              state.type === "multiplier"
-                ? "bg-bg-dark text-text-inverse"
-                : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
-            }`}
-          >
-            &times;
-          </button>
+    <div className="space-y-3">
+      <p className="font-body text-sm font-medium text-text-primary">{label}</p>
+
+      <div className="flex flex-col sm:flex-row gap-3">
+        {/* Value input */}
+        <div className="flex-shrink-0">
+          <label className="font-body text-[11px] text-text-muted mb-1 block">Valeur</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={state.value}
+            onChange={(e) => onChange({ ...state, value: Number(e.target.value) || 0 })}
+            className="w-full sm:w-24 h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+          />
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="font-body text-xs text-text-secondary">Arrondi</span>
+
+        {/* Type selector */}
+        <div className="flex-1 min-w-0">
+          <label className="font-body text-[11px] text-text-muted mb-1 block">Type</label>
           <div className="flex rounded-lg border border-border overflow-hidden">
-            {([
-              ["none", "—"],
-              ["down", "↓"],
-              ["up", "↑"],
-            ] as const).map(([mode, icon]) => (
+            {typeOptions.map((opt) => (
               <button
-                key={mode}
+                key={opt.value}
                 type="button"
-                title={mode === "none" ? "Pas d'arrondi" : mode === "down" ? "Arrondi inférieur" : "Arrondi supérieur"}
-                onClick={() => onChange({ ...state, rounding: mode })}
-                className={`h-8 w-8 flex items-center justify-center text-xs font-body font-medium transition-colors ${
-                  state.rounding === mode
+                title={opt.title}
+                onClick={() => onChange({ ...state, type: opt.value })}
+                className={`flex-1 h-9 px-2 text-xs font-body font-medium transition-colors whitespace-nowrap ${
+                  state.type === opt.value
                     ? "bg-bg-dark text-text-inverse"
                     : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
                 }`}
               >
-                {icon}
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Rounding selector */}
+        <div className="flex-1 min-w-0">
+          <label className="font-body text-[11px] text-text-muted mb-1 block">Arrondi</label>
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            {roundingOptions.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                title={opt.title}
+                onClick={() => onChange({ ...state, rounding: opt.value })}
+                className={`flex-1 h-9 px-2 text-xs font-body font-medium transition-colors whitespace-nowrap ${
+                  state.rounding === opt.value
+                    ? "bg-bg-dark text-text-inverse"
+                    : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
+                }`}
+              >
+                {opt.label}
               </button>
             ))}
           </div>
@@ -176,9 +221,7 @@ function MarkupRow({
 // ─── Main component ─────────────────────────────────────────────────────────
 export default function MarketplaceConfig({
   hasPfsConfig,
-  pfsEnabled: initialPfsEnabled,
   hasAnkorsConfig,
-  ankorsEnabled: initialAnkorsEnabled,
   markupSettings,
 }: Props) {
   // PFS state
@@ -187,11 +230,11 @@ export default function MarketplaceConfig({
   const [pfsStatus, setPfsStatus] = useState<"none" | "valid" | "invalid" | "checking">(
     hasPfsConfig ? "valid" : "none"
   );
-  const [pfsEnabled, setPfsEnabled] = useState(initialPfsEnabled);
+
   const [pfsEditing, setPfsEditing] = useState(!hasPfsConfig);
   const [isSavingPfs, startSavingPfs] = useTransition();
   const [isValidatingPfs, startValidatingPfs] = useTransition();
-  const [isTogglingPfs, startTogglingPfs] = useTransition();
+
 
   // Ankorstore state
   const [ankorsClientId, setAnkorsClientId] = useState("");
@@ -199,11 +242,11 @@ export default function MarketplaceConfig({
   const [ankorsStatus, setAnkorsStatus] = useState<"none" | "valid" | "invalid" | "checking">(
     hasAnkorsConfig ? "valid" : "none"
   );
-  const [ankorsEnabledState, setAnkorsEnabledState] = useState(initialAnkorsEnabled);
+
   const [ankorsEditing, setAnkorsEditing] = useState(!hasAnkorsConfig);
   const [isSavingAnkors, startSavingAnkors] = useTransition();
   const [isValidatingAnkors, startValidatingAnkors] = useTransition();
-  const [isTogglingAnkors, startTogglingAnkors] = useTransition();
+
 
   // Markup state
   const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
@@ -215,8 +258,8 @@ export default function MarketplaceConfig({
   const toast = useToast();
   const { showLoading, hideLoading } = useLoadingOverlay();
 
-  const isPendingPfs = isSavingPfs || isValidatingPfs || isTogglingPfs;
-  const isPendingAnkors = isSavingAnkors || isValidatingAnkors || isTogglingAnkors;
+  const isPendingPfs = isSavingPfs || isValidatingPfs;
+  const isPendingAnkors = isSavingAnkors || isValidatingAnkors;
 
   // ─── PFS handlers ───────────────────────────────────────────────────────
   function handlePfsValidate() {
@@ -260,24 +303,6 @@ export default function MarketplaceConfig({
         }
       } finally {
         hideLoading();
-      }
-    });
-  }
-
-  function handlePfsToggle() {
-    const newValue = !pfsEnabled;
-    startTogglingPfs(async () => {
-      const result = await togglePfsEnabled(newValue);
-      if (result.success) {
-        setPfsEnabled(newValue);
-        toast.success(
-          newValue ? "PFS activé" : "PFS désactivé",
-          newValue
-            ? "La synchronisation Paris Fashion Shops est maintenant active."
-            : "Les fonctionnalités Paris Fashion Shops sont désactivées."
-        );
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
       }
     });
   }
@@ -328,24 +353,6 @@ export default function MarketplaceConfig({
     });
   }
 
-  function handleAnkorsToggle() {
-    const newValue = !ankorsEnabledState;
-    startTogglingAnkors(async () => {
-      const result = await toggleAnkorstoreEnabled(newValue);
-      if (result.success) {
-        setAnkorsEnabledState(newValue);
-        toast.success(
-          newValue ? "Ankorstore activé" : "Ankorstore désactivé",
-          newValue
-            ? "L'intégration Ankorstore est maintenant active."
-            : "L'intégration Ankorstore est désactivée."
-        );
-      } else {
-        toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-      }
-    });
-  }
-
   // ─── Markup handler ─────────────────────────────────────────────────────
   function handleSaveMarkup() {
     showLoading();
@@ -369,94 +376,113 @@ export default function MarketplaceConfig({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* ─── Cards grid ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
         {/* ═══ PFS Card ═══ */}
-        <div className="bg-bg-primary border border-border rounded-2xl p-5 shadow-sm flex flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
+          {/* Card header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
             <div className="flex items-center gap-3">
-              <h3 className="font-heading text-sm font-semibold text-text-primary">Paris Fashion Shops</h3>
-              <StatusIndicator status={pfsStatus} />
+              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
+                <IconShop className="w-[18px] h-[18px] text-text-primary" />
+              </div>
+              <div>
+                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
+                  Paris Fashion Shops
+                </h3>
+                <div className="mt-0.5">
+                  <StatusBadge status={pfsStatus} />
+                </div>
+              </div>
             </div>
-            {hasPfsConfig && (
-              <ToggleSwitch
-                checked={pfsEnabled}
-                disabled={isPendingPfs}
-                onChange={handlePfsToggle}
-                label="Activer Paris Fashion Shops"
-              />
-            )}
           </div>
 
-          {/* Credentials */}
-          <div className="mb-4">
-            <p className="font-body text-xs text-text-secondary mb-2">Identifiants de connexion</p>
+          {/* Credentials section */}
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <IconKey className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Connexion
+              </p>
+            </div>
+
             {!pfsEditing && hasPfsConfig ? (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
                 <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
                   ••••••••••••••••
                 </div>
                 <button
                   type="button"
                   onClick={() => setPfsEditing(true)}
-                  className="text-xs font-body text-text-secondary hover:text-text-primary underline"
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
                 >
+                  <IconPencil className="w-3.5 h-3.5" />
                   Modifier
                 </button>
               </div>
             ) : (
-              <div className="space-y-2">
-                <input
-                  type="email"
-                  value={pfsEmail}
-                  onChange={(e) => {
-                    setPfsEmail(e.target.value);
-                    if (pfsStatus === "valid" || pfsStatus === "invalid") setPfsStatus("none");
-                  }}
-                  placeholder="Email PFS"
-                  className="w-full h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-                  disabled={isPendingPfs}
-                  autoComplete="off"
-                />
-                <input
-                  type="password"
-                  value={pfsPassword}
-                  onChange={(e) => {
-                    setPfsPassword(e.target.value);
-                    if (pfsStatus === "valid" || pfsStatus === "invalid") setPfsStatus("none");
-                  }}
-                  placeholder="Mot de passe PFS"
-                  className="w-full h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-                  disabled={isPendingPfs}
-                  autoComplete="off"
-                />
-                <div className="flex items-center gap-2">
+              <div className="space-y-2.5">
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Email</label>
+                  <input
+                    type="email"
+                    value={pfsEmail}
+                    onChange={(e) => {
+                      setPfsEmail(e.target.value);
+                      if (pfsStatus === "valid" || pfsStatus === "invalid") setPfsStatus("none");
+                    }}
+                    placeholder="votre@email-pfs.com"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                    disabled={isPendingPfs}
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Mot de passe</label>
+                  <input
+                    type="password"
+                    value={pfsPassword}
+                    onChange={(e) => {
+                      setPfsPassword(e.target.value);
+                      if (pfsStatus === "valid" || pfsStatus === "invalid") setPfsStatus("none");
+                    }}
+                    placeholder="••••••••"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                    disabled={isPendingPfs}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-1">
                   <button
                     type="button"
                     onClick={handlePfsValidate}
                     disabled={isPendingPfs || !pfsEmail.trim() || !pfsPassword.trim()}
-                    className="h-8 px-3 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
                   >
-                    {isValidatingPfs ? "Vérification..." : "Tester"}
+                    {isValidatingPfs ? (
+                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
+                    ) : (
+                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={handlePfsSave}
                     disabled={isPendingPfs || !pfsEmail.trim() || !pfsPassword.trim() || pfsStatus !== "valid"}
-                    className="h-8 px-3 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
                   >
-                    {isSavingPfs ? "..." : "Sauvegarder"}
+                    {isSavingPfs ? "Enregistrement…" : "Sauvegarder"}
                   </button>
                   {hasPfsConfig && (
                     <button
                       type="button"
                       onClick={() => { setPfsEditing(false); setPfsEmail(""); setPfsPassword(""); setPfsStatus("valid"); }}
                       disabled={isPendingPfs}
-                      className="h-8 px-2 text-xs font-body text-text-secondary hover:text-text-primary"
+                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
                     >
+                      <IconX className="w-3.5 h-3.5" />
                       Annuler
                     </button>
                   )}
@@ -465,97 +491,121 @@ export default function MarketplaceConfig({
             )}
           </div>
 
-          {/* Markup */}
-          <div className="border-t border-border pt-3 mt-auto">
-            <p className="font-body text-xs text-text-secondary mb-2">Majoration prix</p>
+          {/* Markup section */}
+          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto">
+            <div className="flex items-center gap-2 mb-4">
+              <IconTag className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Majoration des prix
+              </p>
+            </div>
             <MarkupRow label="Prix HT" state={pfsMarkup} onChange={setPfsMarkup} />
           </div>
         </div>
 
         {/* ═══ Ankorstore Card ═══ */}
-        <div className="bg-bg-primary border border-border rounded-2xl p-5 shadow-sm flex flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
+          {/* Card header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
             <div className="flex items-center gap-3">
-              <h3 className="font-heading text-sm font-semibold text-text-primary">Ankorstore</h3>
-              <StatusIndicator status={ankorsStatus} />
+              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
+                <span className="font-heading text-sm font-bold text-text-primary">A</span>
+              </div>
+              <div>
+                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
+                  Ankorstore
+                </h3>
+                <div className="mt-0.5">
+                  <StatusBadge status={ankorsStatus} />
+                </div>
+              </div>
             </div>
-            {hasAnkorsConfig && (
-              <ToggleSwitch
-                checked={ankorsEnabledState}
-                disabled={isPendingAnkors}
-                onChange={handleAnkorsToggle}
-                label="Activer Ankorstore"
-              />
-            )}
           </div>
 
-          {/* Credentials */}
-          <div className="mb-4">
-            <p className="font-body text-xs text-text-secondary mb-2">Identifiants de connexion</p>
+          {/* Credentials section */}
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <IconKey className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Connexion
+              </p>
+            </div>
+
             {!ankorsEditing && hasAnkorsConfig ? (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
                 <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
                   ••••••••••••••••
                 </div>
                 <button
                   type="button"
                   onClick={() => setAnkorsEditing(true)}
-                  className="text-xs font-body text-text-secondary hover:text-text-primary underline"
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
                 >
+                  <IconPencil className="w-3.5 h-3.5" />
                   Modifier
                 </button>
               </div>
             ) : (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={ankorsClientId}
-                  onChange={(e) => {
-                    setAnkorsClientId(e.target.value);
-                    if (ankorsStatus === "valid" || ankorsStatus === "invalid") setAnkorsStatus("none");
-                  }}
-                  placeholder="Client ID"
-                  className="w-full h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-                  disabled={isPendingAnkors}
-                  autoComplete="off"
-                />
-                <input
-                  type="password"
-                  value={ankorsClientSecret}
-                  onChange={(e) => {
-                    setAnkorsClientSecret(e.target.value);
-                    if (ankorsStatus === "valid" || ankorsStatus === "invalid") setAnkorsStatus("none");
-                  }}
-                  placeholder="Client Secret"
-                  className="w-full h-9 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20"
-                  disabled={isPendingAnkors}
-                  autoComplete="off"
-                />
-                <div className="flex items-center gap-2">
+              <div className="space-y-2.5">
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Client ID</label>
+                  <input
+                    type="text"
+                    value={ankorsClientId}
+                    onChange={(e) => {
+                      setAnkorsClientId(e.target.value);
+                      if (ankorsStatus === "valid" || ankorsStatus === "invalid") setAnkorsStatus("none");
+                    }}
+                    placeholder="Votre Client ID Ankorstore"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                    disabled={isPendingAnkors}
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Client Secret</label>
+                  <input
+                    type="password"
+                    value={ankorsClientSecret}
+                    onChange={(e) => {
+                      setAnkorsClientSecret(e.target.value);
+                      if (ankorsStatus === "valid" || ankorsStatus === "invalid") setAnkorsStatus("none");
+                    }}
+                    placeholder="••••••••"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                    disabled={isPendingAnkors}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-1">
                   <button
                     type="button"
                     onClick={handleAnkorsValidate}
                     disabled={isPendingAnkors || !ankorsClientId.trim() || !ankorsClientSecret.trim()}
-                    className="h-8 px-3 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
                   >
-                    {isValidatingAnkors ? "Vérification..." : "Tester"}
+                    {isValidatingAnkors ? (
+                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
+                    ) : (
+                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={handleAnkorsSave}
                     disabled={isPendingAnkors || !ankorsClientId.trim() || !ankorsClientSecret.trim() || ankorsStatus !== "valid"}
-                    className="h-8 px-3 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
                   >
-                    {isSavingAnkors ? "..." : "Sauvegarder"}
+                    {isSavingAnkors ? "Enregistrement…" : "Sauvegarder"}
                   </button>
                   {hasAnkorsConfig && (
                     <button
                       type="button"
                       onClick={() => { setAnkorsEditing(false); setAnkorsClientId(""); setAnkorsClientSecret(""); setAnkorsStatus("valid"); }}
                       disabled={isPendingAnkors}
-                      className="h-8 px-2 text-xs font-body text-text-secondary hover:text-text-primary"
+                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
                     >
+                      <IconX className="w-3.5 h-3.5" />
                       Annuler
                     </button>
                   )}
@@ -564,25 +614,40 @@ export default function MarketplaceConfig({
             )}
           </div>
 
-          {/* Markup */}
-          <div className="border-t border-border pt-3 mt-auto space-y-3">
-            <p className="font-body text-xs text-text-secondary mb-2">Majorations prix</p>
-            <MarkupRow label="Prix wholesale (gros)" state={ankorsWholesaleMarkup} onChange={setAnkorsWholesaleMarkup} />
-            <MarkupRow label="Prix retail (détail)" state={ankorsRetailMarkup} onChange={setAnkorsRetailMarkup} />
-            <div className="flex items-center gap-3">
-              <label className="font-body text-xs text-text-secondary w-40">Taux de TVA (%)</label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.1}
-                value={ankorstoreVatRate}
-                onChange={(e) => setAnkorstoreVatRate(Number(e.target.value))}
-                className="h-9 w-24 px-3 rounded-lg border border-border bg-bg-primary text-sm font-body"
-              />
-              <span className="font-body text-[11px] text-text-muted">
-                Appliqué au prix de détail TTC dans l&apos;export Excel Ankorstore
-              </span>
+          {/* Markup section */}
+          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto space-y-5">
+            <div className="flex items-center gap-2 mb-1">
+              <IconTag className="w-4 h-4 text-text-muted" />
+              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                Majorations des prix
+              </p>
+            </div>
+
+            <MarkupRow label="Prix de gros (wholesale)" state={ankorsWholesaleMarkup} onChange={setAnkorsWholesaleMarkup} />
+
+            <div className="border-t border-border/60 pt-4">
+              <MarkupRow label="Prix de détail (retail)" state={ankorsRetailMarkup} onChange={setAnkorsRetailMarkup} />
+            </div>
+
+            <div className="border-t border-border/60 pt-4">
+              <p className="font-body text-sm font-medium text-text-primary mb-2">TVA</p>
+              <div className="flex items-center gap-3">
+                <div>
+                  <label className="font-body text-[11px] text-text-muted mb-1 block">Taux (%)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.1}
+                    value={ankorstoreVatRate}
+                    onChange={(e) => setAnkorstoreVatRate(Number(e.target.value))}
+                    className="h-9 w-24 px-3 rounded-lg border border-border bg-bg-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
+                  />
+                </div>
+                <p className="font-body text-[11px] text-text-muted leading-snug mt-4">
+                  Appliqué au prix de détail TTC dans l&apos;export Excel
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -594,9 +659,16 @@ export default function MarketplaceConfig({
           type="button"
           onClick={handleSaveMarkup}
           disabled={isSavingMarkup}
-          className="h-9 px-5 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+          className="h-10 px-6 rounded-xl bg-bg-dark text-text-inverse text-sm font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 shadow-sm"
         >
-          {isSavingMarkup ? "Enregistrement..." : "Sauvegarder les majorations"}
+          {isSavingMarkup ? (
+            <span className="inline-flex items-center gap-2">
+              <IconLoader className="w-4 h-4" />
+              Enregistrement…
+            </span>
+          ) : (
+            "Sauvegarder les majorations"
+          )}
         </button>
       </div>
     </div>

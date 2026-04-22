@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     prisma.shippingAddress.findFirst({ where: { id: addressId, userId } }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { company: true, email: true, discountType: true, discountValue: true, freeShipping: true },
+      select: { company: true, email: true, discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true, freeShipping: true, shippingDiscountType: true, shippingDiscountValue: true },
     }),
   ]);
 
@@ -91,16 +91,31 @@ export async function POST(req: Request) {
     0
   );
 
-  // Remise commerciale client
+  // Remise commerciale client (check mode THRESHOLD with quantity)
+  const totalItemQuantity = cartItems.reduce((s, item) => s + item.quantity, 0);
   const clientDiscountAmt = (() => {
     if (!user?.discountType || !user.discountValue) return 0;
+    const mode = user.discountMode ?? "PERMANENT";
+    if (mode === "THRESHOLD") {
+      const minAmount = user.discountMinAmount != null ? Number(user.discountMinAmount) : 0;
+      const minQty = user.discountMinQuantity ?? 0;
+      if ((minAmount > 0 && subtotalHT < minAmount) || (minQty > 0 && totalItemQuantity < minQty)) return 0;
+    }
     const dv = Number(user.discountValue);
     if (user.discountType === "PERCENT")
       return Math.min(subtotalHT, subtotalHT * (dv / 100));
     return Math.min(subtotalHT, dv);
   })();
   const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
-  const effectiveCarrierPrice = user?.freeShipping ? 0 : carrierPrice;
+  const effectiveCarrierPrice = (() => {
+    if (user?.freeShipping) return 0;
+    if (user?.shippingDiscountType && user.shippingDiscountValue != null) {
+      const sdv = Number(user.shippingDiscountValue);
+      if (user.shippingDiscountType === "PERCENT") return Math.max(0, carrierPrice * (1 - sdv / 100));
+      return Math.max(0, carrierPrice - sdv);
+    }
+    return carrierPrice;
+  })();
 
   const tvaAmount = subtotalAfterDiscount * tvaRate;
   const totalTTC = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;

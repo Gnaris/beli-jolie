@@ -3,24 +3,42 @@
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
+import { useProductStream } from "@/hooks/useProductStream";
 import type { PfsAttribute, PfsAttributeType, ImportablePfsProduct } from "@/lib/pfs-import";
 
 type Step = "scan" | "products" | "import";
 
-interface ImportTask {
+// ─────────────────────────────────────────
+// Job types (mirror server-side)
+// ─────────────────────────────────────────
+
+interface PfsJobResult {
   pfsId: string;
   reference: string;
   name: string;
-  image: string | null;
-  status: "pending" | "running" | "ready" | "error";
+  status: "ok" | "error";
   productId?: string;
   error?: string;
-  warnings?: string[];
 }
 
-export default function ImportPfsClient() {
+interface PfsJob {
+  id: string;
+  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  totalItems: number;
+  processedItems: number;
+  successItems: number;
+  errorItems: number;
+  resultDetails: {
+    items: { pfsId: string; reference: string; name: string }[];
+    results?: PfsJobResult[];
+  } | null;
+}
+
+export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
   const toast = useToast();
   const [step, setStep] = useState<Step>("scan");
+  const [productLimit, setProductLimit] = useState<string>("");
+  const [checkingJob, setCheckingJob] = useState(true);
 
   // Step 1 — scan
   const [scanning, setScanning] = useState(false);
@@ -29,17 +47,73 @@ export default function ImportPfsClient() {
 
   // Step 2 — products
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [productsLoaded, setProductsLoaded] = useState(false);
   const [products, setProducts] = useState<ImportablePfsProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // Step 3 — import
-  const [tasks, setTasks] = useState<ImportTask[]>([]);
+  // Step 3 — import (server-side job)
+  const [activeJob, setActiveJob] = useState<PfsJob | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  // ── Check for active job on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/pfs-import/active-job");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.job) {
+            setActiveJob(data.job);
+            setStep("import");
+          }
+        }
+      } catch {
+        // ignore
+      } finally {
+        setCheckingJob(false);
+      }
+    })();
+  }, []);
+
+  // ── Listen for SSE progress updates
+  useProductStream(useCallback((event) => {
+    if (event.type === "IMPORT_PROGRESS" && event.importProgress) {
+      const p = event.importProgress;
+      setActiveJob((prev) => {
+        if (!prev || prev.id !== p.jobId) return prev;
+        return {
+          ...prev,
+          processedItems: p.processed,
+          successItems: p.success,
+          errorItems: p.errors,
+          status: p.status === "COMPLETED" ? "COMPLETED" : p.status === "FAILED" ? "FAILED" : prev.status,
+        };
+      });
+    }
+  }, []));
+
+  // ── When job completes/fails, refresh the full details from server
+  useEffect(() => {
+    if (!activeJob) return;
+    if (activeJob.status !== "COMPLETED" && activeJob.status !== "FAILED" && activeJob.status !== "CANCELLED") return;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/pfs-import/active-job");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.job) setActiveJob(data.job);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [activeJob?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Step 1 actions
   const runScan = useCallback(async () => {
     setScanning(true);
     try {
-      const res = await fetch("/api/admin/pfs-import/scan-attributes");
+      const params = productLimit ? `?limit=${productLimit}` : "";
+      const res = await fetch(`/api/admin/pfs-import/scan-attributes${params}`);
       if (!res.ok) throw new Error((await res.json()).error ?? "Erreur scan");
       const data = await res.json();
       setAttributes(data.attributes);
@@ -49,7 +123,7 @@ export default function ImportPfsClient() {
     } finally {
       setScanning(false);
     }
-  }, [toast]);
+  }, [toast, productLimit]);
 
   const handleCreateMapping = useCallback(
     async (attr: PfsAttribute) => {
@@ -83,22 +157,24 @@ export default function ImportPfsClient() {
   const loadProducts = useCallback(async () => {
     setLoadingProducts(true);
     try {
-      const res = await fetch("/api/admin/pfs-import/importable-products");
+      const params = productLimit ? `?limit=${productLimit}` : "";
+      const res = await fetch(`/api/admin/pfs-import/importable-products${params}`);
       if (!res.ok) throw new Error((await res.json()).error ?? "Erreur produits");
       const data = await res.json();
       setProducts(data.products);
+      setProductsLoaded(true);
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
       setLoadingProducts(false);
     }
-  }, [toast]);
+  }, [toast, productLimit]);
 
   useEffect(() => {
-    if (step === "products" && products.length === 0 && !loadingProducts) {
+    if (step === "products" && !productsLoaded && !loadingProducts) {
       loadProducts();
     }
-  }, [step, products.length, loadingProducts, loadProducts]);
+  }, [step, productsLoaded, loadingProducts, loadProducts]);
 
   const toggleSelect = (pfsId: string) => {
     setSelected((prev) => {
@@ -112,75 +188,88 @@ export default function ImportPfsClient() {
     setSelected((prev) => (prev.size === products.length ? new Set() : new Set(products.map((p) => p.pfsId))));
   };
 
-  // ── Step 3 — import sequential
-  const startImport = useCallback(() => {
-    const initial: ImportTask[] = products
+  // ── Step 3 — start server-side import
+  const startImport = useCallback(async () => {
+    const items = products
       .filter((p) => selected.has(p.pfsId))
-      .map((p) => ({
-        pfsId: p.pfsId,
-        reference: p.reference,
-        name: p.name,
-        image: p.defaultImage,
-        status: "pending",
-      }));
-    setTasks(initial);
-    setStep("import");
-  }, [products, selected]);
+      .map((p) => ({ pfsId: p.pfsId, reference: p.reference, name: p.name }));
 
-  // Traite les tâches une par une en fond
-  useEffect(() => {
-    if (step !== "import") return;
-    const pending = tasks.find((t) => t.status === "pending");
-    const running = tasks.find((t) => t.status === "running");
-    if (running || !pending) return;
+    try {
+      const res = await fetch("/api/admin/pfs-import/start-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
+      const data = await res.json();
+      setActiveJob({
+        id: data.jobId,
+        status: "PENDING",
+        totalItems: items.length,
+        processedItems: 0,
+        successItems: 0,
+        errorItems: 0,
+        resultDetails: { items },
+      });
+      setStep("import");
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }, [products, selected, toast]);
 
-    let cancelled = false;
-    (async () => {
-      setTasks((prev) => prev.map((t) => (t.pfsId === pending.pfsId ? { ...t, status: "running" } : t)));
-      try {
-        const res = await fetch("/api/admin/pfs-import/approve", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pfsId: pending.pfsId }),
-        });
-        const data = await res.json();
-        if (cancelled) return;
-        if (!res.ok) throw new Error(data.error ?? "Erreur import");
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.pfsId === pending.pfsId
-              ? { ...t, status: "ready", productId: data.productId, warnings: data.warnings }
-              : t
-          )
-        );
-      } catch (err) {
-        if (cancelled) return;
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.pfsId === pending.pfsId ? { ...t, status: "error", error: (err as Error).message } : t
-          )
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [step, tasks]);
+  // ── Cancel job
+  const cancelJob = useCallback(async () => {
+    if (!activeJob) return;
+    setCancelling(true);
+    try {
+      const res = await fetch("/api/admin/pfs-import/cancel-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: activeJob.id }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
+      setActiveJob((prev) => prev ? { ...prev, status: "CANCELLED" } : null);
+      toast.success("Import annulé");
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setCancelling(false);
+    }
+  }, [activeJob, toast]);
+
+  // ── Reset to start over
+  const resetAll = useCallback(() => {
+    setActiveJob(null);
+    setStep("scan");
+    setAttributes([]);
+    setScanMeta(null);
+    setProducts([]);
+    setProductsLoaded(false);
+    setSelected(new Set());
+  }, []);
+
+  if (checkingJob) {
+    return <div className="p-10 text-center text-text-muted">Chargement…</div>;
+  }
 
   // ─────────────────────────────────────────
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <Link href="/admin/produits" className="text-[#666] hover:text-text-primary transition-colors text-sm">
-          ← Retour aux produits
-        </Link>
-      </div>
+      {!embedded && (
+        <>
+          <div className="flex items-center justify-between">
+            <Link href="/admin/produits" className="text-[#666] hover:text-text-primary transition-colors text-sm">
+              ← Retour aux produits
+            </Link>
+          </div>
 
-      <div>
-        <h1 className="page-title">Importer depuis Paris Fashion Shop</h1>
-        <p className="page-subtitle font-body">Récupérez les produits PFS qui ne sont pas encore dans votre catalogue</p>
-      </div>
+          <div>
+            <h1 className="page-title">Importer depuis Paris Fashion Shop</h1>
+            <p className="page-subtitle font-body">Récupérez les produits PFS qui ne sont pas encore dans votre catalogue</p>
+          </div>
+        </>
+      )}
 
       {/* Stepper */}
       <div className="flex items-center gap-2 text-sm">
@@ -199,6 +288,8 @@ export default function ImportPfsClient() {
           scanMeta={scanMeta}
           missingCount={missingCount}
           canGoToProducts={canGoToProducts}
+          productLimit={productLimit}
+          onProductLimitChange={setProductLimit}
           onRunScan={runScan}
           onCreateMapping={handleCreateMapping}
           onNext={() => setStep("products")}
@@ -217,8 +308,13 @@ export default function ImportPfsClient() {
         />
       )}
 
-      {step === "import" && (
-        <ImportStep tasks={tasks} onBack={() => setStep("products")} />
+      {step === "import" && activeJob && (
+        <ImportJobStep
+          job={activeJob}
+          onCancel={cancelJob}
+          cancelling={cancelling}
+          onReset={resetAll}
+        />
       )}
     </div>
   );
@@ -253,6 +349,8 @@ function ScanStep({
   scanMeta,
   missingCount,
   canGoToProducts,
+  productLimit,
+  onProductLimitChange,
   onRunScan,
   onCreateMapping,
   onNext,
@@ -262,6 +360,8 @@ function ScanStep({
   scanMeta: { scannedProducts: number; deepScannedProducts: number } | null;
   missingCount: number;
   canGoToProducts: boolean;
+  productLimit: string;
+  onProductLimitChange: (v: string) => void;
   onRunScan: () => void;
   onCreateMapping: (a: PfsAttribute) => void;
   onNext: () => void;
@@ -288,10 +388,22 @@ function ScanStep({
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm space-y-4">
       {attributes.length === 0 ? (
-        <div className="text-center py-10">
-          <p className="text-text-muted mb-4">
+        <div className="text-center py-10 space-y-4">
+          <p className="text-text-muted">
             Lancez un scan du catalogue PFS pour vérifier que toutes les correspondances existent chez vous.
           </p>
+          <div className="flex items-center justify-center gap-3">
+            <label className="text-sm text-text-secondary">Nombre de produits :</label>
+            <input
+              type="number"
+              min={1}
+              placeholder="Tous"
+              value={productLimit}
+              onChange={(e) => onProductLimitChange(e.target.value)}
+              className="border border-border rounded-lg px-3 py-2 text-sm bg-bg-primary w-24 text-center"
+            />
+            <span className="text-xs text-text-muted">Laissez vide pour tout récupérer</span>
+          </div>
           <button onClick={onRunScan} disabled={scanning} className="btn-primary">
             {scanning ? "Scan en cours…" : "Scanner PFS"}
           </button>
@@ -312,6 +424,14 @@ function ScanStep({
               ) : (
                 <span className="badge badge-success">Toutes les correspondances existent</span>
               )}
+              <input
+                type="number"
+                min={1}
+                placeholder="Tous"
+                value={productLimit}
+                onChange={(e) => onProductLimitChange(e.target.value)}
+                className="border border-border rounded-lg px-2 py-1.5 text-sm bg-bg-primary w-20 text-center"
+              />
               <button onClick={onRunScan} disabled={scanning} className="btn-secondary">
                 {scanning ? "Scan…" : "Re-scanner"}
               </button>
@@ -335,10 +455,12 @@ function ScanStep({
                     <tbody>
                       {list.map((a) => (
                         <tr key={`${a.type}_${a.pfsRef}`} className="border-t border-border">
-                          <td className="px-4 py-2 w-1/3">
-                            <code className="text-xs bg-bg-muted px-2 py-0.5 rounded">{a.pfsRef}</code>
+                          <td className="px-4 py-2">
+                            <span className="text-sm">{a.label}</span>
+                            {a.label !== a.pfsRef && (
+                              <span className="text-xs text-text-muted ml-2">({a.pfsRef})</span>
+                            )}
                           </td>
-                          <td className="px-4 py-2">{a.label}</td>
                           <td className="px-4 py-2 text-right">
                             {a.mapped ? (
                               <span className="text-[#15803D] text-sm">✓ {a.localName}</span>
@@ -459,68 +581,129 @@ function ProductsStep({
   );
 }
 
-function ImportStep({ tasks, onBack }: { tasks: ImportTask[]; onBack: () => void }) {
-  const done = tasks.filter((t) => t.status === "ready").length;
-  const errored = tasks.filter((t) => t.status === "error").length;
-  const total = tasks.length;
+function ImportJobStep({
+  job,
+  onCancel,
+  cancelling,
+  onReset,
+}: {
+  job: PfsJob;
+  onCancel: () => void;
+  cancelling: boolean;
+  onReset: () => void;
+}) {
+  const isRunning = job.status === "PENDING" || job.status === "PROCESSING";
+  const isDone = job.status === "COMPLETED" || job.status === "FAILED" || job.status === "CANCELLED";
+  const results = job.resultDetails?.results ?? [];
+  const items = job.resultDetails?.items ?? [];
+  const progressPercent = job.totalItems > 0 ? Math.round((job.processedItems / job.totalItems) * 100) : 0;
 
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <p className="font-medium">
-            {done}/{total} produit(s) importé(s){errored > 0 ? ` · ${errored} erreur(s)` : ""}
+            {job.processedItems}/{job.totalItems} produit(s) importé(s)
+            {job.errorItems > 0 ? ` · ${job.errorItems} erreur(s)` : ""}
           </p>
           <p className="text-sm text-text-muted">
-            Les produits prêts sont créés avec le statut « Importation en cours ». Les images finissent de se télécharger
-            en arrière-plan. Vous pouvez déjà aller les voir sur la page Produits.
+            {isRunning && "L\u2019import tourne en arrière-plan. Vous pouvez naviguer ailleurs et revenir ici pour suivre l\u2019avancement."}
+            {job.status === "COMPLETED" && "Import terminé. Les images finissent de se télécharger en arrière-plan."}
+            {job.status === "FAILED" && "L\u2019import a rencontré des erreurs."}
+            {job.status === "CANCELLED" && "L\u2019import a été annulé."}
           </p>
         </div>
-        {done === total && (
-          <Link href="/admin/produits" className="btn-primary">
-            Aller aux produits
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {job.status === "COMPLETED" && (
+            <span className="badge badge-success">Terminé</span>
+          )}
+          {job.status === "FAILED" && (
+            <span className="badge badge-error">Erreur</span>
+          )}
+          {job.status === "CANCELLED" && (
+            <span className="badge badge-neutral">Annulé</span>
+          )}
+          {isRunning && (
+            <span className="badge badge-info">En cours…</span>
+          )}
+        </div>
       </div>
 
-      <div className="space-y-2">
-        {tasks.map((t) => (
-          <div key={t.pfsId} className="flex items-center gap-3 border border-border rounded-xl p-3">
-            <div className="w-12 h-12 bg-bg-muted rounded-lg overflow-hidden flex-shrink-0">
-              {t.image && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={t.image} alt="" className="w-full h-full object-cover" loading="lazy" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-mono text-text-muted">{t.reference}</div>
-              <div className="text-sm font-medium truncate">{t.name}</div>
-              {t.warnings && t.warnings.length > 0 && (
-                <div className="text-xs text-[#b45309] mt-1">{t.warnings.join(" · ")}</div>
-              )}
-              {t.error && <div className="text-xs text-[#b91c1c] mt-1">{t.error}</div>}
-            </div>
-            <div>
-              {t.status === "pending" && <span className="badge badge-neutral">En attente</span>}
-              {t.status === "running" && <span className="badge badge-info">Import…</span>}
-              {t.status === "ready" && (
-                <div className="flex items-center gap-2">
-                  <span className="badge badge-success">Prêt</span>
-                  {t.productId && (
-                    <Link href={`/admin/produits/${t.productId}/modifier`} className="btn-ghost text-xs px-2 py-1">
-                      Voir
-                    </Link>
-                  )}
-                </div>
-              )}
-              {t.status === "error" && <span className="badge badge-error">Erreur</span>}
-            </div>
+      {/* Progress bar */}
+      {isRunning && (
+        <div className="space-y-1">
+          <div className="w-full bg-bg-muted rounded-full h-3 overflow-hidden">
+            <div
+              className="h-full bg-text-primary rounded-full transition-all duration-500"
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
-        ))}
+          <div className="flex justify-between text-xs text-text-muted">
+            <span>{job.successItems} importé(s){job.errorItems > 0 ? ` · ${job.errorItems} erreur(s)` : ""}</span>
+            <span>{progressPercent}%</span>
+          </div>
+        </div>
+      )}
+
+      {/* Product list */}
+      <div className="space-y-2 max-h-[400px] overflow-y-auto">
+        {items.map((item, idx) => {
+          const result = results.find((r) => r.pfsId === item.pfsId);
+          const isCurrentlyRunning = !result && idx === job.processedItems && isRunning;
+          const isPending = !result && idx > job.processedItems;
+
+          return (
+            <div key={item.pfsId} className="flex items-center gap-3 border border-border rounded-xl p-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-mono text-text-muted">{item.reference}</div>
+                <div className="text-sm font-medium truncate">{item.name}</div>
+                {result?.error && <div className="text-xs text-[#b91c1c] mt-1">{result.error}</div>}
+              </div>
+              <div>
+                {isPending && <span className="badge badge-neutral">En attente</span>}
+                {isCurrentlyRunning && <span className="badge badge-info">Import…</span>}
+                {result?.status === "ok" && (
+                  <div className="flex items-center gap-2">
+                    <span className="badge badge-success">Prêt</span>
+                    {result.productId && (
+                      <Link href={`/admin/produits/${result.productId}/modifier`} className="btn-ghost text-xs px-2 py-1">
+                        Voir
+                      </Link>
+                    )}
+                  </div>
+                )}
+                {result?.status === "error" && <span className="badge badge-error">Erreur</span>}
+                {!result && !isCurrentlyRunning && !isPending && job.status === "CANCELLED" && (
+                  <span className="badge badge-neutral">Annulé</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="flex justify-start pt-2">
-        <button onClick={onBack} className="btn-secondary">← Retour à la sélection</button>
+      {/* Actions */}
+      <div className="flex justify-between pt-2">
+        {isRunning ? (
+          <>
+            <Link href="/admin/produits" className="btn-secondary">
+              ← Aller aux produits
+            </Link>
+            <button onClick={onCancel} disabled={cancelling} className="btn-secondary text-[#b91c1c] border-[#b91c1c] hover:bg-[#b91c1c]/5">
+              {cancelling ? "Annulation…" : "Tout arrêter"}
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={onReset} className="btn-secondary">
+              Recommencer un import
+            </button>
+            <Link href="/admin/produits" className="btn-primary">
+              Aller aux produits
+            </Link>
+          </>
+        )}
       </div>
     </div>
   );

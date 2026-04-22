@@ -490,7 +490,6 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                     <div className="border-t border-border-light py-1.5">
                       <button
                         onClick={async () => {
-                          try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
                           setProfileOpen(false);
                           signOut({ callbackUrl: "/" });
                         }}
@@ -674,7 +673,6 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                   )}
                   <button
                     onClick={async () => {
-                      try { await fetch("/api/heartbeat/disconnect", { method: "POST" }); } catch {}
                       setMobileOpen(false);
                       signOut({ callbackUrl: "/" });
                     }}

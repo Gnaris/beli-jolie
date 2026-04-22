@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import LogoutButton from "./LogoutModal";
 import AdminClientModeButton from "./AdminClientModeButton";
-import LiveCountBadge from "./LiveCountBadge";
 
 const NAV_SECTIONS: { title: string; items: { label: string; href: string; icon: string; soon?: boolean }[] }[] = [
   {
@@ -147,7 +146,6 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
                       </svg>
                       <span className="flex-1">{item.label}</span>
-                      {item.href === "/admin/utilisateurs" && <LiveCountBadge />}
                       {item.href === "/admin/commandes" && warningCount > 0 && (
                         <span className="flex items-center justify-center text-[11px] bg-blue-100 text-blue-700 border border-blue-200 rounded-full min-w-[22px] h-[22px] px-1.5 font-semibold shrink-0">
                           {warningCount}

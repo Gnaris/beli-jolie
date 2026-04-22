@@ -4,8 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import ImportProductsTab from "@/components/admin/products/import/ImportProductsTab";
 import ImportImagesTab from "@/components/admin/products/import/ImportImagesTab";
+import ImportPfsClient from "@/app/(admin)/admin/produits/importer-pfs/ImportPfsClient";
 
-type Tab = "products" | "images";
+type Tab = "products" | "images" | "pfs";
 
 export default function ImportPageClient({ hasPfsConfig }: { hasPfsConfig: boolean }) {
   const [activeTab, setActiveTab] = useState<Tab>("products");
@@ -34,7 +35,7 @@ export default function ImportPageClient({ hasPfsConfig }: { hasPfsConfig: boole
       <div>
         <h1 className="page-title">Importation en masse</h1>
         <p className="page-subtitle font-body">
-          Importez vos produits via JSON ou Excel, puis associez les images
+          Importez vos produits via fichier ou depuis une plateforme externe
         </p>
       </div>
 
@@ -63,55 +64,27 @@ export default function ImportPageClient({ hasPfsConfig }: { hasPfsConfig: boole
             <span className="mr-2">🖼️</span>
             Images produits
           </button>
+          {hasPfsConfig && (
+            <button
+              onClick={() => setActiveTab("pfs")}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === "pfs"
+                  ? "border-[#1A1A1A] text-text-primary"
+                  : "border-transparent text-[#666] hover:text-text-primary"
+              }`}
+            >
+              <span className="mr-2">🔄</span>
+              Paris Fashion Shop
+            </button>
+          )}
         </div>
       </div>
 
       {/* Tab content */}
       <div>
-        {activeTab === "products" ? <ImportProductsTab /> : <ImportImagesTab />}
-      </div>
-
-      {/* Marketplaces */}
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold text-text-primary font-heading mb-1">
-          Importer des produits
-        </h2>
-        <p className="text-sm text-text-muted font-body mb-4">
-          Importez vos produits depuis les plateformes externes
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Paris Fashion Shop */}
-          {hasPfsConfig ? (
-            <Link
-              href="/admin/pfs"
-              className="bg-bg-primary border border-border rounded-2xl p-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)] hover:border-bg-dark transition-colors group"
-            >
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-9 h-9 rounded-lg bg-bg-secondary flex items-center justify-center group-hover:bg-bg-dark/5 transition-colors">
-                  <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-                  </svg>
-                </div>
-                <span className="font-medium text-sm text-text-primary font-body">Paris Fashion Shop</span>
-              </div>
-              <p className="text-xs text-text-muted font-body">Importé depuis PFS</p>
-            </Link>
-          ) : (
-            <div className="bg-bg-primary border border-border rounded-2xl p-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)] opacity-60 cursor-not-allowed">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-9 h-9 rounded-lg bg-bg-secondary flex items-center justify-center">
-                  <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-                  </svg>
-                </div>
-                <span className="font-medium text-sm text-text-muted font-body">Paris Fashion Shop</span>
-                <span className="badge badge-neutral text-[10px] ml-auto">Non activé</span>
-              </div>
-              <p className="text-xs text-text-muted font-body">Importé depuis PFS</p>
-            </div>
-          )}
-
-        </div>
+        {activeTab === "products" && <ImportProductsTab />}
+        {activeTab === "images" && <ImportImagesTab />}
+        {activeTab === "pfs" && <ImportPfsClient embedded />}
       </div>
     </div>
   );

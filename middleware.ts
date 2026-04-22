@@ -72,7 +72,6 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/access-code") ||
     pathname.startsWith("/api/internal") ||
-    pathname.startsWith("/api/heartbeat") ||
     pathname.startsWith("/api/cart") ||
     pathname.startsWith("/mentions-legales") ||
     pathname.startsWith("/cgv") ||

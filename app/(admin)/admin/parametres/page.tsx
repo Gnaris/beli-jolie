@@ -340,11 +340,9 @@ async function LivraisonTab() {
    TAB : Marketplaces — PFS
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MarketplacesTab() {
-  const [pfsConfig, pfsEnabledRow, ankorsConfig, ankorsEnabledRow, markupRows] = await Promise.all([
+  const [pfsConfig, ankorsConfig, markupRows] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "pfs_enabled" }, select: { value: true } }),
     prisma.siteConfig.findUnique({ where: { key: "ankors_client_id" }, select: { key: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "ankors_enabled" }, select: { value: true } }),
     prisma.siteConfig.findMany({
       where: {
         key: {
@@ -365,9 +363,7 @@ async function MarketplacesTab() {
     <div>
       <MarketplaceConfig
         hasPfsConfig={!!pfsConfig}
-        pfsEnabled={pfsEnabledRow?.value === "true"}
         hasAnkorsConfig={!!ankorsConfig}
-        ankorsEnabled={ankorsEnabledRow?.value === "true"}
         markupSettings={{
           pfs: {
             type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed" | "multiplier") || "percent",

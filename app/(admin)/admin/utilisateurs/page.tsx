@@ -5,24 +5,34 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { UserStatus } from "@prisma/client";
-import LiveClientsTracker from "@/components/admin/tracking/LiveClientsTracker";
-import ClientsList from "@/components/admin/tracking/ClientsList";
 
 export const metadata: Metadata = {
   title: "Gestion des clients — Admin",
 };
 
+function formatTimeAgo(date: Date | null): string {
+  if (!date) return "Jamais";
+  const now = Date.now();
+  const diff = now - date.getTime();
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `Il y a ${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Il y a ${minutes}min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Il y a ${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `Il y a ${days}j`;
+  const months = Math.floor(days / 30);
+  return `Il y a ${months} mois`;
+}
+
 /** Filtres disponibles avec leur label */
 const FILTERS: { value: string; label: string }[] = [
   { value: "ALL",      label: "Tous" },
-  { value: "ONLINE",   label: "En ligne" },
   { value: "PENDING",  label: "En attente" },
   { value: "APPROVED", label: "Approuvés" },
   { value: "REJECTED", label: "Rejetés" },
 ];
-
-/** Threshold for "online" status: 2 minutes */
-const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 
 /**
  * Page liste des clients — /admin/utilisateurs
@@ -33,31 +43,21 @@ const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 export default async function UtilisateursPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; tab?: string }>;
+  searchParams: Promise<{ status?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
-  const { status, tab } = await searchParams;
-  const isSuiviTab = tab === "suivi";
+  const { status } = await searchParams;
   const filterStatus = status || "ALL";
 
-  const now = Date.now(); // eslint-disable-line react-compiler/react-compiler
-  const onlineThreshold = new Date(now - ONLINE_THRESHOLD_MS);
-
-  // Construction du filtre Prisma selon l'onglet actif
-  const isOnlineFilter = filterStatus === "ONLINE";
-  const whereClause = isOnlineFilter
-    ? {
-        role: "CLIENT" as const,
-        activity: { lastSeenAt: { gte: onlineThreshold } },
-      }
-    : filterStatus === "ALL"
-      ? { role: "CLIENT" as const }
-      : { role: "CLIENT" as const, status: filterStatus as UserStatus };
+  // Construction du filtre Prisma
+  const whereClause = filterStatus === "ALL"
+    ? { role: "CLIENT" as const }
+    : { role: "CLIENT" as const, status: filterStatus as UserStatus };
 
   // Récupération des clients + comptages par statut
-  const [clients, pendingCount, approvedCount, rejectedCount, totalCount, onlineCount] =
+  const [clients, pendingCount, approvedCount, rejectedCount, totalCount] =
     await Promise.all([
       prisma.user.findMany({
         where: whereClause,
@@ -71,30 +71,18 @@ export default async function UtilisateursPage({
           phone: true,
           siret: true,
           status: true,
+          lastLoginAt: true,
           createdAt: true,
-          activity: {
-            select: {
-              lastSeenAt: true,
-              currentPage: true,
-            },
-          },
         },
       }),
       prisma.user.count({ where: { role: "CLIENT", status: "PENDING" } }),
       prisma.user.count({ where: { role: "CLIENT", status: "APPROVED" } }),
       prisma.user.count({ where: { role: "CLIENT", status: "REJECTED" } }),
       prisma.user.count({ where: { role: "CLIENT" } }),
-      prisma.user.count({
-        where: {
-          role: "CLIENT",
-          activity: { lastSeenAt: { gte: onlineThreshold } },
-        },
-      }),
     ]);
 
   const counts: Record<string, number> = {
     ALL:      totalCount,
-    ONLINE:   onlineCount,
     PENDING:  pendingCount,
     APPROVED: approvedCount,
     REJECTED: rejectedCount,
@@ -125,48 +113,6 @@ export default async function UtilisateursPage({
         </div>
       </div>
 
-      {/* Onglets principaux : Liste / Suivi en direct */}
-      <div className="flex gap-1 bg-bg-secondary p-1 rounded-lg w-fit">
-        <Link
-          href="/admin/utilisateurs"
-          prefetch={false}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-body font-medium rounded-md transition-all ${
-            !isSuiviTab
-              ? "bg-bg-primary text-text-primary shadow-sm"
-              : "text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-          </svg>
-          Liste
-        </Link>
-        <Link
-          href="/admin/utilisateurs?tab=suivi"
-          prefetch={false}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-body font-medium rounded-md transition-all ${
-            isSuiviTab
-              ? "bg-bg-primary text-text-primary shadow-sm"
-              : "text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-          </svg>
-          Suivi en direct
-          {onlineCount > 0 && (
-            <span className="flex items-center gap-1 text-[11px] bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5 font-medium tabular-nums">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {onlineCount}
-            </span>
-          )}
-        </Link>
-      </div>
-
-      {isSuiviTab ? (
-        <LiveClientsTracker />
-      ) : (
-      <>
       {/* Onglets filtre */}
       <div className="flex flex-wrap gap-1 bg-bg-secondary p-1 rounded-lg w-fit">
         {FILTERS.map((filter) => {
@@ -186,20 +132,12 @@ export default async function UtilisateursPage({
               }`}
             >
               {filter.label}
-              {filter.value === "ONLINE" && count > 0 && (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22C55E] opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22C55E]" />
-                </span>
-              )}
               <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-semibold ${
                 filter.value === "PENDING" && count > 0
                   ? "bg-warning text-white"
-                  : filter.value === "ONLINE" && count > 0
-                    ? "bg-[#22C55E] text-white"
-                    : isActive
-                      ? "bg-bg-tertiary text-text-secondary"
-                      : "text-text-muted"
+                  : isActive
+                    ? "bg-bg-tertiary text-text-secondary"
+                    : "text-text-muted"
               }`}>
                 {count}
               </span>
@@ -208,22 +146,82 @@ export default async function UtilisateursPage({
         })}
       </div>
 
-      {/* Liste des clients — composant client avec statut en ligne temps réel via SSE */}
-      <ClientsList
-        clients={clients.map((c) => ({
-          id: c.id,
-          firstName: c.firstName,
-          lastName: c.lastName,
-          company: c.company,
-          email: c.email,
-          siret: c.siret,
-          status: c.status,
-          createdAt: c.createdAt.toISOString(),
-          lastSeenAt: c.activity?.lastSeenAt?.toISOString() ?? null,
-        }))}
-      />
-      </>
-      )}
+      {/* Liste des clients */}
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border table-header">
+                <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">Client</th>
+                <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">Société</th>
+                <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">Email</th>
+                <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">SIRET</th>
+                <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider">Statut</th>
+                <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">Dernière connexion</th>
+                <th className="px-5 py-3 text-left text-xs font-body font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap">Inscription</th>
+                <th className="px-5 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {clients.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-8 text-center text-text-secondary font-body text-sm">
+                    Aucun client trouvé.
+                  </td>
+                </tr>
+              ) : (
+                clients.map((c) => (
+                  <tr key={c.id} className="border-b border-border last:border-0 hover:bg-bg-secondary transition-colors">
+                    <td className="px-5 py-4">
+                      <p className="font-body font-semibold text-text-primary text-sm">
+                        {c.firstName} {c.lastName}
+                      </p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="font-body text-sm text-text-secondary">{c.company}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="font-body text-sm text-text-secondary">{c.email}</p>
+                    </td>
+                    <td className="px-5 py-4 whitespace-nowrap">
+                      <p className="font-mono text-sm text-text-secondary">{c.siret}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className={`badge ${
+                        c.status === "APPROVED" ? "badge-success" :
+                        c.status === "PENDING" ? "badge-warning" :
+                        "badge-error"
+                      }`}>
+                        {c.status === "APPROVED" ? "Approuvé" :
+                         c.status === "PENDING" ? "En attente" :
+                         "Rejeté"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 whitespace-nowrap">
+                      <p className={`font-body text-xs ${c.lastLoginAt ? "text-text-secondary" : "text-text-muted"}`}>
+                        {formatTimeAgo(c.lastLoginAt)}
+                      </p>
+                    </td>
+                    <td className="px-5 py-4 whitespace-nowrap">
+                      <p className="font-body text-xs text-text-secondary">
+                        {new Date(c.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
+                      </p>
+                    </td>
+                    <td className="px-5 py-4 text-right whitespace-nowrap">
+                      <Link
+                        href={`/admin/utilisateurs/${c.id}`}
+                        className="text-sm text-text-secondary hover:text-text-primary font-body font-medium transition-colors underline underline-offset-2"
+                      >
+                        Voir
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

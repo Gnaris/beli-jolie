@@ -12,7 +12,6 @@ import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
 import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
 import AccessCodeTracker from "@/components/layout/AccessCodeTracker";
 import GuestBanner from "@/components/layout/GuestBanner";
-import HeartbeatTracker from "@/components/layout/HeartbeatTracker";
 import { getCachedShopName, getCachedBusinessHours, getCachedSiteConfig } from "@/lib/cached-data";
 import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
@@ -135,7 +134,6 @@ export default async function RootLayout({
                 <LoadingOverlayProvider>
                   <GuestBanner />
                   <AccessCodeTracker />
-                  <HeartbeatTracker />
                   {children}
                   <ChatWidgetLoader businessHours={businessHours} />
                   <AdminChatWidgetLoader />

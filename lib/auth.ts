@@ -88,8 +88,11 @@ export const authOptions: NextAuthOptions = {
           throw new Error(INVALID_CREDENTIALS);
         }
 
-        // Connexion réussie — reset du lockout
-        await recordLoginSuccess(email, ip);
+        // Connexion réussie — reset du lockout + enregistrer date de connexion
+        await Promise.all([
+          recordLoginSuccess(email, ip),
+          prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
+        ]);
 
         // Retour de l'utilisateur (sans le mot de passe)
         return {
@@ -156,7 +159,10 @@ export const authOptions: NextAuthOptions = {
           throw new Error(INVALID);
         }
 
-        await recordLoginSuccess(email, ip);
+        await Promise.all([
+          recordLoginSuccess(email, ip),
+          prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
+        ]);
 
         return {
           id: user.id,

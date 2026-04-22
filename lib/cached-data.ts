@@ -429,27 +429,6 @@ export const getCachedDashboardStats = unstable_cache(
   { revalidate: 300, tags: ["orders", "products", "users"] }
 );
 
-// ─── Visit stats (today / this week / this month) ────────────────────────────
-export const getCachedVisitStats = unstable_cache(
-  async () => {
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayOfWeek = now.getDay(); // 0=Sun
-    const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    const [today, thisWeek, thisMonth] = await Promise.all([
-      prisma.visit.count({ where: { createdAt: { gte: startOfDay } } }),
-      prisma.visit.count({ where: { createdAt: { gte: startOfWeek } } }),
-      prisma.visit.count({ where: { createdAt: { gte: startOfMonth } } }),
-    ]);
-
-    return { today, thisWeek, thisMonth };
-  },
-  ["visit-stats"],
-  { revalidate: 300, tags: ["visits"] }
-);
 
 export const getCachedLowStockCount = unstable_cache(
   async () => {

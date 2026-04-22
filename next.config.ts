@@ -4,7 +4,7 @@ import createNextIntlPlugin from "next-intl/plugin";
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdfkit", "sharp", "exceljs"],
+  serverExternalPackages: ["pdfkit", "sharp", "exceljs", "playwright"],
 
   // Expose R2_PUBLIC_URL to client components as NEXT_PUBLIC_R2_URL
   env: {
