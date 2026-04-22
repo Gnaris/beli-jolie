@@ -7,7 +7,7 @@
  * so the image folder we ship in the ZIP is for PFS's manual upload only.
  */
 
-import type { ExportProduct, ExportVariant } from "./types";
+import type { ExportProduct } from "./types";
 
 /**
  * Label used for a variant in PFS image filenames.
@@ -20,19 +20,50 @@ export function variantColorSlug(product: ExportProduct, idx: number): string {
   if (!v) return `v${idx + 1}`;
   const override = v.pfsColorOverride?.trim();
   if (override) return override;
-  return [...v.colorNames, ...v.subColorNames].join("_") || `v${idx + 1}`;
+  return [...v.colorNames, ...v.subColorNames].join(" ") || `v${idx + 1}`;
 }
 
 /**
  * PFS-friendly color token for a filename: collapse all whitespace so
  * "Bleu Irisé" becomes "BleuIrisé". Diacritics and casing are preserved
  * so the PFS team can recognize their own reference labels. Filesystem-
- * unsafe characters are stripped to keep the archive portable.
+ * unsafe characters and underscores are stripped — PFS expects
+ * "reference couleur position" with no underscore anywhere.
  */
 export function formatPfsColorForFilename(input: string): string {
   const stripped = input
     .replace(/\s+/g, "")
-    .replace(/[/\\:*?"<>|]/g, "")
+    .replace(/[/\\:*?"<>|_]/g, "")
     .trim();
   return stripped.slice(0, 80) || "x";
+}
+
+/**
+ * PFS reference token for a filename: strip diacritics and any non-alphanumeric
+ * character (spaces, underscores, punctuation). PFS expects the reference
+ * as a compact alphanumeric token, e.g. "REF-123 A" → "REF123A".
+ */
+export function formatPfsReferenceForFilename(input: string): string {
+  return (
+    input
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "")
+      .slice(0, 40) || "x"
+  );
+}
+
+/**
+ * Build a PFS image filename in the exact format PFS expects:
+ * `<reference> <couleur> <position>.jpg` — three tokens separated by spaces,
+ * no underscore anywhere.
+ */
+export function pfsImageFileName(
+  reference: string,
+  variantLabel: string,
+  imageIdx: number,
+): string {
+  const refPart = formatPfsReferenceForFilename(reference);
+  const colorPart = formatPfsColorForFilename(variantLabel || "x");
+  return `${refPart} ${colorPart} ${imageIdx + 1}.jpg`;
 }

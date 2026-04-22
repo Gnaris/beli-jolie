@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { suggestIso2FromName, COUNTRY_ISO2_OPTIONS } from "@/lib/marketplace-excel/country-iso";
+import { PFS_COUNTRIES } from "@/lib/marketplace-excel/pfs-taxonomy";
 
 describe("country-iso — suggestIso2FromName", () => {
   it("resolves common countries case and accent insensitively", () => {
@@ -51,5 +52,43 @@ describe("country-iso — suggestIso2FromName", () => {
     }
     const isos = new Set(COUNTRY_ISO2_OPTIONS.map((o) => o.iso));
     expect(isos.size).toBe(COUNTRY_ISO2_OPTIONS.length);
+  });
+
+  it("resolves canonical PFS country labels used by the click-to-fill suggestion", () => {
+    // These are the exact strings returned by clicking a PFS suggestion chip
+    // in the country quick-create modal. They must resolve to the ISO2 code
+    // so the Ankorstore field auto-fills in the same click.
+    const canonicalSamples: [string, string][] = [
+      ["France", "FR"],
+      ["Chine", "CN"],
+      ["Turquie", "TR"],
+      ["Italie", "IT"],
+      ["Espagne", "ES"],
+      ["Allemagne", "DE"],
+      ["Portugal", "PT"],
+      ["Brésil", "BR"],
+      ["Antilles Néerlandaises", "BQ"],
+      ["Bosnie", "BA"],
+      ["République Tchéque", "CZ"],
+      ["Viet Nam", "VN"],
+      ["Ile Maurice", "MU"],
+      ["Etats-Unis", "US"],
+      ["Hong Kong", "HK"],
+      ["Bélarus", "BY"],
+      ["Swaziland", "SZ"],
+    ];
+    for (const [name, expected] of canonicalSamples) {
+      expect(suggestIso2FromName(name), `PFS label "${name}"`).toBe(expected);
+    }
+  });
+
+  it("resolves the vast majority of PFS country labels (bonus ISO match)", () => {
+    // When the user clicks a PFS suggestion, the ISO auto-fills "if found".
+    // We don't require 100% — Kosovo etc. have no ISO2 alpha-2 in the
+    // Ankorstore sheet — but we want coverage to stay high so the feature
+    // feels reliable.
+    const resolved = PFS_COUNTRIES.filter((name) => suggestIso2FromName(name));
+    const ratio = resolved.length / PFS_COUNTRIES.length;
+    expect(ratio).toBeGreaterThan(0.9);
   });
 });

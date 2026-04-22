@@ -193,6 +193,15 @@ export default function QuickCreateModal({
       const match = pfsColorOptions?.find((o) => o.value === ref);
       if (match?.hex) setHex(match.hex);
     }
+    if (type === "country") {
+      // PFS_COUNTRIES values are canonical French country names — pre-fill
+      // the FR name, and fill the Ankorstore ISO2 code in the same click
+      // when it can be resolved (empty otherwise, so a stale ISO from a
+      // previous name does not linger).
+      setNames((prev) => ({ ...prev, fr: ref }));
+      setIsoCode(suggestIso2FromName(ref) ?? "");
+      setIsoTouched(false);
+    }
   }
 
   useEffect(() => {

@@ -3,6 +3,7 @@ import {
   isWithinBusinessHours,
   getNextOpenSlot,
   formatScheduleForDisplay,
+  getTodayHoursLabel,
   DEFAULT_BUSINESS_HOURS,
 } from "@/lib/business-hours";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
@@ -130,6 +131,43 @@ describe("business-hours", () => {
     it("shows time range for open days", () => {
       const rows = formatScheduleForDisplay(SCHEDULE);
       expect(rows[0].hours).toBe("09:00 - 18:00"); // Monday
+    });
+  });
+
+  describe("getTodayHoursLabel", () => {
+    it("returns short-form range on an open weekday", () => {
+      // Wednesday 2026-04-08 at 10:00 UTC
+      vi.setSystemTime(new Date("2026-04-08T10:00:00Z"));
+      expect(getTodayHoursLabel(SCHEDULE)).toBe("9h — 18h");
+    });
+
+    it("returns 'Fermé' on a closed day", () => {
+      // Saturday 2026-04-04 at 12:00 UTC
+      vi.setSystemTime(new Date("2026-04-04T12:00:00Z"));
+      expect(getTodayHoursLabel(SCHEDULE)).toBe("Fermé");
+    });
+
+    it("formats non-zero minutes as e.g. '9h30'", () => {
+      const scheduleWithMinutes: BusinessHoursSchedule = {
+        timezone: "UTC",
+        days: {
+          ...SCHEDULE.days,
+          "3": { open: "09:30", close: "18:15" }, // Wednesday
+        },
+      };
+      // Wednesday 2026-04-08 at 10:00 UTC
+      vi.setSystemTime(new Date("2026-04-08T10:00:00Z"));
+      expect(getTodayHoursLabel(scheduleWithMinutes)).toBe("9h30 — 18h15");
+    });
+
+    it("returns 'Fermé' when the day entry is missing", () => {
+      const partial: BusinessHoursSchedule = {
+        timezone: "UTC",
+        days: { "1": { open: "09:00", close: "18:00" } },
+      };
+      // Wednesday (day "3") at 10:00 UTC - day "3" is absent
+      vi.setSystemTime(new Date("2026-04-08T10:00:00Z"));
+      expect(getTodayHoursLabel(partial)).toBe("Fermé");
     });
   });
 

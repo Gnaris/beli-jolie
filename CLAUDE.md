@@ -40,7 +40,7 @@ Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middl
 
 - **Server actions** (`app/actions/admin/`, `app/actions/client/`) — all mutations. `requireAdmin()` / `requireAuth()` obligatoire.
 - **API routes** (`app/api/`) — webhooks (Stripe, heartbeat), SSE streams, file-serving, marketplace Excel export.
-- **Lib** (`lib/`) — business logic: `marketplace-excel/` (PFS + Ankorstore Excel generators), `pfs-api.ts` / `pfs-api-write.ts` (read + delete), `ankorstore-api.ts` / `ankorstore-api-write.ts` (read + delete), `stripe.ts`, `easy-express.ts`, `cached-data.ts`, `security.ts`, `image-processor.ts`, `r2.ts` (Cloudflare R2 storage).
+- **Lib** (`lib/`) — business logic: `marketplace-excel/` (PFS + Ankorstore Excel generators), `pfs-api.ts` / `pfs-api-write.ts` (read + delete), `ankorstore-api.ts` / `ankorstore-api-write.ts` (read + delete), `stripe.ts`, `easy-express.ts`, `email.ts` (Resend HTTP API — `sendMail()` unique point d'envoi), `notifications.ts` (emails transactionnels), `cached-data.ts`, `security.ts`, `image-processor.ts`, `r2.ts` (Cloudflare R2 storage).
 - **Components** — `components/admin/` (backoffice), `components/client/` (espace-pro), `components/ui/` (shared primitives), `components/home/` (landing page).
 
 ### Observability
@@ -65,7 +65,7 @@ Create / update on PFS + Ankorstore is handled via **manual Excel upload** (no l
 Fichiers téléchargés (en cas de succès, zéro avertissement) :
 - `pfs.xlsx` — 1 ligne par (produit × SaleType), format ANNEXE PFS (27 colonnes)
 - `ankorstore.xlsx` — 1 ligne par variante SKU (45 colonnes, URLs images R2 inline)
-- `images.zip` — ZIP contenant les images JPEG (WebP → JPEG via sharp) pour upload manuel PFS
+- `images_pfs.zip` — ZIP contenant les images JPEG au format PFS `reference couleur position.jpg` (sans underscore), converties WebP→JPEG via sharp pour upload manuel PFS
 
 Fichiers clés :
 - `lib/marketplace-excel/pfs-export.ts` — workbook PFS (utilise `PFS_GENDER_LABELS` pour mapper WOMAN→Femme)
@@ -76,9 +76,9 @@ Fichiers clés :
 - `app/api/admin/marketplace-export/route.ts` — POST `{ productIds, includePfs, includeAnkorstore }` → stream ZIP
 - `components/admin/products/MarketplaceExportButton.tsx` — bouton dans la barre d'actions multi-sélection
 
-**Delete** reste automatique (fire-and-forget via API) : `pfsCheckReference(ref)` ou `ankorstoreSearchProductsByRef(ref)` → récupère l'ID distant → DELETE. Aucun ID marketplace n'est plus stocké en DB.
+**Delete** est 100 % local : `deleteProduct(id)` et `bulkDeleteProducts(ids)` ne touchent plus aux marketplaces. L'admin retire manuellement le produit sur PFS/Ankorstore si besoin. Aucun ID marketplace n'est stocké en DB.
 
-**Famille PFS** : stockée dans `Category.pfsFamilyName` (renseignée manuellement dans l'UI catégorie). `pfsCategoryId`/`pfsGender`/`pfsFamilyId` (IDs Salesforce) conservés pour l'API delete.
+**Famille PFS** : stockée dans `Category.pfsFamilyName` (renseignée manuellement dans l'UI catégorie). `pfsCategoryId`/`pfsGender`/`pfsFamilyId` (IDs Salesforce) conservés pour référence.
 
 ### Marketplace pricing (`lib/marketplace-pricing.ts`)
 
@@ -132,7 +132,7 @@ Vitest + `__tests__/` dir. Integration tests in `__tests__/integration/` (DB-bac
 
 **Optionnelles** : `STRIPE_PLATFORM_SECRET_KEY` (Stripe Connect platform mode)
 
-**Configurables via paramètres admin** (env var = fallback, admin UI prend priorité) : `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NOTIFY_EMAIL`, `EASY_EXPRESS_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `DEEPL_API_KEY`, `PFS_EMAIL`, `PFS_PASSWORD`
+**Configurables via paramètres admin** (env var = fallback, admin UI prend priorité) : `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`, `NOTIFY_EMAIL`, `EASY_EXPRESS_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `DEEPL_API_KEY`, `PFS_EMAIL`, `PFS_PASSWORD`
 
 ### Stripe Connect
 
@@ -149,7 +149,7 @@ Dual-mode: **Platform** (`STRIPE_PLATFORM_SECRET_KEY` + per-client `stripe_conne
 | Tailwind | v4 | No config file. Theme in `globals.css` `@theme inline {}` |
 | React | 19.2.3 | |
 
-Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwright, nodemailer, DeepL (HTTP direct).
+Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwright, Resend (HTTP direct via `lib/email.ts`), DeepL (HTTP direct).
 `serverExternalPackages: ["pdfkit", "sharp", "exceljs"]` dans `next.config.ts`. Path alias: `@/*` → `./*`.
 
 ## Gotchas critiques

@@ -111,3 +111,17 @@ export function formatScheduleForDisplay(schedule: BusinessHoursSchedule): { day
     };
   });
 }
+
+/** Format "09:00" as "9h", "09:30" as "9h30" (French short form) */
+function formatHourShort(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
+}
+
+/** Label for today's hours in the schedule timezone: "9h — 18h" or "Fermé" */
+export function getTodayHoursLabel(schedule: BusinessHoursSchedule): string {
+  const { dayOfWeek } = getNowInTimezone(schedule.timezone);
+  const day = schedule.days[String(dayOfWeek)];
+  if (!day || day.closed) return "Fermé";
+  return `${formatHourShort(day.open)} — ${formatHourShort(day.close)}`;
+}

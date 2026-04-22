@@ -1,7 +1,7 @@
-import nodemailer from "nodemailer";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
-import { getCachedShopName, getCachedGmailConfig } from "@/lib/cached-data";
+import { getCachedShopName } from "@/lib/cached-data";
+import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
 
 export function generateResetToken(): string {
@@ -23,21 +23,12 @@ export async function createPasswordResetToken(email: string): Promise<string> {
 }
 
 export async function sendPasswordResetEmail(email: string, token: string): Promise<void> {
-  const [shopName, gmailCfg] = await Promise.all([getCachedShopName(), getCachedGmailConfig()]);
-  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-  if (!GMAIL_USER || !GMAIL_PASSWORD) {
-    logger.warn("[password-reset] Configuration Gmail manquante");
-    return;
-  }
+  const shopName = await getCachedShopName();
   const { NEXTAUTH_URL } = process.env;
   const resetUrl = `${NEXTAUTH_URL}/reinitialiser-mot-de-passe?token=${token}`;
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-  });
-  await transporter.sendMail({
-    from: `"${shopName}" <${GMAIL_USER}>`,
+
+  const result = await sendMail({
+    fromName: shopName,
     to: email,
     subject: `Réinitialisation de votre mot de passe — ${shopName}`,
     html: `
@@ -50,4 +41,8 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
       </div>
     `,
   });
+
+  if (!result.sent && result.reason === "no_config") {
+    logger.warn("[password-reset] Configuration Resend manquante");
+  }
 }

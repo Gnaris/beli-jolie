@@ -149,7 +149,7 @@ describe("lib/encryption", () => {
       "stripe_webhook_secret",
       "stripe_publishable_key",
       "easy_express_api_key",
-      "gmail_app_password",
+      "resend_api_key",
       "deepl_api_key",
       "pfs_email",
       "pfs_password",

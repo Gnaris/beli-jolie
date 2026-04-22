@@ -2,7 +2,7 @@
  * Build a marketplace export ZIP archive:
  *   excel/pfs.xlsx
  *   excel/ankorstore.xlsx
- *   images.zip            (nested ZIP: <reference>_<slug>_<index>.jpg at root)
+ *   images_pfs.zip        (nested ZIP: "<reference> <couleur> <position>.jpg" at root — format PFS)
  *   AVERTISSEMENTS.txt    (warnings from both workbooks, if any)
  */
 
@@ -13,27 +13,12 @@ import { downloadFromR2, r2KeyFromDbPath } from "@/lib/r2";
 import { buildPfsWorkbook } from "./pfs-export";
 import { buildAnkorstoreWorkbook } from "./ankorstore-export";
 import { loadExportContext, loadExportProducts } from "./load-products";
-import { variantColorSlug, formatPfsColorForFilename } from "./helpers";
-import type { ExportProduct } from "./types";
+import { variantColorSlug, pfsImageFileName } from "./helpers";
 
 export interface BuildArchiveOptions {
   productIds: string[];
   includePfs: boolean;
   includeAnkorstore: boolean;
-}
-
-function slug(input: string): string {
-  return input
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 40) || "x";
-}
-
-function imageFileName(product: ExportProduct, variantIdx: number, variantLabel: string, imageIdx: number): string {
-  const colorPart = formatPfsColorForFilename(variantLabel || `v${variantIdx + 1}`);
-  return `${slug(product.reference)}_${colorPart}_${imageIdx + 1}.jpg`;
 }
 
 /** Convert a WebP buffer to JPEG at quality 100 */
@@ -107,10 +92,10 @@ export async function buildMarketplaceArchive(opts: BuildArchiveOptions): Promis
             continue;
           }
 
-          let fname = imageFileName(p, vIdx, label, iIdx);
+          let fname = pfsImageFileName(p.reference, label, iIdx);
           let counter = 1;
           while (seenFilenames.has(fname)) {
-            fname = imageFileName(p, vIdx, `${label}_${counter}`, iIdx);
+            fname = pfsImageFileName(p.reference, `${label} ${counter}`, iIdx);
             counter++;
           }
           seenFilenames.add(fname);
@@ -134,7 +119,7 @@ export async function buildMarketplaceArchive(opts: BuildArchiveOptions): Promis
         type: "nodebuffer",
         compression: "DEFLATE",
       });
-      zip.file("images.zip", imagesZipBuffer);
+      zip.file("images_pfs.zip", imagesZipBuffer);
     }
   }
 

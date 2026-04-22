@@ -56,6 +56,7 @@ export async function middleware(request: NextRequest) {
 
   const isAuthenticated = !!token;
   const isAdmin = token?.role === "ADMIN";
+  const isPending = token?.status === "PENDING";
   const previewMode = request.cookies.get("bj_admin_preview")?.value === "1";
   const hasAccessCode = !!request.cookies.get("bj_access_code")?.value;
 
@@ -91,9 +92,30 @@ export async function middleware(request: NextRequest) {
   // ── Routes publiques uniquement si NON connecté ────────────────────
   if (pathname.startsWith("/connexion") || pathname.startsWith("/inscription")) {
     if (isAuthenticated) {
-      // Redirige selon le rôle
-      const redirectTo = isAdmin ? "/admin" : "/";
+      // Redirige selon le rôle / statut
+      const redirectTo = isAdmin ? "/admin" : isPending ? "/espace-pro" : "/";
       return NextResponse.redirect(new URL(redirectTo, request.url));
+    }
+    return NextResponse.next();
+  }
+
+  // ── Comptes PENDING : limités à l'espace perso ─────────────────────
+  // Peuvent se connecter, voir leur compte, modifier leurs infos
+  // mais ne peuvent pas accéder au catalogue / panier / commandes.
+  if (isAuthenticated && isPending && !isAdmin) {
+    const pendingAllowed =
+      pathname.startsWith("/espace-pro") ||
+      pathname.startsWith("/api/auth") ||
+      pathname.startsWith("/api/site-status") ||
+      pathname.startsWith("/maintenance") ||
+      pathname.startsWith("/mentions-legales") ||
+      pathname.startsWith("/cgv") ||
+      pathname.startsWith("/cgu") ||
+      pathname.startsWith("/confidentialite") ||
+      pathname.startsWith("/cookies") ||
+      pathname.startsWith("/api/legal");
+    if (!pendingAllowed) {
+      return NextResponse.redirect(new URL("/espace-pro", request.url));
     }
     return NextResponse.next();
   }

@@ -84,7 +84,7 @@ interface ProductFormProps {
     manufacturingCountryId?: string;
     seasonId?: string;
     translations?: { locale: string; name: string; description: string }[];
-    status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
+    status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING" | "IMPORTED";
     discountPercent?: string;
   };
 }
@@ -426,9 +426,11 @@ export default function ProductForm({
 
   const [error, setError] = useState("");
   const [onlineErrors, setOnlineErrors] = useState<string[]>([]);
-  const [productStatus, setProductStatus] = useState<"OFFLINE" | "ONLINE" | "ARCHIVED">(
-    initialData?.status === "SYNCING" ? "OFFLINE" : (initialData?.status ?? "OFFLINE")
-  );
+  const [productStatus, setProductStatus] = useState<"OFFLINE" | "ONLINE" | "ARCHIVED">(() => {
+    const s = initialData?.status;
+    if (s === "ONLINE" || s === "OFFLINE" || s === "ARCHIVED") return s;
+    return "OFFLINE"; // SYNCING / IMPORTED / undefined → OFFLINE par défaut
+  });
 
   // ── Touched fields for real-time validation ──────────────────────────
   const [touchedFields, setTouchedFields] = useState<Set<string>>(

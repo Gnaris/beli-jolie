@@ -2,26 +2,21 @@
 
 import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
-import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { invalidateProductTranslations } from "@/lib/translate";
 import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
-import { pfsDeleteProduct } from "@/lib/pfs-api-write";
-import { pfsCheckReference } from "@/lib/pfs-api";
-import { ankorstoreDeleteProduct } from "@/lib/ankorstore-api-write";
-import { ankorstoreSearchProductsByRef } from "@/lib/ankorstore-api";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { generateSku } from "@/lib/sku";
 import { deleteMultipleFromR2, r2KeyFromDbPath } from "@/lib/r2";
 import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
 
-// Legacy sync functions intentionally removed — Create/Update on marketplaces is now
-// handled via manual Excel upload (lib/marketplace-excel). Only DELETE remains automated,
-// and it fetches the remote product ID via search (ref) at call time.
+// Marketplace sync is fully manual: create/update/delete on PFS and Ankorstore are all
+// handled via Excel export (lib/marketplace-excel). Local product deletion never touches
+// the remote marketplaces — the admin removes the product there manually if needed.
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") {
@@ -839,85 +834,35 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
 }
 
 // ─────────────────────────────────────────────
-// Supprimer un produit (bloqué si commandes existent)
+// Supprimer un produit — suppression définitive si jamais vendu,
+// sinon archivage (obligation légale 10 ans + historique commandes)
 // ─────────────────────────────────────────────
 
-export async function deleteProduct(
-  id: string,
-  deleteFromPfs = false,
-  deleteFromAnkorstore = true,
-  forceLocalDelete = false,
-): Promise<{ success: true } | { success: false; marketplaceErrors: { marketplace: string; error: string }[] }> {
+export async function deleteProduct(id: string): Promise<{ action: "deleted" | "archived"; orderCount: number }> {
   await requireAdmin();
 
-  // Check if product has any order items (legal: 10 years retention in France)
   const product = await prisma.product.findUnique({
     where: { id },
-    select: {
-      reference: true,
-      colors: { select: { sku: true } },
-    },
+    select: { reference: true },
   });
   if (!product) throw new Error("Produit introuvable.");
 
   const orderCount = await prisma.orderItem.count({ where: { productRef: product.reference } });
+
+  // Product has been ordered → archive only (retention obligation + history integrity)
   if (orderCount > 0) {
-    throw new Error(
-      `Ce produit apparaît dans ${orderCount} commande(s). Il ne peut pas être supprimé (obligation légale 10 ans). Utilisez l'archivage à la place.`
-    );
+    await prisma.product.update({
+      where: { id },
+      data: { status: "ARCHIVED" },
+    });
+    revalidatePath("/admin/produits");
+    revalidatePath("/produits");
+    revalidateTag("products", "default");
+    emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
+    return { action: "archived", orderCount };
   }
 
-  const marketplaceErrors: { marketplace: string; error: string }[] = [];
-
-  // Delete from PFS — look up the remote product ID by reference (no longer stored locally)
-  if (deleteFromPfs && !forceLocalDelete) {
-    try {
-      const pfsRef = await pfsCheckReference(product.reference).catch(() => null);
-      const remoteId = pfsRef?.product?.id;
-      if (remoteId) {
-        await pfsDeleteProduct(remoteId);
-        logger.info(`[PFS] Product ${id} deleted from PFS`, { reference: product.reference, remoteId });
-      } else {
-        logger.info(`[PFS] Product ${id} not found on PFS, skipping delete`, { reference: product.reference });
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error(`[PFS] Failed to delete product ${id} from PFS`, { error: errMsg });
-      marketplaceErrors.push({ marketplace: "Paris Fashion Shop", error: errMsg });
-    }
-  }
-
-  // Delete from Ankorstore — search by reference, fire-and-forget
-  if (deleteFromAnkorstore && !forceLocalDelete) {
-    try {
-      const remoteProducts = await ankorstoreSearchProductsByRef(product.reference);
-      if (remoteProducts.length === 0) {
-        logger.info("[Ankorstore] Product not found on Ankorstore, skipping delete", { reference: product.reference });
-      } else {
-        const remote = remoteProducts[0];
-        const skus = remote.variants
-          .map((v) => v.sku)
-          .filter((s): s is string => !!s && s.startsWith(product.reference));
-        const result = await ankorstoreDeleteProduct(remote.id, skus);
-        if (!result.success) {
-          marketplaceErrors.push({ marketplace: "Ankorstore", error: result.error ?? "Échec de suppression" });
-        } else {
-          logger.info("[Ankorstore] Delete operation started", { id, reference: product.reference, opId: result.opId });
-        }
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.warn("[Ankorstore] Delete failed", { id, error: errMsg });
-      marketplaceErrors.push({ marketplace: "Ankorstore", error: errMsg });
-    }
-  }
-
-  // If marketplace errors and not forcing — return errors, let caller decide
-  if (marketplaceErrors.length > 0 && !forceLocalDelete) {
-    return { success: false, marketplaceErrors };
-  }
-
-  // Clean up CartItems referencing this product's variants (no cascade on CartItem.variant)
+  // Never ordered → full permanent deletion
   const variantIds = await prisma.productColor.findMany({
     where: { productId: id },
     select: { id: true },
@@ -928,7 +873,6 @@ export async function deleteProduct(
     });
   }
 
-  // Delete all product images from R2 (large + medium + thumb variants)
   const productImages = await prisma.productColorImage.findMany({
     where: { productId: id },
     select: { path: true },
@@ -951,7 +895,7 @@ export async function deleteProduct(
   await prisma.product.delete({ where: { id } });
   revalidatePath("/admin/produits");
   revalidateTag("products", "default");
-  redirect("/admin/produits");
+  return { action: "deleted", orderCount: 0 };
 }
 
 // ─────────────────────────────────────────────
@@ -1063,25 +1007,54 @@ export async function bulkUpdateProductStatus(
   return { success, errors };
 }
 
+// ─────────────────────────────────────────────
+// Prévisualisation : indique quels produits seront supprimés définitivement
+// vs archivés (déjà vendus), AVANT de lancer l'action.
+// ─────────────────────────────────────────────
+
+export async function previewProductDeletion(productIds: string[]): Promise<{
+  willDelete: { id: string; reference: string }[];
+  willArchive: { id: string; reference: string; orderCount: number }[];
+}> {
+  await requireAdmin();
+  if (productIds.length === 0) return { willDelete: [], willArchive: [] };
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, reference: true },
+  });
+  if (products.length === 0) return { willDelete: [], willArchive: [] };
+
+  const refs = products.map((p) => p.reference);
+  const orderCounts = await prisma.orderItem.groupBy({
+    by: ["productRef"],
+    where: { productRef: { in: refs } },
+    _count: { id: true },
+  });
+
+  const countByRef = new Map(orderCounts.map((oc) => [oc.productRef, oc._count.id]));
+  const willArchive = products
+    .filter((p) => (countByRef.get(p.reference) ?? 0) > 0)
+    .map((p) => ({ id: p.id, reference: p.reference, orderCount: countByRef.get(p.reference) ?? 0 }));
+  const willDelete = products
+    .filter((p) => (countByRef.get(p.reference) ?? 0) === 0)
+    .map((p) => ({ id: p.id, reference: p.reference }));
+
+  return { willDelete, willArchive };
+}
+
 export async function bulkDeleteProducts(
   productIds: string[],
-  deleteFromPfs = false,
-  deleteFromAnkorstore = true,
-  forceLocalDelete = false,
 ): Promise<{
   deleted: number;
-  protected: { id: string; reference: string; orderCount: number }[];
-  pfsDeleted: number;
-  ankorsDeleted: number;
-  marketplaceErrors: { productId: string; reference: string; marketplace: string; error: string }[];
+  archived: { id: string; reference: string; orderCount: number }[];
 }> {
   await requireAdmin();
   if (productIds.length === 0) throw new Error("Aucun produit sélectionné.");
 
-  // Find products with orders — cannot be deleted
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
-    select: { id: true, reference: true, colors: { select: { sku: true } } },
+    select: { id: true, reference: true },
   });
 
   const refToId = new Map(products.map((p) => [p.reference, p.id]));
@@ -1093,69 +1066,33 @@ export async function bulkDeleteProducts(
     _count: { id: true },
   });
 
-  const protectedRefs = new Set(orderCounts.map((oc) => oc.productRef));
-  const protectedProducts = orderCounts.map((oc) => ({
+  // Products with existing orders → archive (retention + history)
+  const orderedRefs = new Set(orderCounts.map((oc) => oc.productRef));
+  const archivedProducts = orderCounts.map((oc) => ({
     id: refToId.get(oc.productRef) ?? "",
     reference: oc.productRef,
     orderCount: oc._count.id,
   }));
+  const archivedIds = archivedProducts.map((p) => p.id).filter(Boolean);
 
+  if (archivedIds.length > 0) {
+    await prisma.product.updateMany({
+      where: { id: { in: archivedIds } },
+      data: { status: "ARCHIVED" },
+    });
+    for (const pid of archivedIds) {
+      emitProductEvent({ type: "PRODUCT_OFFLINE", productId: pid });
+    }
+  }
+
+  // Products never ordered → full permanent deletion
   const deletableIds = productIds.filter((pid) => {
     const prod = products.find((p) => p.id === pid);
-    return prod && !protectedRefs.has(prod.reference);
+    return prod && !orderedRefs.has(prod.reference);
   });
-
-  // Track marketplace errors (search-based delete — no stored IDs anymore)
-  const marketplaceErrors: { productId: string; reference: string; marketplace: string; error: string }[] = [];
-  let pfsDeleted = 0;
-  let ankorsDeleted = 0;
-
-  if (deleteFromPfs && deletableIds.length > 0 && !forceLocalDelete) {
-    for (const p of products.filter((x) => deletableIds.includes(x.id))) {
-      try {
-        const pfsRef = await pfsCheckReference(p.reference).catch(() => null);
-        const remoteId = pfsRef?.product?.id;
-        if (remoteId) {
-          await pfsDeleteProduct(remoteId);
-          pfsDeleted++;
-          logger.info(`[PFS] Product ${p.id} deleted`, { reference: p.reference, remoteId });
-        }
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        logger.error(`[PFS] Failed to delete product ${p.id}`, { error: errMsg });
-        marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Paris Fashion Shop", error: errMsg });
-      }
-    }
-  }
-
-  if (deleteFromAnkorstore && deletableIds.length > 0 && !forceLocalDelete) {
-    for (const p of products.filter((x) => deletableIds.includes(x.id))) {
-      try {
-        const remoteProducts = await ankorstoreSearchProductsByRef(p.reference);
-        if (remoteProducts.length === 0) continue;
-        const remote = remoteProducts[0];
-        const skus = remote.variants
-          .map((v) => v.sku)
-          .filter((s): s is string => !!s && s.startsWith(p.reference));
-        const result = await ankorstoreDeleteProduct(remote.id, skus);
-        if (result.success) ankorsDeleted++;
-        else marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Ankorstore", error: result.error || "Échec" });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        logger.warn("[Ankorstore] Bulk delete failed", { ref: p.reference, error: errMsg });
-        marketplaceErrors.push({ productId: p.id, reference: p.reference, marketplace: "Ankorstore", error: errMsg });
-      }
-    }
-  }
-
-  // If marketplace errors occurred and not forcing local delete — stop here, let user decide
-  if (marketplaceErrors.length > 0 && !forceLocalDelete) {
-    return { deleted: 0, protected: protectedProducts, pfsDeleted, ankorsDeleted, marketplaceErrors };
-  }
 
   let deleted = 0;
   if (deletableIds.length > 0) {
-    // Delete all product images from R2 (large + medium + thumb variants)
     const allImages = await prisma.productColorImage.findMany({
       where: { productId: { in: deletableIds } },
       select: { path: true },
@@ -1175,7 +1112,6 @@ export async function bulkDeleteProducts(
       }
     }
 
-    // Clean up CartItems referencing variants of products to delete (no cascade on CartItem.variant)
     const variantIds = await prisma.productColor.findMany({
       where: { productId: { in: deletableIds } },
       select: { id: true },
@@ -1195,7 +1131,7 @@ export async function bulkDeleteProducts(
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
-  return { deleted, protected: protectedProducts, pfsDeleted, ankorsDeleted, marketplaceErrors: [] };
+  return { deleted, archived: archivedProducts };
 }
 
 // ─────────────────────────────────────────────

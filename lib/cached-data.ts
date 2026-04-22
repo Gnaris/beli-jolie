@@ -150,20 +150,30 @@ export const getCachedEasyExpressApiKey = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-// ─── Gmail config (from SiteConfig) ──────────────────────────────────────────
-export const getCachedGmailConfig = unstable_cache(
+// ─── Resend config (from SiteConfig) ─────────────────────────────────────────
+export const getCachedResendConfig = unstable_cache(
   async () => {
     const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: ["gmail_user", "gmail_app_password", "gmail_notify_email"] } },
+      where: {
+        key: {
+          in: [
+            "resend_api_key",
+            "resend_from_email",
+            "resend_from_name",
+            "resend_notify_email",
+          ],
+        },
+      },
     });
     const map = new Map(rows.map(r => [r.key, decryptIfSensitive(r.key, r.value)]));
     return {
-      gmailUser: map.get("gmail_user") ?? null,
-      gmailPassword: map.get("gmail_app_password") ?? null,
-      notifyEmail: map.get("gmail_notify_email") ?? null,
+      apiKey: map.get("resend_api_key") ?? null,
+      fromEmail: map.get("resend_from_email") ?? null,
+      fromName: map.get("resend_from_name") ?? null,
+      notifyEmail: map.get("resend_notify_email") ?? null,
     };
   },
-  ["gmail-config"],
+  ["resend-config"],
   { revalidate: 300, tags: ["site-config"] }
 );
 

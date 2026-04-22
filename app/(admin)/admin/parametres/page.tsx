@@ -13,7 +13,7 @@ import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
 import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
 import StripeConfig from "@/components/admin/settings/StripeConfig";
-import GmailConfig from "@/components/admin/settings/GmailConfig";
+import ResendConfig from "@/components/admin/settings/ResendConfig";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
@@ -307,16 +307,16 @@ async function PaiementTab() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Email — Gmail
+   TAB : Email — Resend
    ═══════════════════════════════════════════════════════════════════════════ */
 async function EmailTab() {
-  const gmailConfig = await prisma.siteConfig.findUnique({ where: { key: "gmail_user" }, select: { key: true } });
+  const resendConfig = await prisma.siteConfig.findUnique({ where: { key: "resend_api_key" }, select: { key: true } });
 
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
       <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Notifications email</h3>
-      <p className="text-sm text-text-secondary font-body mb-4">Identifiants Gmail pour l&apos;envoi d&apos;emails (inscriptions, commandes, alertes).</p>
-      <GmailConfig hasConfig={!!gmailConfig} />
+      <p className="text-sm text-text-secondary font-body mb-4">Envoi d&apos;emails via Resend (inscriptions, commandes, alertes, réclamations).</p>
+      <ResendConfig hasConfig={!!resendConfig} />
     </div>
   );
 }

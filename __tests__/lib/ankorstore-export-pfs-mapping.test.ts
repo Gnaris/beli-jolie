@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
 import { buildAnkorstoreWorkbook } from "@/lib/marketplace-excel/ankorstore-export";
-import { variantColorSlug, formatPfsColorForFilename } from "@/lib/marketplace-excel/helpers";
+import {
+  variantColorSlug,
+  formatPfsColorForFilename,
+  formatPfsReferenceForFilename,
+  pfsImageFileName,
+} from "@/lib/marketplace-excel/helpers";
 import type { ExportContext, ExportProduct, ExportVariant } from "@/lib/marketplace-excel/types";
 
 function ctx(): ExportContext {
@@ -40,6 +45,23 @@ async function loadRow(buffer: Buffer) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   return wb.getWorksheet("Vos produits")!.getRow(2);
+}
+
+async function loadRows(buffer: Buffer) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+  const ws = wb.getWorksheet("Vos produits")!;
+  const rows = [];
+  for (let r = 2; r <= ws.rowCount; r++) rows.push(ws.getRow(r));
+  return rows;
+}
+
+function cellText(cell: ExcelJS.Cell): string {
+  const v = cell.value;
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return String(v);
+  return "";
 }
 
 describe("Ankorstore export — PFS mapping is NOT applied (scoped to PFS only)", () => {
@@ -109,7 +131,7 @@ describe("PFS image filename — variantColorSlug picks the override when presen
     expect(variantColorSlug(p, 0)).toBe("Bleu Irisé");
   });
 
-  it("falls back to concatenated color names without override", () => {
+  it("falls back to space-joined color names without override (underscores not allowed in PFS filenames)", () => {
     const p = prodWithVariant({
       variantId: "v1",
       saleType: "UNIT",
@@ -124,7 +146,7 @@ describe("PFS image filename — variantColorSlug picks the override when presen
       sku: "SKU",
       imagePaths: ["/uploads/products/a.webp"],
     });
-    expect(variantColorSlug(p, 0)).toBe("Rouge_Or");
+    expect(variantColorSlug(p, 0)).toBe("Rouge Or");
   });
 
   it("ignores whitespace-only override", () => {
@@ -165,12 +187,216 @@ describe("formatPfsColorForFilename — PFS-friendly filename chunk", () => {
     expect(formatPfsColorForFilename('A?B*C|D')).toBe("ABCD");
   });
 
-  it("leaves existing underscores untouched (used as color separator)", () => {
-    expect(formatPfsColorForFilename("Rouge_Or Rose")).toBe("Rouge_OrRose");
+  it("strips underscores — PFS filenames must not contain them", () => {
+    expect(formatPfsColorForFilename("Rouge_Or Rose")).toBe("RougeOrRose");
   });
 
   it("returns a placeholder for empty input", () => {
     expect(formatPfsColorForFilename("")).toBe("x");
     expect(formatPfsColorForFilename("   ")).toBe("x");
+  });
+});
+
+describe("formatPfsReferenceForFilename — reference token for the PFS filename", () => {
+  it("strips diacritics and keeps alphanumeric characters", () => {
+    expect(formatPfsReferenceForFilename("Réf001")).toBe("Ref001");
+  });
+
+  it("strips punctuation and whitespace", () => {
+    expect(formatPfsReferenceForFilename("REF-123 A")).toBe("REF123A");
+  });
+
+  it("strips underscores — PFS filenames must not contain them", () => {
+    expect(formatPfsReferenceForFilename("REF_001")).toBe("REF001");
+  });
+
+  it("returns a placeholder for empty input", () => {
+    expect(formatPfsReferenceForFilename("")).toBe("x");
+    expect(formatPfsReferenceForFilename("???")).toBe("x");
+  });
+});
+
+describe("Ankorstore images — 1 thumbnail per variant, product gallery on first row only", () => {
+  it("uses the variant's first image as the variant thumbnail (col 7) on every row", async () => {
+    const p = baseProduct([
+      {
+        variantId: "v1",
+        saleType: "UNIT",
+        colorNames: ["Rouge"],
+        subColorNames: [],
+        packQuantity: null,
+        sizes: [],
+        unitPrice: 10,
+        weight: 0.05,
+        stock: 5,
+        sku: "SKU-RED",
+        imagePaths: ["/uploads/products/red-1.webp", "/uploads/products/red-2.webp"],
+      },
+      {
+        variantId: "v2",
+        saleType: "UNIT",
+        colorNames: ["Bleu"],
+        subColorNames: [],
+        packQuantity: null,
+        sizes: [],
+        unitPrice: 10,
+        weight: 0.05,
+        stock: 5,
+        sku: "SKU-BLUE",
+        imagePaths: ["/uploads/products/blue-1.webp"],
+      },
+    ]);
+    const { buffer } = await buildAnkorstoreWorkbook([p], ctx());
+    const rows = await loadRows(buffer);
+    expect(rows).toHaveLength(2);
+    expect(cellText(rows[0].getCell(7))).toBe("https://cdn.test/uploads/products/red-1.webp");
+    expect(cellText(rows[1].getCell(7))).toBe("https://cdn.test/uploads/products/blue-1.webp");
+  });
+
+  it("fills the product gallery (cols 8-12) only on the first variant row, aggregating unique URLs across all variants", async () => {
+    const p = baseProduct([
+      {
+        variantId: "v1",
+        saleType: "UNIT",
+        colorNames: ["Rouge"],
+        subColorNames: [],
+        packQuantity: null,
+        sizes: [],
+        unitPrice: 10,
+        weight: 0.05,
+        stock: 5,
+        sku: "SKU-RED",
+        imagePaths: ["/uploads/products/red-1.webp", "/uploads/products/red-2.webp"],
+      },
+      {
+        variantId: "v2",
+        saleType: "UNIT",
+        colorNames: ["Bleu"],
+        subColorNames: [],
+        packQuantity: null,
+        sizes: [],
+        unitPrice: 10,
+        weight: 0.05,
+        stock: 5,
+        sku: "SKU-BLUE",
+        imagePaths: ["/uploads/products/blue-1.webp", "/uploads/products/blue-2.webp"],
+      },
+    ]);
+    const { buffer } = await buildAnkorstoreWorkbook([p], ctx());
+    const rows = await loadRows(buffer);
+
+    expect(cellText(rows[0].getCell(8))).toBe("https://cdn.test/uploads/products/red-1.webp");
+    expect(cellText(rows[0].getCell(9))).toBe("https://cdn.test/uploads/products/red-2.webp");
+    expect(cellText(rows[0].getCell(10))).toBe("https://cdn.test/uploads/products/blue-1.webp");
+    expect(cellText(rows[0].getCell(11))).toBe("https://cdn.test/uploads/products/blue-2.webp");
+    expect(cellText(rows[0].getCell(12))).toBe("");
+
+    for (let c = 8; c <= 12; c++) {
+      expect(cellText(rows[1].getCell(c))).toBe("");
+    }
+  });
+
+  it("caps the product gallery at 5 images even when variants provide more", async () => {
+    const paths = (prefix: string, n: number) =>
+      Array.from({ length: n }, (_, i) => `/uploads/products/${prefix}-${i + 1}.webp`);
+    const p = baseProduct([
+      {
+        variantId: "v1",
+        saleType: "UNIT",
+        colorNames: ["Rouge"],
+        subColorNames: [],
+        packQuantity: null,
+        sizes: [],
+        unitPrice: 10,
+        weight: 0.05,
+        stock: 5,
+        sku: "SKU-RED",
+        imagePaths: paths("red", 4),
+      },
+      {
+        variantId: "v2",
+        saleType: "UNIT",
+        colorNames: ["Bleu"],
+        subColorNames: [],
+        packQuantity: null,
+        sizes: [],
+        unitPrice: 10,
+        weight: 0.05,
+        stock: 5,
+        sku: "SKU-BLUE",
+        imagePaths: paths("blue", 3),
+      },
+    ]);
+    const { buffer } = await buildAnkorstoreWorkbook([p], ctx());
+    const rows = await loadRows(buffer);
+
+    const gallery = [8, 9, 10, 11, 12].map((c) => cellText(rows[0].getCell(c)));
+    expect(gallery).toEqual([
+      "https://cdn.test/uploads/products/red-1.webp",
+      "https://cdn.test/uploads/products/red-2.webp",
+      "https://cdn.test/uploads/products/red-3.webp",
+      "https://cdn.test/uploads/products/red-4.webp",
+      "https://cdn.test/uploads/products/blue-1.webp",
+    ]);
+  });
+
+  it("dedups URLs when variants share the same image path", async () => {
+    const shared = "/uploads/products/shared.webp";
+    const p = baseProduct([
+      {
+        variantId: "v1",
+        saleType: "UNIT",
+        colorNames: ["Rouge"],
+        subColorNames: [],
+        packQuantity: null,
+        sizes: [],
+        unitPrice: 10,
+        weight: 0.05,
+        stock: 5,
+        sku: "SKU-RED",
+        imagePaths: [shared, "/uploads/products/red-2.webp"],
+      },
+      {
+        variantId: "v2",
+        saleType: "UNIT",
+        colorNames: ["Bleu"],
+        subColorNames: [],
+        packQuantity: null,
+        sizes: [],
+        unitPrice: 10,
+        weight: 0.05,
+        stock: 5,
+        sku: "SKU-BLUE",
+        imagePaths: [shared, "/uploads/products/blue-2.webp"],
+      },
+    ]);
+    const { buffer } = await buildAnkorstoreWorkbook([p], ctx());
+    const rows = await loadRows(buffer);
+
+    expect(cellText(rows[0].getCell(8))).toBe("https://cdn.test/uploads/products/shared.webp");
+    expect(cellText(rows[0].getCell(9))).toBe("https://cdn.test/uploads/products/red-2.webp");
+    expect(cellText(rows[0].getCell(10))).toBe("https://cdn.test/uploads/products/blue-2.webp");
+    expect(cellText(rows[0].getCell(11))).toBe("");
+  });
+});
+
+describe("pfsImageFileName — exact 'reference couleur position.jpg' format", () => {
+  it("joins the three tokens with spaces (no underscore)", () => {
+    expect(pfsImageFileName("REF001", "Bleu Irisé", 0)).toBe("REF001 BleuIrisé 1.jpg");
+  });
+
+  it("uses 1-based position", () => {
+    expect(pfsImageFileName("REF001", "Rouge", 0)).toBe("REF001 Rouge 1.jpg");
+    expect(pfsImageFileName("REF001", "Rouge", 2)).toBe("REF001 Rouge 3.jpg");
+  });
+
+  it("contains no underscore even when inputs do", () => {
+    const name = pfsImageFileName("REF_001", "Rouge_Or", 0);
+    expect(name).not.toContain("_");
+    expect(name).toBe("REF001 RougeOr 1.jpg");
+  });
+
+  it("falls back to a placeholder when the color label is empty", () => {
+    expect(pfsImageFileName("REF001", "", 0)).toBe("REF001 x 1.jpg");
   });
 });

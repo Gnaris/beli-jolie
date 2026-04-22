@@ -1,17 +1,19 @@
 /**
  * lib/notifications.ts
  *
- * Envoi d'un email à l'admin lors d'une nouvelle inscription client.
- * Le Kbis est joint en pièce jointe.
+ * Envoi d'emails transactionnels (inscriptions, alertes stock, statuts commande,
+ * messages support, réclamations) via l'API Resend (lib/email.ts).
  *
- * Configuration email lue depuis les paramètres admin (SiteConfig),
- * avec fallback sur les variables d'environnement.
+ * Configuration lue depuis les paramètres admin (SiteConfig) avec fallback env vars.
  */
 
-import nodemailer from "nodemailer";
-import path from "path";
 import { prisma } from "@/lib/prisma";
-import { getCachedShopName, getCachedCompanyInfo, getCachedGmailConfig } from "@/lib/cached-data";
+import {
+  getCachedShopName,
+  getCachedCompanyInfo,
+  getCachedResendConfig,
+} from "@/lib/cached-data";
+import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
 
 function escapeHtml(str: string): string {
@@ -21,6 +23,16 @@ function escapeHtml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+async function resolveNotifyEmail(): Promise<string | null> {
+  const [cfg, companyInfo] = await Promise.all([
+    getCachedResendConfig(),
+    getCachedCompanyInfo(),
+  ]);
+  return (
+    cfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL || null
+  );
 }
 
 interface NewClientInfo {
@@ -38,41 +50,23 @@ interface NewClientInfo {
 export async function notifyNewClientRegistration(
   client: NewClientInfo
 ): Promise<void> {
-  const [shopName, companyInfo, gmailCfg] = await Promise.all([
-    getCachedShopName(), getCachedCompanyInfo(), getCachedGmailConfig(),
+  const [shopName, notifyEmail] = await Promise.all([
+    getCachedShopName(),
+    resolveNotifyEmail(),
   ]);
-  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-
-  if (!GMAIL_USER || !GMAIL_PASSWORD) {
-    logger.warn("[notifications] Configuration Gmail manquante — email ignoré.");
-    return;
-  }
-
-  const notifyEmail = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
   if (!notifyEmail) {
     logger.warn("[notifications] Aucun email destinataire configuré — email ignoré.");
     return;
   }
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-  });
-
-  // Pièce jointe Kbis (optionnelle)
   const attachments: { filename: string; path: string }[] = [];
   if (client.kbisPath) {
-    attachments.push({
-      filename: path.basename(client.kbisPath),
-      path: path.join(process.cwd(), client.kbisPath),
-    });
+    const name = client.kbisPath.split(/[\\/]/).pop() || "kbis.pdf";
+    attachments.push({ filename: name, path: client.kbisPath });
   }
   if (client.documentPath) {
-    attachments.push({
-      filename: path.basename(client.documentPath),
-      path: path.join(process.cwd(), client.documentPath),
-    });
+    const name = client.documentPath.split(/[\\/]/).pop() || "document.pdf";
+    attachments.push({ filename: name, path: client.documentPath });
   }
 
   const messageBlock = client.registrationMessage
@@ -90,8 +84,8 @@ export async function notifyNewClientRegistration(
     ? `<p style="margin-top:8px;color:#4B5563;font-size:13px;">Un document complémentaire est également joint.</p>`
     : "";
 
-  await transporter.sendMail({
-    from: `"${shopName}" <${GMAIL_USER}>`,
+  await sendMail({
+    fromName: shopName,
     to: notifyEmail,
     subject: `Nouvelle inscription client — ${client.company}`,
     html: `
@@ -151,11 +145,6 @@ export async function notifyNewClientRegistration(
  */
 export async function notifyRestockAlerts(productColorId: string): Promise<void> {
   try {
-    const gmailCfg = await getCachedGmailConfig();
-    const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-    const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-    if (!GMAIL_USER || !GMAIL_PASSWORD) return;
-
     // Find all pending alerts for this variant
     const alerts = await prisma.restockAlert.findMany({
       where: { productColorId, notified: false },
@@ -171,20 +160,14 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
     if (alerts.length === 0) return;
 
     const shopName = await getCachedShopName();
-
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-    });
-
     const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
     for (const alert of alerts) {
       const productUrl = `${baseUrl}/produits/${alert.product.id}`;
       const colorName = alert.productColor.color?.name ?? "";
 
-      await transporter.sendMail({
-        from: `"${shopName}" <${GMAIL_USER}>`,
+      const result = await sendMail({
+        fromName: shopName,
         to: alert.user.email,
         subject: `🔔 Réassort — ${alert.product.name} (${colorName})`,
         html: `
@@ -206,13 +189,17 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
         `,
       });
 
-      // Mark as notified
-      await prisma.restockAlert.update({
-        where: { id: alert.id },
-        data: { notified: true },
-      });
-    }
+      // Si config absente, on arrête tout (inutile de continuer la boucle)
+      if (!result.sent && result.reason === "no_config") return;
 
+      // Mark as notified seulement si l'envoi a réussi
+      if (result.sent) {
+        await prisma.restockAlert.update({
+          where: { id: alert.id },
+          data: { notified: true },
+        });
+      }
+    }
   } catch (err) {
     logger.error("[restock] Erreur envoi alertes", { detail: err instanceof Error ? err.message : String(err) });
   }
@@ -279,18 +266,10 @@ export async function notifyOrderStatusChange(
     const config = STATUS_CONFIG[data.newStatus];
     if (!config) return; // PENDING = no email (handled at order creation)
 
-    const [shopName, companyInfo, gmailCfg] = await Promise.all([
+    const [shopName, companyInfo] = await Promise.all([
       getCachedShopName(),
       getCachedCompanyInfo(),
-      getCachedGmailConfig(),
     ]);
-
-    const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-    const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-    if (!GMAIL_USER || !GMAIL_PASSWORD) {
-      logger.warn("[order-status-email] Configuration Gmail manquante — email ignoré.");
-      return;
-    }
 
     // Fetch order with items
     const order = await prisma.order.findUnique({
@@ -303,11 +282,6 @@ export async function notifyOrderStatusChange(
       logger.warn("[order-status-email] Commande introuvable", { orderId: data.orderId });
       return;
     }
-
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-    });
 
     const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
@@ -412,13 +386,12 @@ export async function notifyOrderStatusChange(
       </div>
     `;
 
-    await transporter.sendMail({
-      from: `"${shopName}" <${GMAIL_USER}>`,
+    await sendMail({
+      fromName: shopName,
       to: order.clientEmail,
       subject: config.subject(order.orderNumber, shopName),
       html,
     });
-
   } catch (err) {
     logger.error("[order-status-email] Erreur envoi email", { detail: err instanceof Error ? err.message : String(err) });
   }
@@ -435,27 +408,17 @@ export async function notifyAdminNewMessage(params: {
   conversationId: string;
 }) {
   const { clientName, clientCompany, subject, messagePreview, conversationId } = params;
-  const [shopName, gmailCfg, companyInfo] = await Promise.all([
-    getCachedShopName(), getCachedGmailConfig(), getCachedCompanyInfo(),
+  const [shopName, notifyEmail] = await Promise.all([
+    getCachedShopName(),
+    resolveNotifyEmail(),
   ]);
-
-  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-  if (!GMAIL_USER || !GMAIL_PASSWORD) return;
-
-  const notifyEmail = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
   if (!notifyEmail) return;
 
   const ref = `CONV-${conversationId.slice(-8).toUpperCase()}`;
   const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-  });
-
-  await transporter.sendMail({
-    from: `"${shopName || 'Boutique'}" <${GMAIL_USER}>`,
+  await sendMail({
+    fromName: shopName || "Boutique",
     to: notifyEmail,
     subject: `[${ref}] Nouveau message de ${clientCompany} — ${subject}`,
     html: `
@@ -487,24 +450,13 @@ export async function notifyClientNewReply(params: {
   conversationId: string;
 }) {
   const { clientEmail, clientName, subject, messagePreview, conversationId } = params;
-  const [shopName, gmailCfg] = await Promise.all([
-    getCachedShopName(), getCachedGmailConfig(),
-  ]);
-
-  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-  if (!GMAIL_USER || !GMAIL_PASSWORD) return;
+  const shopName = await getCachedShopName();
 
   const ref = `CONV-${conversationId.slice(-8).toUpperCase()}`;
   const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-  });
-
-  await transporter.sendMail({
-    from: `"${shopName || 'Boutique'}" <${GMAIL_USER}>`,
+  await sendMail({
+    fromName: shopName || "Boutique",
     to: clientEmail,
     subject: `[${ref}] Reponse a votre message — ${subject}`,
     html: `
@@ -537,26 +489,16 @@ export async function notifyAdminNewClaim(params: {
   claimId: string;
 }) {
   const { clientName, clientCompany, claimReference, claimType, description, claimId } = params;
-  const [shopName, gmailCfg, companyInfo] = await Promise.all([
-    getCachedShopName(), getCachedGmailConfig(), getCachedCompanyInfo(),
+  const [shopName, notifyEmail] = await Promise.all([
+    getCachedShopName(),
+    resolveNotifyEmail(),
   ]);
-
-  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-  if (!GMAIL_USER || !GMAIL_PASSWORD) return;
-
-  const notifyEmail = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
   if (!notifyEmail) return;
 
   const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-  });
-
-  await transporter.sendMail({
-    from: `"${shopName || 'Boutique'}" <${GMAIL_USER}>`,
+  await sendMail({
+    fromName: shopName || "Boutique",
     to: notifyEmail,
     subject: `Nouvelle reclamation ${claimReference} — ${clientCompany}`,
     html: `
@@ -593,13 +535,7 @@ export async function notifyClientClaimUpdate(params: {
   claimId: string;
 }) {
   const { clientEmail, clientName, claimReference, newStatus, message, claimId } = params;
-  const [shopName, gmailCfg] = await Promise.all([
-    getCachedShopName(), getCachedGmailConfig(),
-  ]);
-
-  const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-  const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-  if (!GMAIL_USER || !GMAIL_PASSWORD) return;
+  const shopName = await getCachedShopName();
 
   const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
   const statusLabels: Record<string, string> = {
@@ -611,13 +547,8 @@ export async function notifyClientClaimUpdate(params: {
     CLOSED: "cloturee",
   };
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-  });
-
-  await transporter.sendMail({
-    from: `"${shopName || 'Boutique'}" <${GMAIL_USER}>`,
+  await sendMail({
+    fromName: shopName || "Boutique",
     to: clientEmail,
     subject: `Reclamation ${claimReference} — ${statusLabels[newStatus] || newStatus}`,
     html: `

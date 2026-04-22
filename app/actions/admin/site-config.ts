@@ -180,16 +180,17 @@ export async function validateEasyExpressApiKey(
   }
 }
 
-// ─── Gmail Configuration ─────────────────────────────────────────────────────
+// ─── Resend (Email) Configuration ───────────────────────────────────────────
 
-export async function updateGmailConfig(config: {
-  gmailUser: string;
-  gmailPassword: string;
+export async function updateResendConfig(config: {
+  apiKey: string;
+  fromEmail: string;
+  fromName: string;
   notifyEmail: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    const { gmailUser, gmailPassword, notifyEmail } = config;
+    const { apiKey, fromEmail, fromName, notifyEmail } = config;
 
     const upsertOrDelete = (key: string, value: string) => {
       const trimmed = value.trim();
@@ -203,9 +204,10 @@ export async function updateGmailConfig(config: {
     };
 
     await Promise.all([
-      upsertOrDelete("gmail_user", gmailUser),
-      upsertOrDelete("gmail_app_password", gmailPassword),
-      upsertOrDelete("gmail_notify_email", notifyEmail),
+      upsertOrDelete("resend_api_key", apiKey),
+      upsertOrDelete("resend_from_email", fromEmail),
+      upsertOrDelete("resend_from_name", fromName),
+      upsertOrDelete("resend_notify_email", notifyEmail),
     ]);
 
     revalidatePath("/admin/parametres");
@@ -216,21 +218,15 @@ export async function updateGmailConfig(config: {
   }
 }
 
-export async function validateGmailConfig(config: {
-  gmailUser: string;
-  gmailPassword: string;
+export async function validateResendConfig(config: {
+  apiKey: string;
 }): Promise<{ valid: boolean; error?: string }> {
   try {
     await requireAdmin();
-    const nodemailer = (await import("nodemailer")).default;
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: config.gmailUser.trim(), pass: config.gmailPassword.trim() },
-    });
-    await transporter.verify();
-    return { valid: true };
+    const { validateResendApiKey } = await import("@/lib/email");
+    return await validateResendApiKey(config.apiKey);
   } catch (e) {
-    return { valid: false, error: e instanceof Error ? e.message : "Identifiants Gmail invalides." };
+    return { valid: false, error: e instanceof Error ? e.message : "Erreur de validation." };
   }
 }
 

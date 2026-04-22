@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import nodemailer from "nodemailer";
-import { getCachedShopName, getCachedCompanyInfo, getCachedGmailConfig } from "@/lib/cached-data";
+import {
+  getCachedShopName,
+  getCachedCompanyInfo,
+  getCachedResendConfig,
+} from "@/lib/cached-data";
+import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
 
 /**
@@ -31,21 +35,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Envoyer l'email à l'admin
-    const [shopName, companyInfo, gmailCfg] = await Promise.all([
-      getCachedShopName(), getCachedCompanyInfo(), getCachedGmailConfig(),
+    const [shopName, companyInfo, resendCfg] = await Promise.all([
+      getCachedShopName(),
+      getCachedCompanyInfo(),
+      getCachedResendConfig(),
     ]);
-    const GMAIL_USER = gmailCfg.gmailUser || process.env.GMAIL_USER;
-    const GMAIL_PASSWORD = gmailCfg.gmailPassword || process.env.GMAIL_APP_PASSWORD;
-    const NOTIFY_EMAIL = gmailCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
-    if (GMAIL_USER && GMAIL_PASSWORD && NOTIFY_EMAIL) {
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: GMAIL_USER, pass: GMAIL_PASSWORD },
-      });
+    const notifyEmail =
+      resendCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
 
-      await transporter.sendMail({
-        from: `"${shopName}" <${GMAIL_USER}>`,
-        to: NOTIFY_EMAIL,
+    if (notifyEmail) {
+      await sendMail({
+        fromName: shopName,
+        to: notifyEmail,
         subject: `Demande de déblocage — ${normalizedEmail}`,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">

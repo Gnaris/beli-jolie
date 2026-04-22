@@ -7,7 +7,10 @@
  *
  * "Vos produits" sheet layout (45 columns). One row per variant (unique SKU):
  *   1 SKU, 2 Nom produit, 3 Description (min 30 chars — only on first variant),
- *   4 Taille, 5 Couleur, 6 Autres attributs, 7 Image variante, 8-12 Image 1-5,
+ *   4 Taille, 5 Couleur, 6 Autres attributs,
+ *   7 Image variante (per variant — Ankorstore caps variant thumbnails to 1),
+ *   8-12 Image produit 1-5 (product-level gallery, only on first variant row;
+ *     aggregates unique image URLs from all variants, up to 5),
  *   13 Prix gros HT, 14 Prix détail TTC, 15 TVA %, 16 Remise %, 17 Unités/paquet,
  *   18 Stock, 19 Pays ISO2, 20 Code douanier, 21 EAN,
  *   22-25 Dim unité+LWH, 26-27 Poids unité+valeur, 28-29 Volume unité+valeur,
@@ -43,6 +46,24 @@ function variantImageUrls(v: ExportVariant, ctx: ExportContext): string[] {
     const clean = p.startsWith("/") ? p.slice(1) : p;
     return base ? `${base}/${clean}` : `/${clean}`;
   });
+}
+
+/**
+ * Build the product-level gallery (Ankorstore columns "Image 1-5") by walking
+ * every variant in order and collecting unique image URLs, capped at 5.
+ */
+function productGalleryUrls(p: ExportProduct, ctx: ExportContext): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of p.variants) {
+    for (const url of variantImageUrls(v, ctx)) {
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      out.push(url);
+      if (out.length === 5) return out;
+    }
+  }
+  return out;
 }
 
 function variantSku(p: ExportProduct, v: ExportVariant, idx: number): string {
@@ -121,15 +142,16 @@ export async function buildAnkorstoreWorkbook(
     const description = p.description;
     const composition = formatCompositionShort(p);
     const iso = p.manufacturingCountryIso ?? "";
+    const gallery = productGalleryUrls(p, ctx);
 
     p.variants.forEach((v, idx) => {
       const sku = variantSku(p, v, idx);
-      const images = variantImageUrls(v, ctx);
-      const img1 = images[0] ?? "";
-      const img2 = images[1] ?? "";
-      const img3 = images[2] ?? "";
-      const img4 = images[3] ?? "";
-      const img5 = images[4] ?? "";
+      const variantThumb = variantImageUrls(v, ctx)[0] ?? "";
+      const g1 = idx === 0 ? (gallery[0] ?? "") : "";
+      const g2 = idx === 0 ? (gallery[1] ?? "") : "";
+      const g3 = idx === 0 ? (gallery[2] ?? "") : "";
+      const g4 = idx === 0 ? (gallery[3] ?? "") : "";
+      const g5 = idx === 0 ? (gallery[4] ?? "") : "";
       const unitsPerPack = v.saleType === "PACK" && v.packQuantity ? v.packQuantity : 1;
 
       ws.addRow([
@@ -139,12 +161,12 @@ export async function buildAnkorstoreWorkbook(
         variantSizeLabel(v),
         variantColorLabel(v),
         "", // Autres attributs
-        img1, // Image variante
-        img1, // Image 1
-        img2,
-        img3,
-        img4,
-        img5,
+        variantThumb, // Image variante (1 per variant — Ankorstore rule)
+        g1, // Image 1 (product gallery, first row only)
+        g2,
+        g3,
+        g4,
+        g5,
         Number(ankorstoreWholesaleHT(v, ctx).toFixed(2)),
         Number(ankorstoreRetailTTC(v, ctx).toFixed(2)),
         ctx.ankorstoreVatRate,

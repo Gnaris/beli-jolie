@@ -148,7 +148,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   } else if (statusFilter === "OFFLINE") {
     where.status = "OFFLINE";
     where.isIncomplete = false;
-  } else if (statusFilter === "ONLINE" || statusFilter === "ARCHIVED" || statusFilter === "SYNCING") {
+  } else if (statusFilter === "ONLINE" || statusFilter === "ARCHIVED" || statusFilter === "SYNCING" || statusFilter === "IMPORTED") {
     where.status = statusFilter;
   }
 
@@ -236,7 +236,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     id:              p.id,
     reference:       p.reference,
     name:            p.name,
-    status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
+    status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING" | "IMPORTED",
     isIncomplete:    p.isIncomplete,
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
@@ -274,6 +274,12 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
             </svg>
             Importer
+          </Link>
+          <Link href="/admin/produits/importer-pfs" className="btn-secondary flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z" />
+            </svg>
+            Importer depuis Paris Fashion Shop
           </Link>
           <Link href="/admin/produits/nouveau" className="btn-primary flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

@@ -40,7 +40,22 @@
       "loading": "Connexion en cours...",
       "forgotPassword": "Mot de passe oublié ?",
       "noAccount": "Pas encore de compte ?",
-      "register": "Faire une demande d'accès"
+      "register": "Faire une demande d'accès",
+      "tabPassword": "Mot de passe",
+      "tabOtp": "Code par email",
+      "otpRequestButton": "Recevoir un code",
+      "otpRequesting": "Envoi en cours...",
+      "otpCodeLabel": "Code reçu par email",
+      "otpCodePlaceholder": "123456",
+      "otpSentNotice": "Si aucun email n'arrive d'ici quelques minutes, c'est qu'aucun compte n'est associé à cette adresse.",
+      "otpSentTo": "Code envoyé à {email}.",
+      "otpExpiresIn": "Ce code expire dans {minutes} min {seconds} s.",
+      "otpExpired": "Le code a expiré. Demandez-en un nouveau.",
+      "otpResend": "Renvoyer un code",
+      "otpResendIn": "Renvoyer un code ({seconds} s)",
+      "otpBack": "← Utiliser une autre adresse",
+      "otpVerifyButton": "Se connecter",
+      "otpVerifying": "Vérification..."
     },
     "register": {
       "title": "Demande d'accès Pro",

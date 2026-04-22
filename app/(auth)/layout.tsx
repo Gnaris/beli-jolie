@@ -1,22 +1,19 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { getCachedSiteConfig, getCachedProductCount, getCachedShopName, getCachedBusinessHours } from "@/lib/cached-data";
-import BusinessHoursDisplay from "@/components/shared/BusinessHoursDisplay";
+import { getCachedSiteConfig, getCachedProductCount, getCachedShopName } from "@/lib/cached-data";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
-import FloatingGems from "@/components/ui/FloatingGems";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
-  const [config, cookieStore, productCount, shopName, businessHours] = await Promise.all([
+  const [config, cookieStore, productCount, shopName] = await Promise.all([
     getCachedSiteConfig("maintenance_mode"),
     cookies(),
     getCachedProductCount(),
     getCachedShopName(),
-    getCachedBusinessHours(),
   ]);
   const currentLocale = cookieStore.get("bj_locale")?.value ?? "fr";
   const inMaintenance = config?.value === "true";
@@ -68,13 +65,6 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
       <main className="relative flex-1 flex">
         {/* Left brand panel — desktop only, fixed height = viewport */}
         <div className="hidden lg:flex lg:w-[45%] xl:w-[40%] bg-[#111111] relative overflow-hidden flex-col justify-between p-10 xl:p-14 sticky top-0 h-screen">
-          {/* Background decorative elements */}
-          <div className="absolute inset-0 opacity-[0.06]">
-            <div className="absolute top-20 left-10 w-72 h-72 border border-white/20 rounded-full" />
-            <div className="absolute bottom-32 right-8 w-48 h-48 border border-white/20 rotate-45" />
-            <div className="absolute top-1/2 left-1/3 w-32 h-32 border border-white/20 rounded-full" />
-          </div>
-
           <div className="relative z-10">
             <Link href="/" className="font-heading text-2xl font-bold text-white animate-blur-in">
               {shopName}
@@ -104,12 +94,6 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
 
           </div>
 
-          {businessHours && (
-            <div className="relative z-10 bg-white/5 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/10">
-              <BusinessHoursDisplay schedule={businessHours} compact />
-            </div>
-          )}
-
           <div className="relative z-10 flex items-center gap-3">
             <LanguageSwitcher currentLocale={currentLocale} />
           </div>
@@ -117,7 +101,6 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
 
         {/* Right form panel — scrollable */}
         <div className="flex-1 relative flex items-center justify-center px-6 py-12 overflow-y-auto bg-bg-secondary">
-          <FloatingGems />
           <div className="relative z-10 w-full flex items-center justify-center">
             {children}
           </div>

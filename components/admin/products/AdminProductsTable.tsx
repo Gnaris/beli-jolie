@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   bulkUpdateProductStatus,
   bulkDeleteProducts,
+  previewProductDeletion,
   updateVariantQuick,
   bulkUpdateVariants,
   refreshProduct,
@@ -58,7 +59,7 @@ interface AdminProduct {
   id: string;
   reference: string;
   name: string;
-  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING" | "IMPORTED";
   isIncomplete: boolean;
   categoryName: string;
   subCategoryName: string | null;
@@ -510,6 +511,8 @@ function ProductRow({
                     ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
                     : product.status === "SYNCING"
                     ? "bg-blue-50 text-blue-700 border-blue-200"
+                    : product.status === "IMPORTED"
+                    ? "bg-[#EEF2FF] text-[#4338CA] border-[#C7D2FE]"
                     : product.status === "ARCHIVED"
                     ? "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]"
                     : "bg-bg-secondary text-text-secondary border-border"
@@ -517,10 +520,15 @@ function ProductRow({
                   <span className={`w-1.5 h-1.5 rounded-full ${
                     product.status === "ONLINE" ? "bg-[#22C55E]"
                     : product.status === "SYNCING" ? "bg-blue-500 animate-pulse"
+                    : product.status === "IMPORTED" ? "bg-[#6366F1]"
                     : product.status === "ARCHIVED" ? "bg-[#F59E0B]"
                     : "bg-[#9CA3AF]"
                   }`} />
-                  {product.status === "ONLINE" ? "En ligne" : product.status === "SYNCING" ? "Sync" : product.status === "ARCHIVED" ? "Archivé" : "Hors ligne"}
+                  {product.status === "ONLINE" ? "En ligne"
+                    : product.status === "SYNCING" ? "Import…"
+                    : product.status === "IMPORTED" ? "Importé"
+                    : product.status === "ARCHIVED" ? "Archivé"
+                    : "Hors ligne"}
                 </span>
               )}
             </div>
@@ -1305,11 +1313,54 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
     const ids = [...selectedIds];
     const count = ids.length;
 
+    // Ask the server which products will be deleted vs archived so we can show
+    // the admin exactly what the action will do before they confirm.
+    let preview: Awaited<ReturnType<typeof previewProductDeletion>>;
+    try {
+      preview = await previewProductDeletion(ids);
+    } catch (e) {
+      setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
+      return;
+    }
+
+    const deleteCount = preview.willDelete.length;
+    const archiveCount = preview.willArchive.length;
+
+    let title: string;
+    let message: string;
+    let confirmLabel: string;
+
+    if (archiveCount === 0) {
+      // Pure permanent delete path — never-sold products only.
+      title = `Supprimer définitivement ${deleteCount} produit${deleteCount > 1 ? "s" : ""} ?`;
+      message = deleteCount === 1
+        ? "Ce produit n'a jamais été vendu. Il sera supprimé définitivement (action irréversible)."
+        : "Ces produits n'ont jamais été vendus. Ils seront supprimés définitivement (action irréversible).";
+      confirmLabel = "Supprimer définitivement";
+    } else if (deleteCount === 0) {
+      // Pure archive path — every selected product already has orders.
+      const refs = preview.willArchive.map((p) => p.reference).join(", ");
+      title = `Archiver ${archiveCount} produit${archiveCount > 1 ? "s" : ""} ?`;
+      message = archiveCount === 1
+        ? `Ce produit (${refs}) a déjà été vendu. Il ne peut pas être supprimé définitivement : il sera archivé pour conserver l'historique des commandes et les factures.`
+        : `Ces produits ont déjà été vendus (${refs}). Ils ne peuvent pas être supprimés définitivement : ils seront archivés pour conserver l'historique des commandes et les factures.`;
+      confirmLabel = "Archiver";
+    } else {
+      // Mixed path — some will be deleted, some archived.
+      const deleteRefs = preview.willDelete.map((p) => p.reference).join(", ");
+      const archiveRefs = preview.willArchive.map((p) => p.reference).join(", ");
+      title = `Traiter ${count} produit${count > 1 ? "s" : ""} ?`;
+      message =
+        `${deleteCount} produit${deleteCount > 1 ? "s" : ""} jamais vendu${deleteCount > 1 ? "s" : ""} sera supprimé${deleteCount > 1 ? "s" : ""} définitivement : ${deleteRefs}.\n\n` +
+        `${archiveCount} produit${archiveCount > 1 ? "s" : ""} déjà vendu${archiveCount > 1 ? "s" : ""} sera archivé${archiveCount > 1 ? "s" : ""} (historique conservé) : ${archiveRefs}.`;
+      confirmLabel = "Supprimer et archiver";
+    }
+
     const confirmed = await confirm({
       type: "danger",
-      title: `Supprimer ${count} produit${count > 1 ? "s" : ""} ?`,
-      message: "Cette action est irréversible. Les produits sans commandes seront définitivement supprimés (également sur PFS et Ankorstore si le produit y est trouvé).",
-      confirmLabel: "Supprimer",
+      title,
+      message,
+      confirmLabel,
       cancelLabel: "Annuler",
     });
     if (!confirmed) return;
@@ -1319,55 +1370,17 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
     showLoading();
     startTransition(async () => {
       try {
-        const result = await bulkDeleteProducts(ids, true, true, false);
-
-        if (result.marketplaceErrors.length > 0) {
-          const errorLines = result.marketplaceErrors.map(
-            (e) => `• ${e.reference} (${e.marketplace}) : ${e.error}`
-          );
-          const forceConfirmed = await confirm({
-            type: "warning",
-            title: "Échec de suppression sur les marketplaces",
-            message: `La suppression a échoué sur certaines marketplaces :\n\n${errorLines.join("\n")}\n\nSupprimer localement quand même ?`,
-            confirmLabel: "Supprimer localement",
-            cancelLabel: "Annuler",
-          });
-
-          if (!forceConfirmed) {
-            setBulkMessage({
-              type: "error",
-              text: `Suppression annulée — échec marketplace pour ${result.marketplaceErrors.map((e) => e.reference).join(", ")}`,
-            });
-            setDeletingIds(new Set());
-            return;
-          }
-
-          const forceResult = await bulkDeleteProducts(ids, false, false, true);
-          const msgs: string[] = [];
-          if (forceResult.deleted > 0) {
-            msgs.push(`${forceResult.deleted} produit${forceResult.deleted > 1 ? "s" : ""} supprimé${forceResult.deleted > 1 ? "s" : ""} localement`);
-          }
-          msgs.push(`⚠ ${result.marketplaceErrors.length} produit(s) encore présent(s) sur les marketplaces`);
-          if (forceResult.protected.length > 0) {
-            const refs = forceResult.protected.map((p) => p.reference).join(", ");
-            msgs.push(`${forceResult.protected.length} protégé(s) (commandes existantes) : ${refs} — utilisez l'archivage`);
-          }
-          setBulkMessage({ type: "error", text: msgs.join(" — ") });
-          setSelectedIds(new Set());
-          return;
-        }
+        const result = await bulkDeleteProducts(ids);
 
         const msgs: string[] = [];
-        if (result.deleted > 0) msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""}`);
-        if (result.pfsDeleted > 0) msgs.push(`${result.pfsDeleted} sur PFS`);
-        if (result.ankorsDeleted > 0) msgs.push(`${result.ankorsDeleted} sur Ankorstore`);
-        if (result.protected.length > 0) {
-          const refs = result.protected.map((p) => p.reference).join(", ");
-          msgs.push(`${result.protected.length} protégé(s) (commandes existantes) : ${refs} — utilisez l'archivage`);
+        if (result.deleted > 0) msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""} définitivement`);
+        if (result.archived.length > 0) {
+          const refs = result.archived.map((p) => p.reference).join(", ");
+          msgs.push(`${result.archived.length} archivé${result.archived.length > 1 ? "s" : ""} (commandes existantes) : ${refs}`);
         }
         setBulkMessage({
-          type: result.protected.length > 0 ? "error" : "success",
-          text: msgs.join(" — "),
+          type: "success",
+          text: msgs.join(" — ") || "Aucun produit traité",
         });
         setSelectedIds(new Set());
       } catch (e) {

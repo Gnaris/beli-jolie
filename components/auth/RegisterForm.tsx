@@ -5,10 +5,19 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { registerSchema } from "@/lib/validations/auth";
 import StaffAvailability from "@/components/auth/StaffAvailability";
+import type { BusinessHoursSchedule } from "@/lib/business-hours";
 
 type FieldErrors = Partial<Record<string, string>>;
 
-export default function RegisterForm({ productCount }: { productCount?: number }) {
+export default function RegisterForm({
+  productCount,
+  todayHoursLabel,
+  schedule,
+}: {
+  productCount?: number;
+  todayHoursLabel?: string;
+  schedule?: BusinessHoursSchedule;
+}) {
   const t = useTranslations("auth.register");
 
   const [fields, setFields] = useState({
@@ -247,8 +256,10 @@ export default function RegisterForm({ productCount }: { productCount?: number }
           </div>
         )}
         <div className="bg-bg-primary rounded-xl border border-border p-4 text-center">
-          <p className="font-heading text-xl font-bold text-text-primary">9h — 22h</p>
-          <p className="text-xs text-text-muted font-body mt-0.5">validation rapide</p>
+          <p className="font-heading text-xl font-bold text-text-primary">{todayHoursLabel ?? "9h — 22h"}</p>
+          <p className="text-xs text-text-muted font-body mt-0.5">
+            {todayHoursLabel === "Fermé" ? "aujourd'hui" : "validation rapide"}
+          </p>
         </div>
         <div className="bg-bg-primary rounded-xl border border-border p-4 text-center">
           <p className="font-heading text-xl font-bold text-text-primary">Prix HT</p>
@@ -258,7 +269,7 @@ export default function RegisterForm({ productCount }: { productCount?: number }
 
       {/* ── Disponibilité staff ── */}
       <div className="mb-6">
-        <StaffAvailability />
+        <StaffAvailability schedule={schedule} />
       </div>
 
       {/* ── Code d'invitation ── */}

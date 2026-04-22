@@ -110,7 +110,8 @@ enum ProductStatus {
   OFFLINE // Hors ligne (brouillon)
   ONLINE // En ligne (visible sur le catalogue public)
   ARCHIVED // Archivé (invisible, conservé pour historique commandes)
-  SYNCING // Synchronisation PFS en cours (invisible, passe ONLINE quand images prêtes)
+  SYNCING // Importation en cours (images en téléchargement depuis PFS)
+  IMPORTED // Importation terminée, attente décision admin (ONLINE ou OFFLINE)
 }
 
 // Catégorie principale (ex: Colliers, Bracelets)
@@ -989,6 +990,22 @@ model PasswordResetToken {
 
   @@index([email])
   @@index([token])
+}
+
+// ─────────────────────────────────────────────
+// Code OTP pour connexion sans mot de passe
+// ─────────────────────────────────────────────
+
+model LoginOtp {
+  id        String    @id @default(cuid())
+  email     String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email, createdAt])
 }
 
 // ─────────────────────────────────────────────
