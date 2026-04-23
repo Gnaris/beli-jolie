@@ -1,0 +1,190 @@
+"use client";
+
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  refreshProductOnMarketplaces,
+  type MarketplaceRefreshOptions,
+  type MarketplaceRefreshOutcome,
+} from "@/app/actions/admin/marketplace-refresh";
+
+export type QueueItemStatus = "queued" | "in_progress" | "done";
+
+export type TargetOutcome =
+  | { ok: true; archived?: boolean; opId?: string; warning?: string }
+  | { ok: false; kind: "not_found" | "error"; message: string };
+
+export interface PfsRefreshItem {
+  id: string;
+  productId: string;
+  reference: string;
+  productName: string;
+  firstImage: string | null;
+  options: MarketplaceRefreshOptions;
+  status: QueueItemStatus;
+  localOutcome?: TargetOutcome;
+  pfsOutcome?: TargetOutcome;
+  ankorstoreOutcome?: TargetOutcome;
+}
+
+export interface PfsRefreshEnqueueInput {
+  productId: string;
+  reference: string;
+  productName: string;
+  firstImage?: string | null;
+  options: MarketplaceRefreshOptions;
+}
+
+interface PfsRefreshContextValue {
+  items: PfsRefreshItem[];
+  enqueue: (inputs: PfsRefreshEnqueueInput[]) => void;
+  clear: () => void;
+  isAllFinished: boolean;
+  runningCount: number;
+  queuedCount: number;
+}
+
+const PfsRefreshContext = createContext<PfsRefreshContextValue | null>(null);
+
+export function usePfsRefreshQueue(): PfsRefreshContextValue {
+  const ctx = useContext(PfsRefreshContext);
+  if (!ctx) throw new Error("usePfsRefreshQueue must be used within <PfsRefreshProvider>");
+  return ctx;
+}
+
+function uid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+export function hasError(item: PfsRefreshItem): boolean {
+  if (item.pfsOutcome && !item.pfsOutcome.ok) return true;
+  if (item.ankorstoreOutcome && !item.ankorstoreOutcome.ok) return true;
+  return false;
+}
+
+function outcomesFromServer(outcome: MarketplaceRefreshOutcome): {
+  localOutcome?: TargetOutcome;
+  pfsOutcome?: TargetOutcome;
+  ankorstoreOutcome?: TargetOutcome;
+} {
+  const result: ReturnType<typeof outcomesFromServer> = {};
+
+  if (outcome.local.status === "ok") {
+    result.localOutcome = { ok: true };
+  }
+
+  if (outcome.pfs) {
+    if (outcome.pfs.status === "ok") {
+      result.pfsOutcome = { ok: true, archived: outcome.pfs.archived };
+    } else if (outcome.pfs.status === "not_found") {
+      result.pfsOutcome = { ok: false, kind: "not_found", message: outcome.pfs.message };
+    } else {
+      result.pfsOutcome = { ok: false, kind: "error", message: outcome.pfs.message };
+    }
+  }
+
+  if (outcome.ankorstore) {
+    if (outcome.ankorstore.status === "ok") {
+      result.ankorstoreOutcome = {
+        ok: true,
+        opId: outcome.ankorstore.opId,
+        warning: outcome.ankorstore.warning,
+      };
+    } else if (outcome.ankorstore.status === "not_found") {
+      result.ankorstoreOutcome = { ok: false, kind: "not_found", message: outcome.ankorstore.message };
+    } else {
+      result.ankorstoreOutcome = { ok: false, kind: "error", message: outcome.ankorstore.message };
+    }
+  }
+
+  return result;
+}
+
+export function PfsRefreshProvider({ children }: { children: React.ReactNode }) {
+  const [items, setItems] = useState<PfsRefreshItem[]>([]);
+  const runningIdRef = useRef<string | null>(null);
+
+  const enqueue = useCallback((inputs: PfsRefreshEnqueueInput[]) => {
+    if (inputs.length === 0) return;
+    setItems((prev) => [
+      ...prev,
+      ...inputs.map((input) => ({
+        id: uid(),
+        productId: input.productId,
+        reference: input.reference,
+        productName: input.productName,
+        firstImage: input.firstImage ?? null,
+        options: input.options,
+        status: "queued" as QueueItemStatus,
+      })),
+    ]);
+  }, []);
+
+  const clear = useCallback(() => {
+    setItems([]);
+  }, []);
+
+  // Queue processor — runs next queued item sequentially
+  useEffect(() => {
+    if (runningIdRef.current) return;
+    const next = items.find((i) => i.status === "queued");
+    if (!next) return;
+
+    runningIdRef.current = next.id;
+    setItems((prev) => prev.map((i) => (i.id === next.id ? { ...i, status: "in_progress" } : i)));
+
+    (async () => {
+      try {
+        const outcome = await refreshProductOnMarketplaces(next.productId, next.options);
+        const parsed = outcomesFromServer(outcome);
+        setItems((prev) =>
+          prev.map((i) => (i.id === next.id ? { ...i, status: "done", ...parsed } : i)),
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id === next.id
+              ? {
+                  ...i,
+                  status: "done",
+                  pfsOutcome: next.options.pfs
+                    ? { ok: false, kind: "error", message }
+                    : i.pfsOutcome,
+                  ankorstoreOutcome: next.options.ankorstore
+                    ? { ok: false, kind: "error", message }
+                    : i.ankorstoreOutcome,
+                }
+              : i,
+          ),
+        );
+      } finally {
+        runningIdRef.current = null;
+      }
+    })();
+  }, [items]);
+
+  const runningCount = items.filter((i) => i.status === "in_progress").length;
+  const queuedCount = items.filter((i) => i.status === "queued").length;
+  const isAllFinished = items.length > 0 && runningCount === 0 && queuedCount === 0;
+
+  const value: PfsRefreshContextValue = {
+    items,
+    enqueue,
+    clear,
+    isAllFinished,
+    runningCount,
+    queuedCount,
+  };
+
+  return <PfsRefreshContext.Provider value={value}>{children}</PfsRefreshContext.Provider>;
+}

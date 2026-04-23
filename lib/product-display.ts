@@ -201,7 +201,10 @@ export async function fetchCarouselProducts(
     case "new":
       return prisma.product.findMany({
         where: { status: "ONLINE" },
-        orderBy: { createdAt: "desc" },
+        orderBy: [
+          { lastRefreshedAt: { sort: "desc", nulls: "last" } },
+          { createdAt: "desc" },
+        ],
         take: carousel.quantity,
         select: CAROUSEL_SELECT,
       });

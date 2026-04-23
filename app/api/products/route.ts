@@ -210,14 +210,21 @@ export async function GET(request: NextRequest) {
     ...(collection && { collections: { some: { collectionId: collection } } }),
     ...(tagId      && { tags: { some: { tagId } } }),
     ...(bestseller && { isBestSeller: true }),
-    ...(isNew      && { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+    ...(isNew      && {
+      OR: [
+        { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+        { lastRefreshedAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+      ],
+    }),
     ...(ordered && userOrderedRefs.length > 0 && { reference: { in: userOrderedRefs } }),
     ...(ordered && userOrderedRefs.length === 0 && { id: "___none___" }),
   };
 
   const products = await prisma.product.findMany({
     where,
-    orderBy: isNew ? { updatedAt: "desc" } : { createdAt: "desc" },
+    orderBy: isNew
+      ? [{ lastRefreshedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
+      : { createdAt: "desc" },
     skip:    (page - 1) * PER_PAGE,
     take:    PER_PAGE,
     include: PRODUCT_INCLUDE,

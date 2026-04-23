@@ -1320,7 +1320,7 @@ export async function refreshProduct(productId: string): Promise<void> {
 
   await prisma.product.update({
     where: { id: productId },
-    data: { createdAt: new Date() },
+    data: { lastRefreshedAt: new Date() },
   });
 
   revalidatePath("/admin/produits");

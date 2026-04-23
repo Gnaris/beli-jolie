@@ -7,6 +7,7 @@ import type { VariantState, ColorImageState } from "@/components/admin/products/
 import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapper";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
+import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -336,9 +337,29 @@ export default async function ModifierProduitPage({
                     {product.updatedAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </p>
+                {product.lastRefreshedAt && (
+                  <>
+                    <span className="hidden sm:block h-4 w-px bg-border" />
+                    <p className="inline-flex items-center gap-1 text-[11px] text-[#4F46E5] font-body">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+                      </svg>
+                      Rafraîchi le{" "}
+                      <span className="font-medium">
+                        {product.lastRefreshedAt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </p>
+                  </>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <ProductEditRefreshButton
+                productId={product.id}
+                reference={product.reference}
+                productName={product.name}
+                firstImage={colorImagesDb[0]?.path ?? null}
+              />
               <Link
                 href={`/produits/${product.id}`}
                 target="_blank"

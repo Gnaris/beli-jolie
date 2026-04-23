@@ -5,7 +5,7 @@
  *   1. Collecte les attributs PFS utilisés par le catalogue + vérifie s'ils sont mappés chez nous
  *   2. Liste les produits PFS dont la référence n'existe pas encore chez nous
  *   3. Approbation d'un produit : création immédiate en statut SYNCING, puis
- *      téléchargement des images en arrière-plan (SYNCING → IMPORTED une fois prêt)
+ *      téléchargement des images en arrière-plan (SYNCING → OFFLINE une fois prêt)
  */
 
 import { prisma } from "@/lib/prisma";
@@ -23,6 +23,14 @@ import { getImagePaths } from "@/lib/image-utils";
 import { r2KeyFromDbPath, deleteMultipleFromR2 } from "@/lib/r2";
 import { emitProductEvent } from "@/lib/product-events";
 import { generateSku } from "@/lib/sku";
+import {
+  autoTranslateCategory,
+  autoTranslateColor,
+  autoTranslateComposition,
+  autoTranslateManufacturingCountry,
+  autoTranslateProduct,
+  autoTranslateSeason,
+} from "@/lib/auto-translate";
 
 // ─────────────────────────────────────────────
 // Types exportés
@@ -60,6 +68,23 @@ export interface ImportablePfsProduct {
   colorCount: number;
   variantCount: number;
   defaultImage: string | null;
+}
+
+/** Erreur levée quand l'import a été annulé par l'utilisateur en cours de route. */
+export class PfsImportCancelledError extends Error {
+  constructor(message = "Import annulé") {
+    super(message);
+    this.name = "PfsImportCancelledError";
+  }
+}
+
+export interface ImportCancellationOptions {
+  /** Callback synchrone : retourne true si l'import doit être interrompu. */
+  isCancelled?: () => boolean;
+}
+
+function throwIfCancelled(isCancelled?: () => boolean): void {
+  if (isCancelled?.()) throw new PfsImportCancelledError();
 }
 
 // ─────────────────────────────────────────────
@@ -117,6 +142,46 @@ function splitSizesString(raw: string | null | undefined): string[] {
     .split(/[;,/]/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/** Normalise une chaîne pour comparaison de clés d'images (majuscules, sans accents) */
+function normalizeKey(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * Extrait les images d'un objet `Record<clé, url|url[]>` pour des couleurs données.
+ * Compare la clé à la référence PFS (ex: "GOLDEN") et au label localisé (ex: "Doré"),
+ * sans sensibilité à la casse ni aux accents.
+ * Ne collecte JAMAIS les clés génériques ("DEFAUT", "DEFAULT") — elles ne sont pas
+ * spécifiques à une couleur et produiraient la même image sur chaque variante.
+ */
+export function collectImagesForColors(
+  source: Record<string, string | string[]> | null | undefined,
+  colors: PfsColorInfo[],
+): string[] {
+  if (!source) return [];
+  const wanted = new Set<string>();
+  for (const col of colors) {
+    if (col?.reference) wanted.add(normalizeKey(col.reference));
+    const labels = col?.labels ?? {};
+    for (const label of Object.values(labels)) {
+      if (label) wanted.add(normalizeKey(label));
+    }
+  }
+  if (wanted.size === 0) return [];
+  const out: string[] = [];
+  for (const key of Object.keys(source)) {
+    if (!wanted.has(normalizeKey(key))) continue;
+    const val = source[key];
+    if (Array.isArray(val)) out.push(...val.filter((u) => !!u));
+    else if (val) out.push(val);
+  }
+  return out;
 }
 
 function uniqueMap<T>(arr: T[], keyFn: (x: T) => string): T[] {
@@ -379,6 +444,7 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         data: { name: label, slug, pfsCategoryId: pfsRef, pfsCategoryName: label },
         select: { id: true, name: true },
       });
+      autoTranslateCategory(created.id, created.name);
       return { id: created.id, name: created.name, created: true };
     }
 
@@ -395,6 +461,7 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         data: { name: label, pfsColorRef: pfsRef, hex: null },
         select: { id: true, name: true },
       });
+      autoTranslateColor(created.id, created.name);
       return { id: created.id, name: created.name, created: true };
     }
 
@@ -427,6 +494,7 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         data: { name: label, pfsCompositionRef: pfsRef },
         select: { id: true, name: true },
       });
+      autoTranslateComposition(created.id, created.name);
       return { id: created.id, name: created.name, created: true };
     }
 
@@ -443,6 +511,7 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         data: { name: label, pfsCountryRef: pfsRef, isoCode: pfsRef.length <= 3 ? pfsRef.toUpperCase() : null },
         select: { id: true, name: true },
       });
+      autoTranslateManufacturingCountry(created.id, created.name);
       return { id: created.id, name: created.name, created: true };
     }
 
@@ -459,6 +528,7 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         data: { name: label, pfsRef },
         select: { id: true, name: true },
       });
+      autoTranslateSeason(created.id, created.name);
       return { id: created.id, name: created.name, created: true };
     }
 
@@ -499,7 +569,7 @@ export async function listImportablePfsProducts(options?: { maxProducts?: number
     pfsId: p.id,
     reference: p.reference,
     name: p.labels?.fr ?? p.labels?.en ?? p.reference,
-    category: p.family ?? "",
+    category: p.category?.labels?.fr ?? p.category?.labels?.en ?? p.family ?? "",
     family: p.family ?? "",
     colorCount: (p.colors ?? "").split(";").filter((c) => c.trim()).length,
     variantCount: p.count_variants ?? 0,
@@ -526,16 +596,143 @@ interface ResolvedVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   pfsColorRef: string | null;
+  /** Référence PFS de la couleur principale (toujours renseignée, sert à détecter la couleur par défaut). */
+  primaryPfsColorRef: string;
+  /** Labels localisés de la première couleur (normalisés). Sert au matching default_color. */
+  primaryColorLabels: string[];
+  /** is_star renvoyé par PFS : signal additionnel pour la couleur principale. */
+  isStar: boolean;
   sizeEntries: { sizeId: string; quantity: number }[];
   imageUrls: string[];
 }
 
 /**
+ * Compare la clé DEFAUT du map d'images à celles des couleurs : renvoie la
+ * référence (normalisée) de la couleur qui partage la même URL d'image.
+ * C'est le signal le plus fiable pour identifier la couleur par défaut PFS.
+ */
+export function findPrimaryPfsColorRefFromImages(
+  images: Record<string, string | string[]> | null | undefined,
+): string | null {
+  if (!images) return null;
+  const defaut = images["DEFAUT"] ?? images["DEFAULT"] ?? images["default"];
+  const defaultFirst = firstStringImage(defaut);
+  if (!defaultFirst) return null;
+  for (const key of Object.keys(images)) {
+    const normalized = normalizeKey(key);
+    if (normalized === "DEFAUT" || normalized === "DEFAULT") continue;
+    const first = firstStringImage(images[key]);
+    if (first && first === defaultFirst) return normalized;
+  }
+  return null;
+}
+
+/**
+ * Compat : renvoie d'abord `default_color` normalisé s'il est fourni,
+ * sinon tente le matching d'image DEFAUT.
+ */
+export function findPrimaryPfsColorRef(
+  defaultColor: string | null | undefined,
+  images: Record<string, string | string[]> | null | undefined,
+): string | null {
+  if (defaultColor && defaultColor.trim()) return normalizeKey(defaultColor);
+  return findPrimaryPfsColorRefFromImages(images);
+}
+
+/**
+ * Détermine la référence PFS (normalisée) de la couleur principale à partir
+ * de plusieurs signaux cumulés (image DEFAUT, default_color, is_star).
+ * Retourne null si aucun signal ne fonctionne.
+ */
+function detectPrimaryColorRef(
+  variants: ResolvedVariant[],
+  defaultColor: string | null | undefined,
+  productImages: Record<string, string | string[]> | null | undefined,
+  reference: string,
+  warnings: string[],
+): { ref: string; via: string } | null {
+  const normalizedVariantRefs = variants.map((rv) => normalizeKey(rv.primaryPfsColorRef));
+
+  // 1) URL image DEFAUT identique à celle d'une couleur (le plus fiable)
+  const imgMatch = findPrimaryPfsColorRefFromImages(productImages);
+  if (imgMatch && normalizedVariantRefs.includes(imgMatch)) {
+    return { ref: imgMatch, via: "DEFAUT image match" };
+  }
+
+  // 2) default_color — peut être une référence OU un label localisé
+  if (defaultColor && defaultColor.trim()) {
+    const normalized = normalizeKey(defaultColor);
+    if (normalizedVariantRefs.includes(normalized)) {
+      return { ref: normalized, via: "default_color (reference)" };
+    }
+    const byLabel = variants.find((rv) => rv.primaryColorLabels.includes(normalized));
+    if (byLabel) {
+      return { ref: normalizeKey(byLabel.primaryPfsColorRef), via: "default_color (label)" };
+    }
+    warnings.push(`Couleur par défaut PFS "${defaultColor}" non reconnue — autre signal utilisé`);
+  }
+
+  // 3) Variante marquée is_star par PFS
+  const star = variants.find((rv) => rv.isStar);
+  if (star) return { ref: normalizeKey(star.primaryPfsColorRef), via: "is_star" };
+
+  logger.info("[PFS Import] Primary color: no signal available, falling back", {
+    reference,
+    defaultColor,
+    variantRefs: normalizedVariantRefs,
+    imagesKeys: productImages ? Object.keys(productImages) : [],
+  });
+  return null;
+}
+
+/**
+ * Renvoie l'index de la variante à marquer comme couleur principale.
+ * Préfère UNIT sur PACK à couleur égale (car l'UI admin filtre les PACK hors
+ * du badge "couleur principale" — si on mettait isPrimary sur un PACK, le
+ * badge afficherait une autre couleur UNIT à la place).
+ * Retourne toujours un index valide (0 par défaut).
+ */
+function findPrimaryVariantIndex(
+  variants: ResolvedVariant[],
+  defaultColor: string | null | undefined,
+  productImages: Record<string, string | string[]> | null | undefined,
+  reference: string,
+  warnings: string[],
+): number {
+  const detected = detectPrimaryColorRef(variants, defaultColor, productImages, reference, warnings);
+  if (!detected) return 0;
+
+  const { ref, via } = detected;
+  // Préférence 1 : UNIT de la couleur principale
+  const unitIdx = variants.findIndex(
+    (rv) => normalizeKey(rv.primaryPfsColorRef) === ref && rv.saleType === "UNIT",
+  );
+  if (unitIdx >= 0) {
+    logger.info("[PFS Import] Primary color via " + via, { reference, ref, index: unitIdx, saleType: "UNIT" });
+    return unitIdx;
+  }
+  // Préférence 2 : n'importe quelle variante (PACK) de la couleur principale
+  const anyIdx = variants.findIndex((rv) => normalizeKey(rv.primaryPfsColorRef) === ref);
+  if (anyIdx >= 0) {
+    logger.info("[PFS Import] Primary color via " + via, { reference, ref, index: anyIdx, saleType: "PACK" });
+    return anyIdx;
+  }
+  return 0;
+}
+
+/**
  * Approuve un produit PFS : crée le Product en DB avec status SYNCING,
  * puis déclenche le téléchargement des images en arrière-plan.
- * Passe en IMPORTED une fois les images prêtes.
+ * Passe en OFFLINE une fois les images prêtes.
+ *
+ * Si `options.isCancelled` est fourni, l'import est interrompu dès qu'il retourne
+ * true (entre chaque étape), et le produit partiel est supprimé de la DB.
  */
-export async function approveAndImportPfsProduct(pfsId: string): Promise<ApprovePfsProductResult> {
+export async function approveAndImportPfsProduct(
+  pfsId: string,
+  options?: ImportCancellationOptions,
+): Promise<ApprovePfsProductResult> {
+  const isCancelled = options?.isCancelled;
   // Charge le produit PFS complet (liste + détails)
   // On recherche dans la liste pour récupérer les variantes / images
   // Note : en v1 on recharge listProducts pour récupérer le produit — peu optimal mais suffisant
@@ -640,6 +837,9 @@ export async function approveAndImportPfsProduct(pfsId: string): Promise<Approve
   const name = product.labels?.fr ?? product.labels?.en ?? product.reference;
   const description = detail?.description?.fr ?? detail?.description?.en ?? "";
 
+  // Dernier point d'arrêt avant création en DB
+  throwIfCancelled(isCancelled);
+
   // Création du produit en statut SYNCING
   const createdProduct = await prisma.product.create({
     data: {
@@ -657,63 +857,88 @@ export async function approveAndImportPfsProduct(pfsId: string): Promise<Approve
     select: { id: true, reference: true, name: true },
   });
 
-  // Récupère les noms de couleurs pour générer les SKU
-  const colorNameMap = new Map<string, string>();
-  const uniqueColorIds = Array.from(new Set(resolvedVariants.map((rv) => rv.colorId)));
-  if (uniqueColorIds.length > 0) {
-    const dbColors = await prisma.color.findMany({
-      where: { id: { in: uniqueColorIds } },
-      select: { id: true, name: true },
-    });
-    for (const c of dbColors) colorNameMap.set(c.id, c.name);
-  }
+  autoTranslateProduct(createdProduct.id, name, description);
 
-  // Création des variantes
-  const createdVariantIds: { id: string; colorId: string; pfsVariant: ResolvedVariant }[] = [];
-  for (let i = 0; i < resolvedVariants.length; i++) {
-    const rv = resolvedVariants[i];
-    const colorName = colorNameMap.get(rv.colorId) ?? "COLOR";
-    const variant = await prisma.productColor.create({
-      data: {
-        productId: createdProduct.id,
-        colorId: rv.colorId,
-        unitPrice: rv.unitPrice,
-        weight: rv.weight,
-        stock: rv.stock,
-        isPrimary: i === 0,
-        saleType: rv.saleType,
-        packQuantity: rv.packQuantity,
-        pfsColorRef: rv.pfsColorRef,
-        sku: generateSku(reference, [colorName], rv.saleType, i + 1),
-      },
-      select: { id: true, colorId: true },
-    });
-    if (rv.sizeEntries.length > 0) {
-      await prisma.variantSize.createMany({
-        data: rv.sizeEntries.map((se) => ({
-          productColorId: variant.id,
-          sizeId: se.sizeId,
-          quantity: se.quantity,
-        })),
-      });
-    }
-    createdVariantIds.push({ id: variant.id, colorId: rv.colorId, pfsVariant: rv });
-  }
-
-  logger.info("[PFS Import] Produit créé (SYNCING)", { productId: createdProduct.id, reference });
-
-  emitProductEvent({
-    type: "PRODUCT_CREATED",
-    productId: createdProduct.id,
-  });
-
-  // Téléchargement des images (bloquant — supprime le produit si échec)
+  // À partir d'ici, toute erreur (y compris annulation) doit nettoyer le produit
+  // partiel pour qu'on n'ait jamais de produit incomplet en BDD.
   try {
-    await downloadImagesWithPlaywright(createdProduct.id, createdVariantIds);
+    // Récupère les noms de couleurs pour générer les SKU
+    const colorNameMap = new Map<string, string>();
+    const uniqueColorIds = Array.from(new Set(resolvedVariants.map((rv) => rv.colorId)));
+    if (uniqueColorIds.length > 0) {
+      const dbColors = await prisma.color.findMany({
+        where: { id: { in: uniqueColorIds } },
+        select: { id: true, name: true },
+      });
+      for (const c of dbColors) colorNameMap.set(c.id, c.name);
+    }
+
+    // Détermine quelle variante doit être marquée "couleur principale" PFS.
+    // Plusieurs signaux cumulés, dans l'ordre de fiabilité :
+    //  1) Image DEFAUT qui matche exactement l'URL d'une couleur
+    //  2) Champ default_color (peut être référence OU label selon les produits)
+    //  3) Variante marquée is_star par PFS
+    //  4) Première variante (fallback ultime)
+    const primaryIndex = findPrimaryVariantIndex(
+      resolvedVariants,
+      detail?.default_color,
+      productImages,
+      reference,
+      warnings,
+    );
+
+    // Création des variantes
+    const createdVariantIds: { id: string; colorId: string; pfsVariant: ResolvedVariant }[] = [];
+    for (let i = 0; i < resolvedVariants.length; i++) {
+      throwIfCancelled(isCancelled);
+      const rv = resolvedVariants[i];
+      const colorName = colorNameMap.get(rv.colorId) ?? "COLOR";
+      const variant = await prisma.productColor.create({
+        data: {
+          productId: createdProduct.id,
+          colorId: rv.colorId,
+          unitPrice: rv.unitPrice,
+          weight: rv.weight,
+          stock: rv.stock,
+          isPrimary: i === primaryIndex,
+          saleType: rv.saleType,
+          packQuantity: rv.packQuantity,
+          pfsColorRef: rv.pfsColorRef,
+          sku: generateSku(reference, [colorName], rv.saleType, i + 1),
+        },
+        select: { id: true, colorId: true },
+      });
+      if (rv.sizeEntries.length > 0) {
+        await prisma.variantSize.createMany({
+          data: rv.sizeEntries.map((se) => ({
+            productColorId: variant.id,
+            sizeId: se.sizeId,
+            quantity: se.quantity,
+          })),
+        });
+      }
+      createdVariantIds.push({ id: variant.id, colorId: rv.colorId, pfsVariant: rv });
+    }
+
+    logger.info("[PFS Import] Produit créé (SYNCING)", { productId: createdProduct.id, reference });
+
+    emitProductEvent({
+      type: "PRODUCT_CREATED",
+      productId: createdProduct.id,
+    });
+
+    // Téléchargement des images (bloquant)
+    await downloadImagesWithPlaywright(createdProduct.id, createdVariantIds, { isCancelled });
   } catch (err) {
+    const cancelled = err instanceof PfsImportCancelledError;
     const errMsg = err instanceof Error ? err.message : String(err);
-    logger.error("[PFS Import] Image download failed, deleting product", { productId: createdProduct.id, reference, err: errMsg });
+    if (cancelled) {
+      logger.info("[PFS Import] Import cancelled, deleting partial product", { productId: createdProduct.id, reference });
+    } else {
+      logger.error("[PFS Import] Import failed, deleting product", { productId: createdProduct.id, reference, err: errMsg });
+    }
     await cleanupFailedProduct(createdProduct.id);
+    if (cancelled) throw err;
     throw new Error(`Images introuvables pour ${reference} : ${errMsg}`);
   }
 
@@ -767,40 +992,22 @@ async function resolveVariant(
     else warnings.push(`Taille "${s.size}" non mappée (ignorée pour variante ${v.id})`);
   }
 
-  // Images — d'abord celles de la variante
-  const imageUrlsRaw: string[] = [];
-  const variantImgs = v.images ?? {};
-  for (const key of Object.keys(variantImgs)) {
-    const val = variantImgs[key];
-    if (Array.isArray(val)) imageUrlsRaw.push(...val);
-    else if (val) imageUrlsRaw.push(val);
-  }
-
-  // Fallback : images du produit correspondant EXACTEMENT à cette couleur
-  // Pas de fallback "DEFAUT" ni "première image" — sinon toutes les variantes
-  // se retrouvent avec les mêmes photos
-  if (imageUrlsRaw.length === 0 && Object.keys(productImages).length > 0) {
-    // Cherche par référence couleur exacte (ex: "GOLDEN", "SILVER")
-    const colorImgs = productImages[colorRef];
-    if (colorImgs) {
-      if (Array.isArray(colorImgs)) imageUrlsRaw.push(...colorImgs);
-      else imageUrlsRaw.push(colorImgs);
-    }
-    // Cherche aussi par label couleur (parfois la clé est "Doré" au lieu de "GOLDEN")
-    if (imageUrlsRaw.length === 0) {
-      const colorLabel = colors[0]?.labels?.fr ?? colors[0]?.labels?.en;
-      if (colorLabel) {
-        const labelImgs = productImages[colorLabel];
-        if (labelImgs) {
-          if (Array.isArray(labelImgs)) imageUrlsRaw.push(...labelImgs);
-          else imageUrlsRaw.push(labelImgs);
-        }
-      }
-    }
+  // Images — uniquement celles qui correspondent à cette couleur (ou à l'une
+  // des couleurs du pack). Jamais de fallback "DEFAUT" ni "première image"
+  // sinon toutes les variantes se retrouveraient avec les mêmes photos.
+  const imageUrlsRaw: string[] = [
+    ...collectImagesForColors(v.images, colors),
+  ];
+  if (imageUrlsRaw.length === 0) {
+    imageUrlsRaw.push(...collectImagesForColors(productImages, colors));
   }
 
   // Dédoublonne les URLs (même image apparaissant sous plusieurs clés)
   const imageUrls = [...new Set(imageUrlsRaw)];
+
+  const primaryColorLabels = Object.values(colors[0]?.labels ?? {})
+    .filter((l): l is string => typeof l === "string" && l.length > 0)
+    .map(normalizeKey);
 
   return {
     colorId: primaryColor.id,
@@ -810,6 +1017,9 @@ async function resolveVariant(
     saleType: v.type === "PACK" ? "PACK" : "UNIT",
     packQuantity: v.type === "PACK" ? (v.pieces ?? 1) : null,
     pfsColorRef: colors.length > 1 ? colorRef : null,
+    primaryPfsColorRef: colorRef,
+    primaryColorLabels,
+    isStar: v.is_star === true,
     sizeEntries,
     imageUrls,
   };
@@ -863,7 +1073,9 @@ interface PendingImage {
 async function downloadImagesWithPlaywright(
   productId: string,
   variants: { id: string; colorId: string; pfsVariant: ResolvedVariant }[],
+  options?: ImportCancellationOptions,
 ): Promise<void> {
+  const isCancelled = options?.isCancelled;
   const { chromium } = await import("playwright");
 
   // Construire la liste complète d'images à télécharger
@@ -880,18 +1092,21 @@ async function downloadImagesWithPlaywright(
   }
 
   if (allImages.length === 0) {
-    // Pas d'images → passe directement en IMPORTED
-    await prisma.product.update({ where: { id: productId }, data: { status: "IMPORTED" } });
+    throwIfCancelled(isCancelled);
+    // Pas d'images → passe directement en OFFLINE
+    await prisma.product.update({ where: { id: productId }, data: { status: "OFFLINE" } });
     emitProductEvent({ type: "PRODUCT_UPDATED", productId });
     return;
   }
+
+  throwIfCancelled(isCancelled);
 
   // ── Passe 1 : Navigateur A (Chrome/Windows) ──
   let failed: PendingImage[] = [];
   const browserA = await chromium.launch({ headless: true });
   try {
     const ctxA = await browserA.newContext(BROWSER_PROFILE_A);
-    failed = await downloadImageBatch(ctxA, productId, allImages, "A");
+    failed = await downloadImageBatch(ctxA, productId, allImages, "A", { isCancelled });
     await ctxA.close();
   } finally {
     await browserA.close();
@@ -904,6 +1119,8 @@ async function downloadImagesWithPlaywright(
     failed: failed.length,
   });
 
+  throwIfCancelled(isCancelled);
+
   // ── Passe 2 : Navigateur B (Safari/Mac) — reprend les échecs avec retries ──
   if (failed.length > 0) {
     const browserB = await chromium.launch({ headless: true });
@@ -912,11 +1129,13 @@ async function downloadImagesWithPlaywright(
       let stillFailing = failed;
 
       for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS && stillFailing.length > 0; attempt++) {
+        throwIfCancelled(isCancelled);
         logger.info("[PFS Import] Pass B retry", {
           productId, attempt, remaining: stillFailing.length,
         });
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
-        stillFailing = await downloadImageBatch(ctxB, productId, stillFailing, "B");
+        throwIfCancelled(isCancelled);
+        stillFailing = await downloadImageBatch(ctxB, productId, stillFailing, "B", { isCancelled });
       }
 
       await ctxB.close();
@@ -932,14 +1151,14 @@ async function downloadImagesWithPlaywright(
     }
   }
 
-  // Passe en statut IMPORTED une fois toutes les images OK
+  // Passe en statut OFFLINE une fois toutes les images OK
   await prisma.product.update({
     where: { id: productId },
-    data: { status: "IMPORTED" },
+    data: { status: "OFFLINE" },
   });
 
   emitProductEvent({ type: "PRODUCT_UPDATED", productId });
-  logger.info("[PFS Import] Images téléchargées, produit en IMPORTED", { productId });
+  logger.info("[PFS Import] Images téléchargées, produit en OFFLINE", { productId });
 }
 
 /**
@@ -951,10 +1170,14 @@ async function downloadImageBatch(
   productId: string,
   images: PendingImage[],
   passLabel: string,
+  options?: ImportCancellationOptions,
 ): Promise<PendingImage[]> {
+  const isCancelled = options?.isCancelled;
   const failed: PendingImage[] = [];
 
   for (const img of images) {
+    // Interruption : on laisse remonter l'erreur pour que l'appelant nettoie le produit
+    throwIfCancelled(isCancelled);
     try {
       const page = await context.newPage();
       try {
@@ -986,6 +1209,8 @@ async function downloadImageBatch(
         await page.close();
       }
     } catch (err) {
+      // Une annulation doit toujours remonter, pas être traitée comme un échec retry
+      if (err instanceof PfsImportCancelledError) throw err;
       logger.warn(`[PFS Import] [${passLabel}] Image failed`, {
         url: img.url, err: (err as Error).message,
       });

@@ -11,8 +11,14 @@
 
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { approveAndImportPfsProduct } from "@/lib/pfs-import";
+import { approveAndImportPfsProduct, PfsImportCancelledError } from "@/lib/pfs-import";
 import { emitProductEvent } from "@/lib/product-events";
+
+/** Intervalle entre deux vérifications DB du statut d'annulation (ms). */
+const CANCEL_POLL_INTERVAL_MS = 2000;
+
+/** Nombre de produits traités en parallèle. */
+const IMPORT_CONCURRENCY = 5;
 
 export interface PfsImportItem {
   pfsId: string;
@@ -48,63 +54,114 @@ export async function processPfsImport(jobId: string): Promise<void> {
 
   emitProgress(jobId, 0, items.length, 0, 0, "PROCESSING");
 
-  const results: { pfsId: string; reference: string; name: string; status: "ok" | "error"; productId?: string; error?: string }[] = [];
+  // Sondage périodique du statut en DB pour détecter l'annulation
+  // AUSSI pendant qu'un produit est en cours d'import (téléchargement d'images).
+  let jobCancelled = false;
+  const cancelPoller = setInterval(async () => {
+    try {
+      const current = await prisma.importJob.findUnique({
+        where: { id: jobId },
+        select: { status: true },
+      });
+      if (current?.status === "CANCELLED") {
+        jobCancelled = true;
+      }
+    } catch (err) {
+      logger.warn("[PFS Import Processor] Cancel poll failed", { jobId, err: (err as Error).message });
+    }
+  }, CANCEL_POLL_INTERVAL_MS);
+
+  const results: { pfsId: string; reference: string; name: string; status: "ok" | "error" | "cancelled"; productId?: string; error?: string }[] = [];
   let success = 0;
   let errors = 0;
+  let processed = 0;
+  let nextIndex = 0;
 
-  for (let i = 0; i < items.length; i++) {
-    // Check if cancelled
-    const current = await prisma.importJob.findUnique({
-      where: { id: jobId },
-      select: { status: true },
-    });
-    if (current?.status === "CANCELLED") {
-      logger.info("[PFS Import Processor] Job cancelled", { jobId, processed: i });
-      // Keep the counts as-is, status already CANCELLED
+  const worker = async (): Promise<void> => {
+    while (true) {
+      // Double-vérif synchrone avant de réclamer le prochain produit (au cas où
+      // le poller n'aurait pas encore tourné depuis le dernier tick).
+      if (!jobCancelled) {
+        const current = await prisma.importJob.findUnique({
+          where: { id: jobId },
+          select: { status: true },
+        });
+        if (current?.status === "CANCELLED") jobCancelled = true;
+      }
+      if (jobCancelled) return;
+
+      const i = nextIndex++;
+      if (i >= items.length) return;
+      const item = items[i];
+
+      try {
+        const result = await approveAndImportPfsProduct(item.pfsId, {
+          isCancelled: () => jobCancelled,
+        });
+        success++;
+        results.push({
+          pfsId: item.pfsId,
+          reference: item.reference,
+          name: item.name,
+          status: "ok",
+          productId: result.productId,
+        });
+      } catch (err) {
+        if (err instanceof PfsImportCancelledError) {
+          // Produit partiel déjà supprimé par approveAndImportPfsProduct.
+          logger.info("[PFS Import Processor] Product import cancelled mid-flight", {
+            jobId, pfsId: item.pfsId, reference: item.reference,
+          });
+          results.push({
+            pfsId: item.pfsId,
+            reference: item.reference,
+            name: item.name,
+            status: "cancelled",
+          });
+          return;
+        }
+        errors++;
+        const errMsg = err instanceof Error ? err.message : String(err);
+        results.push({
+          pfsId: item.pfsId,
+          reference: item.reference,
+          name: item.name,
+          status: "error",
+          error: errMsg,
+        });
+        logger.warn("[PFS Import Processor] Product import failed", {
+          jobId,
+          pfsId: item.pfsId,
+          reference: item.reference,
+          error: errMsg,
+        });
+      }
+
+      processed++;
       await prisma.importJob.update({
         where: { id: jobId },
         data: {
-          processedItems: i,
+          processedItems: processed,
           successItems: success,
           errorItems: errors,
           resultDetails: { items, results },
         },
       });
-      emitProgress(jobId, i, items.length, success, errors, "FAILED");
-      return;
-    }
 
-    const item = items[i];
-    try {
-      const result = await approveAndImportPfsProduct(item.pfsId);
-      success++;
-      results.push({
-        pfsId: item.pfsId,
-        reference: item.reference,
-        name: item.name,
-        status: "ok",
-        productId: result.productId,
-      });
-    } catch (err) {
-      errors++;
-      const errMsg = err instanceof Error ? err.message : String(err);
-      results.push({
-        pfsId: item.pfsId,
-        reference: item.reference,
-        name: item.name,
-        status: "error",
-        error: errMsg,
-      });
-      logger.warn("[PFS Import Processor] Product import failed", {
-        jobId,
-        pfsId: item.pfsId,
-        reference: item.reference,
-        error: errMsg,
-      });
+      emitProgress(jobId, processed, items.length, success, errors, "PROCESSING");
     }
+  };
 
-    // Update progress in DB
-    const processed = i + 1;
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(IMPORT_CONCURRENCY, items.length) }, () => worker()),
+    );
+  } finally {
+    clearInterval(cancelPoller);
+  }
+
+  if (jobCancelled) {
+    logger.info("[PFS Import Processor] Job cancelled", { jobId, processed });
     await prisma.importJob.update({
       where: { id: jobId },
       data: {
@@ -114,8 +171,8 @@ export async function processPfsImport(jobId: string): Promise<void> {
         resultDetails: { items, results },
       },
     });
-
-    emitProgress(jobId, processed, items.length, success, errors, "PROCESSING");
+    emitProgress(jobId, processed, items.length, success, errors, "FAILED");
+    return;
   }
 
   // Done — build summary with references

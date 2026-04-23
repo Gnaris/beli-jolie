@@ -80,6 +80,18 @@ Fichiers clés :
 
 **Famille PFS** : stockée dans `Category.pfsFamilyName` (renseignée manuellement dans l'UI catégorie). `pfsCategoryId`/`pfsGender`/`pfsFamilyId` (IDs Salesforce) conservés pour référence.
 
+### Refresh produit (`lib/pfs-refresh.ts` + `app/actions/admin/marketplace-refresh.ts`)
+
+Bouton "Rafraîchir" dans `/admin/produits` (par ligne + bulk) et sur la page `/modifier`. Ouvre une modale avec cases à cocher : **boutique** (bump `Product.lastRefreshedAt`, jamais `createdAt`) + **PFS** (re-push live via API) + **Ankorstore** (fire-and-forget via catalog operations).
+
+Traitement en arrière-plan via `PfsRefreshProvider` (monté dans `app/(admin)/layout.tsx`) + `PfsRefreshWidget` (popup bas-droite, minimisable, fermable uniquement quand tous les produits sont terminés). Items traités séquentiellement, outcomes per-marketplace affichés.
+
+`pfsRefreshProduct()` : `pfsCheckReference(ref)` → si inexistant = erreur "Produit inexistant sur PFS" ; sinon crée nouveau produit avec ref TEMP aléatoire, upload images R2→JPEG, renomme l'ancien en ref aléatoire + statut `DELETED`, renomme le nouveau avec la vraie ref, passe en `READY_FOR_SALE` (ou `ARCHIVED` si stock 0 sur toutes variantes). Rollback automatique en cas d'échec mi-parcours.
+
+`ankorstoreRefreshProduct()` : `ankorstoreSearchProductsByRef(ref)` → si inexistant = erreur "Produit inexistant sur Ankorstore" ; sinon `ankorstorePushProducts([product], "update")` (upsert par external_id = reference). Fire-and-forget : pas de callback webhook, l'admin vérifie sur le dashboard Ankorstore. Un bandeau d'avertissement s'affiche dans le widget dès qu'un push Ankorstore réussit.
+
+"Nouveauté" frontend = `max(createdAt, lastRefreshedAt) > now - 30j` (filter + orderBy compound sur `/produits`, `/api/products`, home carousel, favoris, ProductsInfiniteScroll).
+
 ### Marketplace pricing (`lib/marketplace-pricing.ts`)
 
 Configurable markup per marketplace via SiteConfig keys. Three markup types: `percent` (+X%), `fixed` (+X€), `multiplier` (×X). Three rounding modes: `none`, `up` (ceil to 0.1€), `down` (floor to 0.1€). SiteConfig keys follow the pattern `{marketplace}_markup_{type|value|rounding}` — e.g. `pfs_price_markup_type`, `ankorstore_wholesale_markup_value`, `ankorstore_retail_markup_rounding`. PACK pricing: markup applies to **per-unit price** (unitPrice / packQuantity), then multiply back by pack quantity. Retail markup on Ankorstore applies **on top of wholesale HT**, then VAT applied to produce retail TTC (colonne "Prix de détail/unité" de l'Excel). TVA configurable via `ankorstore_default_vat_rate` (défaut 20).

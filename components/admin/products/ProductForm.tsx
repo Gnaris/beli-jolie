@@ -84,7 +84,7 @@ interface ProductFormProps {
     manufacturingCountryId?: string;
     seasonId?: string;
     translations?: { locale: string; name: string; description: string }[];
-    status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING" | "IMPORTED";
+    status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
     discountPercent?: string;
   };
 }
@@ -429,7 +429,7 @@ export default function ProductForm({
   const [productStatus, setProductStatus] = useState<"OFFLINE" | "ONLINE" | "ARCHIVED">(() => {
     const s = initialData?.status;
     if (s === "ONLINE" || s === "OFFLINE" || s === "ARCHIVED") return s;
-    return "OFFLINE"; // SYNCING / IMPORTED / undefined → OFFLINE par défaut
+    return "OFFLINE"; // SYNCING / undefined → OFFLINE par défaut
   });
 
   // ── Touched fields for real-time validation ──────────────────────────

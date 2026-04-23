@@ -118,11 +118,10 @@ enum SaleType {
 
 
 enum ProductStatus {
-  OFFLINE // Hors ligne (brouillon)
+  OFFLINE // Hors ligne (brouillon / import terminé, à publier manuellement)
   ONLINE // En ligne (visible sur le catalogue public)
   ARCHIVED // Archivé (invisible, conservé pour historique commandes)
   SYNCING // Importation en cours (images en téléchargement depuis PFS)
-  IMPORTED // Importation terminée, attente décision admin (ONLINE ou OFFLINE)
 }
 
 // Catégorie principale (ex: Colliers, Bracelets)
@@ -352,10 +351,12 @@ model Product {
   promotions             PromotionProduct[]
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
+  lastRefreshedAt        DateTime? // Date du dernier "Rafraîchir" (remet en Nouveauté sans toucher createdAt)
 
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
   @@index([status, updatedAt]) // "new" filter sort
+  @@index([status, lastRefreshedAt]) // "new" filter including refreshed products
   @@index([categoryId, status]) // category filter
   @@index([isBestSeller, status]) // bestseller filter
   @@index([status, name]) // search by name

@@ -243,7 +243,12 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
       ...(collection && { collections: { some: { collectionId: collection } } }),
       ...(tagId      && { tags: { some: { tagId } } }),
       ...(bestseller_ && { isBestSeller: true }),
-      ...(isNew_      && { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+      ...(isNew_      && {
+        OR: [
+          { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+          { lastRefreshedAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+        ],
+      }),
       ...(ordered_ && userOrderedRefs.length > 0 && { reference: { in: userOrderedRefs } }),
       ...(ordered_ && userOrderedRefs.length === 0 && { id: "___none___" }), // no results if never ordered anything
     };
@@ -251,7 +256,9 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     const [rawProducts, count] = await Promise.all([
       prisma.product.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy: isNew_
+          ? [{ lastRefreshedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
+          : { createdAt: "desc" },
         take: PER_PAGE,
         include: PRODUCT_INCLUDE,
       }),

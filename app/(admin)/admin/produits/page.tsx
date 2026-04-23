@@ -148,7 +148,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   } else if (statusFilter === "OFFLINE") {
     where.status = "OFFLINE";
     where.isIncomplete = false;
-  } else if (statusFilter === "ONLINE" || statusFilter === "ARCHIVED" || statusFilter === "SYNCING" || statusFilter === "IMPORTED") {
+  } else if (statusFilter === "ONLINE" || statusFilter === "ARCHIVED" || statusFilter === "SYNCING") {
     where.status = statusFilter;
   }
 
@@ -188,6 +188,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         category:      { select: { name: true } },
         subCategories: { select: { name: true }, take: 1 },
         colors: {
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
           select: {
             id:            true,
             colorId:       true,
@@ -218,10 +219,15 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   ]);
 
   const productIds = products.map((p) => p.id);
+  // Image principale affichée dans la liste : on prend d'abord celle de la
+  // variante marquée isPrimary, ensuite l'ordre interne de la variante.
   const firstImages = productIds.length > 0
     ? await prisma.productColorImage.findMany({
         where:   { productId: { in: productIds } },
-        orderBy: { order: "asc" },
+        orderBy: [
+          { productColor: { isPrimary: "desc" } },
+          { order: "asc" },
+        ],
         select:  { productId: true, path: true },
       })
     : [];
@@ -236,11 +242,12 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     id:              p.id,
     reference:       p.reference,
     name:            p.name,
-    status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING" | "IMPORTED",
+    status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
     isIncomplete:    p.isIncomplete,
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),
+    lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
     firstImage:      firstImageMap.get(p.id) ?? null,
     colors:          p.colors.map((c) => ({
       id:            c.id,

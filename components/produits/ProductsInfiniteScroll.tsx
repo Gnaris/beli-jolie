@@ -22,6 +22,7 @@ type ProductItem = {
   reference:     string;
   isBestSeller?: boolean;
   createdAt?:    string | Date;
+  lastRefreshedAt?: string | Date | null;
   discountPercent?: number | null;
   category:      { name: string };
   subCategories: { name: string }[];
@@ -254,7 +255,12 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
             subCategory={product.subCategories[0]?.name ?? null}
             isFavorite={favoriteIds.has(product.id)}
             isBestSeller={product.isBestSeller}
-            isNew={product.createdAt ? new Date(product.createdAt) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : false}
+            isNew={(() => {
+              const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+              const refreshed = product.lastRefreshedAt ? new Date(product.lastRefreshedAt).getTime() : 0;
+              const created = product.createdAt ? new Date(product.createdAt).getTime() : 0;
+              return Math.max(refreshed, created) > cutoff;
+            })()}
             tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
             colors={product.colors}
             discountPercent={product.discountPercent}

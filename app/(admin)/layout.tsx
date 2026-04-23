@@ -12,6 +12,8 @@ import AdminClientModeButton from "@/components/admin/AdminClientModeButton";
 import AdminChatBadge from "@/components/admin/AdminChatBadge";
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
+import { PfsRefreshProvider } from "@/components/admin/products/PfsRefreshContext";
+import { PfsRefreshWidget } from "@/components/admin/products/PfsRefreshWidget";
 import { getCachedSiteConfig, getCachedAdminUnreadCount } from "@/lib/cached-data";
 
 export const metadata: Metadata = {
@@ -61,6 +63,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <DeeplConfigProvider enabled={deeplEnabled} autoTranslateEnabled={autoTranslateEnabled}>
+    <PfsRefreshProvider>
     <div id="admin-theme-wrapper" className="min-h-screen bg-bg-secondary flex">
 
       {/* ===== SIDEBAR - fixed left (desktop) ===== */}
@@ -183,7 +186,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </div>
 
       <AdminChatWidgetLoader />
+      <PfsRefreshWidget />
     </div>
+    </PfsRefreshProvider>
     </DeeplConfigProvider>
   );
 }

@@ -563,7 +563,7 @@ function ProductsStep({
                 <div className="text-xs text-text-muted font-mono truncate">{p.reference}</div>
                 <div className="text-sm font-medium truncate">{p.name}</div>
                 <div className="text-xs text-text-muted mt-1">
-                  {p.family} · {p.colorCount} coul. · {p.variantCount} var.
+                  {p.category || p.family} · {p.colorCount} coul. · {p.variantCount} var.
                 </div>
               </div>
             </button>
@@ -662,7 +662,7 @@ function ImportJobStep({
               </div>
               <div>
                 {isPending && <span className="badge badge-neutral">En attente</span>}
-                {isCurrentlyRunning && <span className="badge badge-info">Import…</span>}
+                {isCurrentlyRunning && <span className="badge badge-info">Importation en cours depuis Paris Fashion Shop</span>}
                 {result?.status === "ok" && (
                   <div className="flex items-center gap-2">
                     <span className="badge badge-success">Prêt</span>

@@ -76,7 +76,12 @@ export default async function FavorisPage({ searchParams }: PageProps) {
     ...(colorId    && { colors: { some: { colorId } } }),
     ...(tagId      && { tags: { some: { tagId } } }),
     ...(bestseller_ && { isBestSeller: true }),
-    ...(isNew_      && { createdAt: { gte: new Date(Date.now() - NEW_THRESHOLD_MS) } }),
+    ...(isNew_      && {
+      OR: [
+        { createdAt: { gte: new Date(Date.now() - NEW_THRESHOLD_MS) } },
+        { lastRefreshedAt: { gte: new Date(Date.now() - NEW_THRESHOLD_MS) } },
+      ],
+    }),
     ...((minPrice !== null || maxPrice !== null) && {
       colors: {
         some: {
@@ -287,7 +292,10 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                     tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
                     isFavorite={true}
                     isBestSeller={product.isBestSeller}
-                    isNew={product.createdAt.getTime() > now - NEW_THRESHOLD_MS}
+                    isNew={Math.max(
+                      product.createdAt.getTime(),
+                      product.lastRefreshedAt ? product.lastRefreshedAt.getTime() : 0,
+                    ) > now - NEW_THRESHOLD_MS}
                   />
                 ))}
               </div>

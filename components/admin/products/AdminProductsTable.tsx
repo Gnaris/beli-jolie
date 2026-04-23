@@ -8,13 +8,20 @@ import {
   previewProductDeletion,
   updateVariantQuick,
   bulkUpdateVariants,
-  refreshProduct,
 } from "@/app/actions/admin/products";
+import {
+  refreshProductOnMarketplaces,
+  refreshProductsOnMarketplaces,
+  type MarketplaceRefreshOutcome,
+  type MarketplaceRefreshOptions,
+} from "@/app/actions/admin/marketplace-refresh";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useProductStream } from "@/hooks/useProductStream";
 import MarketplaceExportButton from "@/components/admin/products/MarketplaceExportButton";
+import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
 
@@ -59,11 +66,12 @@ interface AdminProduct {
   id: string;
   reference: string;
   name: string;
-  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING" | "IMPORTED";
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
   categoryName: string;
   subCategoryName: string | null;
   createdAt: string;
+  lastRefreshedAt: string | null;
   firstImage: string | null;
   colors: ColorVariant[];
   translations: ProductTranslation[];
@@ -347,8 +355,9 @@ function ProductRow({
   isNew?: boolean;
   isDeleting?: boolean;
 }) {
-  const [refreshing, startRefresh] = useTransition();
+  const [refreshing, setRefreshing] = useState(false);
   const { confirm } = useConfirm();
+  const { refreshSingle } = useRefreshMarketplaceDialog();
 
   // Group UNIT variants by colorId + ordered sub-colors (PACK variants excluded — no single color)
   const uniqueColors = [...new Map(product.colors
@@ -511,8 +520,6 @@ function ProductRow({
                     ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
                     : product.status === "SYNCING"
                     ? "bg-blue-50 text-blue-700 border-blue-200"
-                    : product.status === "IMPORTED"
-                    ? "bg-[#EEF2FF] text-[#4338CA] border-[#C7D2FE]"
                     : product.status === "ARCHIVED"
                     ? "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]"
                     : "bg-bg-secondary text-text-secondary border-border"
@@ -520,13 +527,11 @@ function ProductRow({
                   <span className={`w-1.5 h-1.5 rounded-full ${
                     product.status === "ONLINE" ? "bg-[#22C55E]"
                     : product.status === "SYNCING" ? "bg-blue-500 animate-pulse"
-                    : product.status === "IMPORTED" ? "bg-[#6366F1]"
                     : product.status === "ARCHIVED" ? "bg-[#F59E0B]"
                     : "bg-[#9CA3AF]"
                   }`} />
                   {product.status === "ONLINE" ? "En ligne"
-                    : product.status === "SYNCING" ? "Import…"
-                    : product.status === "IMPORTED" ? "Importé"
+                    : product.status === "SYNCING" ? "Importation en cours depuis Paris Fashion Shop"
                     : product.status === "ARCHIVED" ? "Archivé"
                     : "Hors ligne"}
                 </span>
@@ -562,11 +567,24 @@ function ProductRow({
           </div>
         </td>
 
-        {/* Date de création */}
+        {/* Date de création + dernier rafraîchissement */}
         <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
-          <span className="text-[11px] text-text-muted font-body whitespace-nowrap">
-            {new Date(product.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
-          </span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] text-text-muted font-body whitespace-nowrap">
+              {new Date(product.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
+            </span>
+            {product.lastRefreshedAt && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] text-[#4F46E5] font-body whitespace-nowrap"
+                title={`Dernier rafraîchissement : ${new Date(product.lastRefreshedAt).toLocaleString("fr-FR")}`}
+              >
+                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+                </svg>
+                {new Date(product.lastRefreshedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}
+              </span>
+            )}
+          </div>
         </td>
 
         {/* Actions */}
@@ -598,24 +616,22 @@ function ProductRow({
             <button
               type="button"
               onClick={async () => {
-                const ok = await confirm({
-                  type: "warning",
-                  title: "Rafraîchir ce produit ?",
-                  message: "Le produit sera remis en \"Nouveauté\" avec la date du jour.",
-                  confirmLabel: "Rafraîchir",
-                });
-                if (!ok) return;
-                startRefresh(async () => {
-                  try {
-                    await refreshProduct(product.id);
-                  } catch {
-                    // silently ignore
-                  }
-                });
+                if (refreshing) return;
+                setRefreshing(true);
+                try {
+                  await refreshSingle({
+                    productId: product.id,
+                    reference: product.reference,
+                    productName: product.name,
+                    firstImage: product.firstImage,
+                  });
+                } finally {
+                  setRefreshing(false);
+                }
               }}
               disabled={refreshing}
               className={`p-2.5 text-text-muted hover:text-text-primary transition-colors ${refreshing ? "opacity-50 cursor-wait" : ""}`}
-              title="Rafraîchir (remettre en Nouveauté)"
+              title="Rafraîchir (boutique + marketplaces)"
               aria-label="Rafraîchir le produit"
             >
               <svg className={`w-4.5 h-4.5 ${refreshing ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1153,6 +1169,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
+  const { refreshBulk } = useRefreshMarketplaceDialog();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
@@ -1494,6 +1511,28 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
             </svg>
             Archiver
+          </button>
+          <div className="h-4 w-px bg-bg-primary/20" />
+          <button
+            type="button"
+            onClick={async () => {
+              const selectedProducts = allProducts
+                .filter((p) => selectedIds.has(p.id))
+                .map((p) => ({
+                  productId: p.id,
+                  reference: p.reference,
+                  productName: p.name,
+                  firstImage: p.firstImage,
+                }));
+              await refreshBulk(selectedProducts);
+            }}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#6366F1] text-white text-xs font-medium rounded-lg hover:bg-[#4F46E5] disabled:opacity-50 transition-colors font-body"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+            </svg>
+            Rafraîchir
           </button>
           <div className="h-4 w-px bg-bg-primary/20" />
           <MarketplaceExportButton productIds={Array.from(selectedIds)} disabled={isPending} />
