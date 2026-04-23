@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { invalidateStripeCache, getConnectedAccountId, isConnectEnabled } from "@/lib/stripe";
+import { invalidateStripeCache, getConnectedAccountId, isStripeConnectReady } from "@/lib/stripe";
 import { revalidatePath, revalidateTag } from "next/cache";
 import Stripe from "stripe";
 import { logger } from "@/lib/logger";
@@ -20,7 +20,7 @@ export async function POST() {
 
   // Supprimer le compte Express côté Stripe (non-bloquant)
   const accountId = await getConnectedAccountId();
-  if (accountId && isConnectEnabled()) {
+  if (accountId && (await isStripeConnectReady())) {
     try {
       const stripe = new Stripe(process.env.STRIPE_PLATFORM_SECRET_KEY!);
       await stripe.accounts.del(accountId);

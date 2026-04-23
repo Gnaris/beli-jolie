@@ -428,7 +428,7 @@ export async function notifyAdminNewMessage(params: {
         <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
           <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
         </div>
-        <a href="${baseUrl}/admin/messages/${conversationId}"
+        <a href="${baseUrl}/admin"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
           Voir la conversation
         </a>
@@ -466,7 +466,7 @@ export async function notifyClientNewReply(params: {
         <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
           <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
         </div>
-        <a href="${baseUrl}/espace-pro/messages/${conversationId}"
+        <a href="${baseUrl}/espace-pro"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
           Voir la conversation
         </a>

@@ -36,6 +36,23 @@ export default async function AdminCatalogEditPage({ params }: Props) {
 
   if (!catalog) notFound();
 
+  // Deduplicate products (same productId may appear multiple times from prior bug)
+  const seen = new Set<string>();
+  catalog.products = catalog.products.filter((p) => {
+    if (seen.has(p.productId)) return false;
+    seen.add(p.productId);
+    return true;
+  });
+
+  // Serialize Decimal fields to plain numbers for Client Component
+  const serialized = JSON.parse(
+    JSON.stringify(catalog, (_key, value) =>
+      value !== null && typeof value === "object" && typeof value.toNumber === "function"
+        ? value.toNumber()
+        : value,
+    ),
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -44,7 +61,7 @@ export default async function AdminCatalogEditPage({ params }: Props) {
           Sélectionnez les produits, personnalisez le titre, la couleur ou la photo de fond.
         </p>
       </div>
-      <CatalogEditor catalog={catalog as any} />
+      <CatalogEditor catalog={serialized} />
     </div>
   );
 }

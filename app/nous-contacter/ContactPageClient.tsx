@@ -181,7 +181,7 @@ export default function ContactPageClient({
           )}
           {isApproved ? (
             <Link
-              href="/espace-pro/messages"
+              href="/espace-pro"
               className="inline-flex items-center gap-2 btn-primary text-sm py-2 px-4"
             >
               {t("goToMessages")}

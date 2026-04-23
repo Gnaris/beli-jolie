@@ -123,9 +123,9 @@ describe("lib/encryption", () => {
   // ─── encryptIfSensitive / decryptIfSensitive ──────────────────
 
   it("should encrypt sensitive keys", () => {
-    const encrypted = encryptIfSensitive("stripe_secret_key", "sk_test_123");
+    const encrypted = encryptIfSensitive("easy_express_api_key", "test_key_123");
     expect(isEncrypted(encrypted)).toBe(true);
-    expect(decryptIfSensitive("stripe_secret_key", encrypted)).toBe("sk_test_123");
+    expect(decryptIfSensitive("easy_express_api_key", encrypted)).toBe("test_key_123");
   });
 
   it("should NOT encrypt non-sensitive keys", () => {
@@ -145,9 +145,6 @@ describe("lib/encryption", () => {
 
   it("SENSITIVE_KEYS should contain expected keys", () => {
     const expected = [
-      "stripe_secret_key",
-      "stripe_webhook_secret",
-      "stripe_publishable_key",
       "easy_express_api_key",
       "resend_api_key",
       "deepl_api_key",

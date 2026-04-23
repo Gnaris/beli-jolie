@@ -121,6 +121,7 @@ next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (R
 - **Auto-maintenance** : mettre a jour CLAUDE.md apres chaque tache si nouvelle convention/endpoint/env var.
 - **Parallelisation** : lancer des sous-agents en parallele quand les sous-taches sont independantes.
 - **Resume** : fournir un resume des changements + guide de test a la fin de chaque tache.
+- **Récap demande** : à la toute fin de chaque réponse, ajouter une petite section **« Ce que vous m'avez demandé »** qui résume en 1-3 phrases simples la demande initiale. Ça permet de garder une trace claire de ce qui a été fait et pourquoi.
 
 ## Commandes
 

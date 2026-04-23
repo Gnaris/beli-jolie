@@ -12,6 +12,7 @@ import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
 import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
+import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
 import StripeConfig from "@/components/admin/settings/StripeConfig";
 import ResendConfig from "@/components/admin/settings/ResendConfig";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
@@ -285,23 +286,16 @@ async function MaintenanceTab() {
    TAB : Paiement — Stripe
    ═══════════════════════════════════════════════════════════════════════════ */
 async function PaiementTab() {
-  const [stripeKeyConfig, stripeConnectConfig] = await Promise.all([
-    prisma.siteConfig.findUnique({ where: { key: "stripe_secret_key" }, select: { key: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "stripe_connect_account_id" }, select: { key: true } }),
-  ]);
-
-  const { isConnectEnabled } = await import("@/lib/stripe");
-  const connectEnabled = isConnectEnabled();
+  const stripeConnectConfig = await prisma.siteConfig.findUnique({
+    where: { key: "stripe_connect_account_id" },
+    select: { key: true },
+  });
 
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
       <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Paiement Stripe</h3>
       <p className="text-sm text-text-secondary font-body mb-4">Connectez votre compte Stripe pour accepter les paiements.</p>
-      <StripeConfig
-        hasKeys={!!stripeKeyConfig}
-        hasConnect={!!stripeConnectConfig}
-        connectEnabled={connectEnabled}
-      />
+      <StripeConfig hasConnect={!!stripeConnectConfig} />
     </div>
   );
 }
@@ -325,13 +319,27 @@ async function EmailTab() {
    TAB : Livraison — Easy-Express
    ═══════════════════════════════════════════════════════════════════════════ */
 async function LivraisonTab() {
-  const eeApiKeyConfig = await prisma.siteConfig.findUnique({ where: { key: "easy_express_api_key" }, select: { key: true } });
+  const [eeApiKeyConfig, marginTypeRow, marginValueRow] = await Promise.all([
+    prisma.siteConfig.findUnique({ where: { key: "easy_express_api_key" }, select: { key: true } }),
+    prisma.siteConfig.findUnique({ where: { key: "shipping_margin_type" } }),
+    prisma.siteConfig.findUnique({ where: { key: "shipping_margin_value" } }),
+  ]);
+
+  const marginType = (marginTypeRow?.value as "fixed" | "percent") || "fixed";
+  const marginValue = Number(marginValueRow?.value) || 0;
 
   return (
-    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
-      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Easy-Express</h3>
-      <p className="text-sm text-text-secondary font-body mb-4">Clé API pour les expéditions. L&apos;adresse expéditeur utilise les infos société.</p>
-      <EasyExpressApiKeyConfig hasKey={!!eeApiKeyConfig} />
+    <div className="space-y-6">
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Easy-Express</h3>
+        <p className="text-sm text-text-secondary font-body mb-4">Clé API pour les expéditions. L&apos;adresse expéditeur utilise les infos société.</p>
+        <EasyExpressApiKeyConfig hasKey={!!eeApiKeyConfig} />
+      </div>
+
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
+        <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Marge sur les frais de port</h3>
+        <ShippingMarginConfig initialType={marginType} initialValue={marginValue} />
+      </div>
     </div>
   );
 }

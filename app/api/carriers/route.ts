@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { fetchEasyExpressRates } from "@/lib/easy-express";
-import { getCachedEasyExpressApiKey } from "@/lib/cached-data";
+import { getCachedEasyExpressApiKey, getCachedShippingMargin } from "@/lib/cached-data";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
 
@@ -60,60 +60,43 @@ export async function POST(request: NextRequest) {
     logger.error("[carriers] Easy-Express error", { error: result.error });
     return NextResponse.json({
       transactionId: "",
-      carriers: getFallbackCarriers(country, weightKg),
+      carriers: [],
+      noCarrierConfigured: true,
     });
   }
 
-  // Si l'API retourne une liste vide → fallback
+  // Si l'API retourne une liste vide → aucun transporteur
   if (result.carriers.length === 0) {
-    logger.warn("[carriers] Easy-Express: aucun transporteur retourné, fallback");
+    logger.warn("[carriers] Easy-Express: aucun transporteur retourné");
     return NextResponse.json({
       transactionId: result.transactionId,
-      carriers: getFallbackCarriers(country, weightKg),
+      carriers: [],
+      noCarrierConfigured: true,
     });
   }
 
-  const CARRIER_MARGIN = 5; // marge en euros
+  // Marge configurable (paramètres admin > Livraison)
+  const margin = await getCachedShippingMargin();
+
   return NextResponse.json({
     transactionId: result.transactionId,
-    carriers: result.carriers.map((c) => ({
-      id:    c.carrierId,
-      name:  c.name,
-      price: Math.round((c.price + CARRIER_MARGIN) * 100) / 100,
-      delay: c.delay,
-      logo:  c.logo,
-    })),
+    carriers: result.carriers.map((c) => {
+      let finalPrice = c.price;
+      if (margin.value > 0) {
+        if (margin.type === "fixed") {
+          finalPrice += margin.value;
+        } else {
+          finalPrice *= (1 + margin.value / 100);
+        }
+      }
+      return {
+        id:    c.carrierId,
+        name:  c.name,
+        price: Math.round(finalPrice * 100) / 100,
+        delay: c.delay,
+        logo:  c.logo,
+      };
+    }),
   });
 }
 
-/**
- * Transporteurs de repli (si l'API échoue ou n'est pas configurée)
- * Les IDs fallback sont préfixés "fallback_" pour les distinguer des vrais carriers.
- */
-function getFallbackCarriers(country: string, weightKg: number) {
-  const MARGIN = 5; // marge en euros
-  const isFrance = country === "FR";
-  const isEU     = ["BE","LU","DE","ES","IT","NL","PT","AT","CH"].includes(country);
-
-  if (isFrance) {
-    const colissimo = weightKg <= 0.5 ? 4.95 : weightKg <= 2 ? 7.50 : 12.00;
-    return [
-      { id: "fallback_colissimo_dom", name: "Colissimo — Domicile",     price: colissimo + MARGIN,     delay: "48h ouvrees" },
-      { id: "fallback_colissimo_rel", name: "Colissimo — Point Relais", price: colissimo - 1 + MARGIN, delay: "48h ouvrees" },
-      { id: "fallback_chronopost",    name: "Chronopost 13h",           price: colissimo + 6 + MARGIN, delay: "Le lendemain avant 13h" },
-    ];
-  }
-
-  if (isEU) {
-    const base = weightKg <= 1 ? 9.90 : weightKg <= 5 ? 15.00 : 25.00;
-    return [
-      { id: "fallback_colissimo_eu", name: "Colissimo Europe",  price: base + MARGIN,      delay: "4-7 jours ouvres" },
-      { id: "fallback_chrono_eu",    name: "Chronopost Europe", price: base + 10 + MARGIN, delay: "2-3 jours ouvres" },
-    ];
-  }
-
-  const base = weightKg <= 1 ? 19.90 : weightKg <= 5 ? 32.00 : 55.00;
-  return [
-    { id: "fallback_colissimo_intl", name: "Colissimo International", price: base + MARGIN, delay: "7-14 jours ouvres" },
-  ];
-}

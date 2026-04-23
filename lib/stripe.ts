@@ -4,20 +4,12 @@ import { decryptIfSensitive } from "@/lib/encryption";
 
 // ─── Cache pour éviter de lire la DB à chaque appel ───────────────────────────
 let _cachedStripe: Stripe | null = null;
-let _cachedSecretKey: string | null = null;
 let _cachedConnectAccountId: string | null | undefined = undefined; // undefined = not loaded
 
-// ─── Stripe Connect helpers ──────────────────────────────────────────────────
+// ─── Stripe Connect ─────────────────────────────────────────────────────────
 
 /**
- * Vérifie si Stripe Connect est activé (env var plateforme configurée).
- */
-export function isConnectEnabled(): boolean {
-  return !!process.env.STRIPE_PLATFORM_SECRET_KEY;
-}
-
-/**
- * Retourne le stripe_connect_account_id si configuré (mode Connect), sinon null.
+ * Retourne le stripe_connect_account_id si configuré, sinon null.
  */
 export async function getConnectedAccountId(): Promise<string | null> {
   if (_cachedConnectAccountId !== undefined) return _cachedConnectAccountId;
@@ -31,90 +23,53 @@ export async function getConnectedAccountId(): Promise<string | null> {
 }
 
 /**
- * Vérifie si on est en mode Stripe Connect (compte connecté via OAuth).
+ * Vérifie si Stripe Connect est prêt (clé plateforme + compte connecté).
  */
-export async function isStripeConnectMode(): Promise<boolean> {
+export async function isStripeConnectReady(): Promise<boolean> {
+  const platformKey = process.env.STRIPE_PLATFORM_SECRET_KEY;
+  if (!platformKey) return false;
   const accountId = await getConnectedAccountId();
-  return !!accountId && isConnectEnabled();
+  return !!accountId;
 }
 
 // ─── Instance Stripe ─────────────────────────────────────────────────────────
 
 /**
- * Retourne une instance Stripe configurée.
- * - Mode Connect : utilise STRIPE_PLATFORM_SECRET_KEY (env var hébergeur)
- * - Mode manuel : clé en DB (SiteConfig) > variable d'environnement
+ * Retourne une instance Stripe configurée avec la clé plateforme.
  */
 export async function getStripeInstance(): Promise<Stripe> {
-  // Mode Connect : utiliser la clé plateforme
-  const connectMode = await isStripeConnectMode();
-
-  if (connectMode) {
-    const platformKey = process.env.STRIPE_PLATFORM_SECRET_KEY!;
-    if (_cachedStripe && _cachedSecretKey === platformKey) {
-      return _cachedStripe;
-    }
-    _cachedStripe = new Stripe(platformKey);
-    _cachedSecretKey = platformKey;
-    return _cachedStripe;
+  const platformKey = process.env.STRIPE_PLATFORM_SECRET_KEY;
+  if (!platformKey) {
+    throw new Error("Stripe non configuré. La clé plateforme (STRIPE_PLATFORM_SECRET_KEY) est manquante.");
   }
 
-  // Mode manuel : clé en DB ou env
-  const dbConfig = await prisma.siteConfig.findUnique({
-    where: { key: "stripe_secret_key" },
-  });
-  const secretKey = (dbConfig?.value ? decryptIfSensitive("stripe_secret_key", dbConfig.value) : null) || process.env.STRIPE_SECRET_KEY;
+  if (_cachedStripe) return _cachedStripe;
 
-  if (!secretKey) {
-    throw new Error("Stripe non configuré. Ajoutez vos clés Stripe dans Paramètres > Paiement Stripe.");
-  }
-
-  // Réutiliser l'instance si la clé n'a pas changé
-  if (_cachedStripe && _cachedSecretKey === secretKey) {
-    return _cachedStripe;
-  }
-
-  _cachedStripe = new Stripe(secretKey);
-  _cachedSecretKey = secretKey;
+  _cachedStripe = new Stripe(platformKey);
   return _cachedStripe;
 }
 
 /**
- * Retourne le webhook secret depuis la DB ou l'env.
+ * Retourne le webhook secret depuis l'env.
  */
 export async function getStripeWebhookSecret(): Promise<string> {
-  const dbConfig = await prisma.siteConfig.findUnique({
-    where: { key: "stripe_webhook_secret" },
-  });
-  const secret = (dbConfig?.value ? decryptIfSensitive("stripe_webhook_secret", dbConfig.value) : null) || process.env.STRIPE_WEBHOOK_SECRET;
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
-    throw new Error("Stripe webhook secret non configuré.");
+    throw new Error("Stripe webhook secret non configuré (STRIPE_WEBHOOK_SECRET).");
   }
   return secret;
 }
 
 /**
- * Retourne la clé publique Stripe.
- * - Mode Connect : clé publique plateforme (NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
- * - Mode manuel : clé en DB ou env
+ * Retourne la clé publique Stripe (plateforme).
  */
-export async function getStripePublishableKey(): Promise<string | null> {
-  // Mode Connect : utiliser la clé publique de la plateforme
-  const connectMode = await isStripeConnectMode();
-  if (connectMode) {
-    return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || null;
-  }
-
-  // Mode manuel
-  const dbConfig = await prisma.siteConfig.findUnique({
-    where: { key: "stripe_publishable_key" },
-  });
-  return (dbConfig?.value ? decryptIfSensitive("stripe_publishable_key", dbConfig.value) : null) || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || null;
+export function getStripePublishableKey(): string | null {
+  return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || null;
 }
 
 /**
  * Récupère le taux de commission plateforme depuis les metadata du compte connecté.
- * Retourne le taux en décimal (ex: 0.0025 pour 0.25%). Défaut: 0.25%.
+ * Retourne le taux en décimal (ex: 0.0025 pour 0.25%). Défaut: 0 (pas de commission).
  */
 export async function getCommissionRate(): Promise<number> {
   const accountId = await getConnectedAccountId();
@@ -122,15 +77,14 @@ export async function getCommissionRate(): Promise<number> {
 
   const stripe = await getStripeInstance();
   const account = await stripe.accounts.retrieve(accountId);
-  const rate = parseFloat(account.metadata?.commission_rate || "0.25");
+  const rate = parseFloat(account.metadata?.commission_rate || "0");
   return rate / 100;
 }
 
 /**
- * Invalide le cache en mémoire (après mise à jour des clés).
+ * Invalide le cache en mémoire (après mise à jour de la config).
  */
 export function invalidateStripeCache() {
   _cachedStripe = null;
-  _cachedSecretKey = null;
   _cachedConnectAccountId = undefined;
 }

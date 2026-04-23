@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCart } from "@/app/actions/client/cart";
 import CartPageClient from "@/components/panier/CartPageClient";
-import { isConnectEnabled, getConnectedAccountId } from "@/lib/stripe";
+import { isStripeConnectReady } from "@/lib/stripe";
 
 export const metadata: Metadata = {
   title: "Mon panier",
@@ -44,12 +44,8 @@ export default async function PanierPage() {
   ]);
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
 
-  // Vérifier si Stripe est prêt (compte connecté relié)
-  let stripeReady = true;
-  if (isConnectEnabled()) {
-    const connectedId = await getConnectedAccountId();
-    stripeReady = !!connectedId;
-  }
+  // Vérifier si Stripe est prêt (clé plateforme + compte connecté)
+  const stripeReady = await isStripeConnectReady();
 
   // Sérialiser les Decimal Prisma en number pour le client component
   const serializedCart = cart ? {

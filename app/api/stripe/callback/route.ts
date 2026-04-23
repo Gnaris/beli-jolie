@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encryptIfSensitive } from "@/lib/encryption";
-import { invalidateStripeCache, isConnectEnabled } from "@/lib/stripe";
+import { invalidateStripeCache, isStripeConnectReady } from "@/lib/stripe";
 import { revalidatePath, revalidateTag } from "next/cache";
 import Stripe from "stripe";
 import { logger } from "@/lib/logger";
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const accountId = url.searchParams.get("account_id");
   const baseUrl = process.env.NEXTAUTH_URL || url.origin;
 
-  if (!accountId || !isConnectEnabled()) {
+  if (!accountId || !(await isStripeConnectReady())) {
     return NextResponse.redirect(
       `${baseUrl}/admin/parametres?tab=paiement&connect_error=${encodeURIComponent("Paramètres manquants.")}`
     );
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
     // Ajouter la commission par défaut si pas encore définie
     if (!account.metadata?.commission_rate) {
       await stripe.accounts.update(accountId, {
-        metadata: { commission_rate: "0.25" },
+        metadata: { commission_rate: "0" },
       });
     }
 

@@ -89,7 +89,6 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
   const PROFILE_LINKS = [
     { label: t("profile"),   href: "/espace-pro" },
     { label: t("orders"),    href: "/commandes" },
-    { label: t("messages"),  href: "/espace-pro/messages" },
     { label: t("claims"),    href: "/espace-pro/reclamations" },
   ];
 

@@ -14,9 +14,6 @@ const PREFIX = "enc:v1:";
 
 /** Clés SiteConfig considérées sensibles — chiffrées en BDD. */
 export const SENSITIVE_KEYS = new Set([
-  "stripe_secret_key",
-  "stripe_webhook_secret",
-  "stripe_publishable_key",
   "easy_express_api_key",
   "resend_api_key",
   "deepl_api_key",

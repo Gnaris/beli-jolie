@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getStripeInstance, getConnectedAccountId, getCommissionRate, isConnectEnabled } from "@/lib/stripe";
+import { getStripeInstance, getConnectedAccountId, getCommissionRate, isStripeConnectReady } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -128,7 +128,12 @@ export async function POST(req: Request) {
 
   const shopName = await getCachedShopName();
 
-  // Initialiser Stripe dynamiquement (clés DB ou env)
+  // Vérifier que Stripe Connect est prêt
+  const connectReady = await isStripeConnectReady();
+  if (!connectReady) {
+    return NextResponse.json({ error: "Paiement indisponible. Le compte Stripe n'est pas encore relié." }, { status: 503 });
+  }
+
   let stripe;
   try {
     stripe = await getStripeInstance();
@@ -136,57 +141,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Stripe non configuré. Contactez l'administrateur." }, { status: 503 });
   }
 
-  // Stripe Connect : vérifier que le compte est relié
   const connectAccountId = await getConnectedAccountId();
 
-  // En mode plateforme, bloquer si le compte connecté n'est pas relié
-  if (isConnectEnabled() && !connectAccountId) {
-    return NextResponse.json({ error: "Paiement indisponible. Le compte Stripe n'est pas encore relié." }, { status: 503 });
-  }
-
-  const connectOpts = connectAccountId ? { stripeAccount: connectAccountId } : undefined;
-
-  // ─── Mode Connect : paiement direct sur le compte connecté ───────────────
-  if (connectAccountId) {
-    try {
-      // Calculer la commission plateforme
-      const commissionRate = await getCommissionRate();
-      const applicationFeeAmount = Math.round(amountCents * commissionRate);
-
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: amountCents,
-        currency: "eur",
-        payment_method_types: ["card"],
-        application_fee_amount: applicationFeeAmount > 0 ? applicationFeeAmount : undefined,
-        metadata: {
-          userId,
-          addressId,
-          carrierId,
-          carrierName,
-          carrierPrice: String(carrierPrice),
-          tvaRate: String(tvaRate),
-        },
-        receipt_email: user?.email ?? undefined,
-        description: `Commande ${shopName} — ${user?.company ?? "Client"}`,
-      }, connectOpts);
-
-      return NextResponse.json({
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
-      });
-    } catch (err) {
-      logger.error("[create-intent] Erreur création PI (Connect)", { error: err instanceof Error ? err.message : String(err) });
-      return NextResponse.json({ error: "Impossible de créer le paiement." }, { status: 500 });
-    }
-  }
-
-  // ─── Mode manuel : paiement direct avec clés du marchand (carte uniquement) ──
-
   try {
+    // Calculer la commission plateforme
+    const commissionRate = await getCommissionRate();
+    const applicationFeeAmount = Math.round(amountCents * commissionRate);
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "eur",
       payment_method_types: ["card"],
+      application_fee_amount: applicationFeeAmount > 0 ? applicationFeeAmount : undefined,
       metadata: {
         userId,
         addressId,
@@ -196,8 +162,8 @@ export async function POST(req: Request) {
         tvaRate: String(tvaRate),
       },
       receipt_email: user?.email ?? undefined,
-      description: `Commande ${shopName} — ${user?.company ?? "Client"}`,
-    });
+      description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${(totalTTC).toFixed(2)} € TTC`,
+    }, { stripeAccount: connectAccountId! });
 
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,

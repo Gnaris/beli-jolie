@@ -18,6 +18,15 @@ export async function createSupportConversation(subject: string, message: string
     return { success: false, error: "Le sujet et le message sont obligatoires." };
   }
 
+  // Only one open conversation at a time
+  const existing = await prisma.conversation.findFirst({
+    where: { userId: session.user.id, type: "SUPPORT", status: "OPEN" },
+    select: { id: true },
+  });
+  if (existing) {
+    return { success: false, error: "Vous avez deja une conversation en cours.", conversationId: existing.id };
+  }
+
   try {
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
@@ -177,9 +186,9 @@ export async function closeClientConversation(conversationId: string) {
     return { success: false, error: "Conversation introuvable." };
   }
 
-  await prisma.conversation.update({
+  // Delete conversation + all messages + attachments (cascade)
+  await prisma.conversation.delete({
     where: { id: conversationId },
-    data: { status: "CLOSED" },
   });
 
   emitChatEvent({

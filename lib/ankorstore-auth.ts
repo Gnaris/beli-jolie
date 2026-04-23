@@ -113,6 +113,7 @@ export async function getAnkorstoreHeaders(): Promise<Record<string, string>> {
   return {
     Authorization: `Bearer ${token}`,
     Accept: "application/vnd.api+json",
+    "User-Agent": "BeliJolie/1.0",
   };
 }
 

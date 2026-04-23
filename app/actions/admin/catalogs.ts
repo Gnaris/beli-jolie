@@ -61,8 +61,10 @@ export async function addProductToCatalog(catalogId: string, productId: string) 
     where: { catalogId },
     orderBy: { position: "desc" },
   });
-  await prisma.catalogProduct.create({
-    data: { catalogId, productId, position: (last?.position ?? -1) + 1 },
+  await prisma.catalogProduct.upsert({
+    where: { catalogId_productId: { catalogId, productId } },
+    update: {},
+    create: { catalogId, productId, position: (last?.position ?? -1) + 1 },
   });
   revalidatePath(`/admin/catalogues/${catalogId}`);
 }

@@ -163,6 +163,97 @@ function computeUnitPrice(v: VariantData): number {
 }
 
 // ─────────────────────────────────────────────
+// Stepper
+// ─────────────────────────────────────────────
+
+function CheckoutStepper({ currentStep }: { currentStep: number }) {
+  const steps = [
+    { label: "Panier", href: "/panier" },
+    { label: "Commande", href: "/panier/commande" },
+    { label: "Confirmation", href: null },
+  ];
+
+  return (
+    <nav className="flex items-center justify-center gap-0 mb-8 md:mb-10">
+      {steps.map((step, i) => {
+        const isActive = i === currentStep;
+        const isDone = i < currentStep;
+        return (
+          <div key={step.label} className="flex items-center">
+            {i > 0 && (
+              <div className={`w-8 sm:w-14 h-px mx-1 sm:mx-2 transition-colors ${isDone ? "bg-bg-dark" : "bg-border"}`} />
+            )}
+            <div className="flex items-center gap-2">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold font-body transition-all shrink-0 ${
+                isActive
+                  ? "bg-bg-dark text-white"
+                  : isDone
+                    ? "bg-bg-dark text-white"
+                    : "bg-bg-tertiary text-text-muted"
+              }`}>
+                {isDone ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  i + 1
+                )}
+              </div>
+              {step.href && (isDone || isActive) ? (
+                <Link href={step.href} className={`text-sm font-body font-medium transition-colors hidden sm:block ${
+                  isActive ? "text-text-primary" : "text-text-secondary hover:text-text-primary"
+                }`}>
+                  {step.label}
+                </Link>
+              ) : (
+                <span className={`text-sm font-body font-medium hidden sm:block ${
+                  isActive ? "text-text-primary" : "text-text-muted"
+                }`}>
+                  {step.label}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Section header with completion indicator
+// ─────────────────────────────────────────────
+
+function SectionHeader({ step, title, complete, children }: {
+  step: number;
+  title: string;
+  complete: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="px-5 py-3.5 border-b border-border bg-bg-secondary/60 flex items-center justify-between">
+      <div className="flex items-center gap-2.5">
+        <div className={`w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center shrink-0 transition-colors ${
+          complete
+            ? "bg-success text-white"
+            : "bg-bg-dark text-text-inverse"
+        }`}>
+          {complete ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : step}
+        </div>
+        <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+          {title}
+        </h2>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // Composants petits
 // ─────────────────────────────────────────────
 
@@ -400,132 +491,126 @@ function StripePaymentForm({
 
   const brandIcons: Record<string, React.ReactNode> = {
     visa: (
-      <svg className="w-9 h-6" viewBox="0 0 48 32" fill="none">
-        <rect width="48" height="32" rx="4" fill="#1A1F71" />
-        <path d="M19.5 21H17L18.75 11H21.25L19.5 21ZM15.5 11L13.1 18.1L12.8 16.6L12.8 16.6L11.9 12C11.9 12 11.8 11 10.5 11H6.1L6 11.2C6 11.2 7.5 11.5 9.2 12.5L11.4 21H14L18 11H15.5ZM38 21H40.5L38.3 11H36.3C35.2 11 34.9 11.8 34.9 11.8L31 21H33.5L34 19.5H37.1L37.4 21H38ZM34.8 17.5L36.2 13.5L37 17.5H34.8ZM30.5 13.5L30.8 11.8C30.8 11.8 29.5 11.3 28.1 11.3C26.6 11.3 23 12 23 15C23 17.8 27 17.8 27 19.3C27 20.8 23.5 20.5 22.2 19.5L21.9 21.3C21.9 21.3 23.2 21.9 25 21.9C26.8 21.9 30.4 21 30.4 18.2C30.4 15.3 26.4 15 26.4 13.8C26.4 12.6 29.2 12.8 30.5 13.5Z" fill="white" />
+      <svg className="h-5" viewBox="0 0 48 16" fill="none">
+        <path d="M17.4 1L11.6 15H8L5.1 4C4.9 3.2 4.8 2.9 4.1 2.5C3 1.9 1.3 1.3 0 1L0.1 0.5H5.8C6.5 0.5 7.1 1 7.3 1.8L8.7 9.3L12.8 0.5H16.4L17.4 1ZM33.2 10.4C33.2 6.7 28 6.5 28 4.8C28 4.3 28.5 3.7 29.5 3.6C31 3.5 32.5 3.8 33.3 4.3L33.8 1.3C33 1 31.8 0.5 30.3 0.5C26.9 0.5 24.5 2.3 24.5 5C24.5 7 26.3 8.1 27.6 8.8C29 9.5 29.4 9.9 29.4 10.5C29.4 11.4 28.3 11.7 27.3 11.7C25.7 11.7 24.7 11.4 23.8 10.9L23.3 14C24.3 14.4 26 14.8 27.7 14.8C31.4 14.8 33.2 13 33.2 10.4ZM42.6 15H46L43 0.5H40C39.4 0.5 38.8 0.8 38.6 1.5L33.5 15H37.1L37.8 13H42.2L42.6 15ZM38.8 10.2L40.6 5L41.6 10.2H38.8ZM23 0.5L20.2 15H16.8L19.6 0.5H23Z" fill="#1A1F71" />
       </svg>
     ),
     mastercard: (
-      <svg className="w-9 h-6" viewBox="0 0 48 32" fill="none">
-        <rect width="48" height="32" rx="4" fill="#252525" />
-        <circle cx="19" cy="16" r="8" fill="#EB001B" />
-        <circle cx="29" cy="16" r="8" fill="#F79E1B" />
-        <path d="M24 9.8A8 8 0 0 1 27 16a8 8 0 0 1-3 6.2A8 8 0 0 1 21 16a8 8 0 0 1 3-6.2Z" fill="#FF5F00" />
+      <svg className="h-5" viewBox="0 0 38 24" fill="none">
+        <circle cx="14" cy="12" r="10" fill="#EB001B" opacity="0.9" />
+        <circle cx="24" cy="12" r="10" fill="#F79E1B" opacity="0.9" />
+        <path d="M19 4.6A10 10 0 0 1 23 12a10 10 0 0 1-4 7.4A10 10 0 0 1 15 12a10 10 0 0 1 4-7.4Z" fill="#FF5F00" />
       </svg>
     ),
     amex: (
-      <svg className="w-9 h-6" viewBox="0 0 48 32" fill="none">
-        <rect width="48" height="32" rx="4" fill="#006FCF" />
-        <text x="24" y="19" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold" fontFamily="sans-serif">AMEX</text>
+      <svg className="h-5" viewBox="0 0 40 16" fill="none">
+        <rect width="40" height="16" rx="2" fill="#006FCF" />
+        <text x="20" y="11" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold" fontFamily="sans-serif">AMEX</text>
       </svg>
     ),
     unknown: (
-      <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
       </svg>
     ),
   };
 
+  const fieldBaseClass = "bg-bg-primary rounded-xl px-4 py-3 border transition-all duration-200";
+  const fieldFocusClass = "border-bg-dark ring-2 ring-bg-dark/10 bg-white";
+  const fieldIdleClass = "border-border hover:border-border-dark";
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Card visual */}
-      <div className="relative bg-gradient-to-br from-[#1A1A1A] via-[#2D2D2D] to-[#1A1A1A] rounded-2xl p-5 pb-4 text-white shadow-lg overflow-hidden">
-        {/* Subtle pattern */}
-        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)", backgroundSize: "24px 24px" }} />
-
-        <div className="relative space-y-4">
-          {/* Header with brand */}
-          <div className="flex items-center justify-between">
+      {/* Card fields — clean light design */}
+      <div className="space-y-3">
+        {/* Card number */}
+        <div>
+          <label className="flex items-center justify-between mb-2">
+            <span className="text-[0.8rem] font-medium text-text-secondary font-body">Numéro de carte</span>
             <div className="flex items-center gap-1.5">
-              <svg className="w-4 h-4 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-              </svg>
-              <span className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-body">Paiement sécurisé</span>
+              {/* Brand logos always visible, active one highlighted */}
+              <span className={`transition-opacity duration-200 ${cardBrand === "visa" ? "opacity-100" : "opacity-30"}`}>
+                {brandIcons.visa}
+              </span>
+              <span className={`transition-opacity duration-200 ${cardBrand === "mastercard" ? "opacity-100" : "opacity-30"}`}>
+                {brandIcons.mastercard}
+              </span>
+              <span className={`transition-opacity duration-200 ${cardBrand === "amex" ? "opacity-100" : "opacity-30"}`}>
+                {brandIcons.amex}
+              </span>
             </div>
-            <div className="transition-all duration-300">
-              {brandIcons[cardBrand] || brandIcons.unknown}
-            </div>
+          </label>
+          <div className={`${fieldBaseClass} ${focused === "number" ? fieldFocusClass : fieldIdleClass}`}>
+            <CardNumberElement
+              options={{
+                ...cardElementStyle,
+                showIcon: false,
+                disableLink: true,
+              }}
+              onReady={() => setReady((r) => ({ ...r, number: true }))}
+              onFocus={() => setFocused("number")}
+              onBlur={() => setFocused(null)}
+              onChange={(e) => setCardBrand(e.brand ?? "unknown")}
+            />
           </div>
+        </div>
 
-          {/* Card number */}
+        {/* Expiry + CVC row */}
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-white/40 font-body mb-1.5 block">
-              Numéro de carte
+            <label className="text-[0.8rem] font-medium text-text-secondary font-body mb-2 block">
+              Date d&apos;expiration
             </label>
-            <div className={`bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-3 border transition-all duration-200 ${focused === "number" ? "border-white/40 bg-white/15" : "border-white/10"}`}>
-              <CardNumberElement
-                options={{
-                  ...cardElementStyle,
-                  style: {
-                    base: { ...cardElementStyle.style.base, color: "#FFFFFF", "::placeholder": { color: "rgba(255,255,255,0.35)" } },
-                    invalid: { color: "#FCA5A5", iconColor: "#FCA5A5" },
-                  },
-                  showIcon: false,
-                }}
-                onReady={() => setReady((r) => ({ ...r, number: true }))}
-                onFocus={() => setFocused("number")}
+            <div className={`${fieldBaseClass} ${focused === "expiry" ? fieldFocusClass : fieldIdleClass}`}>
+              <CardExpiryElement
+                options={cardElementStyle}
+                onReady={() => setReady((r) => ({ ...r, expiry: true }))}
+                onFocus={() => setFocused("expiry")}
                 onBlur={() => setFocused(null)}
-                onChange={(e) => setCardBrand(e.brand ?? "unknown")}
               />
             </div>
           </div>
-
-          {/* Expiry + CVC row */}
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="text-[10px] uppercase tracking-[0.15em] text-white/40 font-body mb-1.5 block">
-                Expiration
-              </label>
-              <div className={`bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-3 border transition-all duration-200 ${focused === "expiry" ? "border-white/40 bg-white/15" : "border-white/10"}`}>
-                <CardExpiryElement
-                  options={{
-                    ...cardElementStyle,
-                    style: {
-                      base: { ...cardElementStyle.style.base, color: "#FFFFFF", "::placeholder": { color: "rgba(255,255,255,0.35)" } },
-                      invalid: { color: "#FCA5A5" },
-                    },
-                  }}
-                  onReady={() => setReady((r) => ({ ...r, expiry: true }))}
-                  onFocus={() => setFocused("expiry")}
-                  onBlur={() => setFocused(null)}
-                />
-              </div>
-            </div>
-            <div className="w-28">
-              <label className="text-[10px] uppercase tracking-[0.15em] text-white/40 font-body mb-1.5 block">
-                CVC
-              </label>
-              <div className={`bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-3 border transition-all duration-200 ${focused === "cvc" ? "border-white/40 bg-white/15" : "border-white/10"}`}>
-                <CardCvcElement
-                  options={{
-                    ...cardElementStyle,
-                    style: {
-                      base: { ...cardElementStyle.style.base, color: "#FFFFFF", "::placeholder": { color: "rgba(255,255,255,0.35)" } },
-                      invalid: { color: "#FCA5A5" },
-                    },
-                  }}
-                  onReady={() => setReady((r) => ({ ...r, cvc: true }))}
-                  onFocus={() => setFocused("cvc")}
-                  onBlur={() => setFocused(null)}
-                />
-              </div>
+          <div>
+            <label className="flex items-center gap-1.5 text-[0.8rem] font-medium text-text-secondary font-body mb-2">
+              CVC
+              <span className="group relative cursor-help">
+                <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M12 18h.01" />
+                </svg>
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 bg-bg-dark text-white text-[10px] rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none font-body">
+                  3 chiffres au dos de la carte
+                </span>
+              </span>
+            </label>
+            <div className={`${fieldBaseClass} ${focused === "cvc" ? fieldFocusClass : fieldIdleClass}`}>
+              <CardCvcElement
+                options={cardElementStyle}
+                onReady={() => setReady((r) => ({ ...r, cvc: true }))}
+                onFocus={() => setFocused("cvc")}
+                onBlur={() => setFocused(null)}
+              />
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Security badge */}
+      <div className="flex items-center justify-center gap-2 py-1">
+        <svg className="w-3.5 h-3.5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+        </svg>
+        <span className="text-[11px] text-text-muted font-body">Paiement sécurisé — chiffrement SSL 256 bits</span>
       </div>
 
       {/* Submit button */}
       <button
         type="submit"
         disabled={!stripe || !elements || processing || !allReady || disabled}
-        className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200 h-12 text-sm"
+        className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed h-12 text-sm"
       >
         {processing ? (
           <>
-            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
+            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             Paiement en cours…
           </>
         ) : (
@@ -817,43 +902,48 @@ export default function CheckoutClient({
     });
   }
 
+  // Indicateurs de complétion pour les sections
+  const section1Complete = !!(billingInfo.firstName && billingInfo.lastName && billingInfo.email);
+  const section2Complete = !!selectedAddr;
+  const section3Complete = !!selectedCarrier;
+
   return (
     <div className="container-site py-10 md:py-14">
+      {/* Stepper */}
+      <CheckoutStepper currentStep={1} />
+
       {/* En-tête */}
-      <div className="mb-8">
-        <Link href="/panier" className="text-xs font-body text-text-secondary hover:text-text-primary flex items-center gap-1 mb-4 transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h1 className="font-heading text-2xl md:text-3xl font-bold text-text-primary">
+            Finaliser la commande
+          </h1>
+          <p className="text-sm font-body text-text-secondary mt-1">
+            Vérifiez vos informations et choisissez votre mode de livraison.
+          </p>
+        </div>
+        <Link href="/panier"
+          className="inline-flex items-center gap-1.5 text-sm font-body text-text-muted hover:text-text-primary transition-colors group">
+          <svg className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
           Retour au panier
         </Link>
-        <p className="text-xs font-body font-medium tracking-[0.2em] uppercase text-text-muted mb-1">
-          Commande
-        </p>
-        <h1 className="font-heading text-2xl md:text-3xl font-semibold text-text-primary">
-          Finaliser la commande
-        </h1>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-start">
 
         {/* ── Colonne principale ─────────────────── */}
         <div className="lg:col-span-2 space-y-6">
 
           {/* ── 1. Informations client + adresse de facturation ── */}
-          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-card">
-            <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-xs font-bold flex items-center justify-center shrink-0">1</span>
-                <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-                  Informations client
-                </h2>
-              </div>
+          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
+            <SectionHeader step={1} title="Informations client" complete={section1Complete}>
               <button type="button" onClick={() => setEditingInfo((v) => !v)}
                 className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors">
                 {editingInfo ? "Fermer" : "Modifier"}
               </button>
-            </div>
+            </SectionHeader>
 
             {editingInfo ? (
               <div className="p-5 space-y-4">
@@ -916,24 +1006,18 @@ export default function CheckoutClient({
           </section>
 
           {/* ── 2. Adresse de livraison ── */}
-          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-card">
-            <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-xs font-bold flex items-center justify-center shrink-0">2</span>
-                <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-                  Adresse de livraison
-                </h2>
-              </div>
+          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
+            <SectionHeader step={2} title="Adresse de livraison" complete={section2Complete}>
               {!showAddressForm && (
                 <button type="button" onClick={() => setShowAddressForm(true)}
-                  className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1">
+                  className="text-xs font-body text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1.5">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
                   Nouvelle adresse
                 </button>
               )}
-            </div>
+            </SectionHeader>
             <div className="p-5 space-y-3">
               {/* Option: meme adresse que facturation */}
               {billingInfo.address1 && billingInfo.zipCode && billingInfo.city && (
@@ -1020,13 +1104,8 @@ export default function CheckoutClient({
           </section>
 
           {/* ── 3. Mode de livraison ── */}
-          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-card">
-            <div className="px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-bg-dark text-text-inverse text-xs font-bold flex items-center justify-center shrink-0">3</span>
-              <h2 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
-                Mode de livraison
-              </h2>
-            </div>
+          <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
+            <SectionHeader step={3} title="Mode de livraison" complete={section3Complete} />
             <div className="p-5 space-y-4">
               {/* Choix livraison / retrait */}
               <div className="grid grid-cols-2 gap-3">
@@ -1209,14 +1288,14 @@ function SummaryPanel({
   const itemCount = cart.items.reduce((s, i) => s + i.quantity, 0);
 
   return (
-    <div className="bg-bg-primary border border-border rounded-2xl shadow-card overflow-hidden sticky top-24">
+    <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden sticky top-24">
       {/* Header — clickable on mobile to toggle */}
       <button
         type="button"
         onClick={() => setMobileOpen((v) => !v)}
-        className="w-full px-5 py-3.5 border-b border-border bg-bg-secondary flex items-center justify-between lg:cursor-default"
+        className="w-full px-5 py-4 border-b border-border-light bg-bg-secondary/50 flex items-center justify-between lg:cursor-default"
       >
-        <h3 className="font-heading text-sm font-semibold text-text-primary uppercase tracking-wide">
+        <h3 className="font-heading text-sm font-semibold text-text-primary">
           Récapitulatif
         </h3>
         <div className="flex items-center gap-2">

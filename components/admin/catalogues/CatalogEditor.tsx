@@ -70,7 +70,7 @@ interface UniqueColor {
 const PRESET_COLORS = [
   "#1A1A1A", "#374151", "#6B7280",
   "#DC2626", "#EA580C", "#CA8A04",
-  "#16A34A", "#0891B2", "#374151",
+  "#16A34A", "#0891B2", "#2563EB",
   "#7C3AED", "#DB2777", "#BE185D",
   "#9D174D", "#92400E", "#065F46",
 ];
@@ -189,6 +189,8 @@ export default function CatalogEditor({ catalog }: Props) {
 
   // ─── Ajouter un produit ───────────────────────────────────────────────────
   const handleAdd = (product: ProductSnap) => {
+    // Ignore if already in catalog
+    if (selectedProducts.some((p) => p.productId === product.id)) return;
     showLoading();
     startTransition(async () => {
       try {

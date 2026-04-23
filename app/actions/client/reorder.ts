@@ -34,11 +34,33 @@ export async function reorderFromOrder(orderId: string, mode: "replace" | "merge
   for (const item of order.items) {
     let variantId: string | null = null;
 
+    // Try snapshot first (new orders have productColorId)
     if (item.variantSnapshot) {
       try {
         const snapshot = JSON.parse(item.variantSnapshot);
-        variantId = snapshot.productColorId || snapshot.id || null;
+        variantId = snapshot.productColorId || null;
       } catch { /* skip */ }
+    }
+
+    // Fallback: find variant by product reference + color name (old orders without productColorId)
+    if (!variantId && item.productRef && item.colorName) {
+      const product = await prisma.product.findFirst({
+        where: { reference: item.productRef },
+        select: { id: true },
+      });
+      if (product) {
+        const colorNames = item.colorName.split("/").map((n: string) => n.trim());
+        const mainColorName = colorNames[0];
+        const matchingVariant = await prisma.productColor.findFirst({
+          where: {
+            productId: product.id,
+            saleType: item.saleType as "UNIT" | "PACK",
+            color: { name: mainColorName },
+          },
+          select: { id: true },
+        });
+        if (matchingVariant) variantId = matchingVariant.id;
+      }
     }
 
     if (!variantId) {

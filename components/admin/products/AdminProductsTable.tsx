@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useTransition, useCallback, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   bulkUpdateProductStatus,
@@ -1163,6 +1164,7 @@ function TableWithTopScroll({
 // ─── Main Table ────────────────────────────────────────────────────────────────
 
 export default function AdminProductsTable({ products, totalCount: _totalCount }: Props) {
+  const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
@@ -1194,7 +1196,25 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
     return () => clearTimeout(timer);
   }, [newProductIds]);
 
+  // Track whether an import is in progress so we can refresh when it finishes
+  const importInProgressRef = useRef(false);
+
   useProductStream(useCallback((event) => {
+    // When an import finishes, reload the full page data (counts, statuses, etc.)
+    if (event.type === "IMPORT_PROGRESS" && event.importProgress) {
+      const { status } = event.importProgress;
+      if (status === "PROCESSING") {
+        importInProgressRef.current = true;
+      } else if (status === "COMPLETED" || status === "FAILED") {
+        if (importInProgressRef.current) {
+          importInProgressRef.current = false;
+          // Small delay to let DB settle after last product insert
+          setTimeout(() => router.refresh(), 1500);
+        }
+      }
+      return;
+    }
+
     if (event.type !== "PRODUCT_CREATED") return;
     const productId = event.productId;
 
@@ -1216,7 +1236,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
         setNewProductIds((prev) => new Set(prev).add(product.id));
       })
       .catch(() => {});
-  }, []));
+  }, [router]));
 
   // Merge live products (prepended) with server products
   const allProducts = [...liveProducts, ...products.filter((p) => !liveProducts.some((lp) => lp.id === p.id))];

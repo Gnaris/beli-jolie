@@ -118,10 +118,16 @@ export async function closeConversation(conversationId: string) {
     return { success: false, error: "Acces non autorise." };
   }
 
-  const conversation = await prisma.conversation.update({
+  const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    data: { status: "CLOSED" },
     select: { userId: true },
+  });
+
+  if (!conversation) return { success: false, error: "Conversation introuvable." };
+
+  // Delete conversation + all messages + attachments (cascade)
+  await prisma.conversation.delete({
+    where: { id: conversationId },
   });
 
   emitChatEvent({

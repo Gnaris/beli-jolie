@@ -150,6 +150,23 @@ export const getCachedEasyExpressApiKey = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── Shipping margin (from SiteConfig) ───────────────────────────────────────
+
+export const getCachedShippingMargin = unstable_cache(
+  async () => {
+    const [typeRow, valueRow] = await Promise.all([
+      prisma.siteConfig.findUnique({ where: { key: "shipping_margin_type" } }),
+      prisma.siteConfig.findUnique({ where: { key: "shipping_margin_value" } }),
+    ]);
+    return {
+      type: (typeRow?.value as "fixed" | "percent") || "fixed",
+      value: Number(valueRow?.value) || 0,
+    };
+  },
+  ["shipping-margin"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── Resend config (from SiteConfig) ─────────────────────────────────────────
 export const getCachedResendConfig = unstable_cache(
   async () => {

@@ -7,8 +7,6 @@ import { clearAutoMaintenance } from "@/lib/health";
 import type { ProductDisplayConfig } from "@/lib/product-display";
 import { parseDisplayConfig } from "@/lib/product-display-shared";
 import type { DisplaySection, HomepageCarousel } from "@/lib/product-display-shared";
-import Stripe from "stripe";
-import { invalidateStripeCache } from "@/lib/stripe";
 import { encryptIfSensitive } from "@/lib/encryption";
 import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
 
@@ -574,100 +572,6 @@ export async function updateHomepageCarouselsConfig(
   }
 }
 
-// ─── Stripe Configuration ─────────────────────────────────────────────────────
-
-export async function validateStripeSecretKey(
-  secretKey: string
-): Promise<{ valid: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    const testStripe = new Stripe(secretKey.trim());
-    // Tester avec un appel léger
-    await testStripe.balance.retrieve();
-    return { valid: true };
-  } catch (e) {
-    const msg = e instanceof Stripe.errors.StripeAuthenticationError
-      ? "Clé secrète invalide. Vérifiez que la clé est correcte."
-      : e instanceof Error ? e.message : "Erreur de validation.";
-    return { valid: false, error: msg };
-  }
-}
-
-export async function updateStripeConfig(config: {
-  secretKey: string;
-  publishableKey: string;
-  webhookSecret: string;
-}): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    const { secretKey, publishableKey, webhookSecret } = config;
-
-    if (!secretKey.trim() && !publishableKey.trim() && !webhookSecret.trim()) {
-      // Supprimer toute la config Stripe
-      await prisma.siteConfig.deleteMany({
-        where: { key: { in: ["stripe_secret_key", "stripe_publishable_key", "stripe_webhook_secret"] } },
-      });
-      invalidateStripeCache();
-      revalidatePath("/admin/parametres");
-      revalidateTag("site-config", "default");
-      return { success: true };
-    }
-
-    // Validation basique des préfixes
-    const sk = secretKey.trim();
-    const pk = publishableKey.trim();
-    const wh = webhookSecret.trim();
-
-    if (sk && !sk.startsWith("sk_")) {
-      return { success: false, error: "La clé secrète doit commencer par sk_" };
-    }
-    if (pk && !pk.startsWith("pk_")) {
-      return { success: false, error: "La clé publique doit commencer par pk_" };
-    }
-    if (wh && !wh.startsWith("whsec_")) {
-      return { success: false, error: "Le webhook secret doit commencer par whsec_" };
-    }
-
-    // Sauvegarder les 3 clés (chiffrées)
-    const upsertOrDelete = (key: string, value: string) => {
-      if (!value) return prisma.siteConfig.deleteMany({ where: { key } });
-      const stored = encryptIfSensitive(key, value);
-      return prisma.siteConfig.upsert({
-        where: { key },
-        update: { value: stored },
-        create: { key, value: stored },
-      });
-    };
-
-    await Promise.all([
-      upsertOrDelete("stripe_secret_key", sk),
-      upsertOrDelete("stripe_publishable_key", pk),
-      upsertOrDelete("stripe_webhook_secret", wh),
-    ]);
-
-    invalidateStripeCache();
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
-export async function deleteStripeConfig(): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    await prisma.siteConfig.deleteMany({
-      where: { key: { in: ["stripe_secret_key", "stripe_publishable_key", "stripe_webhook_secret"] } },
-    });
-    invalidateStripeCache();
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
 
 // ─── Marketplace Markup Configuration ────────────────────────────────────────
 
@@ -706,6 +610,42 @@ export async function updateMarketplaceMarkup(
         })
       )
     );
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+// ─── Shipping Margin ─────────────────────────────────────────────────────────
+
+export interface ShippingMarginSettings {
+  type: "fixed" | "percent";
+  value: number;
+}
+
+export async function updateShippingMargin(
+  settings: ShippingMarginSettings
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+
+    if (settings.value < 0) return { success: false, error: "La valeur doit être positive." };
+
+    await Promise.all([
+      prisma.siteConfig.upsert({
+        where: { key: "shipping_margin_type" },
+        update: { value: settings.type },
+        create: { key: "shipping_margin_type", value: settings.type },
+      }),
+      prisma.siteConfig.upsert({
+        where: { key: "shipping_margin_value" },
+        update: { value: String(settings.value) },
+        create: { key: "shipping_margin_value", value: String(settings.value) },
+      }),
+    ]);
 
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");

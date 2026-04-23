@@ -249,6 +249,7 @@ export async function placeOrder(
 
     // Build variant snapshot for legal traceability (survives variant deletion)
     const variantSnapshot = JSON.stringify({
+      productColorId: item.variant.id,
       productName: item.variant.product.name,
       productRef: item.variant.product.reference,
       categoryName: item.variant.product.category?.name ?? null,

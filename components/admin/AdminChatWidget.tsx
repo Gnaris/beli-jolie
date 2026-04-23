@@ -68,6 +68,21 @@ export default function AdminChatWidget() {
   const toast = useToast();
   const { confirm } = useConfirm();
 
+  // ── Cross-tab: only one chat open at a time ──
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  useEffect(() => {
+    try {
+      const ch = new BroadcastChannel("admin-chat-widget-sync");
+      channelRef.current = ch;
+      ch.onmessage = (e) => {
+        if (e.data === "chat-opened") {
+          setIsOpen(false);
+        }
+      };
+      return () => ch.close();
+    } catch { /* BroadcastChannel not supported — single-tab fallback */ }
+  }, []);
+
   // ── Stale request guard (ignore results from outdated calls) ──
   const requestIdRef = useRef(0);
 
@@ -206,16 +221,23 @@ export default function AdminChatWidget() {
         if (clientTypingTimerRef.current) clearTimeout(clientTypingTimerRef.current);
       }
 
-      // Conversation closed
-      if (event.type === "CONVERSATION_CLOSED" && event.conversationId === activeConvId) {
-        setActiveConvStatus("CLOSED");
+      // Conversation closed (deleted) — remove from list, go back if viewing it
+      if (event.type === "CONVERSATION_CLOSED") {
+        setConversations((prev) => prev.filter((c) => c.id !== event.conversationId));
+        if (event.conversationId === activeConvId) {
+          setView("list");
+          setActiveConvId(null);
+          setMessages([]);
+          setClientTyping(false);
+          toast.toast({ type: "info", title: "La conversation a été clôturée" });
+        }
       }
     },
     [activeConvId, isOpen, view]
   );
 
-  // Only open SSE when viewing a conversation (list doesn't need real-time)
-  useChatStream(handleChatEvent, isOpen && view === "conversation");
+  // SSE always active so we receive notifications (sound + badge) even when panel is closed
+  useChatStream(handleChatEvent);
 
   // ── Typing emission ─────────────────────────
   function emitTyping(typing: boolean) {
@@ -282,19 +304,20 @@ export default function AdminChatWidget() {
     });
   }
 
-  // ── Close conversation ──────────────────────
+  // ── Close conversation (delete) ──────────────
   async function handleCloseConversation() {
     if (!activeConvId) return;
     const ok = await confirm({
       title: "Clôturer la conversation",
-      message: "Voulez-vous vraiment clôturer cette conversation ?",
+      message: "Voulez-vous vraiment clôturer cette conversation ? Les messages seront supprimés définitivement.",
       confirmLabel: "Clôturer",
     });
     if (!ok) return;
     startTransition(async () => {
       const result = await closeConversation(activeConvId);
       if (result.success) {
-        setActiveConvStatus("CLOSED");
+        setConversations((prev) => prev.filter((c) => c.id !== activeConvId));
+        goBackToList();
         toast.success("Conversation clôturée");
       } else {
         toast.error(result.error || "Erreur");
@@ -576,9 +599,11 @@ export default function AdminChatWidget() {
       {/* ── Floating bubble ── */}
       <button
         onClick={() => {
-          setIsOpen(!isOpen);
-          if (!isOpen) {
+          const opening = !isOpen;
+          setIsOpen(opening);
+          if (opening) {
             setView("list");
+            channelRef.current?.postMessage("chat-opened");
           }
         }}
         className="fixed bottom-6 right-4 sm:right-6 z-[60] w-14 h-14 bg-[#1A1A1A] text-white rounded-full shadow-lg hover:bg-[#333] transition-all hover:scale-105 flex items-center justify-center"

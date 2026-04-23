@@ -12,17 +12,16 @@
  * kicking off the operation is enough — the admin manually checks Ankorstore.
  */
 
-import { getAnkorstoreHeaders, ANKORSTORE_BASE_URL } from "@/lib/ankorstore-auth";
+import { getAnkorstoreHeaders, invalidateAnkorstoreToken, ANKORSTORE_BASE_URL } from "@/lib/ankorstore-auth";
 import { logger } from "@/lib/logger";
 
 /**
- * Ankorstore requires a callbackUrl on every catalog operation, even when we
- * don't read the result. We use a stable placeholder opId since we register
- * the operation before we know the actual opId.
+ * Build a callbackUrl for Ankorstore catalog operations (required field).
+ * Uses NEXTAUTH_URL which must be a public HTTPS address in production.
  */
-function buildCallbackUrl(tempOpId: string): string {
+function buildCallbackUrl(): string {
   const base = (process.env.NEXTAUTH_URL || "http://localhost:3000").replace(/\/$/, "");
-  return `${base}/api/ankorstore/callback/${tempOpId}`;
+  return `${base}/api/ankorstore/callback/${crypto.randomUUID()}`;
 }
 
 // ─────────────────────────────────────────────
@@ -69,26 +68,40 @@ export async function ankorstoreDeleteProduct(
   variantSkus: string[],
 ): Promise<{ success: boolean; opId?: string; error?: string }> {
   const headers = await getAnkorstoreHeaders();
-  const jsonHeaders = { ...headers, "Content-Type": "application/vnd.api+json" };
+  let jsonHeaders = { ...headers, "Content-Type": "application/vnd.api+json" };
 
   try {
     logger.info("[Ankorstore] Deleting product", { externalId, variantSkus });
 
-    const tempOpId = crypto.randomUUID();
-    const createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
+    const deleteBody = JSON.stringify({
+      data: {
+        type: "catalog-integration-operation",
+        attributes: {
+          source: "other",
+          operationType: "delete",
+          callbackUrl: buildCallbackUrl(),
+        },
+      },
+    });
+
+    let createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify({
-        data: {
-          type: "catalog-integration-operation",
-          attributes: {
-            source: "other",
-            operationType: "delete",
-            callbackUrl: buildCallbackUrl(tempOpId),
-          },
-        },
-      }),
+      body: deleteBody,
     });
+
+    // 401/403 HTML → token may be stale, retry once
+    if ((createRes.status === 401 || createRes.status === 403) && !createRes.headers.get("content-type")?.includes("json")) {
+      logger.warn("[Ankorstore] Got " + createRes.status + " on delete operation — refreshing token");
+      invalidateAnkorstoreToken();
+      const freshHeaders = await getAnkorstoreHeaders();
+      jsonHeaders = { ...freshHeaders, "Content-Type": "application/vnd.api+json" };
+      createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: deleteBody,
+      });
+    }
 
     if (!createRes.ok) {
       const err = await createRes.text();
@@ -164,27 +177,50 @@ export async function ankorstorePushProducts(
     return { success: false, error: "No products to push" };
   }
 
-  const headers = await getAnkorstoreHeaders();
-  const jsonHeaders = { ...headers, "Content-Type": "application/vnd.api+json" };
+  async function buildJsonHeaders(): Promise<Record<string, string>> {
+    const h = await getAnkorstoreHeaders();
+    return { ...h, "Content-Type": "application/vnd.api+json", "User-Agent": "BeliJolie/1.0" };
+  }
+
+  let jsonHeaders = await buildJsonHeaders();
 
   try {
-    logger.info("[Ankorstore] Creating catalog operation", { operationType, productCount: products.length });
+    const callbackUrl = buildCallbackUrl();
+    logger.info("[Ankorstore] Creating catalog operation", {
+      operationType,
+      productCount: products.length,
+      hasCallbackUrl: !!callbackUrl,
+      baseUrl: ANKORSTORE_BASE_URL,
+    });
 
-    const tempOpId = crypto.randomUUID();
-    const createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
+    const createBody = JSON.stringify({
+      data: {
+        type: "catalog-integration-operation",
+        attributes: {
+          source: "other",
+          operationType,
+          callbackUrl,
+        },
+      },
+    });
+
+    let createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify({
-        data: {
-          type: "catalog-integration-operation",
-          attributes: {
-            source: "other",
-            operationType,
-            callbackUrl: buildCallbackUrl(tempOpId),
-          },
-        },
-      }),
+      body: createBody,
     });
+
+    // 401/403 → invalidate token and retry once
+    if ((createRes.status === 401 || createRes.status === 403) && !createRes.headers.get("content-type")?.includes("json")) {
+      logger.warn("[Ankorstore] Got " + createRes.status + " on create operation — refreshing token and retrying");
+      invalidateAnkorstoreToken();
+      jsonHeaders = await buildJsonHeaders();
+      createRes = await fetch(`${ANKORSTORE_BASE_URL}/catalog/integrations/operations`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: createBody,
+      });
+    }
 
     if (!createRes.ok) {
       const err = await createRes.text();

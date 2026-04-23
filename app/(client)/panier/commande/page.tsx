@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCart, getShippingAddresses } from "@/app/actions/client/cart";
 import CheckoutClient from "@/components/panier/CheckoutClient";
-import { isConnectEnabled, getConnectedAccountId } from "@/lib/stripe";
+import { isStripeConnectReady } from "@/lib/stripe";
 
 export const metadata: Metadata = {
   title: "Passer la commande",
@@ -41,10 +41,8 @@ export default async function CommandePage() {
   if (!cart || cart.items.length === 0) redirect("/panier");
 
   // Bloquer le checkout si Stripe n'est pas relié
-  if (isConnectEnabled()) {
-    const connectedId = await getConnectedAccountId();
-    if (!connectedId) redirect("/panier");
-  }
+  const stripeReady = await isStripeConnectReady();
+  if (!stripeReady) redirect("/panier");
 
   // Vérification minimum commande (couche serveur — ne peut pas être contournée)
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
