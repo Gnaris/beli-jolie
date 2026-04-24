@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
 import { useProductStream } from "@/hooks/useProductStream";
+import QuickCreateModal, { type QuickCreateType } from "@/components/admin/products/QuickCreateModal";
+import QuickCreateSizeModal from "@/components/admin/products/QuickCreateSizeModal";
 import type { PfsAttribute, PfsAttributeType, ImportablePfsProduct } from "@/lib/pfs-import";
 
 type Step = "scan" | "products" | "import";
@@ -28,6 +30,10 @@ interface PfsJob {
   processedItems: number;
   successItems: number;
   errorItems: number;
+  /** Nombre de produits traités en parallèle côté serveur — transmis par
+   *  SSE pour que l'UI sache combien d'items afficher en « en cours » à la
+   *  fois. Par défaut 1 si non reçu (affichage séquentiel). */
+  concurrency?: number;
   resultDetails: {
     items: { pfsId: string; reference: string; name: string }[];
     results?: PfsJobResult[];
@@ -44,6 +50,8 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
   const [scanning, setScanning] = useState(false);
   const [attributes, setAttributes] = useState<PfsAttribute[]>([]);
   const [scanMeta, setScanMeta] = useState<{ scannedProducts: number; deepScannedProducts: number } | null>(null);
+  // Attribut actuellement en cours de création (ouvre le modal correspondant)
+  const [creatingAttr, setCreatingAttr] = useState<PfsAttribute | null>(null);
 
   // Step 2 — products
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -81,12 +89,36 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
       const p = event.importProgress;
       setActiveJob((prev) => {
         if (!prev || prev.id !== p.jobId) return prev;
+        // On fusionne les résultats par pfsId : l'événement SSE porte les
+        // produits déjà terminés (Prêt / Erreur). La liste côté client est
+        // rafraîchie pour que les badges s'actualisent même en mode parallèle.
+        const items = prev.resultDetails?.items ?? [];
+        const prevResults = prev.resultDetails?.results ?? [];
+        let mergedResults = prevResults;
+        if (p.results && p.results.length > 0) {
+          const byId = new Map<string, PfsJobResult>();
+          for (const r of prevResults) byId.set(r.pfsId, r);
+          for (const r of p.results) {
+            const item = items.find((i) => i.pfsId === r.pfsId);
+            byId.set(r.pfsId, {
+              pfsId: r.pfsId,
+              reference: item?.reference ?? "",
+              name: item?.name ?? "",
+              status: r.status === "cancelled" ? "error" : r.status,
+              productId: r.productId,
+              error: r.error,
+            });
+          }
+          mergedResults = Array.from(byId.values());
+        }
         return {
           ...prev,
           processedItems: p.processed,
           successItems: p.success,
           errorItems: p.errors,
+          concurrency: p.concurrency ?? prev.concurrency,
           status: p.status === "COMPLETED" ? "COMPLETED" : p.status === "FAILED" ? "FAILED" : prev.status,
+          resultDetails: { items, results: mergedResults },
         };
       });
     }
@@ -125,29 +157,28 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
     }
   }, [toast, productLimit]);
 
-  const handleCreateMapping = useCallback(
-    async (attr: PfsAttribute) => {
-      try {
-        const res = await fetch("/api/admin/pfs-import/create-mapping", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: attr.type, pfsRef: attr.pfsRef, label: attr.label }),
-        });
-        if (!res.ok) throw new Error((await res.json()).error ?? "Erreur création");
-        const data = await res.json();
-        setAttributes((prev) =>
-          prev.map((a) =>
-            a.type === attr.type && a.pfsRef === attr.pfsRef
-              ? { ...a, mapped: true, localId: data.id, localName: data.name }
-              : a
-          )
-        );
-        toast.success(`${data.name} créé`);
-      } catch (err) {
-        toast.error((err as Error).message);
-      }
+  /** Ouvre le modal de création approprié pour un attribut non mappé. */
+  const handleCreateMapping = useCallback((attr: PfsAttribute) => {
+    setCreatingAttr(attr);
+  }, []);
+
+  /** Appelé par le modal après création réussie : on met à jour la ligne
+   *  correspondante pour passer en "✓ mappé" sans re-scanner. */
+  const handleCreatedMapping = useCallback(
+    (id: string, name: string) => {
+      if (!creatingAttr) return;
+      const attr = creatingAttr;
+      setAttributes((prev) =>
+        prev.map((a) =>
+          a.type === attr.type && a.pfsRef === attr.pfsRef
+            ? { ...a, mapped: true, localId: id, localName: name }
+            : a
+        )
+      );
+      toast.success(`${name} créé`);
+      setCreatingAttr(null);
     },
-    [toast]
+    [creatingAttr, toast]
   );
 
   const missingCount = attributes.filter((a) => !a.mapped).length;
@@ -316,7 +347,73 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
           onReset={resetAll}
         />
       )}
+
+      <PfsCreateMappingModals
+        attr={creatingAttr}
+        onClose={() => setCreatingAttr(null)}
+        onCreated={handleCreatedMapping}
+      />
     </div>
+  );
+}
+
+/**
+ * Route l'attribut PFS non mappé vers le bon modal de création : tailles →
+ * modal taille dédié, tous les autres → QuickCreateModal (catégorie / couleur /
+ * matière / pays / saison). La correspondance PFS est pré-remplie et verrouillée
+ * : l'admin ne peut modifier que le nom et les traductions.
+ */
+function PfsCreateMappingModals({
+  attr,
+  onClose,
+  onCreated,
+}: {
+  attr: PfsAttribute | null;
+  onClose: () => void;
+  onCreated: (id: string, name: string) => void;
+}) {
+  const open = !!attr;
+  const modalKey = attr ? `${attr.type}_${attr.pfsRef}` : "closed";
+  // Type size → modal taille dédié
+  if (open && attr!.type === "size") {
+    return (
+      <QuickCreateSizeModal
+        key={modalKey}
+        open={open}
+        onClose={onClose}
+        pfsSizes={[{ reference: attr!.pfsRef, label: attr!.label }]}
+        defaultName={attr!.label}
+        defaultPfsRef={attr!.pfsRef}
+        lockPfsRef
+        onCreated={(s) => onCreated(s.id, s.name)}
+      />
+    );
+  }
+  // Autres types → QuickCreateModal
+  const pfsType: QuickCreateType | null = attr
+    ? (attr.type as Exclude<PfsAttributeType, "size"> as QuickCreateType)
+    : null;
+  // Import PFS = on verrouille toujours la correspondance : l'admin ne doit
+  // jamais pouvoir toucher aux champs Genre / Famille / Catégorie PFS lors
+  // de l'import — les valeurs proviennent du produit PFS scanné. Si une
+  // valeur manque côté PFS, le verrou montre « — » et le bouton « + Créer »
+  // reste désactivé tant que genre + famille ne sont pas présents.
+  return (
+    <QuickCreateModal
+      key={modalKey}
+      type={pfsType ?? "color"}
+      open={open}
+      onClose={onClose}
+      onCreated={(item) => onCreated(item.id, item.name)}
+      defaultName={attr?.label}
+      defaultPfsRef={attr && attr.type !== "category" ? attr.pfsRef : undefined}
+      defaultPfsCategoryId={attr?.type === "category" ? attr.pfsRef : undefined}
+      defaultPfsGender={attr?.type === "category" ? attr.meta?.pfsGender ?? undefined : undefined}
+      defaultPfsFamilyName={attr?.type === "category" ? attr.meta?.pfsFamilyName ?? undefined : undefined}
+      defaultPfsCategoryName={attr?.type === "category" ? attr.meta?.pfsCategoryName ?? undefined : undefined}
+      defaultHex={attr?.type === "color" ? attr.meta?.hex ?? undefined : undefined}
+      lockPfs={!!attr}
+    />
   );
 }
 
@@ -597,6 +694,22 @@ function ImportJobStep({
   const results = job.resultDetails?.results ?? [];
   const items = job.resultDetails?.items ?? [];
   const progressPercent = job.totalItems > 0 ? Math.round((job.processedItems / job.totalItems) * 100) : 0;
+  // Concurrence effective du worker : combien d'items affichent « en cours »
+  // en même temps. Côté serveur IMPORT_CONCURRENCY = 5 ; si l'info n'est
+  // pas reçue on retombe sur 1 (comportement séquentiel historique).
+  const concurrency = Math.max(1, job.concurrency ?? 1);
+  const resultIds = new Set(results.map((r) => r.pfsId));
+  // Ensemble des pfsId actuellement en cours d'import : on prend simplement
+  // les `concurrency` premiers items qui n'ont pas encore de résultat —
+  // c'est exactement ce que les workers sont en train de travailler.
+  const inFlightIds = new Set<string>();
+  if (isRunning) {
+    for (const it of items) {
+      if (resultIds.has(it.pfsId)) continue;
+      inFlightIds.add(it.pfsId);
+      if (inFlightIds.size >= concurrency) break;
+    }
+  }
 
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm space-y-4">
@@ -648,10 +761,10 @@ function ImportJobStep({
 
       {/* Product list */}
       <div className="space-y-2 max-h-[400px] overflow-y-auto">
-        {items.map((item, idx) => {
+        {items.map((item) => {
           const result = results.find((r) => r.pfsId === item.pfsId);
-          const isCurrentlyRunning = !result && idx === job.processedItems && isRunning;
-          const isPending = !result && idx > job.processedItems;
+          const isCurrentlyRunning = !result && inFlightIds.has(item.pfsId);
+          const isPending = !result && !isCurrentlyRunning && isRunning;
 
           return (
             <div key={item.pfsId} className="flex items-center gap-3 border border-border rounded-xl p-3">

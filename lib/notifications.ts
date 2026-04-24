@@ -2,7 +2,7 @@
  * lib/notifications.ts
  *
  * Envoi d'emails transactionnels (inscriptions, alertes stock, statuts commande,
- * messages support, réclamations) via l'API Resend (lib/email.ts).
+ * messages support, réclamations) via SMTP (lib/email.ts → nodemailer).
  *
  * Configuration lue depuis les paramètres admin (SiteConfig) avec fallback env vars.
  */
@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
 import {
   getCachedShopName,
   getCachedCompanyInfo,
-  getCachedResendConfig,
+  getCachedSmtpConfig,
 } from "@/lib/cached-data";
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
@@ -27,7 +27,7 @@ function escapeHtml(str: string): string {
 
 async function resolveNotifyEmail(): Promise<string | null> {
   const [cfg, companyInfo] = await Promise.all([
-    getCachedResendConfig(),
+    getCachedSmtpConfig(),
     getCachedCompanyInfo(),
   ]);
   return (
@@ -221,6 +221,14 @@ const STATUS_CONFIG: Record<string, {
   color: string;
   icon: string;
 }> = {
+  PENDING: {
+    subject: (num, shop) => `${shop} — Confirmation de votre commande ${num}`,
+    heading: "Merci pour votre commande",
+    message: (num) =>
+      `Nous avons bien reçu votre commande <strong>${escapeHtml(num)}</strong>. Elle sera prise en charge par notre équipe dans les plus brefs délais. Vous recevrez un email dès qu'elle passe en préparation.`,
+    color: "#1A1A1A",
+    icon: "🧾",
+  },
   PROCESSING: {
     subject: (num, shop) => `${shop} — Commande ${num} en cours de préparation`,
     heading: "Votre commande est en cours de préparation",
@@ -264,7 +272,7 @@ export async function notifyOrderStatusChange(
 ): Promise<void> {
   try {
     const config = STATUS_CONFIG[data.newStatus];
-    if (!config) return; // PENDING = no email (handled at order creation)
+    if (!config) return;
 
     const [shopName, companyInfo] = await Promise.all([
       getCachedShopName(),
@@ -563,4 +571,154 @@ export async function notifyClientClaimUpdate(params: {
       </div>
     `,
   });
+}
+
+// ─────────────────────────────────────────────
+// Notification admin — nouvelle commande
+// ─────────────────────────────────────────────
+
+interface NewOrderAdminData {
+  orderId: string;
+  pdfBuffer?: Buffer | null;
+}
+
+/**
+ * Envoi un email à l'admin dès qu'une nouvelle commande est passée.
+ * Fire-and-forget — les erreurs sont loggées, jamais propagées.
+ */
+export async function notifyAdminNewOrder(
+  data: NewOrderAdminData
+): Promise<void> {
+  try {
+    const [shopName, notifyEmail] = await Promise.all([
+      getCachedShopName(),
+      resolveNotifyEmail(),
+    ]);
+    if (!notifyEmail) {
+      logger.warn("[new-order-admin] Aucun email destinataire configuré — email ignoré.");
+      return;
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: data.orderId },
+      include: {
+        items: { orderBy: { createdAt: "asc" } },
+      },
+    });
+    if (!order) {
+      logger.warn("[new-order-admin] Commande introuvable", { orderId: data.orderId });
+      return;
+    }
+
+    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+    const itemsHtml = order.items
+      .map(
+        (item) => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #E5E5E5;">
+          <strong>${escapeHtml(item.productName)}</strong><br/>
+          <small style="color:#6B6B6B;">Réf. ${escapeHtml(item.productRef)} · ${escapeHtml(item.colorName)}${item.saleType === "PACK" ? ` · Paquet ×${item.packQty}` : ""}</small>
+        </td>
+        <td style="padding:8px 12px;text-align:center;border-bottom:1px solid #E5E5E5;">${item.quantity}</td>
+        <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #E5E5E5;">${Number(item.lineTotal).toFixed(2)} €</td>
+      </tr>`
+      )
+      .join("");
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+        <div style="background:#1A1A1A;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0;">
+          <h2 style="margin:0;font-size:18px;">🛒 Nouvelle commande reçue</h2>
+          <p style="margin:6px 0 0;opacity:0.85;font-size:13px;">N° ${escapeHtml(order.orderNumber)}</p>
+        </div>
+        <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+          <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
+            <tr style="background:#F3F4F6;">
+              <td style="padding:10px 14px;font-weight:bold;width:40%;">Client</td>
+              <td style="padding:10px 14px;">${escapeHtml(order.clientCompany || "")}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 14px;font-weight:bold;">Email</td>
+              <td style="padding:10px 14px;">${escapeHtml(order.clientEmail)}</td>
+            </tr>
+            <tr style="background:#F3F4F6;">
+              <td style="padding:10px 14px;font-weight:bold;">Téléphone</td>
+              <td style="padding:10px 14px;">${escapeHtml(order.clientPhone || "")}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 14px;font-weight:bold;">Livraison</td>
+              <td style="padding:10px 14px;">${escapeHtml(order.shipAddress1)}, ${escapeHtml(order.shipZipCode)} ${escapeHtml(order.shipCity)} (${escapeHtml(order.shipCountry)})</td>
+            </tr>
+            <tr style="background:#F3F4F6;">
+              <td style="padding:10px 14px;font-weight:bold;">Transporteur</td>
+              <td style="padding:10px 14px;">${escapeHtml(order.carrierName || "—")}</td>
+            </tr>
+          </table>
+
+          <h3 style="font-size:13px;color:#6B6B6B;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 10px;">
+            Articles commandés
+          </h3>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#F7F7F8;">
+                <th style="padding:8px 12px;text-align:left;">Produit</th>
+                <th style="padding:8px 12px;text-align:center;">Qté</th>
+                <th style="padding:8px 12px;text-align:right;">Total HT</th>
+              </tr>
+            </thead>
+            <tbody>${itemsHtml}</tbody>
+          </table>
+
+          <table style="width:240px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
+            <tr>
+              <td style="padding:4px 0;color:#6B6B6B;">Sous-total HT</td>
+              <td style="padding:4px 0;text-align:right;">${Number(order.subtotalHT).toFixed(2)} €</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0;color:#6B6B6B;">TVA</td>
+              <td style="padding:4px 0;text-align:right;">${Number(order.tvaAmount).toFixed(2)} €</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0;color:#6B6B6B;">Livraison</td>
+              <td style="padding:4px 0;text-align:right;">${Number(order.carrierPrice) === 0 ? "Gratuit" : `${Number(order.carrierPrice).toFixed(2)} €`}</td>
+            </tr>
+            <tr style="border-top:2px solid #1A1A1A;">
+              <td style="padding:8px 0;font-weight:bold;">Total TTC</td>
+              <td style="padding:8px 0;text-align:right;font-weight:bold;">${Number(order.totalTTC).toFixed(2)} €</td>
+            </tr>
+          </table>
+
+          <div style="text-align:center;margin-top:28px;">
+            <a href="${baseUrl}/admin/commandes/${order.id}"
+               style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+              Voir la commande →
+            </a>
+          </div>
+        </div>
+
+        <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+          ${escapeHtml(shopName)} — Notification automatique
+        </p>
+      </div>
+    `;
+
+    const attachments: { filename: string; content: Buffer }[] = [];
+    if (data.pdfBuffer) {
+      attachments.push({
+        filename: `Commande-${order.orderNumber}.pdf`,
+        content: data.pdfBuffer,
+      });
+    }
+
+    await sendMail({
+      fromName: shopName,
+      to: notifyEmail,
+      subject: `🛒 Nouvelle commande ${order.orderNumber} — ${order.clientCompany || order.clientEmail}`,
+      html,
+      attachments,
+    });
+  } catch (err) {
+    logger.error("[new-order-admin] Erreur envoi email", { detail: err instanceof Error ? err.message : String(err) });
+  }
 }

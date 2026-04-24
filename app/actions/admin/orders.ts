@@ -36,8 +36,8 @@ export async function updateOrderStatus(orderId: string, status: string) {
     );
   }
 
-  // Notify client by email only for PROCESSING and SHIPPED (not DELIVERED)
-  if (status === "PROCESSING" || status === "SHIPPED") {
+  // Notify client by email on every status change (PENDING est géré à la création).
+  if (status !== "PENDING") {
     notifyOrderStatusChange({ orderId, newStatus: status }).catch((err) =>
       logger.error("[updateOrderStatus] Email notification error", { error: err instanceof Error ? err.message : String(err) })
     );

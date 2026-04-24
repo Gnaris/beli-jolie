@@ -21,6 +21,13 @@ export interface MarketplaceSyncProgress {
   error?: string;
 }
 
+export interface ImportProgressResult {
+  pfsId: string;
+  status: "ok" | "error" | "cancelled";
+  productId?: string;
+  error?: string;
+}
+
 export interface ProductEvent {
   type: ProductEventType;
   productId: string;
@@ -33,6 +40,16 @@ export interface ProductEvent {
     success: number;
     errors: number;
     status: "PROCESSING" | "COMPLETED" | "FAILED";
+    /**
+     * Résultats par produit déjà traités au moment de l'émission. Permet à
+     * l'UI d'afficher le bon badge (Prêt / Erreur) pour chaque ligne même
+     * quand l'import tourne en parallèle — le simple compteur `processed`
+     * ne suffit pas à savoir QUELS produits sont finis.
+     */
+    results?: ImportProgressResult[];
+    /** Concurrence effective du worker (pour l'UI : savoir combien de
+     *  produits sont simultanément en cours d'import). */
+    concurrency?: number;
   };
   /** Marketplace sync progress (only for MARKETPLACE_SYNC events) */
   marketplaceSync?: MarketplaceSyncProgress;

@@ -167,30 +167,38 @@ export const getCachedShippingMargin = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-// ─── Resend config (from SiteConfig) ─────────────────────────────────────────
-export const getCachedResendConfig = unstable_cache(
+// ─── SMTP config (from SiteConfig) ───────────────────────────────────────────
+export const getCachedSmtpConfig = unstable_cache(
   async () => {
     const rows = await prisma.siteConfig.findMany({
       where: {
         key: {
           in: [
-            "resend_api_key",
-            "resend_from_email",
-            "resend_from_name",
-            "resend_notify_email",
+            "smtp_host",
+            "smtp_port",
+            "smtp_secure",
+            "smtp_user",
+            "smtp_password",
+            "smtp_from_email",
+            "smtp_from_name",
+            "smtp_notify_email",
           ],
         },
       },
     });
     const map = new Map(rows.map(r => [r.key, decryptIfSensitive(r.key, r.value)]));
     return {
-      apiKey: map.get("resend_api_key") ?? null,
-      fromEmail: map.get("resend_from_email") ?? null,
-      fromName: map.get("resend_from_name") ?? null,
-      notifyEmail: map.get("resend_notify_email") ?? null,
+      host: map.get("smtp_host") ?? null,
+      port: map.get("smtp_port") ?? null,
+      secure: map.get("smtp_secure") ?? null,
+      user: map.get("smtp_user") ?? null,
+      password: map.get("smtp_password") ?? null,
+      fromEmail: map.get("smtp_from_email") ?? null,
+      fromName: map.get("smtp_from_name") ?? null,
+      notifyEmail: map.get("smtp_notify_email") ?? null,
     };
   },
-  ["resend-config"],
+  ["smtp-config"],
   { revalidate: 300, tags: ["site-config"] }
 );
 

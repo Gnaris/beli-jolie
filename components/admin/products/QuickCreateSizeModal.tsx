@@ -23,6 +23,13 @@ interface QuickCreateSizeModalProps {
   /** Called after successful creation — caller receives the new size and should
    *  add it to availableSizes + auto-select it in the current variant. */
   onCreated: (size: QuickCreateSizeModalResult) => void;
+  /** Nom pré-rempli (ex: taille PFS déjà connue lors de l'import). */
+  defaultName?: string;
+  /** Référence PFS pré-remplie — utilisée lors de l'import PFS. */
+  defaultPfsRef?: string;
+  /** Quand vrai, la référence PFS est affichée en lecture seule et le bloc
+   *  "PFS indisponible" est masqué (on a déjà la valeur). */
+  lockPfsRef?: boolean;
 }
 
 export default function QuickCreateSizeModal({
@@ -30,25 +37,30 @@ export default function QuickCreateSizeModal({
   onClose,
   pfsSizes,
   onCreated,
+  defaultName,
+  defaultPfsRef,
+  lockPfsRef = false,
 }: QuickCreateSizeModalProps) {
   const backdrop = useBackdropClose(onClose);
   const router = useRouter();
   const toast = useToast();
-  const pfsAvailable = pfsSizes.length > 0;
+  // Quand la PFS est verrouillée (import), on a déjà la référence — pas besoin
+  // que le module annexes soit dispo pour créer la taille.
+  const pfsAvailable = pfsSizes.length > 0 || (lockPfsRef && !!defaultPfsRef);
 
-  const [name, setName] = useState("");
-  const [pfsRef, setPfsRef] = useState("");
+  const [name, setName] = useState(defaultName ?? "");
+  const [pfsRef, setPfsRef] = useState(defaultPfsRef ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [triedSubmit, setTriedSubmit] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setName("");
-    setPfsRef("");
+    setName(defaultName ?? "");
+    setPfsRef(defaultPfsRef ?? "");
     setError("");
     setTriedSubmit(false);
-  }, [open]);
+  }, [open, defaultName, defaultPfsRef]);
 
   const pfsOptions = useMemo(
     () => [
@@ -151,7 +163,14 @@ export default function QuickCreateSizeModal({
             <label className="block text-sm font-body font-semibold text-text-secondary mb-1.5">
               Référence Paris Fashion Shop <span className="text-[#EF4444]">*</span>
             </label>
-            {pfsAvailable ? (
+            {lockPfsRef ? (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-muted border border-border text-sm font-body text-text-primary">
+                <svg className="w-3.5 h-3.5 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                <span className="truncate">{pfsRef || "—"}</span>
+              </div>
+            ) : pfsAvailable ? (
               <CustomSelect
                 value={pfsRef}
                 onChange={(v) => setPfsRef(v)}
@@ -170,9 +189,11 @@ export default function QuickCreateSizeModal({
               </div>
             )}
             <p className="text-xs text-text-muted font-body mt-1.5">
-              Elle permet de synchroniser la taille avec votre flux Paris Fashion Shop.
+              {lockPfsRef
+                ? "Valeur reprise du produit Paris Fashion Shop — non modifiable depuis cet écran."
+                : "Elle permet de synchroniser la taille avec votre flux Paris Fashion Shop."}
             </p>
-            {pfsAvailable && (
+            {!lockPfsRef && pfsAvailable && (
               <PfsSuggestions
                 mode="ref"
                 query={name}

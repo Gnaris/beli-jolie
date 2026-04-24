@@ -35,6 +35,7 @@ export async function createCategoryQuick(
   pfsGender?: string | null,
   pfsFamilyName?: string | null,
   pfsCategoryName?: string | null,
+  pfsCategoryId?: string | null,
 ): Promise<{ id: string; name: string; subCategories: { id: string; name: string }[] }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -52,6 +53,7 @@ export async function createCategoryQuick(
       pfsGender: gender,
       pfsFamilyName: familyName,
       pfsCategoryName: pfsCategoryName?.trim() || null,
+      pfsCategoryId: pfsCategoryId?.trim() || null,
     },
   });
   for (const [locale, value] of Object.entries(translations)) {

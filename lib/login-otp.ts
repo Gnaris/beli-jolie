@@ -133,7 +133,7 @@ export async function verifyLoginOtp(
 
 /**
  * Envoie un email contenant le code OTP.
- * Ne jette pas si la config Resend est absente — log simplement un avertissement.
+ * Ne jette pas si la config SMTP est absente — log simplement un avertissement.
  */
 export async function sendLoginOtpEmail(
   email: string,
@@ -155,7 +155,11 @@ export async function sendLoginOtpEmail(
     `,
   });
 
-  if (!result.sent && result.reason === "no_config") {
-    logger.warn("[login-otp] Configuration Resend manquante");
+  if (!result.sent) {
+    logger.warn("[login-otp] Échec envoi OTP", {
+      to: email,
+      reason: result.reason,
+      error: "error" in result ? result.error : undefined,
+    });
   }
 }

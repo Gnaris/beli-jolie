@@ -40,8 +40,16 @@ interface QuickCreateModalProps {
   defaultPfsRef?: string;
   defaultPfsGender?: string;
   defaultPfsFamilyName?: string;
+  defaultPfsCategoryName?: string;
+  /** ID Salesforce PFS de la catégorie — utilisé pour que le re-scan la
+   *  reconnaisse comme mappée. Seulement pertinent pour type="category". */
+  defaultPfsCategoryId?: string;
   defaultHex?: string | null;
   pfsEnabled?: boolean;
+  /** Quand vrai, les champs de correspondance PFS affichent la valeur choisie
+   *  en lecture seule — typiquement lors de l'import PFS où la correspondance
+   *  est imposée par le produit PFS à importer. */
+  lockPfs?: boolean;
   /** Edit mode — if set, the modal edits instead of creating */
   editMode?: {
     id: string;
@@ -99,8 +107,8 @@ const RTL = ["ar"];
 
 export default function QuickCreateModal({
   type, open, onClose, onCreated, categoryId, defaultName, defaultPfsRef,
-  defaultPfsGender, defaultPfsFamilyName,
-  defaultHex, editMode, pfsEnabled = true,
+  defaultPfsGender, defaultPfsFamilyName, defaultPfsCategoryName, defaultPfsCategoryId,
+  defaultHex, editMode, pfsEnabled = true, lockPfs = false,
 }: QuickCreateModalProps) {
   const isEdit = !!editMode;
   const autoTranslateEnabled = useAutoTranslateEnabled();
@@ -229,7 +237,7 @@ export default function QuickCreateModal({
         setPfsRef(defaultPfsRef ?? null);
         setPfsGender(defaultPfsGender ?? null);
         setPfsFamilyName(defaultPfsFamilyName ?? null);
-        setPfsCategoryName(null);
+        setPfsCategoryName(defaultPfsCategoryName ?? null);
         setIsoCode("");
         setIsoTouched(false);
       }
@@ -244,6 +252,19 @@ export default function QuickCreateModal({
     const suggestion = suggestIso2FromName(names["fr"]);
     if (suggestion && suggestion !== isoCode) setIsoCode(suggestion);
   }, [type, names, isoTouched, isoCode]);
+
+  /**
+   * Import PFS : quand la couleur est verrouillée par l'import, on auto-remplit
+   * l'aperçu hex à partir de la couleur PFS correspondante une fois que la
+   * liste des couleurs live est chargée. Sinon l'admin voit juste le gris par
+   * défaut et croit que la couleur n'a pas été reprise.
+   */
+  useEffect(() => {
+    if (!open || type !== "color" || !lockPfs || !pfsRef) return;
+    if (!pfsColorOptions || colorMode !== "hex") return;
+    const match = pfsColorOptions.find((o) => o.value === pfsRef);
+    if (match?.hex && hex === "#9CA3AF") setHex(match.hex);
+  }, [open, type, lockPfs, pfsRef, pfsColorOptions, colorMode, hex]);
 
   function setName(locale: string, value: string) {
     setNames((prev) => ({ ...prev, [locale]: value }));
@@ -341,7 +362,7 @@ export default function QuickCreateModal({
 
       let result: { id: string; name: string; hex?: string | null; patternImage?: string | null; subCategories?: { id: string; name: string }[] };
       if (type === "category") {
-        result = await createCategoryQuick(names, pfsGender, pfsFamilyName, pfsCategoryName);
+        result = await createCategoryQuick(names, pfsGender, pfsFamilyName, pfsCategoryName, defaultPfsCategoryId ?? null);
       } else if (type === "subcategory") {
         if (!categoryId) throw new Error("Catégorie parente requise.");
         result = await createSubCategoryQuick(names, categoryId);
@@ -551,10 +572,18 @@ export default function QuickCreateModal({
 
               <div className="w-[300px] shrink-0 p-6 overflow-y-auto">
                 <p className="text-[11px] text-text-muted font-body uppercase tracking-wide mb-4">
-                  Correspondances Marketplaces
+                  {lockPfs ? "Correspondance Paris Fashion Shop" : "Correspondances Marketplaces"}
                 </p>
 
-                {type === "category" ? (
+                {lockPfs ? (
+                  <LockedPfsMapping
+                    type={type}
+                    pfsRef={pfsRef}
+                    pfsGender={pfsGender}
+                    pfsFamilyName={pfsFamilyName}
+                    pfsCategoryName={pfsCategoryName}
+                  />
+                ) : type === "category" ? (
                   <MarketplaceMappingSection
                     entityType="category"
                     pfsGender={pfsGender}
@@ -611,8 +640,8 @@ export default function QuickCreateModal({
                   </div>
                 )}
 
-                {/* PFS suggestions — click to auto-fill the mapping fields above. */}
-                {type !== "category" && suggestionOptions.length > 0 && (
+                {/* PFS suggestions — cachées quand la correspondance est verrouillée. */}
+                {!lockPfs && type !== "category" && suggestionOptions.length > 0 && (
                   <div className="mt-4">
                     <PfsSuggestions
                       mode="ref"
@@ -624,7 +653,7 @@ export default function QuickCreateModal({
                     />
                   </div>
                 )}
-                {type === "category" && (
+                {!lockPfs && type === "category" && (
                   <div className="mt-4">
                     <PfsSuggestions
                       mode="category"
@@ -678,5 +707,58 @@ export default function QuickCreateModal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * Affichage en lecture seule de la correspondance PFS déjà déterminée par
+ * l'import — l'admin voit clairement ce qui sera enregistré sans pouvoir le
+ * modifier. Le petit pictogramme cadenas renforce le message.
+ */
+function LockedPfsMapping({
+  type,
+  pfsRef,
+  pfsGender,
+  pfsFamilyName,
+  pfsCategoryName,
+}: {
+  type: QuickCreateType;
+  pfsRef: string | null;
+  pfsGender: string | null;
+  pfsFamilyName: string | null;
+  pfsCategoryName: string | null;
+}) {
+  const rows: { label: string; value: string | null }[] = [];
+  if (type === "category") {
+    rows.push({ label: "Genre PFS", value: pfsGender ? (PFS_GENDER_LABELS[pfsGender] ?? pfsGender) : null });
+    rows.push({ label: "Famille PFS", value: pfsFamilyName ? pfsFamilyName.replace(/_/g, " ") : null });
+    rows.push({ label: "Catégorie PFS", value: pfsCategoryName });
+  } else {
+    const label =
+      type === "color" ? "Couleur PFS" :
+      type === "composition" ? "Matière PFS" :
+      type === "country" ? "Pays PFS" :
+      type === "season" ? "Saison PFS" : "Référence PFS";
+    rows.push({ label, value: pfsRef });
+  }
+  return (
+    <div className="space-y-3">
+      {rows.map((r) => (
+        <div key={r.label}>
+          <label className="block text-xs font-medium text-text-secondary mb-1.5 font-body">
+            {r.label}
+          </label>
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-muted border border-border text-sm font-body text-text-primary">
+            <svg className="w-3.5 h-3.5 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            <span className="truncate">{r.value ?? "—"}</span>
+          </div>
+        </div>
+      ))}
+      <p className="text-[11px] text-text-muted font-body leading-snug pt-1">
+        Valeur reprise du produit Paris Fashion Shop — non modifiable depuis cet écran.
+      </p>
+    </div>
   );
 }

@@ -14,7 +14,7 @@ import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
 import StripeConfig from "@/components/admin/settings/StripeConfig";
-import ResendConfig from "@/components/admin/settings/ResendConfig";
+import SmtpConfig from "@/components/admin/settings/SmtpConfig";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
@@ -301,16 +301,16 @@ async function PaiementTab() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Email — Resend
+   TAB : Email — SMTP
    ═══════════════════════════════════════════════════════════════════════════ */
 async function EmailTab() {
-  const resendConfig = await prisma.siteConfig.findUnique({ where: { key: "resend_api_key" }, select: { key: true } });
+  const smtpConfig = await prisma.siteConfig.findUnique({ where: { key: "smtp_password" }, select: { key: true } });
 
   return (
     <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
       <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Notifications email</h3>
-      <p className="text-sm text-text-secondary font-body mb-4">Envoi d&apos;emails via Resend (inscriptions, commandes, alertes, réclamations).</p>
-      <ResendConfig hasConfig={!!resendConfig} />
+      <p className="text-sm text-text-secondary font-body mb-4">Envoi d&apos;emails via votre serveur SMTP (inscriptions, commandes, alertes, réclamations).</p>
+      <SmtpConfig hasConfig={!!smtpConfig} />
     </div>
   );
 }

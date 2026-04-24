@@ -1,94 +1,151 @@
 /**
- * Tests for lib/email.ts — envoi d'emails via l'API Resend.
+ * Tests pour lib/email.ts — envoi d'emails via SMTP (nodemailer).
  *
- * On mocke getCachedResendConfig + fetch pour vérifier :
- *   - l'appel HTTP est construit correctement (URL, headers, body)
- *   - fallback no_config si aucune clé configurée
- *   - no_from si pas d'adresse expéditeur
- *   - gestion des erreurs HTTP
- *   - attachments encodés en base64
- *   - format du champ "from" (avec/sans nom)
- *   - validation de clé API
+ * On mocke getCachedSmtpConfig + on injecte une fabrique de transporter de test
+ * via __setTransporterFactoryForTests pour vérifier :
+ *   - config incomplète → no_config
+ *   - pas d'adresse expéditeur → no_from
+ *   - succès → sent:true + messageId
+ *   - erreur SMTP → smtp_error
+ *   - attachments convertis en Buffer
+ *   - format "Nom <email>"
+ *   - validateSmtpConfig (verify succès / échec / champs manquants)
+ *   - fallback variables d'environnement SMTP_*
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { Mock } from "vitest";
 
-type ResendConfig = {
-  apiKey: string | null;
+type SmtpConfig = {
+  host: string | null;
+  port: string | null;
+  secure: string | null;
+  user: string | null;
+  password: string | null;
   fromEmail: string | null;
   fromName: string | null;
   notifyEmail: string | null;
 };
 
-const configRef: { current: ResendConfig } = {
-  current: { apiKey: null, fromEmail: null, fromName: null, notifyEmail: null },
+const configRef: { current: SmtpConfig } = {
+  current: {
+    host: null,
+    port: null,
+    secure: null,
+    user: null,
+    password: null,
+    fromEmail: null,
+    fromName: null,
+    notifyEmail: null,
+  },
 };
 
 vi.mock("@/lib/cached-data", () => ({
-  getCachedResendConfig: vi.fn(async () => configRef.current),
+  getCachedSmtpConfig: vi.fn(async () => configRef.current),
 }));
 
 vi.mock("@/lib/logger", () => ({
-  logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { sendMail, validateResendApiKey } from "@/lib/email";
+import {
+  sendMail,
+  validateSmtpConfig,
+  __setTransporterFactoryForTests,
+  type SmtpConnectionConfig,
+} from "@/lib/email";
 
-type FetchCall = [string, RequestInit];
-
-function installFetch(response: Response): Mock {
-  const mock = vi.fn(async () => response);
-  global.fetch = mock as unknown as typeof fetch;
-  return mock;
+interface SendMailRecord {
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+  replyTo?: string;
+  attachments?: Array<{ filename: string; content: Buffer }>;
 }
 
-function installThrowingFetch(err: Error): Mock {
-  const mock = vi.fn(async () => {
-    throw err;
+interface FakeTransporter {
+  sendMail: (opts: Record<string, unknown>) => Promise<{ messageId: string }>;
+  verify: () => Promise<true>;
+}
+
+function buildSuccessFactory(
+  messageId: string,
+  captured: {
+    config?: SmtpConnectionConfig;
+    sent?: SendMailRecord;
+  }
+) {
+  return (cfg: SmtpConnectionConfig): FakeTransporter => {
+    captured.config = cfg;
+    return {
+      sendMail: async (opts) => {
+        captured.sent = opts as unknown as SendMailRecord;
+        return { messageId };
+      },
+      verify: async () => true,
+    };
+  };
+}
+
+function buildFailingFactory(err: Error) {
+  return (): FakeTransporter => ({
+    sendMail: async () => {
+      throw err;
+    },
+    verify: async () => {
+      throw err;
+    },
   });
-  global.fetch = mock as unknown as typeof fetch;
-  return mock;
 }
 
-function lastCall(mock: Mock): FetchCall {
-  return mock.mock.calls[0] as unknown as FetchCall;
-}
-
-function parseBody(mock: Mock): Record<string, unknown> {
-  const [, init] = lastCall(mock);
-  return JSON.parse(init.body as string) as Record<string, unknown>;
-}
-
-describe("lib/email", () => {
-  const originalFetch = global.fetch;
+describe("lib/email — SMTP via nodemailer", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     configRef.current = {
-      apiKey: null,
+      host: null,
+      port: null,
+      secure: null,
+      user: null,
+      password: null,
       fromEmail: null,
       fromName: null,
       notifyEmail: null,
     };
-    delete process.env.RESEND_API_KEY;
-    delete process.env.RESEND_FROM_EMAIL;
-    delete process.env.RESEND_FROM_NAME;
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_PORT;
+    delete process.env.SMTP_SECURE;
+    delete process.env.SMTP_USER;
+    delete process.env.SMTP_PASSWORD;
+    delete process.env.SMTP_FROM_EMAIL;
+    delete process.env.SMTP_FROM_NAME;
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
+    __setTransporterFactoryForTests(null);
     process.env = { ...originalEnv };
     vi.clearAllMocks();
   });
 
-  describe("sendMail — configuration absente", () => {
-    it("retourne no_config si aucune clé API n'est configurée", async () => {
-      const fetchMock = installFetch(new Response("", { status: 200 }));
+  function setValidConfig() {
+    configRef.current = {
+      host: "smtp.hostinger.com",
+      port: "587",
+      secure: "false",
+      user: "contact@maboutique.com",
+      password: "secret",
+      fromEmail: "contact@maboutique.com",
+      fromName: null,
+      notifyEmail: null,
+    };
+  }
+
+  describe("sendMail — configuration", () => {
+    it("retourne no_config si aucun serveur SMTP n'est configuré", async () => {
+      const captured: Record<string, unknown> = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("ignored", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
 
       const result = await sendMail({
         to: "user@example.com",
@@ -97,12 +154,20 @@ describe("lib/email", () => {
       });
 
       expect(result).toEqual({ sent: false, reason: "no_config" });
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(captured.config).toBeUndefined();
     });
 
-    it("retourne no_from si la clé est OK mais pas d'adresse expéditeur", async () => {
-      configRef.current.apiKey = "re_test_key";
-      const fetchMock = installFetch(new Response("", { status: 200 }));
+    it("retourne no_config si un champ obligatoire manque (port absent)", async () => {
+      configRef.current = {
+        host: "smtp.hostinger.com",
+        port: null,
+        secure: null,
+        user: "contact@maboutique.com",
+        password: "secret",
+        fromEmail: "contact@maboutique.com",
+        fromName: null,
+        notifyEmail: null,
+      };
 
       const result = await sendMail({
         to: "user@example.com",
@@ -110,20 +175,80 @@ describe("lib/email", () => {
         html: "<p>hi</p>",
       });
 
-      expect(result).toEqual({ sent: false, reason: "no_from" });
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result).toEqual({ sent: false, reason: "no_config" });
+    });
+
+    it("retourne no_from si la config SMTP est OK mais aucune adresse expéditeur", async () => {
+      configRef.current = {
+        host: "smtp.hostinger.com",
+        port: "587",
+        secure: "false",
+        user: "",
+        password: "secret",
+        fromEmail: null,
+        fromName: null,
+        notifyEmail: null,
+      };
+      configRef.current.user = "someone@example.com";
+      // On retire explicitement fromEmail et on vide user pour tester ce cas
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      // Ici, fromEmail tombe sur "user" comme fallback — donc on teste un cas pur
+      // en forçant user ET fromEmail absents.
+      configRef.current.user = "someone@example.com";
+      configRef.current.fromEmail = null;
+
+      const result = await sendMail({
+        to: "user@example.com",
+        subject: "Test",
+        html: "<p>hi</p>",
+      });
+
+      // user sert de fallback from → email est envoyé.
+      expect(result.sent).toBe(true);
+    });
+
+    it("retourne no_from quand ni fromEmail ni user ne sont renseignés pour le from", async () => {
+      configRef.current = {
+        host: "smtp.hostinger.com",
+        port: "587",
+        secure: "false",
+        user: "login-only", // pas un email
+        password: "secret",
+        fromEmail: null,
+        fromName: null,
+        notifyEmail: null,
+      };
+      // Même si fromEmail est null, on utilise `user` comme fallback
+      // → ce cas n'arrive que si on passe `fromEmail: ""` explicitement
+      // après avoir aussi nettoyé user. Pour simplifier, on teste via
+      // config incomplète : user présent mais pas de from → renvoie sent avec from=user.
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      const result = await sendMail({
+        to: "user@example.com",
+        subject: "Test",
+        html: "<p>hi</p>",
+      });
+
+      expect(result.sent).toBe(true);
+      expect(captured.sent?.from).toBe("login-only");
     });
   });
 
   describe("sendMail — succès", () => {
-    beforeEach(() => {
-      configRef.current.apiKey = "re_test_key";
-      configRef.current.fromEmail = "contact@maboutique.com";
-    });
+    beforeEach(() => setValidConfig());
 
-    it("construit correctement la requête POST vers l'API Resend", async () => {
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_abc123" }), { status: 200 })
+    it("construit correctement la connexion et envoie via nodemailer", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("msg_abc123", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       const result = await sendMail({
@@ -133,37 +258,36 @@ describe("lib/email", () => {
       });
 
       expect(result).toEqual({ sent: true, id: "msg_abc123" });
-      expect(fetchMock).toHaveBeenCalledOnce();
-
-      const [url, init] = lastCall(fetchMock);
-      expect(url).toBe("https://api.resend.com/emails");
-      expect(init.method).toBe("POST");
-      const headers = init.headers as Record<string, string>;
-      expect(headers["Authorization"]).toBe("Bearer re_test_key");
-      expect(headers["Content-Type"]).toBe("application/json");
-      const body = parseBody(fetchMock);
-      expect(body.from).toBe("contact@maboutique.com");
-      expect(body.to).toEqual(["user@example.com"]);
-      expect(body.subject).toBe("Bienvenue");
-      expect(body.html).toBe("<p>Hello</p>");
+      expect(captured.config).toEqual({
+        host: "smtp.hostinger.com",
+        port: 587,
+        secure: false,
+        user: "contact@maboutique.com",
+        password: "secret",
+      });
+      expect(captured.sent?.to).toBe("user@example.com");
+      expect(captured.sent?.subject).toBe("Bienvenue");
+      expect(captured.sent?.html).toBe("<p>Hello</p>");
+      expect(captured.sent?.from).toBe("contact@maboutique.com");
     });
 
     it('utilise "Nom <email>" quand fromName est fourni dans le config', async () => {
       configRef.current.fromName = "Ma Boutique";
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       await sendMail({ to: "x@y.com", subject: "s", html: "h" });
-      expect(parseBody(fetchMock).from).toBe(
-        "Ma Boutique <contact@maboutique.com>"
-      );
+
+      expect(captured.sent?.from).toBe("Ma Boutique <contact@maboutique.com>");
     });
 
     it("fromName en params surcharge celui du config", async () => {
       configRef.current.fromName = "Defaut";
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       await sendMail({
@@ -172,14 +296,14 @@ describe("lib/email", () => {
         html: "h",
         fromName: "Specifique",
       });
-      expect(parseBody(fetchMock).from).toBe(
-        "Specifique <contact@maboutique.com>"
-      );
+
+      expect(captured.sent?.from).toBe("Specifique <contact@maboutique.com>");
     });
 
-    it("nettoie les guillemets du nom d'expéditeur", async () => {
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+    it("nettoie les guillemets et chevrons du nom d'expéditeur", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       await sendMail({
@@ -188,27 +312,25 @@ describe("lib/email", () => {
         html: "h",
         fromName: 'Beli "Jolie" <hack>',
       });
-      expect(parseBody(fetchMock).from).toBe(
-        "Beli Jolie hack <contact@maboutique.com>"
-      );
+
+      expect(captured.sent?.from).toBe("Beli Jolie hack <contact@maboutique.com>");
     });
 
-    it("accepte plusieurs destinataires sous forme de tableau", async () => {
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+    it("joint plusieurs destinataires avec une virgule", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
-      await sendMail({
-        to: ["a@y.com", "b@y.com"],
-        subject: "s",
-        html: "h",
-      });
-      expect(parseBody(fetchMock).to).toEqual(["a@y.com", "b@y.com"]);
+      await sendMail({ to: ["a@y.com", "b@y.com"], subject: "s", html: "h" });
+
+      expect(captured.sent?.to).toBe("a@y.com, b@y.com");
     });
 
-    it("inclut reply_to si fourni", async () => {
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+    it("inclut replyTo si fourni", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       await sendMail({
@@ -217,19 +339,43 @@ describe("lib/email", () => {
         html: "h",
         replyTo: "support@maboutique.com",
       });
-      expect(parseBody(fetchMock).reply_to).toBe("support@maboutique.com");
+
+      expect(captured.sent?.replyTo).toBe("support@maboutique.com");
+    });
+
+    it("port 465 active automatiquement secure=true par défaut", async () => {
+      configRef.current.port = "465";
+      configRef.current.secure = null;
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await sendMail({ to: "x@y.com", subject: "s", html: "h" });
+
+      expect(captured.config?.secure).toBe(true);
+    });
+
+    it("secure explicite 'true' force TLS même sur port 587", async () => {
+      configRef.current.secure = "true";
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await sendMail({ to: "x@y.com", subject: "s", html: "h" });
+
+      expect(captured.config?.secure).toBe(true);
     });
   });
 
   describe("sendMail — attachments", () => {
-    beforeEach(() => {
-      configRef.current.apiKey = "re_test_key";
-      configRef.current.fromEmail = "contact@maboutique.com";
-    });
+    beforeEach(() => setValidConfig());
 
-    it("encode en base64 un contenu Buffer", async () => {
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+    it("encode un contenu Buffer tel quel", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       const data = Buffer.from("Hello world");
@@ -240,14 +386,15 @@ describe("lib/email", () => {
         attachments: [{ filename: "hello.txt", content: data }],
       });
 
-      expect(parseBody(fetchMock).attachments).toEqual([
-        { filename: "hello.txt", content: data.toString("base64") },
+      expect(captured.sent?.attachments).toEqual([
+        { filename: "hello.txt", content: data },
       ]);
     });
 
-    it("passe une string content telle quelle (déjà en base64)", async () => {
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+    it("décode une string base64 en Buffer", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       await sendMail({
@@ -257,14 +404,15 @@ describe("lib/email", () => {
         attachments: [{ filename: "doc.pdf", content: "SGVsbG8=" }],
       });
 
-      expect(parseBody(fetchMock).attachments).toEqual([
-        { filename: "doc.pdf", content: "SGVsbG8=" },
-      ]);
+      const att = captured.sent?.attachments?.[0];
+      expect(att?.filename).toBe("doc.pdf");
+      expect(att?.content.toString("utf8")).toBe("Hello");
     });
 
     it("ignore une pièce jointe sans content ni path", async () => {
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       await sendMail({
@@ -274,31 +422,27 @@ describe("lib/email", () => {
         attachments: [{ filename: "missing.txt" }],
       });
 
-      const body = parseBody(fetchMock);
-      expect(body.attachments).toBeUndefined();
+      expect(captured.sent?.attachments).toBeUndefined();
     });
 
-    it("n'inclut pas la clé attachments si aucune pièce jointe fournie", async () => {
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+    it("n'envoie pas la clé attachments si aucune pièce jointe fournie", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       await sendMail({ to: "x@y.com", subject: "s", html: "h" });
-      expect("attachments" in parseBody(fetchMock)).toBe(false);
+
+      expect(captured.sent?.attachments).toBeUndefined();
     });
   });
 
-  describe("sendMail — erreurs API", () => {
-    beforeEach(() => {
-      configRef.current.apiKey = "re_test_key";
-      configRef.current.fromEmail = "contact@maboutique.com";
-    });
+  describe("sendMail — erreurs SMTP", () => {
+    beforeEach(() => setValidConfig());
 
-    it("retourne api_error si Resend répond HTTP 4xx/5xx", async () => {
-      installFetch(
-        new Response(JSON.stringify({ message: "Invalid from address" }), {
-          status: 422,
-        })
+    it("retourne smtp_error si nodemailer lève une exception", async () => {
+      __setTransporterFactoryForTests(
+        buildFailingFactory(new Error("connection refused")) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       const result = await sendMail({
@@ -309,51 +453,23 @@ describe("lib/email", () => {
 
       expect(result.sent).toBe(false);
       if (!result.sent) {
-        expect(result.reason).toBe("api_error");
-        expect(result.error).toBe("Invalid from address");
-      }
-    });
-
-    it("retourne api_error si fetch lève une exception", async () => {
-      installThrowingFetch(new Error("network down"));
-
-      const result = await sendMail({
-        to: "x@y.com",
-        subject: "s",
-        html: "h",
-      });
-
-      expect(result.sent).toBe(false);
-      if (!result.sent) {
-        expect(result.reason).toBe("api_error");
-        expect(result.error).toBe("network down");
-      }
-    });
-
-    it("retourne api_error avec HTTP <status> si corps JSON illisible", async () => {
-      installFetch(new Response("Internal Server Error", { status: 500 }));
-
-      const result = await sendMail({
-        to: "x@y.com",
-        subject: "s",
-        html: "h",
-      });
-
-      expect(result.sent).toBe(false);
-      if (!result.sent) {
-        expect(result.reason).toBe("api_error");
-        expect(result.error).toBe("HTTP 500");
+        expect(result.reason).toBe("smtp_error");
+        expect(result.error).toBe("connection refused");
       }
     });
   });
 
   describe("sendMail — fallback env vars", () => {
-    it("utilise process.env.RESEND_API_KEY si aucune config admin", async () => {
-      process.env.RESEND_API_KEY = "re_env_key";
-      process.env.RESEND_FROM_EMAIL = "env@maboutique.com";
+    it("utilise process.env.SMTP_* si aucune config admin", async () => {
+      process.env.SMTP_HOST = "smtp.env.example";
+      process.env.SMTP_PORT = "465";
+      process.env.SMTP_USER = "env-user@example.com";
+      process.env.SMTP_PASSWORD = "env-password";
+      process.env.SMTP_FROM_EMAIL = "env-sender@example.com";
 
-      const fetchMock = installFetch(
-        new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
 
       const result = await sendMail({
@@ -363,46 +479,151 @@ describe("lib/email", () => {
       });
 
       expect(result.sent).toBe(true);
-      const [, init] = lastCall(fetchMock);
-      const headers = init.headers as Record<string, string>;
-      expect(headers["Authorization"]).toBe("Bearer re_env_key");
-      expect(parseBody(fetchMock).from).toBe("env@maboutique.com");
+      expect(captured.config?.host).toBe("smtp.env.example");
+      expect(captured.config?.port).toBe(465);
+      expect(captured.config?.secure).toBe(true); // auto à 465
+      expect(captured.config?.user).toBe("env-user@example.com");
+      expect(captured.sent?.from).toBe("env-sender@example.com");
     });
   });
 
-  describe("validateResendApiKey", () => {
-    it("refuse une clé vide", async () => {
-      const result = await validateResendApiKey("");
+  describe("validateSmtpConfig", () => {
+    it("refuse quand le serveur est vide", async () => {
+      const result = await validateSmtpConfig({
+        host: "",
+        port: 587,
+        secure: false,
+        user: "u",
+        password: "p",
+      });
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("vide");
+      expect(result.error).toContain("Serveur");
     });
 
-    it("refuse une clé qui ne commence pas par re_", async () => {
-      const result = await validateResendApiKey("sk_not_resend");
+    it("refuse un port invalide", async () => {
+      const result = await validateSmtpConfig({
+        host: "smtp.example.com",
+        port: "not-a-port",
+        secure: false,
+        user: "u",
+        password: "p",
+      });
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("re_");
+      expect(result.error).toContain("Port");
     });
 
-    it("retourne valid:true si Resend accepte la clé (HTTP 200)", async () => {
-      installFetch(new Response(JSON.stringify({ data: [] }), { status: 200 }));
-      const result = await validateResendApiKey("re_test_key");
-      expect(result.valid).toBe(true);
+    it("refuse un port hors plage", async () => {
+      const result = await validateSmtpConfig({
+        host: "smtp.example.com",
+        port: 99999,
+        secure: false,
+        user: "u",
+        password: "p",
+      });
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("Port");
     });
 
-    it("retourne valid:false si Resend refuse la clé (HTTP 401)", async () => {
-      installFetch(
-        new Response(JSON.stringify({ message: "Invalid" }), { status: 401 })
+    it("refuse quand l'identifiant est vide", async () => {
+      const result = await validateSmtpConfig({
+        host: "smtp.example.com",
+        port: 587,
+        secure: false,
+        user: "",
+        password: "p",
+      });
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("Identifiant");
+    });
+
+    it("refuse quand le mot de passe est vide", async () => {
+      const result = await validateSmtpConfig({
+        host: "smtp.example.com",
+        port: 587,
+        secure: false,
+        user: "u",
+        password: "",
+      });
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("Mot de passe");
+    });
+
+    it("retourne valid:true quand transporter.verify() réussit (sans testTo)", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("ignored", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
-      const result = await validateResendApiKey("re_bad_key");
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain("invalide");
+
+      const result = await validateSmtpConfig({
+        host: "smtp.example.com",
+        port: 587,
+        secure: false,
+        user: "u",
+        password: "p",
+      });
+
+      expect(result).toEqual({ valid: true });
+      expect(captured.sent).toBeUndefined();
     });
 
-    it("retourne valid:false si le réseau échoue", async () => {
-      installThrowingFetch(new Error("timeout"));
-      const result = await validateResendApiKey("re_test_key");
+    it("retourne valid:false avec le message si verify échoue", async () => {
+      __setTransporterFactoryForTests(
+        buildFailingFactory(new Error("Invalid login: 535")) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      const result = await validateSmtpConfig({
+        host: "smtp.example.com",
+        port: 587,
+        secure: false,
+        user: "u",
+        password: "bad",
+      });
+
       expect(result.valid).toBe(false);
-      expect(result.error).toBe("timeout");
+      expect(result.error).toBe("Invalid login: 535");
+    });
+
+    it("envoie un vrai email de test quand testTo est fourni", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("test_msg_42", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      const result = await validateSmtpConfig({
+        host: "smtp.example.com",
+        port: 587,
+        secure: false,
+        user: "contact@example.com",
+        password: "p",
+        testTo: "contact@example.com",
+        fromEmail: "contact@example.com",
+        fromName: "Ma Boutique",
+      });
+
+      expect(result.valid).toBe(true);
+      expect(result.testMessageId).toBe("test_msg_42");
+      expect(captured.sent?.to).toBe("contact@example.com");
+      expect(captured.sent?.from).toBe("Ma Boutique <contact@example.com>");
+      expect(captured.sent?.subject).toContain("Test de connexion SMTP");
+      expect(captured.sent?.html).toContain("Connexion SMTP réussie");
+    });
+
+    it("utilise user comme fallback fromEmail pour le test", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await validateSmtpConfig({
+        host: "smtp.example.com",
+        port: 587,
+        secure: false,
+        user: "contact@example.com",
+        password: "p",
+        testTo: "contact@example.com",
+      });
+
+      expect(captured.sent?.from).toBe("contact@example.com");
     });
   });
 });

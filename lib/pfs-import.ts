@@ -18,6 +18,7 @@ import {
   type PfsVariantItem,
   type PfsColorInfo,
 } from "@/lib/pfs-api";
+import { pfsGetCategories, type PfsAttributeCategory } from "@/lib/pfs-api-write";
 import { processProductImage } from "@/lib/image-processor";
 import { getImagePaths } from "@/lib/image-utils";
 import { r2KeyFromDbPath, deleteMultipleFromR2 } from "@/lib/r2";
@@ -31,6 +32,11 @@ import {
   autoTranslateProduct,
   autoTranslateSeason,
 } from "@/lib/auto-translate";
+import {
+  PFS_FAMILIES_BY_GENDER,
+  PFS_GENDER_LABELS,
+  PFS_SUBCATEGORIES_BY_FAMILY,
+} from "@/lib/marketplace-excel/pfs-taxonomy";
 
 // ─────────────────────────────────────────────
 // Types exportés
@@ -51,6 +57,18 @@ export interface PfsAttribute {
   mapped: boolean;
   localId?: string;
   localName?: string;
+  /**
+   * Infos complémentaires renvoyées selon le type d'attribut :
+   *  - catégorie : genre / famille / sous-catégorie PFS (cascade complète)
+   *  - couleur : code hex officiel PFS pour pré-remplir l'aperçu de couleur
+   */
+  meta?: {
+    pfsGender?: string | null;
+    pfsFamilyName?: string | null;
+    pfsCategoryName?: string | null;
+    /** Code hex PFS (#RRGGBB) — rempli pour le type "color" uniquement. */
+    hex?: string | null;
+  };
 }
 
 export interface PfsAttributeScan {
@@ -112,6 +130,73 @@ const COUNTRY_LABELS_FR: Record<string, string> = {
 function countryLabel(code: string): string {
   const upper = code.trim().toUpperCase();
   return COUNTRY_LABELS_FR[upper] ?? code;
+}
+
+/**
+ * Retrouve le code genre PFS (WOMAN / MAN / KID / SUPPLIES) pour une famille
+ * donnée en parcourant la table `PFS_FAMILIES_BY_GENDER`. Renvoie null si la
+ * famille n'apparaît pas (= catégorie en dehors du référentiel PFS officiel).
+ */
+export function inferPfsGenderFromFamily(family: string | null | undefined): string | null {
+  if (!family) return null;
+  for (const [genderLabel, families] of Object.entries(PFS_FAMILIES_BY_GENDER)) {
+    if (families.includes(family)) {
+      const codeEntry = Object.entries(PFS_GENDER_LABELS).find(([, label]) => label === genderLabel);
+      return codeEntry?.[0] ?? null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Normalise un genre brut venant de PFS (`prod.gender`, `PfsAttributeCategory.gender`)
+ * vers le code canonique utilisé dans `PFS_GENDER_LABELS` ("WOMAN", "MAN", …).
+ * Accepte soit le code lui-même, soit le libellé FR ("Femme"), soit des
+ * abréviations courantes renvoyées parfois par PFS (F/H/E/K/L).
+ */
+export function normalizePfsGenderCode(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const upper = raw.trim().toUpperCase();
+  if (!upper) return null;
+  if (PFS_GENDER_LABELS[upper]) return upper;
+  for (const [code, label] of Object.entries(PFS_GENDER_LABELS)) {
+    if (label.toLocaleUpperCase("fr-FR") === upper) return code;
+  }
+  const abbrev: Record<string, string> = {
+    F: "WOMAN", W: "WOMAN", FEMME: "WOMAN",
+    H: "MAN", M: "MAN", HOMME: "MAN",
+    E: "KID", K: "KID", ENFANT: "KID",
+    L: "SUPPLIES", S: "SUPPLIES", LIFESTYLE: "SUPPLIES",
+  };
+  return abbrev[upper] ?? null;
+}
+
+/** Extrait le meilleur libellé humain possible d'un objet `labels` PFS. */
+function pickBestLabel(labels: Record<string, string> | null | undefined): string | null {
+  if (!labels) return null;
+  const ordered = ["fr", "fr_FR", "en", "en_US", "en_GB"];
+  for (const k of ordered) {
+    const v = labels[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  for (const v of Object.values(labels)) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+/**
+ * Vérifie que la sous-catégorie (label FR renvoyé par PFS) fait bien partie
+ * des sous-catégories connues pour la famille — sinon on ne pré-remplit pas
+ * pour ne pas saisir une valeur hors référentiel.
+ */
+export function validatedPfsCategoryName(
+  family: string | null | undefined,
+  catLabel: string | null | undefined,
+): string | null {
+  if (!family || !catLabel) return null;
+  const known = PFS_SUBCATEGORIES_BY_FAMILY[family] ?? [];
+  return known.includes(catLabel) ? catLabel : null;
 }
 
 function firstStringImage(img: string | string[] | undefined | null): string | null {
@@ -244,19 +329,65 @@ export async function scanPfsAttributes(options?: {
     products = products.slice(0, maxImportable);
   }
 
+  // Référentiel PFS officiel des catégories : `listProducts` ne renvoie pas
+  // toujours les labels ni le genre, alors que `/catalog/attributes/categories`
+  // est la source qui fait autorité. On récupère la liste complète une seule
+  // fois et on l'indexe par id. Si l'appel échoue, on retombe en mode best-effort.
+  let pfsCategoriesList: PfsAttributeCategory[] = [];
+  try {
+    pfsCategoriesList = await pfsGetCategories();
+  } catch (err) {
+    logger.warn("[PFS Import] pfsGetCategories failed, using product-only data", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const categoryById = new Map<string, PfsAttributeCategory>();
+  for (const c of pfsCategoriesList) categoryById.set(c.id, c);
+
   // Collecte des attributs "peu coûteux" (visibles dans listProducts)
-  const rawCategories: { pfsRef: string; label: string }[] = [];
-  const rawColors: { pfsRef: string; label: string }[] = [];
+  const rawCategories: {
+    pfsRef: string;
+    label: string;
+    pfsGender: string | null;
+    pfsFamilyName: string | null;
+    pfsCategoryName: string | null;
+  }[] = [];
+  const rawColors: { pfsRef: string; label: string; hex: string | null }[] = [];
   const rawSizes: { pfsRef: string; label: string }[] = [];
 
   for (const prod of products) {
     // catégorie = category.id PFS (le type précis : Bagues, Boucles d'oreilles, etc.)
     // et non family (le groupe large : Bijoux_Fantaisie) qui est identique pour tout
     if (prod.category?.id) {
-      const catLabel = prod.category.labels?.fr ?? prod.category.labels?.en ?? prod.family;
-      rawCategories.push({ pfsRef: prod.category.id, label: catLabel });
+      const refCategory = categoryById.get(prod.category.id);
+      // Libellé : on privilégie le référentiel officiel (plus complet) puis
+      // retombe sur labels embarqués sur le produit. JAMAIS sur l'ID ni sur
+      // `prod.family` — sinon la modale affiche un code au lieu d'un vrai nom.
+      const catLabel = pickBestLabel(refCategory?.labels) ?? pickBestLabel(prod.category.labels);
+      const familyName = prod.family?.trim() || null;
+      // Genre : 1) référentiel PFS (le plus fiable), 2) gender du produit,
+      // 3) inférence via la famille.
+      const pfsGender =
+        normalizePfsGenderCode(refCategory?.gender) ??
+        normalizePfsGenderCode(prod.gender) ??
+        inferPfsGenderFromFamily(familyName);
+      rawCategories.push({
+        pfsRef: prod.category.id,
+        label: catLabel ?? familyName ?? prod.category.id,
+        pfsGender,
+        pfsFamilyName: familyName,
+        pfsCategoryName: catLabel,
+      });
     } else if (prod.family) {
-      rawCategories.push({ pfsRef: prod.family, label: prod.family });
+      rawCategories.push({
+        pfsRef: prod.family,
+        label: prod.family,
+        pfsGender:
+          normalizePfsGenderCode(prod.gender) ??
+          inferPfsGenderFromFamily(prod.family),
+        pfsFamilyName: prod.family,
+        pfsCategoryName: null,
+      });
     }
     // tailles listées sur le produit
     for (const s of splitSizesString(prod.sizes)) {
@@ -270,7 +401,8 @@ export async function scanPfsAttributes(options?: {
       for (const col of colors) {
         if (col?.reference) {
           const frLabel = col.labels?.fr ?? col.labels?.en ?? col.reference;
-          rawColors.push({ pfsRef: col.reference, label: frLabel });
+          const hex = typeof col.value === "string" && col.value.trim() ? col.value.trim() : null;
+          rawColors.push({ pfsRef: col.reference, label: frLabel, hex });
         }
       }
       // tailles visibles dans les variantes
@@ -373,11 +505,31 @@ export async function scanPfsAttributes(options?: {
 
   for (const c of categories) {
     const local = catMap.get(c.pfsRef);
-    out.push({ type: "category", pfsRef: c.pfsRef, label: c.label, mapped: !!local, localId: local?.id, localName: local?.name });
+    out.push({
+      type: "category",
+      pfsRef: c.pfsRef,
+      label: c.label,
+      mapped: !!local,
+      localId: local?.id,
+      localName: local?.name,
+      meta: {
+        pfsGender: c.pfsGender,
+        pfsFamilyName: c.pfsFamilyName,
+        pfsCategoryName: c.pfsCategoryName,
+      },
+    });
   }
   for (const c of colors) {
     const local = colMap.get(c.pfsRef);
-    out.push({ type: "color", pfsRef: c.pfsRef, label: c.label, mapped: !!local, localId: local?.id, localName: local?.name });
+    out.push({
+      type: "color",
+      pfsRef: c.pfsRef,
+      label: c.label,
+      mapped: !!local,
+      localId: local?.id,
+      localName: local?.name,
+      meta: { hex: c.hex },
+    });
   }
   for (const s of sizes) {
     const local = szMap.get(s.pfsRef);

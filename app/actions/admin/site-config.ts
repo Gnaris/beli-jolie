@@ -178,17 +178,22 @@ export async function validateEasyExpressApiKey(
   }
 }
 
-// ─── Resend (Email) Configuration ───────────────────────────────────────────
+// ─── SMTP (Email) Configuration ─────────────────────────────────────────────
 
-export async function updateResendConfig(config: {
-  apiKey: string;
+export async function updateSmtpConfig(config: {
+  host: string;
+  port: string;
+  secure: boolean;
+  user: string;
+  password: string;
   fromEmail: string;
   fromName: string;
   notifyEmail: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    const { apiKey, fromEmail, fromName, notifyEmail } = config;
+    const { host, port, secure, user, password, fromEmail, fromName, notifyEmail } =
+      config;
 
     const upsertOrDelete = (key: string, value: string) => {
       const trimmed = value.trim();
@@ -202,10 +207,14 @@ export async function updateResendConfig(config: {
     };
 
     await Promise.all([
-      upsertOrDelete("resend_api_key", apiKey),
-      upsertOrDelete("resend_from_email", fromEmail),
-      upsertOrDelete("resend_from_name", fromName),
-      upsertOrDelete("resend_notify_email", notifyEmail),
+      upsertOrDelete("smtp_host", host),
+      upsertOrDelete("smtp_port", port),
+      upsertOrDelete("smtp_secure", secure ? "true" : "false"),
+      upsertOrDelete("smtp_user", user),
+      upsertOrDelete("smtp_password", password),
+      upsertOrDelete("smtp_from_email", fromEmail),
+      upsertOrDelete("smtp_from_name", fromName),
+      upsertOrDelete("smtp_notify_email", notifyEmail),
     ]);
 
     revalidatePath("/admin/parametres");
@@ -216,13 +225,29 @@ export async function updateResendConfig(config: {
   }
 }
 
-export async function validateResendConfig(config: {
-  apiKey: string;
-}): Promise<{ valid: boolean; error?: string }> {
+export async function validateSmtpConnection(config: {
+  host: string;
+  port: string;
+  secure: boolean;
+  user: string;
+  password: string;
+  testTo?: string;
+  fromEmail?: string;
+  fromName?: string;
+}): Promise<{ valid: boolean; error?: string; testMessageId?: string }> {
   try {
     await requireAdmin();
-    const { validateResendApiKey } = await import("@/lib/email");
-    return await validateResendApiKey(config.apiKey);
+    const { validateSmtpConfig } = await import("@/lib/email");
+    return await validateSmtpConfig({
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      user: config.user,
+      password: config.password,
+      testTo: config.testTo,
+      fromEmail: config.fromEmail,
+      fromName: config.fromName,
+    });
   } catch (e) {
     return { valid: false, error: e instanceof Error ? e.message : "Erreur de validation." };
   }

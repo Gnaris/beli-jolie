@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import {
   getCachedShopName,
   getCachedCompanyInfo,
-  getCachedResendConfig,
+  getCachedSmtpConfig,
 } from "@/lib/cached-data";
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
@@ -35,13 +35,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Envoyer l'email à l'admin
-    const [shopName, companyInfo, resendCfg] = await Promise.all([
+    const [shopName, companyInfo, smtpCfg] = await Promise.all([
       getCachedShopName(),
       getCachedCompanyInfo(),
-      getCachedResendConfig(),
+      getCachedSmtpConfig(),
     ]);
     const notifyEmail =
-      resendCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
+      smtpCfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL;
 
     if (notifyEmail) {
       await sendMail({

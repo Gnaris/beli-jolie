@@ -31,6 +31,7 @@ export async function cancelOrder(orderId: string): Promise<void> {
 import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
 import { getStripeInstance, getConnectedAccountId } from "@/lib/stripe";
+import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notifications";
 
 // ─────────────────────────────────────────────
 // Types
@@ -432,9 +433,14 @@ export async function placeOrder(
     logger.error("[placeOrder] PDF error", { error: err instanceof Error ? err.message : String(err) });
   }
 
-  // ── Email admin ─────────────────────────────
-  // Notification admin désactivée — remplacée par le digest horaire
-  // (GET /api/cron/order-digest, 8h–19h)
+  // ── Emails (fire-and-forget) ─────────────────
+  // Notif admin (avec PDF en pièce jointe si dispo) + confirmation client.
+  notifyAdminNewOrder({ orderId: order.id, pdfBuffer }).catch((err) =>
+    logger.error("[placeOrder] Notif admin error", { error: err instanceof Error ? err.message : String(err) })
+  );
+  notifyOrderStatusChange({ orderId: order.id, newStatus: "PENDING" }).catch((err) =>
+    logger.error("[placeOrder] Confirmation client error", { error: err instanceof Error ? err.message : String(err) })
+  );
 
   // ── 7. Auto-suppression remise NEXT_ORDER ──────────────────────────────
 

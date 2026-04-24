@@ -12,7 +12,7 @@
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { approveAndImportPfsProduct, PfsImportCancelledError } from "@/lib/pfs-import";
-import { emitProductEvent } from "@/lib/product-events";
+import { emitProductEvent, type ImportProgressResult } from "@/lib/product-events";
 
 /** Intervalle entre deux vérifications DB du statut d'annulation (ms). */
 const CANCEL_POLL_INTERVAL_MS = 2000;
@@ -52,7 +52,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
     data: { status: "PROCESSING", totalItems: items.length },
   });
 
-  emitProgress(jobId, 0, items.length, 0, 0, "PROCESSING");
+  emitProgress(jobId, 0, items.length, 0, 0, "PROCESSING", [], IMPORT_CONCURRENCY);
 
   // Sondage périodique du statut en DB pour détecter l'annulation
   // AUSSI pendant qu'un produit est en cours d'import (téléchargement d'images).
@@ -148,7 +148,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
         },
       });
 
-      emitProgress(jobId, processed, items.length, success, errors, "PROCESSING");
+      emitProgress(jobId, processed, items.length, success, errors, "PROCESSING", results, IMPORT_CONCURRENCY);
     }
   };
 
@@ -171,7 +171,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
         resultDetails: { items, results },
       },
     });
-    emitProgress(jobId, processed, items.length, success, errors, "FAILED");
+    emitProgress(jobId, processed, items.length, success, errors, "FAILED", results, IMPORT_CONCURRENCY);
     return;
   }
 
@@ -194,7 +194,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
     },
   });
 
-  emitProgress(jobId, items.length, items.length, success, errors, finalStatus);
+  emitProgress(jobId, items.length, items.length, success, errors, finalStatus, results, IMPORT_CONCURRENCY);
   logger.info("[PFS Import Processor] Job completed", { jobId, success, errors, summary });
 }
 
@@ -205,10 +205,30 @@ function emitProgress(
   success: number,
   errors: number,
   status: "PROCESSING" | "COMPLETED" | "FAILED",
+  results: ImportProgressResult[],
+  concurrency: number,
 ) {
+  // Copie minimale : on n'a besoin que des champs utiles au client pour
+  // afficher le badge (pfsId + status + productId + error). `reference` et
+  // `name` figurent déjà dans la liste d'items côté client.
+  const compactResults: ImportProgressResult[] = results.map((r) => ({
+    pfsId: r.pfsId,
+    status: r.status,
+    productId: r.productId,
+    error: r.error,
+  }));
   emitProductEvent({
     type: "IMPORT_PROGRESS",
     productId: jobId,
-    importProgress: { jobId, processed, total, success, errors, status },
+    importProgress: {
+      jobId,
+      processed,
+      total,
+      success,
+      errors,
+      status,
+      results: compactResults,
+      concurrency,
+    },
   });
 }
