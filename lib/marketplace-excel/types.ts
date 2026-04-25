@@ -71,5 +71,6 @@ export interface ExportContext {
   shopName: string; // brand name (from CompanyInfo.shopName)
   markups: MarkupConfigs;
   ankorstoreVatRate: number; // e.g. 20 (percent)
-  r2PublicUrl: string; // e.g. "https://pub-xxx.r2.dev"
+  /** Public base URL of the site (e.g. "https://beliandjolie.com"). Used to build absolute image URLs for Ankorstore. */
+  publicBaseUrl: string;
 }

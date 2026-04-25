@@ -15,9 +15,9 @@ export async function loadExportContext(): Promise<ExportContext> {
 
   const shopName = company?.shopName?.trim() || "";
   const ankorstoreVatRate = Number(vatRow?.value) || 20;
-  const r2PublicUrl = (process.env.R2_PUBLIC_URL || process.env.NEXT_PUBLIC_R2_URL || "").replace(/\/$/, "");
+  const publicBaseUrl = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
 
-  return { shopName, markups, ankorstoreVatRate, r2PublicUrl };
+  return { shopName, markups, ankorstoreVatRate, publicBaseUrl };
 }
 
 export async function loadExportProducts(productIds: string[]): Promise<ExportProduct[]> {

@@ -16,14 +16,6 @@ const envSchema = z.object({
   NEXTAUTH_URL: z.url("NEXTAUTH_URL must be a valid URL"),
   ENCRYPTION_KEY: z.string().min(1, "ENCRYPTION_KEY is required"),
 
-  // ── Cloudflare R2 (required) ──────────────────────────────────────────────
-  R2_ACCESS_KEY_ID: z.string().min(1, "R2_ACCESS_KEY_ID is required"),
-  R2_SECRET_ACCESS_KEY: z.string().min(1, "R2_SECRET_ACCESS_KEY is required"),
-  R2_ENDPOINT: z.string().min(1, "R2_ENDPOINT is required"),
-  R2_BUCKET_NAME: z.string().min(1, "R2_BUCKET_NAME is required"),
-  NEXT_PUBLIC_R2_URL: z.string().optional(),
-  R2_PUBLIC_URL: z.string().optional(),
-
   // ── Optional — configurable via admin settings UI ─────────────────────────
   STRIPE_PLATFORM_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),

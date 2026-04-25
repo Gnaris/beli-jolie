@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
-import { uploadToR2 } from "@/lib/r2";
+import { uploadFile } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
 const MAX_FILES = 5;
@@ -11,7 +11,7 @@ const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 /**
  * POST /api/chat/upload
- * Upload images for chat message attachments → WebP → R2.
+ * Upload images for chat message attachments → WebP → local storage.
  * Returns array of { fileName, filePath, fileSize, mimeType }.
  */
 export async function POST(request: NextRequest) {
@@ -56,15 +56,15 @@ export async function POST(request: NextRequest) {
       const webpBuffer = await sharp(buffer)
         .rotate()
         .resize(1200, 1200, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 85 })
+        .webp({ lossless: true, quality: 100, effort: 4 })
         .toBuffer();
 
-      const r2Key = `uploads/chat/${filename}.webp`;
-      await uploadToR2(r2Key, webpBuffer);
+      const key = `uploads/chat/${filename}.webp`;
+      await uploadFile(key, webpBuffer);
 
       attachments.push({
         fileName: file.name,
-        filePath: `/${r2Key}`,
+        filePath: `/${key}`,
         fileSize: webpBuffer.length,
         mimeType: "image/webp",
       });

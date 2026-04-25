@@ -2,23 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import { subscribeSSE } from "@/lib/shared-sse";
+import type { ProductEvent, ProductEventType } from "@/lib/product-events";
 
-export type ProductEventType = "PRODUCT_ONLINE" | "PRODUCT_UPDATED" | "PRODUCT_OFFLINE" | "STOCK_CHANGED" | "BESTSELLER_CHANGED" | "PRODUCT_CREATED" | "IMPORT_PROGRESS";
-
-export interface ProductEvent {
-  type: ProductEventType;
-  productId: string;
-  timestamp: number;
-  /** Import progress metadata (only for IMPORT_PROGRESS events) */
-  importProgress?: {
-    jobId: string;
-    processed: number;
-    total: number;
-    success: number;
-    errors: number;
-    status: "PROCESSING" | "COMPLETED" | "FAILED";
-  };
-}
+export type { ProductEvent, ProductEventType };
 
 /**
  * Subscribe to real-time product events via shared SSE.

@@ -9,7 +9,7 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import { listR2Keys, deleteMultipleFromR2 } from "../lib/r2";
+import { listFiles, deleteFiles } from "../lib/storage";
 
 const prisma = new PrismaClient();
 
@@ -117,8 +117,8 @@ async function main() {
   const sizes = await prisma.size.deleteMany();
   console.log(`  Size                : ${sizes.count}`);
 
-  // 6. Supprimer les images sur R2
-  console.log("\n🗂️  Suppression des images sur R2...");
+  // 6. Supprimer les images locales
+  console.log("\n🗂️  Suppression des images du stockage local...");
 
   const prefixes = [
     "uploads/products/",          // images produit (large, _md, _thumb)
@@ -126,13 +126,13 @@ async function main() {
   ];
   for (const prefix of prefixes) {
     try {
-      const keys = await listR2Keys(prefix);
+      const keys = await listFiles(prefix);
       if (keys.length > 0) {
-        await deleteMultipleFromR2(keys);
+        await deleteFiles(keys);
       }
       console.log(`  ${prefix}: ${keys.length} fichier(s) supprimé(s)`);
     } catch (err) {
-      console.warn(`  ⚠️ Erreur R2 pour ${prefix}:`, err);
+      console.warn(`  ⚠️ Erreur stockage pour ${prefix}:`, err);
     }
   }
 

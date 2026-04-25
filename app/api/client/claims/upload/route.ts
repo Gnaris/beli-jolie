@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
-import { uploadToR2 } from "@/lib/r2";
+import { uploadFile } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
 const MAX_FILES = 5;
@@ -11,7 +11,7 @@ const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 /**
  * POST /api/client/claims/upload
- * Upload d'images pour pièces jointes réclamation → WebP → R2.
+ * Upload d'images pour pièces jointes réclamation → WebP → stockage local.
  * Retourne un tableau de paths stockés en BDD.
  */
 export async function POST(request: NextRequest) {
@@ -56,13 +56,13 @@ export async function POST(request: NextRequest) {
       const webpBuffer = await sharp(buffer)
         .rotate()
         .resize(1200, 1200, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 85 })
+        .webp({ lossless: true, quality: 100, effort: 4 })
         .toBuffer();
 
-      const r2Key = `uploads/claims/${filename}.webp`;
-      await uploadToR2(r2Key, webpBuffer);
+      const key = `uploads/claims/${filename}.webp`;
+      await uploadFile(key, webpBuffer);
 
-      paths.push(`/${r2Key}`);
+      paths.push(`/${key}`);
     }
 
     return NextResponse.json({ paths });

@@ -9,7 +9,7 @@
 import JSZip from "jszip";
 import sharp from "sharp";
 import { logger } from "@/lib/logger";
-import { downloadFromR2, r2KeyFromDbPath } from "@/lib/r2";
+import { readFile, keyFromDbPath } from "@/lib/storage";
 import { buildPfsWorkbook } from "./pfs-export";
 import { buildAnkorstoreWorkbook } from "./ankorstore-export";
 import { loadExportContext, loadExportProducts } from "./load-products";
@@ -21,9 +21,11 @@ export interface BuildArchiveOptions {
   includeAnkorstore: boolean;
 }
 
-/** Convert a WebP buffer to JPEG at quality 100 */
+/** Convert a WebP buffer to JPEG at maximum quality (no chroma subsampling, mozjpeg). */
 async function webpToJpeg(buffer: Buffer): Promise<Buffer> {
-  return await sharp(buffer).jpeg({ quality: 100 }).toBuffer();
+  return await sharp(buffer)
+    .jpeg({ quality: 100, chromaSubsampling: "4:4:4", mozjpeg: true })
+    .toBuffer();
 }
 
 export async function buildMarketplaceArchive(opts: BuildArchiveOptions): Promise<{
@@ -79,15 +81,15 @@ export async function buildMarketplaceArchive(opts: BuildArchiveOptions): Promis
           const dbPath = v.imagePaths[iIdx];
           let webpBuffer: Buffer;
           try {
-            const key = r2KeyFromDbPath(dbPath);
-            webpBuffer = await downloadFromR2(key);
+            const key = keyFromDbPath(dbPath);
+            webpBuffer = await readFile(key);
           } catch (err) {
-            logger.warn("[marketplace-export] Image download failed", {
+            logger.warn("[marketplace-export] Image read failed", {
               reference: p.reference, path: dbPath, error: err instanceof Error ? err.message : String(err),
             });
             allWarnings.push({
               marketplace: "Images", reference: p.reference,
-              message: `Image introuvable sur R2 : ${dbPath}`,
+              message: `Image introuvable : ${dbPath}`,
             });
             continue;
           }

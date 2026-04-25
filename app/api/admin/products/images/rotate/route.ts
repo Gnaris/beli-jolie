@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
-import { downloadFromR2, uploadToR2, r2KeyFromDbPath } from "@/lib/r2";
+import { readFile, uploadFile, keyFromDbPath } from "@/lib/storage";
 import { getImagePaths } from "@/lib/image-utils";
 import { logger } from "@/lib/logger";
 
@@ -31,22 +31,18 @@ export async function POST(request: NextRequest) {
   }
 
   const paths = getImagePaths(normalized);
-  const variants = [
-    { dbPath: paths.large, quality: 100 },
-    { dbPath: paths.medium, quality: 100 },
-    { dbPath: paths.thumb, quality: 100 },
-  ];
+  const variants = [paths.large, paths.medium, paths.thumb];
 
   try {
-    for (const v of variants) {
-      const key = r2KeyFromDbPath(v.dbPath);
+    for (const dbPath of variants) {
+      const key = keyFromDbPath(dbPath);
       try {
-        const buffer = await downloadFromR2(key);
+        const buffer = await readFile(key);
         const rotated = await sharp(buffer)
           .rotate(90)
-          .webp({ quality: v.quality })
+          .webp({ lossless: true, quality: 100, effort: 4 })
           .toBuffer();
-        await uploadToR2(key, rotated);
+        await uploadFile(key, rotated);
       } catch {
         // Variant file might not exist (e.g. missing thumb), skip
       }

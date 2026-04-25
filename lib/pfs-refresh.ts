@@ -6,7 +6,7 @@
  * 2. If not found → return { exists: false } (caller shows "produit inexistant")
  * 3. Create new product on PFS with TEMP reference
  * 4. Create all variants on new product
- * 5. Upload all images from R2 (WebP → JPEG)
+ * 5. Upload all images from local storage (WebP → JPEG)
  * 6. Rename OLD product ref → random DEL code + status DELETED (soft delete)
  * 7. Rename NEW product ref → real reference
  * 8. Set new product status based on stock (READY_FOR_SALE or ARCHIVED)
@@ -62,8 +62,8 @@ function generateRandomRef(): string {
 }
 
 async function convertToJpeg(imagePath: string): Promise<Buffer> {
-  const { downloadFromR2, r2KeyFromDbPath } = await import("@/lib/r2");
-  const buffer = await downloadFromR2(r2KeyFromDbPath(imagePath));
+  const { readFile, keyFromDbPath } = await import("@/lib/storage");
+  const buffer = await readFile(keyFromDbPath(imagePath));
   return sharp(buffer).jpeg({ quality: 100, chromaSubsampling: "4:4:4", mozjpeg: true }).toBuffer();
 }
 

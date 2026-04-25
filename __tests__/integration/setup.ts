@@ -2,7 +2,7 @@
  * Integration test setup.
  *
  * Uses REAL Prisma DB for data operations.
- * Mocks: NextAuth, Next.js cache, auto-translate, PFS sync, R2, SSE events.
+ * Mocks: NextAuth, Next.js cache, auto-translate, PFS sync, storage, SSE events.
  *
  * All test data is prefixed with "TEST_" and cleaned up after each suite.
  */

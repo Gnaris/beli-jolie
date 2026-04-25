@@ -18,7 +18,7 @@ function ctx(): ExportContext {
       ankorstoreRetail: { type: "multiplier", value: 2, rounding: "none" },
     },
     ankorstoreVatRate: 20,
-    r2PublicUrl: "https://cdn.test",
+    publicBaseUrl: "https://cdn.test",
   };
 }
 

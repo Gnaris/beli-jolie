@@ -10,7 +10,7 @@ import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { generateSku } from "@/lib/sku";
-import { deleteMultipleFromR2, r2KeyFromDbPath } from "@/lib/r2";
+import { deleteFiles, keyFromDbPath } from "@/lib/storage";
 import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
 
@@ -878,15 +878,15 @@ export async function deleteProduct(id: string): Promise<{ action: "deleted" | "
     select: { path: true },
   });
   if (productImages.length > 0) {
-    const r2Keys = productImages.flatMap(({ path }) => {
+    const keys = productImages.flatMap(({ path }) => {
       const paths = getImagePaths(path);
-      return [paths.large, paths.medium, paths.thumb].map(r2KeyFromDbPath);
+      return [paths.large, paths.medium, paths.thumb].map(keyFromDbPath);
     });
     try {
-      await deleteMultipleFromR2(r2Keys);
-      logger.info(`[R2] Deleted ${r2Keys.length} images for product ${id}`);
+      await deleteFiles(keys);
+      logger.info(`[Storage] Deleted ${keys.length} images for product ${id}`);
     } catch (err) {
-      logger.error(`[R2] Failed to delete images for product ${id}`, {
+      logger.error(`[Storage] Failed to delete images for product ${id}`, {
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -1098,15 +1098,15 @@ export async function bulkDeleteProducts(
       select: { path: true },
     });
     if (allImages.length > 0) {
-      const r2Keys = allImages.flatMap(({ path }) => {
+      const keys = allImages.flatMap(({ path }) => {
         const paths = getImagePaths(path);
-        return [paths.large, paths.medium, paths.thumb].map(r2KeyFromDbPath);
+        return [paths.large, paths.medium, paths.thumb].map(keyFromDbPath);
       });
       try {
-        await deleteMultipleFromR2(r2Keys);
-        logger.info(`[R2] Deleted ${r2Keys.length} images for ${deletableIds.length} products`);
+        await deleteFiles(keys);
+        logger.info(`[Storage] Deleted ${keys.length} images for ${deletableIds.length} products`);
       } catch (err) {
-        logger.error(`[R2] Failed to delete images during bulk delete`, {
+        logger.error(`[Storage] Failed to delete images during bulk delete`, {
           error: err instanceof Error ? err.message : String(err),
         });
       }

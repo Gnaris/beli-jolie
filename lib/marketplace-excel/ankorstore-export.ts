@@ -20,7 +20,7 @@
  *
  * Retail TTC = wholesale HT with wholesale markup, then retail markup, then add VAT.
  * PACK: markup applied to per-unit price (total / packQty), then retail × (1+VAT).
- * Image URLs are built from R2 public URL + DB image path.
+ * Image URLs are built from the site's public base URL + DB image path.
  */
 
 import path from "node:path";
@@ -41,7 +41,7 @@ function variantSizeLabel(v: ExportVariant): string {
 }
 
 function variantImageUrls(v: ExportVariant, ctx: ExportContext): string[] {
-  const base = ctx.r2PublicUrl;
+  const base = ctx.publicBaseUrl;
   return v.imagePaths.map((p) => {
     const clean = p.startsWith("/") ? p.slice(1) : p;
     return base ? `${base}/${clean}` : `/${clean}`;

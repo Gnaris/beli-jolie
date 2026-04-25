@@ -40,7 +40,7 @@ Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middl
 
 - **Server actions** (`app/actions/admin/`, `app/actions/client/`) — all mutations. `requireAdmin()` / `requireAuth()` obligatoire.
 - **API routes** (`app/api/`) — webhooks (Stripe, heartbeat), SSE streams, file-serving, marketplace Excel export.
-- **Lib** (`lib/`) — business logic: `marketplace-excel/` (PFS + Ankorstore Excel generators), `pfs-api.ts` / `pfs-api-write.ts` (read + delete), `ankorstore-api.ts` / `ankorstore-api-write.ts` (read + delete), `stripe.ts`, `easy-express.ts`, `email.ts` (SMTP via nodemailer — `sendMail()` unique point d'envoi), `notifications.ts` (emails transactionnels), `cached-data.ts`, `security.ts`, `image-processor.ts`, `r2.ts` (Cloudflare R2 storage).
+- **Lib** (`lib/`) — business logic: `marketplace-excel/` (PFS + Ankorstore Excel generators), `pfs-api.ts` / `pfs-api-write.ts` (read + delete), `ankorstore-api.ts` / `ankorstore-api-write.ts` (read + delete), `stripe.ts`, `easy-express.ts`, `email.ts` (SMTP via nodemailer — `sendMail()` unique point d'envoi), `notifications.ts` (emails transactionnels), `cached-data.ts`, `security.ts`, `image-processor.ts`, `storage.ts` (local filesystem image storage under `/public`).
 - **Components** — `components/admin/` (backoffice), `components/client/` (espace-pro), `components/ui/` (shared primitives), `components/home/` (landing page).
 
 ### Observability
@@ -60,17 +60,17 @@ Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib
 
 Create / update on PFS + Ankorstore is handled via **manual Excel upload** (no live API push). Admin sélectionne des produits dans `/admin/produits`, clique **Exporter Marketplaces**. Le serveur construit un bundle ZIP, mais le composant client (`MarketplaceExportButton`) le dézippe et déclenche **un téléchargement séparé par fichier** (Chrome/Firefox affichent un prompt "télécharger plusieurs fichiers" la 1re fois).
 
-**Strict gate** : le moindre avertissement (famille PFS manquante, desc < 30 chars, taille sans réf PFS, image R2 introuvable…) **bloque** le téléchargement. Le serveur renvoie HTTP 422 `{ error, warnings[] }`, le bouton affiche une modale listant chaque point à corriger — aucun fichier téléchargé tant que ce n'est pas corrigé.
+**Strict gate** : le moindre avertissement (famille PFS manquante, desc < 30 chars, taille sans réf PFS, image manquante sur le disque…) **bloque** le téléchargement. Le serveur renvoie HTTP 422 `{ error, warnings[] }`, le bouton affiche une modale listant chaque point à corriger — aucun fichier téléchargé tant que ce n'est pas corrigé.
 
 Fichiers téléchargés (en cas de succès, zéro avertissement) :
 - `pfs.xlsx` — 1 ligne par (produit × SaleType), format ANNEXE PFS (27 colonnes)
-- `ankorstore.xlsx` — 1 ligne par variante SKU (45 colonnes, URLs images R2 inline)
+- `ankorstore.xlsx` — 1 ligne par variante SKU (45 colonnes, URLs images absolues construites depuis `NEXTAUTH_URL`)
 - `images_pfs.zip` — ZIP contenant les images JPEG au format PFS `reference couleur position.jpg` (sans underscore), converties WebP→JPEG via sharp pour upload manuel PFS
 
 Fichiers clés :
 - `lib/marketplace-excel/pfs-export.ts` — workbook PFS (utilise `PFS_GENDER_LABELS` pour mapper WOMAN→Femme)
 - `lib/marketplace-excel/ankorstore-export.ts` — workbook Ankorstore
-- `lib/marketplace-excel/build-archive.ts` — assemble ZIP + télécharge images R2 + convertit WebP→JPEG
+- `lib/marketplace-excel/build-archive.ts` — assemble ZIP + lit les images du disque + convertit WebP→JPEG
 - `lib/marketplace-excel/load-products.ts` — charge produits + markups + TVA depuis DB
 - `lib/marketplace-excel/pfs-taxonomy.ts` — mapping statique Genre/Famille PFS
 - `app/api/admin/marketplace-export/route.ts` — POST `{ productIds, includePfs, includeAnkorstore }` → stream ZIP
@@ -86,7 +86,7 @@ Bouton "Rafraîchir" dans `/admin/produits` (par ligne + bulk) et sur la page `/
 
 Traitement en arrière-plan via `PfsRefreshProvider` (monté dans `app/(admin)/layout.tsx`) + `PfsRefreshWidget` (popup bas-droite, minimisable, fermable uniquement quand tous les produits sont terminés). Items traités séquentiellement, outcomes per-marketplace affichés.
 
-`pfsRefreshProduct()` : `pfsCheckReference(ref)` → si inexistant = erreur "Produit inexistant sur PFS" ; sinon crée nouveau produit avec ref TEMP aléatoire, upload images R2→JPEG, renomme l'ancien en ref aléatoire + statut `DELETED`, renomme le nouveau avec la vraie ref, passe en `READY_FOR_SALE` (ou `ARCHIVED` si stock 0 sur toutes variantes). Rollback automatique en cas d'échec mi-parcours.
+`pfsRefreshProduct()` : `pfsCheckReference(ref)` → si inexistant = erreur "Produit inexistant sur PFS" ; sinon crée nouveau produit avec ref TEMP aléatoire, upload images locales→JPEG, renomme l'ancien en ref aléatoire + statut `DELETED`, renomme le nouveau avec la vraie ref, passe en `READY_FOR_SALE` (ou `ARCHIVED` si stock 0 sur toutes variantes). Rollback automatique en cas d'échec mi-parcours.
 
 `ankorstoreRefreshProduct()` : `ankorstoreSearchProductsByRef(ref)` → si inexistant = erreur "Produit inexistant sur Ankorstore" ; sinon `ankorstorePushProducts([product], "update")` (upsert par external_id = reference). Fire-and-forget : pas de callback webhook, l'admin vérifie sur le dashboard Ankorstore. Un bandeau d'avertissement s'affiche dans le widget dès qu'un push Ankorstore réussit.
 
@@ -141,7 +141,7 @@ Vitest + `__tests__/` dir. Integration tests in `__tests__/integration/` (DB-bac
 
 ## Variables d'environnement
 
-**Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ENCRYPTION_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`, `NEXT_PUBLIC_R2_URL`
+**Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ENCRYPTION_KEY`
 
 **Optionnelles** : `STRIPE_PLATFORM_SECRET_KEY` (Stripe Connect platform mode)
 
@@ -192,11 +192,12 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 - **PendingSimilar** : verifier a la creation produit
 - **OrderItem.sizesJson** : preferer sur `OrderItem.size` (string legacy)
 
-### Images (Cloudflare R2)
-- **Stockage** : toutes les images uploadées sont sur **Cloudflare R2** (pas de stockage local). Client S3-compatible dans `lib/r2.ts`
-- **Images produit** : `processProductImage()` → WebP 3 tailles (large/medium/thumb) → upload R2. Utiliser `getImageSrc(path, size)` pour dériver les URLs publiques. Max 5 images par couleur
-- **DB paths** : le format reste `/uploads/products/abc.webp` en BDD. `getImageSrc()` préfixe automatiquement avec `NEXT_PUBLIC_R2_URL`
-- **Helpers R2** : `uploadToR2()`, `downloadFromR2()`, `deleteFromR2()`, `moveInR2()`, `listR2Keys()` — tous dans `lib/r2.ts`
+### Images (stockage local)
+- **Stockage** : toutes les images sont écrites sur le **disque local** dans `public/uploads/...`. Next.js sert le dossier `/public` automatiquement, donc une image écrite à `public/uploads/products/abc.webp` est accessible à `/uploads/products/abc.webp`. Module : `lib/storage.ts`
+- **Images produit** : `processProductImage()` → WebP 3 tailles (large/medium/thumb) → écriture disque. Utiliser `getImageSrc(path, size)` pour dériver les chemins. Max 5 images par couleur
+- **DB paths** : format `/uploads/products/abc.webp`. Pas de préfixe à ajouter — le chemin BDD est déjà l'URL publique
+- **Helpers stockage** : `uploadFile()`, `readFile()`, `deleteFile()`, `deleteFiles()`, `copyFile()`, `moveFile()`, `listFiles()`, `assertFileExists()` — tous dans `lib/storage.ts`
+- **Sauvegardes** : penser à sauvegarder régulièrement le dossier `public/uploads` du VPS — il n'est plus répliqué chez un service externe
 - **PFS image sync** : `DELETE /catalog/products/{id}/image` avec body `{ color, slot }`. Upload = POST multipart (JPEG uniquement, pas WebP). Logs détaillés via `[PFS Images]` prefix
 
 ### SEO

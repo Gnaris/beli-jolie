@@ -55,9 +55,9 @@ vi.mock("@/lib/marketplace-pricing", () => ({
   loadMarketplaceMarkupConfigs: vi.fn().mockResolvedValue({ pfs: undefined, ankorstore: undefined }),
 }));
 
-vi.mock("@/lib/r2", () => ({
-  downloadFromR2: vi.fn().mockResolvedValue(Buffer.from("fake")),
-  r2KeyFromDbPath: vi.fn((p: string) => p),
+vi.mock("@/lib/storage", () => ({
+  readFile: vi.fn().mockResolvedValue(Buffer.from("fake")),
+  keyFromDbPath: vi.fn((p: string) => p),
 }));
 
 vi.mock("sharp", () => ({

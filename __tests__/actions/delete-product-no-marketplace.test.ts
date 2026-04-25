@@ -48,7 +48,7 @@ const { emitProductEventSpy } = vi.hoisted(() => ({ emitProductEventSpy: vi.fn()
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: emitProductEventSpy }));
 vi.mock("@/lib/auto-translate", () => ({ autoTranslateProduct: vi.fn(), autoTranslateTag: vi.fn() }));
 vi.mock("@/lib/sku", () => ({ generateSku: vi.fn() }));
-vi.mock("@/lib/r2", () => ({ deleteMultipleFromR2: vi.fn(), r2KeyFromDbPath: vi.fn((s: string) => s) }));
+vi.mock("@/lib/storage", () => ({ deleteFiles: vi.fn(), keyFromDbPath: vi.fn((s: string) => s) }));
 vi.mock("@/lib/image-utils", () => ({ getImagePaths: vi.fn(() => ({ large: "l", medium: "m", thumb: "t" })) }));
 
 // Spy-mock the marketplace API modules so we can detect any accidental call.

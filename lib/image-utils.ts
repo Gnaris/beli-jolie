@@ -1,9 +1,10 @@
 /**
  * Client-safe image path utilities.
  * No Node.js dependencies (no sharp, fs, path).
+ *
+ * Images are stored locally under /public, so DB paths like
+ * "/uploads/products/abc.webp" are already valid public URLs and need no prefix.
  */
-
-const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_R2_URL || "";
 
 /**
  * From a stored DB path (large), derive thumb and medium paths.
@@ -23,38 +24,29 @@ export function getImagePaths(storedPath: string) {
 }
 
 /**
- * Resolve a DB image path to its full public URL.
- * Use this to transform paths before sending to client components.
- * e.g. "/uploads/products/abc.webp" → "https://pub-xxx.r2.dev/uploads/products/abc.webp"
+ * Resolve a DB image path to its public URL.
+ * Local paths are returned as-is; absolute http(s) URLs (e.g. PFS CDN) pass through.
  */
 export function resolveImageUrl(storedPath: string | null | undefined): string {
   if (!storedPath) return "/placeholder.webp";
-  // Already a full URL (e.g. from PFS CDN)
   if (storedPath.startsWith("http")) return storedPath;
-  if (R2_PUBLIC_URL) return `${R2_PUBLIC_URL}${storedPath}`;
   return storedPath;
 }
 
 /**
- * Get the best image URL for a given context.
- * Prepends the R2 public URL when available.
+ * Get the best image URL for a given context (thumb / medium / large).
  */
-export function getImageSrc(storedPath: string | null | undefined, size: "thumb" | "medium" | "large" = "large"): string {
+export function getImageSrc(
+  storedPath: string | null | undefined,
+  size: "thumb" | "medium" | "large" = "large",
+): string {
   if (!storedPath) return "/placeholder.webp";
 
-  // Already a full URL
+  // Absolute URL (e.g. PFS CDN) — pass through
   if (storedPath.startsWith("http")) return storedPath;
 
-  // Legacy images (non-webp) — return as-is
+  // Legacy non-webp images — return as-is (no md/thumb variants exist)
   if (!storedPath.endsWith(".webp")) return storedPath;
 
-  const paths = getImagePaths(storedPath);
-  const relativePath = paths[size];
-
-  // Prepend R2 public URL if available
-  if (R2_PUBLIC_URL) {
-    return `${R2_PUBLIC_URL}${relativePath}`;
-  }
-
-  return relativePath;
+  return getImagePaths(storedPath)[size];
 }

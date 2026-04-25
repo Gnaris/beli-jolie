@@ -56,7 +56,7 @@ function variantSizeLabel(v: ExportVariant): string {
 }
 
 function variantImageUrls(v: ExportVariant, ctx: ExportContext): string[] {
-  const base = ctx.r2PublicUrl;
+  const base = ctx.publicBaseUrl;
   return v.imagePaths.map((p) => {
     const clean = p.startsWith("/") ? p.slice(1) : p;
     return base ? `${base}/${clean}` : `/${clean}`;

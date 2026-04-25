@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sharp from "sharp";
-import { uploadToR2 } from "@/lib/r2";
+import { uploadFile } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
 /**
@@ -48,18 +48,18 @@ export async function POST(request: NextRequest) {
       oriented
         .clone()
         .resize(1920, 800, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 100 })
+        .webp({ lossless: true, quality: 100, effort: 4 })
         .toBuffer(),
       oriented
         .clone()
         .resize(960, 400, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 100 })
+        .webp({ lossless: true, quality: 100, effort: 4 })
         .toBuffer(),
     ]);
 
     await Promise.all([
-      uploadToR2(`uploads/banner/${filename}.webp`, largeBuffer),
-      uploadToR2(`uploads/banner/${filename}_md.webp`, mediumBuffer),
+      uploadFile(`uploads/banner/${filename}.webp`, largeBuffer),
+      uploadFile(`uploads/banner/${filename}_md.webp`, mediumBuffer),
     ]);
 
     const dbPath = `/uploads/banner/${filename}.webp`;

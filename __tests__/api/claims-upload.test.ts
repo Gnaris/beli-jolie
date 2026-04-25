@@ -19,8 +19,8 @@ vi.mock("sharp", () => {
   return { default: mockSharp };
 });
 
-vi.mock("@/lib/r2", () => ({
-  uploadToR2: vi.fn().mockResolvedValue(undefined),
+vi.mock("@/lib/storage", () => ({
+  uploadFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -29,7 +29,7 @@ vi.mock("@/lib/logger", () => ({
 
 import { getServerSession } from "next-auth";
 import { POST } from "@/app/api/client/claims/upload/route";
-import { uploadToR2 } from "@/lib/r2";
+import { uploadFile } from "@/lib/storage";
 
 function createMockFile(name: string, size: number, type: string): File {
   const buffer = new ArrayBuffer(size);
@@ -147,6 +147,6 @@ describe("POST /api/client/claims/upload", () => {
     expect(body.paths).toHaveLength(2);
     expect(body.paths[0]).toMatch(/^\/uploads\/claims\/claim-.*\.webp$/);
     expect(body.paths[1]).toMatch(/^\/uploads\/claims\/claim-.*\.webp$/);
-    expect(uploadToR2).toHaveBeenCalledTimes(2);
+    expect(uploadFile).toHaveBeenCalledTimes(2);
   });
 });

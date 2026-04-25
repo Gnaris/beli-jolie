@@ -74,9 +74,9 @@ vi.mock("@/lib/pfs-api", () => ({
 
 vi.mock("@/lib/image-processor", () => ({ processProductImage: vi.fn() }));
 vi.mock("@/lib/image-utils", () => ({ getImagePaths: vi.fn() }));
-vi.mock("@/lib/r2", () => ({
-  r2KeyFromDbPath: vi.fn(),
-  deleteMultipleFromR2: vi.fn(),
+vi.mock("@/lib/storage", () => ({
+  keyFromDbPath: vi.fn(),
+  deleteFiles: vi.fn(),
 }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/sku", () => ({ generateSku: vi.fn(() => "SKU") }));

@@ -2,24 +2,24 @@
  * Image Processing Pipeline
  *
  * Converts any uploaded image to WebP format with 3 sizes:
- *   - thumb  (400px)  — lossy q100 — for lists, cart, grids
- *   - medium (800px)  — lossy q100 — for product cards, detail page
- *   - large  (1200px) — lossy q100 — for zoom, full quality
+ *   - thumb  (400px)  — lossless WebP — for lists, cart, grids
+ *   - medium (800px)  — lossless WebP — for product cards, detail page
+ *   - large  (1200px) — lossless WebP — for zoom, full quality
  *
  * Naming convention:
- *   DB stores:   /uploads/products/abc123.webp       (= large)
- *   On R2:       uploads/products/abc123.webp        (large)
- *                uploads/products/abc123_md.webp     (medium)
- *                uploads/products/abc123_thumb.webp  (thumb)
+ *   DB stores: /uploads/products/abc123.webp       (= large)
+ *   On disk:   public/uploads/products/abc123.webp        (large)
+ *              public/uploads/products/abc123_md.webp     (medium)
+ *              public/uploads/products/abc123_thumb.webp  (thumb)
  *
  * Usage:
  *   const { dbPath } = await processProductImage(buffer, "public/uploads/products", "1710000000_1");
  *   // dbPath = "/uploads/products/1710000000_1.webp"
- *   // Also uploaded: _md.webp and _thumb.webp to R2
+ *   // Also written: _md.webp and _thumb.webp
  */
 
 import sharp from "sharp";
-import { uploadToR2, r2PrefixFromDestDir } from "@/lib/r2";
+import { uploadFile, keyPrefixFromDestDir } from "@/lib/storage";
 
 // Re-export client-safe utilities (backward compat)
 export { getImagePaths, getImageSrc } from "@/lib/image-utils";
@@ -29,10 +29,12 @@ export { getImagePaths, getImageSrc } from "@/lib/image-utils";
 // ─────────────────────────────────────────────
 
 const SIZES = {
-  large:  { width: 1200, height: 1200, quality: 100 },
-  medium: { width: 800,  height: 800,  quality: 100 },
-  thumb:  { width: 400,  height: 400,  quality: 100 },
+  large:  { width: 1200, height: 1200 },
+  medium: { width: 800,  height: 800 },
+  thumb:  { width: 400,  height: 400 },
 } as const;
+
+const WEBP_OPTS = { lossless: true, quality: 100, effort: 4 } as const;
 
 // ─────────────────────────────────────────────
 // Processing
@@ -46,10 +48,10 @@ interface ProcessResult {
 }
 
 /**
- * Process a single image: convert to WebP, generate 3 sizes, upload to R2.
+ * Process a single image: convert to WebP, generate 3 sizes, write to local storage.
  *
  * @param buffer   Raw image buffer (any format: JPEG, PNG, GIF, TIFF, HEIC, BMP, WebP)
- * @param destDir  Logical directory (e.g. "public/uploads/products") — "public/" prefix is stripped for R2
+ * @param destDir  Logical directory (e.g. "public/uploads/products") — "public/" prefix is stripped
  * @param filename Base filename without extension (e.g. "1710000000_1")
  */
 export async function processProductImage(
@@ -57,7 +59,7 @@ export async function processProductImage(
   destDir: string,
   filename: string,
 ): Promise<ProcessResult> {
-  const prefix = r2PrefixFromDestDir(destDir);
+  const prefix = keyPrefixFromDestDir(destDir);
 
   const webpKey = `${prefix}/${filename}.webp`;
   const mdKey = `${prefix}/${filename}_md.webp`;
@@ -71,25 +73,25 @@ export async function processProductImage(
     oriented
       .clone()
       .resize(SIZES.large.width, SIZES.large.height, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: SIZES.large.quality })
+      .webp(WEBP_OPTS)
       .toBuffer(),
     oriented
       .clone()
       .resize(SIZES.medium.width, SIZES.medium.height, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: SIZES.medium.quality })
+      .webp(WEBP_OPTS)
       .toBuffer(),
     oriented
       .clone()
       .resize(SIZES.thumb.width, SIZES.thumb.height, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: SIZES.thumb.quality })
+      .webp(WEBP_OPTS)
       .toBuffer(),
   ]);
 
-  // Upload all 3 files to R2 in parallel
+  // Write all 3 files in parallel
   await Promise.all([
-    uploadToR2(webpKey, largeBuffer),
-    uploadToR2(mdKey, mediumBuffer),
-    uploadToR2(thumbKey, thumbBuffer),
+    uploadFile(webpKey, largeBuffer),
+    uploadFile(mdKey, mediumBuffer),
+    uploadFile(thumbKey, thumbBuffer),
   ]);
 
   // DB path keeps the leading slash for backward compat

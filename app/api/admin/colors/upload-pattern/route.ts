@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { randomUUID } from "crypto";
-import { uploadToR2, deleteFromR2, r2KeyFromDbPath } from "@/lib/r2";
+import { uploadFile, deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
 const MAX_SIZE = 512 * 1024; // 500 KB
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
   const contentType = CONTENT_TYPE_MAP[ext] || "image/png";
 
   try {
-    await uploadToR2(`uploads/patterns/${filename}`, buffer, contentType);
+    await uploadFile(`uploads/patterns/${filename}`, buffer, contentType);
   } catch (err) {
     logger.error("[upload-pattern] Upload error", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Erreur lors de l'enregistrement du fichier." }, { status: 500 });
@@ -68,7 +68,7 @@ export async function DELETE(req: NextRequest) {
   }
 
   try {
-    await deleteFromR2(r2KeyFromDbPath(filePath));
+    await deleteFile(keyFromDbPath(filePath));
   } catch {
     // File may already be deleted — ignore
   }

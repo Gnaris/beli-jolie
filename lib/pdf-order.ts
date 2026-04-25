@@ -8,7 +8,7 @@
 
 import PDFDocument from "pdfkit";
 import sharp from "sharp";
-import { downloadFromR2, r2KeyFromDbPath } from "@/lib/r2";
+import { readFile, keyFromDbPath } from "@/lib/storage";
 import { prisma } from "@/lib/prisma";
 
 // ─────────────────────────────────────────────
@@ -124,11 +124,11 @@ function tvaLabel(rate: number): string {
   return `${(rate * 100).toFixed(0)}%`;
 }
 
-/** Télécharge une image depuis R2 et la convertit en PNG pour pdfkit (WebP non supporté) */
+/** Lit une image locale et la convertit en PNG pour pdfkit (WebP non supporté) */
 async function resolveImageBuffer(imagePath: string | null): Promise<Buffer | null> {
   if (!imagePath) return null;
   try {
-    const raw = await downloadFromR2(r2KeyFromDbPath(imagePath));
+    const raw = await readFile(keyFromDbPath(imagePath));
     // pdfkit ne supporte que JPEG et PNG — convertir via sharp
     return Buffer.from(await sharp(raw).png().toBuffer());
   } catch {
@@ -194,7 +194,7 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
   });
   const shopName = company?.shopName || company?.name || "Ma Boutique";
 
-  // Prefetch all item images from R2 in parallel
+  // Prefetch all item images from local storage in parallel
   const imageBuffers = new Map<string, Buffer>();
   await Promise.all(
     data.items.map(async (item) => {

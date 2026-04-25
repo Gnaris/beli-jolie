@@ -54,3 +54,7 @@ docs/superpowers/
 # uploads (fichiers utilisateurs)
 /private/uploads/
 /public/uploads/
+
+# paquets de déploiement VPS (générés localement, ne pas committer)
+/beli-jolie-vps.tar.gz
+/beli-jolie-vps.zip

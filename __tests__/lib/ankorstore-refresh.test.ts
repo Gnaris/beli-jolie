@@ -73,7 +73,7 @@ const defaultCtx = {
   shopName: "Ma Boutique",
   markups: { pfs: undefined, ankorstoreWholesale: undefined, ankorstoreRetail: undefined },
   ankorstoreVatRate: 20,
-  r2PublicUrl: "https://pub.r2.dev",
+  publicBaseUrl: "https://pub.example.com",
 };
 
 beforeEach(() => {

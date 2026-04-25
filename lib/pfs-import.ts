@@ -21,7 +21,7 @@ import {
 import { pfsGetCategories, type PfsAttributeCategory } from "@/lib/pfs-api-write";
 import { processProductImage } from "@/lib/image-processor";
 import { getImagePaths } from "@/lib/image-utils";
-import { r2KeyFromDbPath, deleteMultipleFromR2 } from "@/lib/r2";
+import { keyFromDbPath, deleteFiles } from "@/lib/storage";
 import { emitProductEvent } from "@/lib/product-events";
 import { generateSku } from "@/lib/sku";
 import {
@@ -1340,7 +1340,7 @@ async function downloadImageBatch(
         const body = await response.body();
         if (!body || body.length === 0) throw new Error("Empty response body");
 
-        // Traitement (conversion WebP 3 tailles + upload R2)
+        // Traitement (conversion WebP 3 tailles + écriture stockage local)
         const filename = `${Date.now()}_${img.variantId}_${img.order}`;
         const { dbPath } = await processProductImage(body, "public/uploads/products", filename);
 
@@ -1374,23 +1374,23 @@ async function downloadImageBatch(
 }
 
 /**
- * Supprime un produit et toutes ses données associées (variantes, images R2, tailles).
+ * Supprime un produit et toutes ses données associées (variantes, images, tailles).
  * Utilisé quand le téléchargement des images échoue.
  */
 async function cleanupFailedProduct(productId: string): Promise<void> {
   try {
-    // Supprime les images déjà uploadées sur R2
+    // Supprime les images déjà écrites sur disque
     const images = await prisma.productColorImage.findMany({
       where: { productId },
       select: { path: true },
     });
     if (images.length > 0) {
-      const r2Keys = images.flatMap(({ path }) => {
+      const keys = images.flatMap(({ path }) => {
         const paths = getImagePaths(path);
-        return [paths.large, paths.medium, paths.thumb].map(r2KeyFromDbPath);
+        return [paths.large, paths.medium, paths.thumb].map(keyFromDbPath);
       });
-      await deleteMultipleFromR2(r2Keys).catch((err) => {
-        logger.warn("[PFS Import] R2 cleanup partial failure", { productId, err: (err as Error).message });
+      await deleteFiles(keys).catch((err) => {
+        logger.warn("[PFS Import] Storage cleanup partial failure", { productId, err: (err as Error).message });
       });
     }
 

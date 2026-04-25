@@ -31,7 +31,7 @@ vi.mock("@/lib/notifications", () => ({ notifyRestockAlerts: vi.fn() }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/auto-translate", () => ({ autoTranslateProduct: vi.fn(), autoTranslateTag: vi.fn() }));
 vi.mock("@/lib/sku", () => ({ generateSku: vi.fn() }));
-vi.mock("@/lib/r2", () => ({ deleteMultipleFromR2: vi.fn(), r2KeyFromDbPath: vi.fn() }));
+vi.mock("@/lib/storage", () => ({ deleteFiles: vi.fn(), keyFromDbPath: vi.fn() }));
 vi.mock("@/lib/image-utils", () => ({ getImagePaths: vi.fn() }));
 
 import { createProduct, updateProduct, type ProductInput } from "@/app/actions/admin/products";
