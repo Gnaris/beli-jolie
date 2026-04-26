@@ -1,7 +1,7 @@
 /**
  * Tests pour lib/email.ts — envoi d'emails via SMTP (nodemailer).
  *
- * On mocke getCachedSmtpConfig + on injecte une fabrique de transporter de test
+ * On configure les env vars SMTP_* + on injecte une fabrique de transporter de test
  * via __setTransporterFactoryForTests pour vérifier :
  *   - config incomplète → no_config
  *   - pas d'adresse expéditeur → no_from
@@ -10,38 +10,10 @@
  *   - attachments convertis en Buffer
  *   - format "Nom <email>"
  *   - validateSmtpConfig (verify succès / échec / champs manquants)
- *   - fallback variables d'environnement SMTP_*
+ *   - variables d'environnement SMTP_*
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-
-type SmtpConfig = {
-  host: string | null;
-  port: string | null;
-  secure: string | null;
-  user: string | null;
-  password: string | null;
-  fromEmail: string | null;
-  fromName: string | null;
-  notifyEmail: string | null;
-};
-
-const configRef: { current: SmtpConfig } = {
-  current: {
-    host: null,
-    port: null,
-    secure: null,
-    user: null,
-    password: null,
-    fromEmail: null,
-    fromName: null,
-    notifyEmail: null,
-  },
-};
-
-vi.mock("@/lib/cached-data", () => ({
-  getCachedSmtpConfig: vi.fn(async () => configRef.current),
-}));
 
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -102,16 +74,6 @@ describe("lib/email — SMTP via nodemailer", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    configRef.current = {
-      host: null,
-      port: null,
-      secure: null,
-      user: null,
-      password: null,
-      fromEmail: null,
-      fromName: null,
-      notifyEmail: null,
-    };
     delete process.env.SMTP_HOST;
     delete process.env.SMTP_PORT;
     delete process.env.SMTP_SECURE;
@@ -128,16 +90,12 @@ describe("lib/email — SMTP via nodemailer", () => {
   });
 
   function setValidConfig() {
-    configRef.current = {
-      host: "smtp.hostinger.com",
-      port: "587",
-      secure: "false",
-      user: "contact@maboutique.com",
-      password: "secret",
-      fromEmail: "contact@maboutique.com",
-      fromName: null,
-      notifyEmail: null,
-    };
+    process.env.SMTP_HOST = "smtp.hostinger.com";
+    process.env.SMTP_PORT = "587";
+    process.env.SMTP_SECURE = "false";
+    process.env.SMTP_USER = "contact@maboutique.com";
+    process.env.SMTP_PASSWORD = "secret";
+    process.env.SMTP_FROM_EMAIL = "contact@maboutique.com";
   }
 
   describe("sendMail — configuration", () => {
@@ -158,16 +116,11 @@ describe("lib/email — SMTP via nodemailer", () => {
     });
 
     it("retourne no_config si un champ obligatoire manque (port absent)", async () => {
-      configRef.current = {
-        host: "smtp.hostinger.com",
-        port: null,
-        secure: null,
-        user: "contact@maboutique.com",
-        password: "secret",
-        fromEmail: "contact@maboutique.com",
-        fromName: null,
-        notifyEmail: null,
-      };
+      process.env.SMTP_HOST = "smtp.hostinger.com";
+      process.env.SMTP_USER = "contact@maboutique.com";
+      process.env.SMTP_PASSWORD = "secret";
+      process.env.SMTP_FROM_EMAIL = "contact@maboutique.com";
+      // no SMTP_PORT
 
       const result = await sendMail({
         to: "user@example.com",
@@ -179,27 +132,16 @@ describe("lib/email — SMTP via nodemailer", () => {
     });
 
     it("retourne no_from si la config SMTP est OK mais aucune adresse expéditeur", async () => {
-      configRef.current = {
-        host: "smtp.hostinger.com",
-        port: "587",
-        secure: "false",
-        user: "",
-        password: "secret",
-        fromEmail: null,
-        fromName: null,
-        notifyEmail: null,
-      };
-      configRef.current.user = "someone@example.com";
-      // On retire explicitement fromEmail et on vide user pour tester ce cas
+      process.env.SMTP_HOST = "smtp.hostinger.com";
+      process.env.SMTP_PORT = "587";
+      process.env.SMTP_SECURE = "false";
+      process.env.SMTP_USER = "someone@example.com";
+      process.env.SMTP_PASSWORD = "secret";
+      // no SMTP_FROM_EMAIL — user serves as fallback
       const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
       __setTransporterFactoryForTests(
         buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
-
-      // Ici, fromEmail tombe sur "user" comme fallback — donc on teste un cas pur
-      // en forçant user ET fromEmail absents.
-      configRef.current.user = "someone@example.com";
-      configRef.current.fromEmail = null;
 
       const result = await sendMail({
         to: "user@example.com",
@@ -212,20 +154,12 @@ describe("lib/email — SMTP via nodemailer", () => {
     });
 
     it("retourne no_from quand ni fromEmail ni user ne sont renseignés pour le from", async () => {
-      configRef.current = {
-        host: "smtp.hostinger.com",
-        port: "587",
-        secure: "false",
-        user: "login-only", // pas un email
-        password: "secret",
-        fromEmail: null,
-        fromName: null,
-        notifyEmail: null,
-      };
-      // Même si fromEmail est null, on utilise `user` comme fallback
-      // → ce cas n'arrive que si on passe `fromEmail: ""` explicitement
-      // après avoir aussi nettoyé user. Pour simplifier, on teste via
-      // config incomplète : user présent mais pas de from → renvoie sent avec from=user.
+      process.env.SMTP_HOST = "smtp.hostinger.com";
+      process.env.SMTP_PORT = "587";
+      process.env.SMTP_SECURE = "false";
+      process.env.SMTP_USER = "login-only";
+      process.env.SMTP_PASSWORD = "secret";
+      // no SMTP_FROM_EMAIL → user serves as from fallback
       const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
       __setTransporterFactoryForTests(
         buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
@@ -272,7 +206,7 @@ describe("lib/email — SMTP via nodemailer", () => {
     });
 
     it('utilise "Nom <email>" quand fromName est fourni dans le config', async () => {
-      configRef.current.fromName = "Ma Boutique";
+      process.env.SMTP_FROM_NAME = "Ma Boutique";
       const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
       __setTransporterFactoryForTests(
         buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
@@ -284,7 +218,7 @@ describe("lib/email — SMTP via nodemailer", () => {
     });
 
     it("fromName en params surcharge celui du config", async () => {
-      configRef.current.fromName = "Defaut";
+      process.env.SMTP_FROM_NAME = "Defaut";
       const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
       __setTransporterFactoryForTests(
         buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
@@ -344,8 +278,8 @@ describe("lib/email — SMTP via nodemailer", () => {
     });
 
     it("port 465 active automatiquement secure=true par défaut", async () => {
-      configRef.current.port = "465";
-      configRef.current.secure = null;
+      process.env.SMTP_PORT = "465";
+      delete process.env.SMTP_SECURE;
       const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
       __setTransporterFactoryForTests(
         buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
@@ -357,7 +291,7 @@ describe("lib/email — SMTP via nodemailer", () => {
     });
 
     it("secure explicite 'true' force TLS même sur port 587", async () => {
-      configRef.current.secure = "true";
+      process.env.SMTP_SECURE = "true";
       const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
       __setTransporterFactoryForTests(
         buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
@@ -459,8 +393,8 @@ describe("lib/email — SMTP via nodemailer", () => {
     });
   });
 
-  describe("sendMail — fallback env vars", () => {
-    it("utilise process.env.SMTP_* si aucune config admin", async () => {
+  describe("sendMail — env vars", () => {
+    it("utilise process.env.SMTP_* pour la configuration", async () => {
       process.env.SMTP_HOST = "smtp.env.example";
       process.env.SMTP_PORT = "465";
       process.env.SMTP_USER = "env-user@example.com";

@@ -15,7 +15,6 @@ const PREFIX = "enc:v1:";
 /** Clés SiteConfig considérées sensibles — chiffrées en BDD. */
 export const SENSITIVE_KEYS = new Set([
   "easy_express_api_key",
-  "smtp_password",
   "deepl_api_key",
   "pfs_email",
   "pfs_password",

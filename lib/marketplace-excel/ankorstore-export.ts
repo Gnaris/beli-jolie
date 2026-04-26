@@ -176,8 +176,10 @@ export async function buildAnkorstoreWorkbook(
         iso,
         "", // Code douanier
         "", // EAN
-        "", // Unité dim
-        "", "", "", // LWH
+        p.dimensionLength != null || p.dimensionWidth != null || p.dimensionHeight != null ? "mm" : "", // Unité dim
+        p.dimensionLength ?? "", // Longueur
+        p.dimensionWidth ?? "",  // Largeur
+        p.dimensionHeight ?? "", // Hauteur
         "kg", // Unité poids
         v.weight,
         "", // Unité volume

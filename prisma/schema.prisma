@@ -673,7 +673,7 @@ enum DiscountKind {
 // Commande validée par le client
 model Order {
   id          String      @id @default(cuid())
-  orderNumber String      @unique // ex: BJ-2026-000001
+  orderNumber String      @unique // ex: K7X9M2PH (8 chars aléatoires)
   userId      String
   user        User        @relation(fields: [userId], references: [id])
   items       OrderItem[]
@@ -868,20 +868,18 @@ model ShippingAddress {
 // ─────────────────────────────────────────────
 
 enum CatalogStatus {
-  DRAFT // Brouillon (non accessible via lien)
-  PUBLISHED // Publié (accessible via lien)
+  INACTIVE // Désactivé (non accessible via lien)
+  ACTIVE   // Activé (accessible via lien)
 }
 
 model Catalog {
-  id             String           @id @default(cuid())
-  title          String
-  token          String           @unique @default(cuid()) // token public pour le lien
-  primaryColor   String           @default("#1A1A1A") // couleur principale du catalogue
-  coverImagePath String? // photo de fond du header (remplace la couleur)
-  status         CatalogStatus    @default(DRAFT)
-  products       CatalogProduct[]
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  id        String           @id @default(cuid())
+  title     String
+  token     String           @unique @default(cuid()) // token public pour le lien
+  status    CatalogStatus    @default(INACTIVE)
+  products  CatalogProduct[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 }
 
 model CatalogProduct {

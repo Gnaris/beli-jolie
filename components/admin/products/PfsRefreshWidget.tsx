@@ -71,7 +71,7 @@ function TargetBadge({ label, outcome }: { label: string; outcome: TargetOutcome
 }
 
 export function PfsRefreshWidget() {
-  const { items, clear, isAllFinished, runningCount, queuedCount } = usePfsRefreshQueue();
+  const { items, clear, stop, isAllFinished, runningCount, queuedCount } = usePfsRefreshQueue();
   const [minimized, setMinimized] = useState(false);
 
   useEffect(() => {
@@ -158,6 +158,19 @@ export function PfsRefreshWidget() {
                 {runningCount > 0 ? ` · ${runningCount} en cours` : ""}
               </p>
             </div>
+            {queuedCount > 0 && (
+              <button
+                type="button"
+                onClick={stop}
+                className="p-1.5 text-text-muted hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                title="Arrêter les produits en attente"
+                aria-label="Arrêter les produits en attente"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setMinimized(true)}

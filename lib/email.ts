@@ -4,9 +4,7 @@
  * Envoi d'emails via nodemailer (SMTP).
  *
  * La configuration (hôte, port, TLS, identifiants, expéditeur) est lue
- * depuis les paramètres admin (SiteConfig) avec fallback sur les variables
- * d'environnement `SMTP_*`. Cela permet de brancher n'importe quel serveur
- * SMTP : Hostinger, Gmail, Resend SMTP, OVH, Mailjet, etc.
+ * depuis les variables d'environnement `SMTP_*`.
  *
  * Fire-and-forget : les erreurs sont loggées, jamais propagées aux callers.
  */
@@ -14,7 +12,6 @@
 import fs from "fs/promises";
 import path from "path";
 import nodemailer, { type Transporter } from "nodemailer";
-import { getCachedSmtpConfig } from "@/lib/cached-data";
 import { logger } from "@/lib/logger";
 
 export interface MailAttachment {
@@ -149,23 +146,19 @@ function parseSecure(
   return port === 465;
 }
 
-async function resolveSmtpConfig(): Promise<{
+function resolveSmtpConfig(): {
   connection: SmtpConnectionConfig | null;
   fromEmail: string | null;
   fromName: string | null;
-}> {
-  const cfg = await getCachedSmtpConfig();
+} {
+  const host = process.env.SMTP_HOST || null;
+  const port = parsePort(process.env.SMTP_PORT ?? null);
+  const secureRaw = process.env.SMTP_SECURE ?? null;
+  const user = process.env.SMTP_USER || null;
+  const password = process.env.SMTP_PASSWORD || null;
 
-  const host = cfg.host || process.env.SMTP_HOST || null;
-  const rawPort = cfg.port ?? process.env.SMTP_PORT ?? null;
-  const port = parsePort(rawPort);
-  const secureRaw = cfg.secure ?? process.env.SMTP_SECURE ?? null;
-  const user = cfg.user || process.env.SMTP_USER || null;
-  const password = cfg.password || process.env.SMTP_PASSWORD || null;
-
-  const fromEmail =
-    cfg.fromEmail || process.env.SMTP_FROM_EMAIL || user || null;
-  const fromName = cfg.fromName || process.env.SMTP_FROM_NAME || null;
+  const fromEmail = process.env.SMTP_FROM_EMAIL || user || null;
+  const fromName = process.env.SMTP_FROM_NAME || null;
 
   if (!host || !port || !user || !password) {
     return { connection: null, fromEmail, fromName };
@@ -196,7 +189,7 @@ export async function sendMail(
   params: SendMailParams
 ): Promise<SendMailResult> {
   const { connection, fromEmail: cfgFromEmail, fromName: cfgFromName } =
-    await resolveSmtpConfig();
+    resolveSmtpConfig();
 
   if (!connection) {
     logger.warn("[email] Configuration SMTP incomplète — email ignoré.");

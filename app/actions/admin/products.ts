@@ -99,13 +99,15 @@ function colorInputGroupKey(c: ColorInput): string {
 }
 
 function validateVariants(colors: ColorInput[]): void {
-  // No two variants with same sale type + color group (colorId + ordered sub-colors)
+  // No two variants with same sale type + color group + size combination
   const seenGroups = new Map<string, boolean>();
   for (const c of colors) {
     if (!c.colorId) throw new Error("Chaque variante doit avoir une couleur.");
-    const gk = `${c.saleType}::${colorInputGroupKey(c)}`;
+    // Include size IDs in the key so same color+type with different sizes is allowed
+    const sizeKey = c.sizeEntries.map((se) => se.sizeId).sort().join(",");
+    const gk = `${c.saleType}::${colorInputGroupKey(c)}::${sizeKey}`;
     if (seenGroups.has(gk)) {
-      throw new Error("Deux variantes ne peuvent pas avoir la même composition de couleurs et le même type.");
+      throw new Error("Deux variantes ne peuvent pas avoir la même composition de couleurs, le même type et la même taille.");
     }
     seenGroups.set(gk, true);
   }

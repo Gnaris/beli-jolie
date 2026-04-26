@@ -167,41 +167,6 @@ export const getCachedShippingMargin = unstable_cache(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-// ─── SMTP config (from SiteConfig) ───────────────────────────────────────────
-export const getCachedSmtpConfig = unstable_cache(
-  async () => {
-    const rows = await prisma.siteConfig.findMany({
-      where: {
-        key: {
-          in: [
-            "smtp_host",
-            "smtp_port",
-            "smtp_secure",
-            "smtp_user",
-            "smtp_password",
-            "smtp_from_email",
-            "smtp_from_name",
-            "smtp_notify_email",
-          ],
-        },
-      },
-    });
-    const map = new Map(rows.map(r => [r.key, decryptIfSensitive(r.key, r.value)]));
-    return {
-      host: map.get("smtp_host") ?? null,
-      port: map.get("smtp_port") ?? null,
-      secure: map.get("smtp_secure") ?? null,
-      user: map.get("smtp_user") ?? null,
-      password: map.get("smtp_password") ?? null,
-      fromEmail: map.get("smtp_from_email") ?? null,
-      fromName: map.get("smtp_from_name") ?? null,
-      notifyEmail: map.get("smtp_notify_email") ?? null,
-    };
-  },
-  ["smtp-config"],
-  { revalidate: 300, tags: ["site-config"] }
-);
-
 // ─── PFS configured? (quick check, no decrypt) ─────────────────────────────
 export const getCachedHasPfsConfig = unstable_cache(
   async () => {

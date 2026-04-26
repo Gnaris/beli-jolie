@@ -4,14 +4,13 @@
  * Envoi d'emails transactionnels (inscriptions, alertes stock, statuts commande,
  * messages support, réclamations) via SMTP (lib/email.ts → nodemailer).
  *
- * Configuration lue depuis les paramètres admin (SiteConfig) avec fallback env vars.
+ * Configuration lue depuis les variables d'environnement.
  */
 
 import { prisma } from "@/lib/prisma";
 import {
   getCachedShopName,
   getCachedCompanyInfo,
-  getCachedSmtpConfig,
 } from "@/lib/cached-data";
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
@@ -26,12 +25,9 @@ function escapeHtml(str: string): string {
 }
 
 async function resolveNotifyEmail(): Promise<string | null> {
-  const [cfg, companyInfo] = await Promise.all([
-    getCachedSmtpConfig(),
-    getCachedCompanyInfo(),
-  ]);
+  const companyInfo = await getCachedCompanyInfo();
   return (
-    cfg.notifyEmail || companyInfo?.email || process.env.NOTIFY_EMAIL || null
+    process.env.NOTIFY_EMAIL || companyInfo?.email || null
   );
 }
 

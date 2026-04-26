@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo, useRef, useCallback } from "react";
+import { useState, useTransition, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -10,6 +10,7 @@ import {
   updateCatalogProductDisplay,
 } from "@/app/actions/admin/catalogs";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import ProductPickerModal, { type PickerProduct } from "./ProductPickerModal";
 
 // ─── Types bruts Prisma (tels que retournés par la page) ──────────────────────
 
@@ -45,39 +46,32 @@ interface CatalogData {
   id: string;
   title: string;
   token: string;
-  primaryColor: string;
-  coverImagePath: string | null;
-  status: "DRAFT" | "PUBLISHED";
+  status: "INACTIVE" | "ACTIVE";
   products: CatalogProductRow[];
+}
+
+interface CategoryOption {
+  id: string;
+  name: string;
 }
 
 interface Props {
   catalog: CatalogData;
+  categories: CategoryOption[];
 }
 
 // ─── Type couleur dédupliquée ─────────────────────────────────────────────────
 
 interface UniqueColor {
-  colorId: string;       // Color.id
+  colorId: string;
   name: string;
   hex: string | null;
   unitPrice: number;
   isPrimary: boolean;
-  images: RawImage[];    // Toutes les images de cette couleur
+  images: RawImage[];
 }
 
-// ─── Palette de couleurs suggérées ────────────────────────────────────────────
-const PRESET_COLORS = [
-  "#1A1A1A", "#374151", "#6B7280",
-  "#DC2626", "#EA580C", "#CA8A04",
-  "#16A34A", "#0891B2", "#2563EB",
-  "#7C3AED", "#DB2777", "#BE185D",
-  "#9D174D", "#92400E", "#065F46",
-];
-
 // ─── Helper : déduplique les couleurs d'un produit par colorId ────────────────
-// Un produit peut avoir UNIT + PACK pour la même couleur → on garde une entrée
-// par couleur, en préférant la row isPrimary ou unitPrice de la variante UNIT.
 function deduplicateColors(raw: RawColorVariant[], images: RawImage[]): UniqueColor[] {
   const map = new Map<string, UniqueColor>();
   for (const r of raw) {
@@ -92,7 +86,6 @@ function deduplicateColors(raw: RawColorVariant[], images: RawImage[]): UniqueCo
         images: images.filter((img) => img.colorId === r.colorId),
       });
     } else {
-      // Si cette row est primaire, propager
       if (r.isPrimary) existing.isPrimary = true;
     }
   }
@@ -101,72 +94,23 @@ function deduplicateColors(raw: RawColorVariant[], images: RawImage[]): UniqueCo
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 
-export default function CatalogEditor({ catalog }: Props) {
+export default function CatalogEditor({ catalog, categories }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
-  const coverInputRef = useRef<HTMLInputElement>(null);
-
   // ── État local ──────────────────────────────────────────────────────────────
   const [title, setTitle] = useState(catalog.title);
-  const [color, setColor] = useState(catalog.primaryColor);
-  const [coverImagePath, setCoverImagePath] = useState<string | null>(catalog.coverImagePath ?? null);
-  const [coverTab, setCoverTab] = useState<"color" | "photo">(catalog.coverImagePath ? "photo" : "color");
-  const [uploadingCover, setUploadingCover] = useState(false);
-  const [status, setStatus] = useState<"DRAFT" | "PUBLISHED">(catalog.status);
+  const [status, setStatus] = useState<"INACTIVE" | "ACTIVE">(catalog.status);
   const [selectedProducts, setSelectedProducts] = useState<CatalogProductRow[]>(catalog.products);
-  const [search, setSearch] = useState("");
   const [saved, setSaved] = useState(false);
   const [copyDone, setCopyDone] = useState(false);
+  const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
+  const [productPage, setProductPage] = useState(1);
+  const PRODUCTS_PER_PAGE = 20;
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // IDs déjà dans le catalogue
   const selectedIds = useMemo(() => new Set(selectedProducts.map((p) => p.productId)), [selectedProducts]);
-
-  // Debounced API search for products
-  const [filteredProducts, setFilteredProducts] = useState<ProductSnap[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  const doSearch = useCallback((q: string) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (q.trim().length < 1) {
-      setFilteredProducts([]);
-      setSearchLoading(false);
-      return;
-    }
-    setSearchLoading(true);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/admin/products/search?q=${encodeURIComponent(q.trim())}&fields=catalog`);
-        const data = await res.json();
-        const products: ProductSnap[] = data.products ?? [];
-        setFilteredProducts(products.filter((p) => !selectedIds.has(p.id)));
-      } catch {
-        setFilteredProducts([]);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 300);
-  }, [selectedIds]);
-
-  const handleSearchChange = useCallback((value: string) => {
-    setSearch(value);
-    doSearch(value);
-  }, [doSearch]);
-
-  // ─── Upload photo de fond ──────────────────────────────────────────────────
-  const handleCoverUpload = async (file: File) => {
-    setUploadingCover(true);
-    try {
-      const fd = new FormData();
-      fd.append("image", file);
-      const res = await fetch("/api/admin/catalogs/cover", { method: "POST", body: fd });
-      const data = await res.json();
-      if (data.path) setCoverImagePath(data.path);
-    } finally {
-      setUploadingCover(false);
-    }
-  };
 
   // ─── Sauvegarder les réglages ──────────────────────────────────────────────
   const handleSave = () => {
@@ -175,8 +119,6 @@ export default function CatalogEditor({ catalog }: Props) {
       try {
         await updateCatalog(catalog.id, {
           title,
-          primaryColor: color,
-          coverImagePath: coverTab === "photo" ? coverImagePath : null,
           status,
         });
         setSaved(true);
@@ -187,21 +129,23 @@ export default function CatalogEditor({ catalog }: Props) {
     });
   };
 
-  // ─── Ajouter un produit ───────────────────────────────────────────────────
-  const handleAdd = (product: ProductSnap) => {
-    // Ignore if already in catalog
-    if (selectedProducts.some((p) => p.productId === product.id)) return;
-    showLoading();
+  // ─── Ajouter un produit (depuis le picker) ─────────────────────────────────
+  const handlePickerAdd = (pickerProduct: PickerProduct) => {
+    if (selectedIds.has(pickerProduct.id)) return;
     startTransition(async () => {
-      try {
-        await addProductToCatalog(catalog.id, product.id);
-        setSelectedProducts((prev) => [
-          ...prev,
-          { productId: product.id, position: prev.length, selectedColorId: null, selectedImagePath: null, product },
-        ]);
-      } finally {
-        hideLoading();
-      }
+      await addProductToCatalog(catalog.id, pickerProduct.id);
+      // Convert PickerProduct → ProductSnap for local state
+      const snap: ProductSnap = {
+        id: pickerProduct.id,
+        name: pickerProduct.name,
+        reference: pickerProduct.reference,
+        colorImages: pickerProduct.colorImages,
+        colors: pickerProduct.colors,
+      };
+      setSelectedProducts((prev) => [
+        ...prev,
+        { productId: snap.id, position: prev.length, selectedColorId: null, selectedImagePath: null, product: snap },
+      ]);
     });
   };
 
@@ -212,9 +156,19 @@ export default function CatalogEditor({ catalog }: Props) {
       try {
         await removeProductFromCatalog(catalog.id, productId);
         setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
+        if (expandedProduct === productId) setExpandedProduct(null);
       } finally {
         hideLoading();
       }
+    });
+  };
+
+  // ─── Retirer un produit (depuis le picker, sans loading overlay) ──────────
+  const handlePickerRemove = (productId: string) => {
+    startTransition(async () => {
+      await removeProductFromCatalog(catalog.id, productId);
+      setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
+      if (expandedProduct === productId) setExpandedProduct(null);
     });
   };
 
@@ -223,7 +177,6 @@ export default function CatalogEditor({ catalog }: Props) {
     showLoading();
     startTransition(async () => {
       try {
-        // Changer la couleur réinitialise l'image sélectionnée
         await updateCatalogProductDisplay(catalog.id, productId, colorId, null);
         setSelectedProducts((prev) =>
           prev.map((p) =>
@@ -263,508 +216,446 @@ export default function CatalogEditor({ catalog }: Props) {
     setTimeout(() => setCopyDone(false), 2000);
   };
 
+  // Detect if there are unsaved changes
+  const hasChanges = title !== catalog.title || status !== catalog.status;
+
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      {/* ── Colonne gauche : réglages ─────────────────────────────────────── */}
-      <div className="xl:col-span-1 space-y-5">
+    <div className="space-y-6">
 
-        {/* Bloc infos */}
-        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] space-y-5">
-          <h2 className="font-heading font-semibold text-text-primary text-sm">
-            Informations
-          </h2>
-
-          {/* Titre */}
-          <div>
-            <label className="field-label">Titre</label>
+      {/* ════════════════════════════════════════════════════════════════════════
+          BARRE D'EN-TÊTE : retour, titre, statut, actions
+          ════════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          {/* Retour + Titre */}
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <button
+              onClick={() => router.push("/admin/catalogues")}
+              className="shrink-0 w-9 h-9 flex items-center justify-center rounded-xl border border-border hover:bg-bg-secondary transition-colors text-text-muted hover:text-text-primary"
+              title="Retour aux catalogues"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
             <input
               type="text"
-              className="field-input"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              className="flex-1 min-w-0 text-lg font-heading font-semibold text-text-primary bg-transparent border-0 outline-none focus:ring-0 px-0 placeholder:text-text-muted"
+              placeholder="Titre du catalogue"
             />
           </div>
 
-          {/* Statut */}
-          <div>
-            <label className="field-label">Statut</label>
-            <div className="flex gap-3">
-              {(["DRAFT", "PUBLISHED"] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStatus(s)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-body border transition-colors ${
-                    status === s
-                      ? "border-[#1A1A1A] bg-bg-dark text-text-inverse"
-                      : "border-border bg-bg-primary text-[#6B7280] hover:border-[#9CA3AF]"
+          {/* Statut + Actions */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Toggle statut */}
+            <button
+              type="button"
+              onClick={() => setStatus(status === "INACTIVE" ? "ACTIVE" : "INACTIVE")}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium font-body transition-all hover:bg-bg-secondary"
+              title={status === "ACTIVE" ? "Désactiver le catalogue" : "Activer le catalogue"}
+            >
+              <span
+                className={`relative inline-flex h-[18px] w-[32px] shrink-0 rounded-full transition-colors duration-200 ${
+                  status === "ACTIVE" ? "bg-[#22C55E]" : "bg-[#D1D5DB]"
+                }`}
+              >
+                <span
+                  className={`inline-block h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-transform duration-200 mt-[2px] ${
+                    status === "ACTIVE" ? "translate-x-[16px]" : "translate-x-[2px]"
                   }`}
-                >
-                  {s === "DRAFT" ? "Brouillon" : "Publié"}
-                </button>
-              ))}
-            </div>
-          </div>
+                />
+              </span>
+              <span className={status === "ACTIVE" ? "text-[#16A34A]" : "text-[#9CA3AF]"}>
+                {status === "ACTIVE" ? "Activé" : "Désactivé"}
+              </span>
+            </button>
 
-          {/* Lien */}
-          <div>
-            <label className="field-label">Lien partageable</label>
-            <div className="flex items-center gap-2">
-              <p className="flex-1 font-mono text-xs text-[#6B7280] bg-bg-secondary border border-border rounded-lg px-3 py-2 truncate">
-                /catalogue/{catalog.token}
-              </p>
-              <button
-                onClick={handleCopyLink}
-                title="Copier le lien"
-                className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors text-[#6B7280] hover:text-text-primary"
-              >
-                {copyDone ? (
-                  <svg className="w-4 h-4 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-                  </svg>
-                )}
-              </button>
-              <a
-                href={`/catalogue/${catalog.token}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Visualiser"
-                className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors text-[#6B7280] hover:text-text-primary"
-              >
+            {/* Separateur */}
+            <div className="w-px h-6 bg-border" />
+
+            {/* Copier le lien */}
+            <button
+              onClick={handleCopyLink}
+              title="Copier le lien"
+              className="w-9 h-9 flex items-center justify-center rounded-xl border border-border hover:bg-bg-secondary transition-colors text-text-muted hover:text-text-primary"
+            >
+              {copyDone ? (
+                <svg className="w-4 h-4 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              ) : (
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                    d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
                 </svg>
-              </a>
-            </div>
-          </div>
-        </div>
+              )}
+            </button>
 
-        {/* Bloc fond du catalogue : Couleur ou Photo */}
-        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)] space-y-4">
-          <h2 className="font-heading font-semibold text-text-primary text-sm">
-            Fond du catalogue
-          </h2>
+            {/* Visualiser */}
+            <a
+              href={`/catalogue/${catalog.token}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Visualiser le catalogue"
+              className="w-9 h-9 flex items-center justify-center rounded-xl border border-border hover:bg-bg-secondary transition-colors text-text-muted hover:text-text-primary"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+            </a>
 
-          {/* Onglets Couleur / Photo */}
-          <div className="flex gap-2 p-1 bg-bg-secondary rounded-xl">
+            {/* Enregistrer */}
             <button
-              type="button"
-              onClick={() => setCoverTab("color")}
-              className={`flex-1 py-1.5 text-xs font-body rounded-lg transition-colors ${
-                coverTab === "color"
-                  ? "bg-bg-primary shadow-sm text-text-primary font-medium"
-                  : "text-[#6B7280] hover:text-text-primary"
+              onClick={handleSave}
+              disabled={isPending}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium font-body transition-all disabled:opacity-50 ${
+                saved
+                  ? "bg-[#DCFCE7] text-[#16A34A]"
+                  : hasChanges
+                    ? "bg-bg-dark text-text-inverse hover:opacity-90 shadow-sm"
+                    : "bg-bg-dark text-text-inverse hover:opacity-90"
               }`}
             >
-              Couleur
-            </button>
-            <button
-              type="button"
-              onClick={() => setCoverTab("photo")}
-              className={`flex-1 py-1.5 text-xs font-body rounded-lg transition-colors ${
-                coverTab === "photo"
-                  ? "bg-bg-primary shadow-sm text-text-primary font-medium"
-                  : "text-[#6B7280] hover:text-text-primary"
-              }`}
-            >
-              Photo
-            </button>
-          </div>
-
-          {coverTab === "color" ? (
-            <>
-              <p className="text-xs text-[#6B7280] font-body">
-                Couleur utilisée pour l&apos;en-tête et les accents du catalogue.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {PRESET_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setColor(c)}
-                    className={`w-7 h-7 rounded-full transition-transform hover:scale-110 ${
-                      color === c ? "ring-2 ring-offset-2 ring-[#1A1A1A] scale-110" : ""
-                    }`}
-                    style={{ backgroundColor: c }}
-                    title={c}
-                  />
-                ))}
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl border border-border shrink-0" style={{ backgroundColor: color }} />
-                <input
-                  type="text"
-                  className="field-input font-mono text-sm"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  placeholder="#1A1A1A"
-                  maxLength={7}
-                />
-                <input
-                  type="color"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  className="w-10 h-10 rounded cursor-pointer border border-border p-0.5"
-                  title="Choisir une couleur"
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="text-xs text-[#6B7280] font-body">
-                La photo sera utilisée comme fond de l&apos;en-tête du catalogue partagé.
-              </p>
-              {coverImagePath ? (
-                <div className="relative rounded-xl overflow-hidden border border-border">
-                  <Image src={coverImagePath} alt="Photo de fond" className="w-full h-28 object-cover" width={400} height={112} unoptimized />
-                  <button
-                    type="button"
-                    onClick={() => setCoverImagePath(null)}
-                    className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-lg bg-bg-primary/90 hover:bg-bg-primary border border-border text-[#EF4444] transition-colors"
-                    title="Supprimer la photo"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
+              {saved ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                  Enregistre
+                </>
+              ) : isPending ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Enregistrement...
+                </>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => coverInputRef.current?.click()}
-                  disabled={uploadingCover}
-                  className="w-full border-2 border-dashed border-border rounded-xl py-8 flex flex-col items-center gap-2 hover:border-[#9CA3AF] hover:bg-bg-secondary transition-colors disabled:opacity-50"
-                >
-                  {uploadingCover ? (
-                    <span className="text-sm text-[#6B7280] font-body">Téléchargement…</span>
-                  ) : (
-                    <>
-                      <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                          d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                      </svg>
-                      <span className="text-sm text-[#6B7280] font-body">Cliquer pour choisir une photo</span>
-                      <span className="text-xs text-text-muted">JPG, PNG, WEBP · max 5 Mo</span>
-                    </>
-                  )}
-                </button>
+                "Enregistrer"
               )}
-              <input
-                ref={coverInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleCoverUpload(file);
-                  e.target.value = "";
-                }}
-              />
-              {coverImagePath && (
-                <button
-                  type="button"
-                  onClick={() => coverInputRef.current?.click()}
-                  disabled={uploadingCover}
-                  className="w-full text-xs text-[#6B7280] hover:text-text-primary py-1.5 transition-colors disabled:opacity-50"
-                >
-                  Changer la photo
-                </button>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Boutons d'action */}
-        <div className="flex gap-3">
-          <button onClick={() => router.push("/admin/catalogues")} className="btn-secondary flex-1">
-            ← Retour
-          </button>
-          <button onClick={handleSave} disabled={isPending} className="btn-primary flex-1 disabled:opacity-50">
-            {saved ? "✓ Enregistré" : isPending ? "Enregistrement…" : "Enregistrer"}
-          </button>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* ── Colonne droite : sélection produits ──────────────────────────── */}
-      <div className="xl:col-span-2 space-y-5">
+      {/* ════════════════════════════════════════════════════════════════════════
+          CONTENU PRINCIPAL : produits
+          ════════════════════════════════════════════════════════════════════════ */}
+      <div>
+        <div className="space-y-5">
 
-        {/* Produits sélectionnés */}
-        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-heading font-semibold text-text-primary text-sm">
-              Produits sélectionnés
-            </h2>
-            <span className="text-xs px-2 py-1 rounded-full bg-[#F3F4F6] text-[#6B7280]">
-              {selectedProducts.length} produit{selectedProducts.length !== 1 ? "s" : ""}
-            </span>
-          </div>
+          {/* Bloc produits avec recherche intégrée */}
+          <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
 
-          {selectedProducts.length === 0 ? (
-            <div className="py-10 flex flex-col items-center text-center">
-              <div className="w-14 h-14 rounded-xl bg-bg-secondary flex items-center justify-center mb-3">
-                <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                    d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-                </svg>
+            {/* Header du bloc + bouton ajouter */}
+            <div className="p-5 pb-0">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <h2 className="font-heading font-semibold text-text-primary text-sm">
+                    Produits du catalogue
+                  </h2>
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-bg-dark text-text-inverse font-medium">
+                    {selectedProducts.length}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-bg-dark text-text-inverse text-sm font-medium font-body hover:opacity-90 transition-all"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Ajouter des produits
+                </button>
               </div>
-              <p className="text-sm text-[#6B7280] font-body">
-                Aucun produit. Recherchez des produits ci-dessous pour les ajouter.
-              </p>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {selectedProducts.map((row) => {
-                // Couleurs dédupliquées (une par Color.id)
-                const uniqueColors = deduplicateColors(row.product.colors, row.product.colorImages);
-                const hasMultipleColors = uniqueColors.length > 1;
 
-                // Couleur active : selectedColorId → primaire → première
-                const activeColor = row.selectedColorId
-                  ? uniqueColors.find((c) => c.colorId === row.selectedColorId)
-                  : (uniqueColors.find((c) => c.isPrimary) ?? uniqueColors[0]);
+            {/* Liste des produits sélectionnés */}
+            <div className="px-5 pb-5">
+              {selectedProducts.length === 0 ? (
+                <div className="py-12 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-bg-secondary flex items-center justify-center mb-4">
+                    <svg className="w-7 h-7 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-[#6B7280] font-body mb-1">
+                    Aucun produit dans ce catalogue
+                  </p>
+                  <p className="text-xs text-text-muted font-body">
+                    Utilisez la barre de recherche ci-dessus pour ajouter des produits.
+                  </p>
+                </div>
+              ) : (
+                <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {selectedProducts
+                    .slice((productPage - 1) * PRODUCTS_PER_PAGE, productPage * PRODUCTS_PER_PAGE)
+                    .map((row) => {
+                    const uniqueColors = deduplicateColors(row.product.colors, row.product.colorImages);
+                    const hasMultipleColors = uniqueColors.length > 1;
+                    const activeColor = row.selectedColorId
+                      ? uniqueColors.find((c) => c.colorId === row.selectedColorId)
+                      : (uniqueColors.find((c) => c.isPrimary) ?? uniqueColors[0]);
+                    const activeImages = activeColor?.images ?? row.product.colorImages;
+                    const hasMultipleImages = activeImages.length > 1;
+                    const displayImage = row.selectedImagePath ?? activeImages[0]?.path ?? null;
+                    const isExpanded = expandedProduct === row.productId;
+                    const hasOptions = hasMultipleColors || hasMultipleImages;
 
-                // Images de la couleur active
-                const activeImages = activeColor?.images ?? row.product.colorImages;
-                const hasMultipleImages = activeImages.length > 1;
+                    return (
+                      <div
+                        key={row.productId}
+                        className={`rounded-xl border transition-all ${
+                          isExpanded
+                            ? "border-[#1A1A1A]/20 bg-bg-secondary/30 shadow-sm"
+                            : "border-border hover:border-[#D1D5DB] hover:shadow-sm"
+                        }`}
+                      >
+                        {/* Carte produit */}
+                        <div className="p-3 flex items-start gap-3">
+                          {/* Image plus grande */}
+                          <div className="w-16 h-16 rounded-lg bg-bg-secondary overflow-hidden shrink-0">
+                            {displayImage ? (
+                              <Image src={displayImage} alt={row.product.name} className="w-full h-full object-cover" width={64} height={64} unoptimized />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <svg className="w-5 h-5 text-[#C4C4C4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                                    d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
+                                </svg>
+                              </div>
+                            )}
+                          </div>
 
-                // Image à afficher dans la miniature
-                const displayImage =
-                  row.selectedImagePath ??
-                  activeImages[0]?.path ??
-                  null;
+                          {/* Infos */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-heading font-medium text-text-primary truncate">
+                              {row.product.name}
+                            </p>
+                            <p className="text-xs text-text-muted font-body mt-0.5">
+                              {row.product.reference}
+                            </p>
+                            {activeColor && (
+                              <div className="flex items-center gap-1.5 mt-1.5">
+                                {activeColor.hex && (
+                                  <span
+                                    className="inline-block w-3 h-3 rounded-full border border-border shrink-0"
+                                    style={{
+                                      backgroundColor: activeColor.hex,
+                                      boxShadow: activeColor.hex.toLowerCase() === "#ffffff" ? "inset 0 0 0 1px #E5E5E5" : undefined,
+                                    }}
+                                  />
+                                )}
+                                <span className="text-xs text-[#6B7280] font-body">{activeColor.name}</span>
+                                <span className="text-xs text-text-muted font-body ml-auto">{Number(activeColor.unitPrice).toFixed(2)} \u20AC</span>
+                              </div>
+                            )}
+                          </div>
 
-                return (
-                  <div
-                    key={row.productId}
-                    className="p-3 rounded-xl border border-[#F3F4F6] hover:border-border transition-colors group"
-                  >
-                    {/* Ligne principale */}
-                    <div className="flex items-start gap-3">
-                      {/* Miniature */}
-                      <div className="w-14 h-14 rounded-lg bg-bg-secondary overflow-hidden shrink-0">
-                        {displayImage ? (
-                          <Image src={displayImage} alt={row.product.name} className="w-full h-full object-cover" width={56} height={56} unoptimized />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <svg className="w-5 h-5 text-[#C4C4C4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                                d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
-                            </svg>
+                          {/* Actions */}
+                          <div className="flex flex-col gap-1 shrink-0">
+                            {/* Personnaliser (si options) */}
+                            {hasOptions && (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedProduct(isExpanded ? null : row.productId)}
+                                title="Personnaliser l'affichage"
+                                className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
+                                  isExpanded
+                                    ? "bg-bg-dark text-text-inverse"
+                                    : "text-text-muted hover:text-text-primary hover:bg-bg-secondary"
+                                }`}
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+                                </svg>
+                              </button>
+                            )}
+                            {/* Retirer */}
+                            <button
+                              onClick={() => handleRemove(row.productId)}
+                              disabled={isPending}
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50"
+                              title="Retirer du catalogue"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                  d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Panel de personnalisation (couleur + image) */}
+                        {isExpanded && (
+                          <div className="px-3 pb-3 space-y-3">
+                            {/* Sélecteur couleur */}
+                            {hasMultipleColors && (
+                              <div className="p-3 rounded-lg bg-bg-primary border border-border">
+                                <p className="text-[11px] text-text-muted font-body font-medium mb-2 uppercase tracking-wide">
+                                  Couleur affichee
+                                </p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleColorChange(row.productId, null)}
+                                    disabled={isPending}
+                                    title="Couleur par defaut"
+                                    className={`h-7 px-2.5 rounded-lg border text-xs font-body flex items-center gap-1.5 transition-all ${
+                                      row.selectedColorId === null
+                                        ? "border-[#1A1A1A] bg-bg-dark text-text-inverse"
+                                        : "border-border bg-bg-primary text-text-muted hover:border-[#9CA3AF]"
+                                    }`}
+                                  >
+                                    Auto
+                                  </button>
+                                  {uniqueColors.map((cv) => (
+                                    <button
+                                      key={cv.colorId}
+                                      type="button"
+                                      onClick={() => handleColorChange(row.productId, cv.colorId)}
+                                      disabled={isPending}
+                                      title={cv.name}
+                                      className={`h-7 px-2.5 rounded-lg border text-xs font-body flex items-center gap-1.5 transition-all ${
+                                        row.selectedColorId === cv.colorId
+                                          ? "border-[#1A1A1A] bg-[#F9FAFB]"
+                                          : "border-border hover:border-[#9CA3AF]"
+                                      }`}
+                                    >
+                                      <span
+                                        className="w-3.5 h-3.5 rounded-full border border-border shrink-0"
+                                        style={{
+                                          backgroundColor: cv.hex ?? "#E5E5E5",
+                                          boxShadow: cv.hex?.toLowerCase() === "#ffffff" ? "inset 0 0 0 1px #E5E5E5" : undefined,
+                                        }}
+                                      />
+                                      {cv.name}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Sélecteur image */}
+                            {hasMultipleImages && (
+                              <div className="p-3 rounded-lg bg-bg-primary border border-border">
+                                <p className="text-[11px] text-text-muted font-body font-medium mb-2 uppercase tracking-wide">
+                                  Image affichee
+                                </p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {activeImages.map((img, idx) => {
+                                    const isSelected =
+                                      row.selectedImagePath === img.path ||
+                                      (row.selectedImagePath === null && idx === 0);
+                                    return (
+                                      <button
+                                        key={img.path}
+                                        type="button"
+                                        onClick={() =>
+                                          handleImageChange(
+                                            row.productId,
+                                            idx === 0 ? null : img.path,
+                                            row.selectedColorId
+                                          )
+                                        }
+                                        disabled={isPending}
+                                        title={`Image ${idx + 1}`}
+                                        className={`w-14 h-14 rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 ${
+                                          isSelected
+                                            ? "border-[#1A1A1A] scale-105"
+                                            : "border-border hover:border-[#9CA3AF]"
+                                        }`}
+                                      >
+                                        <Image
+                                          src={img.path}
+                                          alt={`Image ${idx + 1}`}
+                                          className="w-full h-full object-cover"
+                                          width={56}
+                                          height={56}
+                                          unoptimized
+                                        />
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
+                    );
+                  })}
+                </div>
 
-                      {/* Infos */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-heading font-medium text-text-primary truncate">
-                          {row.product.name}
-                        </p>
-                        <p className="text-xs text-text-muted font-body">
-                          Réf. {row.product.reference}
-                          {activeColor ? ` · ${Number(activeColor.unitPrice).toFixed(2)} €` : ""}
-                          {activeColor && (
-                            <span className="ml-1 font-medium text-[#6B7280]">— {activeColor.name}</span>
-                          )}
-                        </p>
-                      </div>
-
-                      {/* Retirer */}
+                {/* Pagination */}
+                {selectedProducts.length > PRODUCTS_PER_PAGE && (
+                  <div className="flex items-center justify-between pt-4 mt-1 border-t border-border">
+                    <p className="text-xs text-text-muted font-body">
+                      {(productPage - 1) * PRODUCTS_PER_PAGE + 1}–{Math.min(productPage * PRODUCTS_PER_PAGE, selectedProducts.length)} sur {selectedProducts.length}
+                    </p>
+                    <div className="flex items-center gap-1">
                       <button
-                        onClick={() => handleRemove(row.productId)}
-                        disabled={isPending}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100 shrink-0"
-                        title="Retirer du catalogue"
+                        type="button"
+                        onClick={() => setProductPage((p) => Math.max(1, p - 1))}
+                        disabled={productPage === 1}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5L8.25 12l7.5-7.5" />
+                        </svg>
+                      </button>
+                      {Array.from({ length: Math.ceil(selectedProducts.length / PRODUCTS_PER_PAGE) }, (_, i) => i + 1).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setProductPage(p)}
+                          className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium font-body transition-colors ${
+                            p === productPage
+                              ? "bg-bg-dark text-text-inverse"
+                              : "border border-border hover:bg-bg-secondary text-text-muted"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setProductPage((p) => Math.min(Math.ceil(selectedProducts.length / PRODUCTS_PER_PAGE), p + 1))}
+                        disabled={productPage >= Math.ceil(selectedProducts.length / PRODUCTS_PER_PAGE)}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                       </button>
                     </div>
-
-                    {/* ── Sélecteur couleur (si plusieurs couleurs) ────────── */}
-                    {hasMultipleColors && (
-                      <div className="mt-2.5 pt-2.5 border-t border-[#F3F4F6]">
-                        <p className="text-[10px] text-text-muted font-body mb-1.5">
-                          Couleur dans ce catalogue :
-                        </p>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {/* Bouton "défaut" (étoile) */}
-                          <button
-                            type="button"
-                            onClick={() => handleColorChange(row.productId, null)}
-                            disabled={isPending}
-                            title="Couleur par défaut (primaire)"
-                            className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold transition-all ${
-                              row.selectedColorId === null
-                                ? "border-[#1A1A1A] bg-bg-secondary text-text-primary scale-110"
-                                : "border-border bg-bg-secondary text-text-muted hover:border-[#9CA3AF]"
-                            }`}
-                          >
-                            ★
-                          </button>
-                          {/* Cercles dédupliqués */}
-                          {uniqueColors.map((cv) => (
-                            <button
-                              key={cv.colorId}
-                              type="button"
-                              onClick={() => handleColorChange(row.productId, cv.colorId)}
-                              disabled={isPending}
-                              title={cv.name}
-                              className={`w-6 h-6 rounded-full border-2 transition-all ${
-                                row.selectedColorId === cv.colorId
-                                  ? "border-[#1A1A1A] scale-110"
-                                  : "border-border hover:border-[#9CA3AF]"
-                              }`}
-                              style={{
-                                backgroundColor: cv.hex ?? "#E5E5E5",
-                                boxShadow:
-                                  cv.hex?.toLowerCase() === "#ffffff"
-                                    ? "inset 0 0 0 1px #E5E5E5"
-                                    : undefined,
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ── Sélecteur image (si la couleur active a plusieurs images) ── */}
-                    {hasMultipleImages && (
-                      <div className="mt-2.5 pt-2.5 border-t border-[#F3F4F6]">
-                        <p className="text-[10px] text-text-muted font-body mb-1.5">
-                          Image à afficher :
-                        </p>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {activeImages.map((img, idx) => {
-                            const isSelected =
-                              row.selectedImagePath === img.path ||
-                              (row.selectedImagePath === null && idx === 0);
-                            return (
-                              <button
-                                key={img.path}
-                                type="button"
-                                onClick={() =>
-                                  handleImageChange(
-                                    row.productId,
-                                    idx === 0 ? null : img.path,
-                                    row.selectedColorId
-                                  )
-                                }
-                                disabled={isPending}
-                                title={`Image ${idx + 1}`}
-                                className={`w-12 h-12 rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 ${
-                                  isSelected
-                                    ? "border-[#1A1A1A] scale-105"
-                                    : "border-border hover:border-[#9CA3AF]"
-                                }`}
-                              >
-                                <Image
-                                  src={img.path}
-                                  alt={`Image ${idx + 1}`}
-                                  className="w-full h-full object-cover"
-                                  width={48}
-                                  height={48}
-                                  unoptimized
-                                />
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
-                );
-              })}
+                )}
+                </>
+              )}
             </div>
-          )}
-        </div>
-
-        {/* Recherche de produits à ajouter */}
-        <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-          <h2 className="font-heading font-semibold text-text-primary text-sm mb-4">
-            Ajouter des produits
-          </h2>
-
-          {/* Barre de recherche — padding inline pour éviter la collision avec l'icône */}
-          <div className="relative mb-4">
-            <svg
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted z-10"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
-            <input
-              type="text"
-              className="field-input"
-              style={{ paddingLeft: "2.25rem" }}
-              placeholder="Rechercher un produit…"
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
-            />
           </div>
-
-          {filteredProducts.length === 0 ? (
-            <p className="text-center text-sm text-text-muted py-6 font-body">
-              {searchLoading ? "Recherche..." : search ? "Aucun produit trouve." : "Tapez pour rechercher un produit."}
-            </p>
-          ) : (
-            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-              {filteredProducts.map((product) => {
-                const uniqueColors = deduplicateColors(product.colors, product.colorImages);
-                const defaultVariant = uniqueColors.find((c) => c.isPrimary) ?? uniqueColors[0];
-                const image = product.colorImages[0]?.path;
-                return (
-                  <div
-                    key={product.id}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-[#F3F4F6] hover:border-border transition-colors group cursor-pointer"
-                    onClick={() => handleAdd(product)}
-                  >
-                    <div className="w-12 h-12 rounded-lg bg-bg-secondary overflow-hidden shrink-0">
-                      {image ? (
-                        <Image src={image} alt={product.name} className="w-full h-full object-cover" width={48} height={48} unoptimized />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <svg className="w-5 h-5 text-[#C4C4C4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                              d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159" />
-                          </svg>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-heading font-medium text-text-primary truncate">
-                        {product.name}
-                      </p>
-                      <p className="text-xs text-text-muted font-body">
-                        Réf. {product.reference}
-                        {defaultVariant ? ` · ${Number(defaultVariant.unitPrice).toFixed(2)} €` : ""}
-                        {uniqueColors.length > 1 && (
-                          <span className="ml-1 text-text-muted">· {uniqueColors.length} couleurs</span>
-                        )}
-                      </p>
-                    </div>
-                    <div className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted group-hover:text-[#22C55E] group-hover:bg-[#F0FDF4] transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
-                      </svg>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
+
       </div>
+
+      {/* ── Product Picker Modal ──────────────────────────────────────── */}
+      <ProductPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        catalogProductIds={selectedIds}
+        onAdd={handlePickerAdd}
+        onRemove={handlePickerRemove}
+        categories={categories}
+      />
     </div>
   );
 }

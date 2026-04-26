@@ -965,12 +965,13 @@ export default function ProductForm({
           }
         }
       }
-      // Duplicate check: same color composition + same sale type
+      // Duplicate check: same color composition + same sale type + same sizes
       const byGroup = new Map<string, boolean>();
       for (const v of variants) {
-        const gk = `${v.saleType}::${variantGroupKeyFromState(v)}`;
+        const sizeKey = v.sizeEntries.map((se) => se.sizeId).sort().join(",");
+        const gk = `${v.saleType}::${variantGroupKeyFromState(v)}::${sizeKey}`;
         if (byGroup.has(gk))
-          errors.push(`Variante "${v.colorName}" : doublon (même couleur et type)`);
+          errors.push(`Variante "${v.colorName}" : doublon (même couleur, type et taille)`);
         byGroup.set(gk, true);
       }
     }
@@ -1000,9 +1001,10 @@ export default function ProductForm({
     const seen = new Set<string>();
     for (const v of variants) {
       if (!v.colorId) continue;
-      const key = `${v.saleType}::${variantGroupKeyFromState(v)}`;
+      const sizeKey = v.sizeEntries.map((se) => se.sizeId).sort().join(",");
+      const key = `${v.saleType}::${variantGroupKeyFromState(v)}::${sizeKey}`;
       if (seen.has(key)) {
-        errors.push(`Doublon : deux variantes ${v.saleType} ont la même composition de couleurs (${v.colorName})`);
+        errors.push(`Doublon : deux variantes ${v.saleType} ont la même couleur et la même taille (${v.colorName})`);
       }
       seen.add(key);
     }

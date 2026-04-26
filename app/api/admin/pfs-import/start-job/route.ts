@@ -26,6 +26,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Aucun produit sélectionné" }, { status: 400 });
     }
 
+    const MAX_ITEMS_PER_JOB = 100;
+    if (items.length > MAX_ITEMS_PER_JOB) {
+      return NextResponse.json(
+        { error: `Maximum ${MAX_ITEMS_PER_JOB} produits par import. Vous en avez sélectionné ${items.length}.` },
+        { status: 400 },
+      );
+    }
+
     const job = await prisma.importJob.create({
       data: {
         type: "PFS_IMPORT",

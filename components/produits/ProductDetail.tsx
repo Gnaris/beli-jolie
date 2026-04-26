@@ -456,7 +456,7 @@ export default function ProductDetail({
                     onMouseEnter={() => setHoveredGroupKey(c.groupKey)}
                     onMouseLeave={() => setHoveredGroupKey(null)}
                     onClick={() => handleColorClick(c.groupKey)}
-                    className={`relative rounded-full transition-all duration-300 swatch-pulse flex items-center justify-center w-[36px] h-[36px] sm:w-[28px] sm:h-[28px] shadow-sm ${
+                    className={`relative rounded-full transition-all duration-300 flex items-center justify-center w-[36px] h-[36px] sm:w-[28px] sm:h-[28px] shadow-sm ${
                       selectedGroupKey === c.groupKey
                         ? "ring-2 ring-accent ring-offset-2 scale-110 shadow-md"
                         : "ring-1 ring-border hover:ring-border-dark hover:scale-110"

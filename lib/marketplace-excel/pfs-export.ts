@@ -45,6 +45,26 @@ function formatComposition(product: ExportProduct): string {
     .join(" - ");
 }
 
+const DIMENSION_LABELS: Record<string, { dimension: string; length: string; width: string; height: string; diameter: string; circumference: string }> = {
+  fr: { dimension: "Dimension", length: "Longueur", width: "Largeur", height: "Hauteur", diameter: "Diamètre", circumference: "Circonférence" },
+  en: { dimension: "Dimension", length: "Length", width: "Width", height: "Height", diameter: "Diameter", circumference: "Circumference" },
+  es: { dimension: "Dimensión", length: "Largo", width: "Ancho", height: "Alto", diameter: "Diámetro", circumference: "Circunferencia" },
+  de: { dimension: "Maße", length: "Länge", width: "Breite", height: "Höhe", diameter: "Durchmesser", circumference: "Umfang" },
+  it: { dimension: "Dimensione", length: "Lunghezza", width: "Larghezza", height: "Altezza", diameter: "Diametro", circumference: "Circonferenza" },
+};
+
+function formatDimensions(product: ExportProduct, locale = "fr"): string {
+  const l = DIMENSION_LABELS[locale] ?? DIMENSION_LABELS.fr;
+  const parts: string[] = [];
+  if (product.dimensionLength != null) parts.push(`${l.length}: ${product.dimensionLength}mm`);
+  if (product.dimensionWidth != null) parts.push(`${l.width}: ${product.dimensionWidth}mm`);
+  if (product.dimensionHeight != null) parts.push(`${l.height}: ${product.dimensionHeight}mm`);
+  if (product.dimensionDiameter != null) parts.push(`${l.diameter}: ${product.dimensionDiameter}mm`);
+  if (product.dimensionCircumference != null) parts.push(`${l.circumference}: ${product.dimensionCircumference}mm`);
+  if (parts.length === 0) return "";
+  return `${l.dimension} : ${parts.join(" x ")}`;
+}
+
 function pfsTypeLabel(saleType: SaleTypeKey): string {
   return saleType === "UNIT" ? "Unité" : "Pack";
 }
@@ -80,15 +100,24 @@ function rowsForProduct(p: ExportProduct, ctx: ExportContext): (string | number)
   const season = p.seasonPfsRef ?? "";
   const country = p.manufacturingCountryName ?? "";
   const composition = formatComposition(p);
-  const descFr = p.description;
+  const dimFr = formatDimensions(p, "fr");
+  const dimEn = formatDimensions(p, "en");
+  const dimEs = formatDimensions(p, "es");
+  const dimDe = formatDimensions(p, "de");
+  const dimIt = formatDimensions(p, "it");
+  const descFr = dimFr ? `${p.description}\n${dimFr}` : p.description;
   const nameEn = p.translations["en"]?.name ?? "";
   const nameEs = p.translations["es"]?.name ?? "";
   const nameDe = p.translations["de"]?.name ?? "";
   const nameIt = p.translations["it"]?.name ?? "";
-  const descEn = p.translations["en"]?.description ?? "";
-  const descEs = p.translations["es"]?.description ?? "";
-  const descDe = p.translations["de"]?.description ?? "";
-  const descIt = p.translations["it"]?.description ?? "";
+  const rawDescEn = p.translations["en"]?.description ?? "";
+  const rawDescEs = p.translations["es"]?.description ?? "";
+  const rawDescDe = p.translations["de"]?.description ?? "";
+  const rawDescIt = p.translations["it"]?.description ?? "";
+  const descEn = dimEn && rawDescEn ? `${rawDescEn}\n${dimEn}` : rawDescEn;
+  const descEs = dimEs && rawDescEs ? `${rawDescEs}\n${dimEs}` : rawDescEs;
+  const descDe = dimDe && rawDescDe ? `${rawDescDe}\n${dimDe}` : rawDescDe;
+  const descIt = dimIt && rawDescIt ? `${rawDescIt}\n${dimIt}` : rawDescIt;
 
   for (const saleType of saleTypes) {
     // Merge all variants of this saleType into one row (combined sizes/colors/stock)

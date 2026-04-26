@@ -20,7 +20,6 @@ const { sentMails, loggerMock, cachedMock, prismaMock } = vi.hoisted(() => {
     cachedMock: {
       getCachedShopName: vi.fn(async () => "MaBoutique"),
       getCachedCompanyInfo: vi.fn(async () => ({ email: "hello@maboutique.com" })),
-      getCachedSmtpConfig: vi.fn(async () => ({ notifyEmail: "admin@maboutique.com" })),
     },
     prismaMock: {
       order: { findUnique: vi.fn() },
@@ -48,7 +47,7 @@ import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notification
 function buildFakeOrder(overrides: Record<string, unknown> = {}) {
   return {
     id: "order-1",
-    orderNumber: "BJ-2026-000001",
+    orderNumber: "K7X9M2PH",
     clientCompany: "ACME Corp",
     clientEmail: "client@acme.com",
     clientPhone: "+33612345678",
@@ -84,7 +83,7 @@ describe("notifyAdminNewOrder", () => {
     vi.clearAllMocks();
     cachedMock.getCachedShopName.mockResolvedValue("MaBoutique");
     cachedMock.getCachedCompanyInfo.mockResolvedValue({ email: "hello@maboutique.com" });
-    cachedMock.getCachedSmtpConfig.mockResolvedValue({ notifyEmail: "admin@maboutique.com" });
+    process.env.NOTIFY_EMAIL = "admin@maboutique.com";
   });
 
   it("envoie un email à l'admin avec le récap et le PDF en pièce jointe", async () => {
@@ -96,13 +95,13 @@ describe("notifyAdminNewOrder", () => {
     expect(sentMails).toHaveLength(1);
     const sent = sentMails[0];
     expect(sent.to).toBe("admin@maboutique.com");
-    expect(sent.subject).toContain("BJ-2026-000001");
+    expect(sent.subject).toContain("K7X9M2PH");
     expect(sent.subject).toContain("ACME Corp");
     expect(sent.html).toContain("ACME Corp");
     expect(sent.html).toContain("Produit A");
     expect(sent.html).toContain("126.90");
     expect(sent.attachments).toHaveLength(1);
-    expect(sent.attachments?.[0].filename).toBe("Commande-BJ-2026-000001.pdf");
+    expect(sent.attachments?.[0].filename).toBe("Commande-K7X9M2PH.pdf");
     expect(sent.attachments?.[0].content).toBe(pdf);
   });
 
@@ -116,7 +115,6 @@ describe("notifyAdminNewOrder", () => {
   });
 
   it("n'envoie rien si aucun email admin n'est configuré", async () => {
-    cachedMock.getCachedSmtpConfig.mockResolvedValueOnce({ notifyEmail: null } as never);
     cachedMock.getCachedCompanyInfo.mockResolvedValueOnce({ email: null } as never);
     delete process.env.NOTIFY_EMAIL;
 
@@ -155,7 +153,7 @@ describe("notifyOrderStatusChange — statut PENDING (confirmation commande)", (
     const sent = sentMails[0];
     expect(sent.to).toBe("client@acme.com");
     expect(sent.subject).toContain("Confirmation");
-    expect(sent.subject).toContain("BJ-2026-000001");
+    expect(sent.subject).toContain("K7X9M2PH");
     expect(sent.html).toContain("Merci pour votre commande");
     expect(sent.html).toContain("Produit A");
   });

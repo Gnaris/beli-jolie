@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { getCachedCategories } from "@/lib/cached-data";
 import CatalogEditor from "@/components/admin/catalogues/CatalogEditor";
 
 export const metadata: Metadata = { title: "Modifier le catalogue — Admin" };
@@ -12,27 +13,30 @@ interface Props {
 export default async function AdminCatalogEditPage({ params }: Props) {
   const { id } = await params;
 
-  const catalog = await prisma.catalog.findUnique({
-    where: { id },
-    include: {
-      products: {
-        orderBy: { position: "asc" },
-        include: {
-          product: {
-            include: {
-              colorImages: { orderBy: { order: "asc" } },
-              colors: {
-                where: { saleType: "UNIT" },
-                include: {
-                  color: { select: { id: true, name: true, hex: true } },
+  const [catalog, categories] = await Promise.all([
+    prisma.catalog.findUnique({
+      where: { id },
+      include: {
+        products: {
+          orderBy: { position: "asc" },
+          include: {
+            product: {
+              include: {
+                colorImages: { orderBy: { order: "asc" } },
+                colors: {
+                  where: { saleType: "UNIT" },
+                  include: {
+                    color: { select: { id: true, name: true, hex: true } },
+                  },
                 },
               },
             },
           },
         },
       },
-    },
-  });
+    }),
+    getCachedCategories(),
+  ]);
 
   if (!catalog) notFound();
 
@@ -53,15 +57,7 @@ export default async function AdminCatalogEditPage({ params }: Props) {
     ),
   );
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="page-title">Modifier le catalogue</h1>
-        <p className="page-subtitle font-body">
-          Sélectionnez les produits, personnalisez le titre, la couleur ou la photo de fond.
-        </p>
-      </div>
-      <CatalogEditor catalog={serialized} />
-    </div>
-  );
+  const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
+
+  return <CatalogEditor catalog={serialized} categories={categoryOptions} />;
 }

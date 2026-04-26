@@ -119,6 +119,10 @@ export function useRefreshMarketplaceDialog() {
   const refreshBulk = useCallback(
     async (products: RefreshableProduct[]): Promise<boolean> => {
       if (products.length === 0) return false;
+      if (products.length > 100) {
+        toast.error("Trop de produits", "Vous ne pouvez rafraîchir que 100 produits à la fois.");
+        return false;
+      }
       const options = await askOptions(products.length, products[0]?.productName);
       if (!options) return false;
 

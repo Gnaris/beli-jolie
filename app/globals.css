@@ -825,13 +825,6 @@ h1, h2, h3, h4, h5, h6 {
 .animate-crossfade-in  { animation: crossfade-in 0.4s ease-out both; }
 .animate-crossfade-out { animation: crossfade-out 0.3s ease-in both; }
 
-/* ─── Color swatch pulse on hover ────────────── */
-@keyframes swatch-pulse {
-  0%   { box-shadow: 0 0 0 0 currentColor; }
-  70%  { box-shadow: 0 0 0 6px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
-.swatch-pulse:hover { animation: swatch-pulse 0.6s ease-out; }
 
 /* ─── Lightbox open/close ────────────────────── */
 @keyframes lightbox-in {

@@ -8,10 +8,9 @@ import React, {
   useRef,
   useState,
 } from "react";
-import {
-  refreshProductOnMarketplaces,
-  type MarketplaceRefreshOptions,
-  type MarketplaceRefreshOutcome,
+import type {
+  MarketplaceRefreshOptions,
+  MarketplaceRefreshOutcome,
 } from "@/app/actions/admin/marketplace-refresh";
 
 export type QueueItemStatus = "queued" | "in_progress" | "done";
@@ -45,6 +44,7 @@ interface PfsRefreshContextValue {
   items: PfsRefreshItem[];
   enqueue: (inputs: PfsRefreshEnqueueInput[]) => void;
   clear: () => void;
+  stop: () => void;
   isAllFinished: boolean;
   runningCount: number;
   queuedCount: number;
@@ -109,9 +109,11 @@ function outcomesFromServer(outcome: MarketplaceRefreshOutcome): {
   return result;
 }
 
+const CONCURRENCY = 5;
+
 export function PfsRefreshProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<PfsRefreshItem[]>([]);
-  const runningIdRef = useRef<string | null>(null);
+  const runningIdsRef = useRef<Set<string>>(new Set());
 
   const enqueue = useCallback((inputs: PfsRefreshEnqueueInput[]) => {
     if (inputs.length === 0) return;
@@ -133,34 +135,43 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
     setItems([]);
   }, []);
 
-  // Queue processor — runs next queued item sequentially
-  useEffect(() => {
-    if (runningIdRef.current) return;
-    const next = items.find((i) => i.status === "queued");
-    if (!next) return;
+  const stop = useCallback(() => {
+    setItems((prev) => prev.filter((i) => i.status !== "queued"));
+  }, []);
 
-    runningIdRef.current = next.id;
-    setItems((prev) => prev.map((i) => (i.id === next.id ? { ...i, status: "in_progress" } : i)));
+  // Process a single item via API route (not server action) for true parallelism
+  const processItem = useCallback((item: PfsRefreshItem) => {
+    runningIdsRef.current.add(item.id);
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: "in_progress" } : i)));
 
     (async () => {
       try {
-        const outcome = await refreshProductOnMarketplaces(next.productId, next.options);
+        const res = await fetch("/api/admin/marketplace-refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productId: item.productId, options: item.options }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        const outcome: MarketplaceRefreshOutcome = await res.json();
         const parsed = outcomesFromServer(outcome);
         setItems((prev) =>
-          prev.map((i) => (i.id === next.id ? { ...i, status: "done", ...parsed } : i)),
+          prev.map((i) => (i.id === item.id ? { ...i, status: "done", ...parsed } : i)),
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setItems((prev) =>
           prev.map((i) =>
-            i.id === next.id
+            i.id === item.id
               ? {
                   ...i,
                   status: "done",
-                  pfsOutcome: next.options.pfs
+                  pfsOutcome: item.options.pfs
                     ? { ok: false, kind: "error", message }
                     : i.pfsOutcome,
-                  ankorstoreOutcome: next.options.ankorstore
+                  ankorstoreOutcome: item.options.ankorstore
                     ? { ok: false, kind: "error", message }
                     : i.ankorstoreOutcome,
                 }
@@ -168,10 +179,24 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
           ),
         );
       } finally {
-        runningIdRef.current = null;
+        runningIdsRef.current.delete(item.id);
       }
     })();
-  }, [items]);
+  }, []);
+
+  // Queue processor — fills up to CONCURRENCY parallel slots
+  useEffect(() => {
+    const freeSlots = CONCURRENCY - runningIdsRef.current.size;
+    if (freeSlots <= 0) return;
+
+    const queued = items.filter(
+      (i) => i.status === "queued" && !runningIdsRef.current.has(i.id),
+    );
+    const batch = queued.slice(0, freeSlots);
+    for (const item of batch) {
+      processItem(item);
+    }
+  }, [items, processItem]);
 
   const runningCount = items.filter((i) => i.status === "in_progress").length;
   const queuedCount = items.filter((i) => i.status === "queued").length;
@@ -181,6 +206,7 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
     items,
     enqueue,
     clear,
+    stop,
     isAllFinished,
     runningCount,
     queuedCount,

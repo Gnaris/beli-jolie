@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import DeleteCatalogButton from "@/components/admin/catalogues/DeleteCatalogButton";
 import CopyLinkButton from "@/components/admin/catalogues/CopyLinkButton";
 import CreateCatalogButton from "@/components/admin/catalogues/CreateCatalogButton";
+import ToggleStatusButton from "@/components/admin/catalogues/ToggleStatusButton";
 
 export const metadata: Metadata = { title: "Catalogues — Admin" };
 
@@ -51,7 +52,6 @@ export default async function AdminCataloguesPage() {
                 <th className="text-left px-6 py-3 text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Titre</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-[#6B7280] uppercase tracking-wider hidden sm:table-cell">Produits</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-[#6B7280] uppercase tracking-wider hidden md:table-cell">Statut</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-[#6B7280] uppercase tracking-wider hidden lg:table-cell">Couleur</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -72,20 +72,7 @@ export default async function AdminCataloguesPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 hidden md:table-cell">
-                    {cat.status === "PUBLISHED" ? (
-                      <span className="badge badge-success text-xs">Publié</span>
-                    ) : (
-                      <span className="badge badge-neutral text-xs">Brouillon</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 hidden lg:table-cell">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-5 h-5 rounded-full border border-border"
-                        style={{ backgroundColor: cat.primaryColor }}
-                      />
-                      <span className="text-xs font-mono text-[#6B7280]">{cat.primaryColor}</span>
-                    </div>
+                    <ToggleStatusButton id={cat.id} status={cat.status} />
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">

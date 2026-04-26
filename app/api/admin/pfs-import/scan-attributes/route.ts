@@ -15,9 +15,11 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const limitParam = searchParams.get("limit");
-    const maxImportable = limitParam ? parseInt(limitParam, 10) : undefined;
+    const maxImportable = limitParam ? parseInt(limitParam, 10) : 100;
+    const refsParam = searchParams.get("references");
+    const references = refsParam ? refsParam.split(",").map((r) => r.trim()).filter(Boolean) : undefined;
 
-    const scan = await scanPfsAttributes({ maxImportable });
+    const scan = await scanPfsAttributes({ maxImportable, references });
     return NextResponse.json(scan);
   } catch (err) {
     logger.error("[PFS Import] scanAttributes failed", { err: (err as Error).message });

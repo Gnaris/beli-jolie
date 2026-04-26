@@ -55,6 +55,13 @@ export interface ExportProduct {
   // Composition (ordered)
   compositions: { name: string; percentage: number }[];
 
+  // Dimensions (mm, all optional)
+  dimensionLength: number | null;
+  dimensionWidth: number | null;
+  dimensionHeight: number | null;
+  dimensionDiameter: number | null;
+  dimensionCircumference: number | null;
+
   // Translations: locale → { name, description }
   translations: Record<string, { name: string; description: string }>;
 

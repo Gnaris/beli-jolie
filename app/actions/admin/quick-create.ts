@@ -45,6 +45,36 @@ export async function createCategoryQuick(
   if (!gender || !familyName) {
     throw new Error("Le genre et la famille Paris Fashion Shop sont obligatoires.");
   }
+  // Si une catégorie avec ce nom existe déjà, on la met à jour avec les infos PFS
+  const existing = await prisma.category.findFirst({ where: { name } });
+  if (existing) {
+    await prisma.category.update({
+      where: { id: existing.id },
+      data: {
+        pfsGender: gender,
+        pfsFamilyName: familyName,
+        pfsCategoryName: pfsCategoryName?.trim() || null,
+        pfsCategoryId: pfsCategoryId?.trim() || null,
+      },
+    });
+    for (const [locale, value] of Object.entries(translations)) {
+      if (locale === "fr" || !value.trim()) continue;
+      await prisma.categoryTranslation.upsert({
+        where: { categoryId_locale: { categoryId: existing.id, locale } },
+        create: { categoryId: existing.id, locale, name: value.trim() },
+        update: { name: value.trim() },
+      });
+    }
+    revalidatePath("/admin/produits");
+    revalidateTag("categories", "default");
+    const subs = await prisma.subCategory.findMany({
+      where: { categoryId: existing.id },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+    return { id: existing.id, name: existing.name, subCategories: subs };
+  }
+
   const slug = slugify(name);
   const created = await prisma.category.create({
     data: {

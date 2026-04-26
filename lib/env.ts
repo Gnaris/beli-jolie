@@ -11,6 +11,8 @@ import { logger } from "@/lib/logger";
 
 const envSchema = z.object({
   // ── Required ──────────────────────────────────────────────────────────────
+  PORT: z.string().min(1, "PORT is required"),
+  HOST: z.string().optional().default("localhost"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   NEXTAUTH_SECRET: z.string().min(1, "NEXTAUTH_SECRET is required"),
   NEXTAUTH_URL: z.url("NEXTAUTH_URL must be a valid URL"),

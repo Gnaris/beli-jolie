@@ -18,7 +18,7 @@ import {
   type PfsVariantItem,
   type PfsColorInfo,
 } from "@/lib/pfs-api";
-import { pfsGetCategories, type PfsAttributeCategory } from "@/lib/pfs-api-write";
+import { pfsGetCategories, pfsGetFamilies, type PfsAttributeCategory } from "@/lib/pfs-api-write";
 import { processProductImage } from "@/lib/image-processor";
 import { getImagePaths } from "@/lib/image-utils";
 import { keyFromDbPath, deleteFiles } from "@/lib/storage";
@@ -301,32 +301,56 @@ async function filterImportable(products: PfsProduct[]): Promise<PfsProduct[]> {
 export async function scanPfsAttributes(options?: {
   maxImportable?: number;
   deepSampleSize?: number;
+  /** When provided, only scan these specific references (by-reference import mode). */
+  references?: string[];
 }): Promise<PfsAttributeScan> {
   const maxImportable = options?.maxImportable;
   const deepSampleSize = options?.deepSampleSize ?? DEEP_SCAN_SAMPLE_SIZE;
+  const targetRefs = options?.references?.map((r) => r.trim().toUpperCase());
 
-  // Charge les pages PFS et filtre pour ne garder que les produits importables
-  // (pas encore dans notre DB). Si maxImportable=23, on obtient exactement 23 produits.
-  const allLoaded: PfsProduct[] = [];
-  const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE);
-  allLoaded.push(...first.data);
-  const totalPages = first.meta?.last_page ?? 1;
+  let products: PfsProduct[];
 
-  // Filtre : ne garder que les produits pas encore chez nous
-  let products = await filterImportable(allLoaded);
+  if (targetRefs && targetRefs.length > 0) {
+    // By-reference mode: load pages until we find all target references
+    const targetSet = new Set(targetRefs);
+    const found: PfsProduct[] = [];
+    const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE);
+    const totalPages = first.meta?.last_page ?? 1;
 
-  // Charger plus de pages si on n'a pas assez de produits importables
-  for (let p = 2; p <= totalPages; p++) {
-    if (maxImportable && products.length >= maxImportable) break;
-    const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE);
-    if (pageData.data.length === 0) break;
-    allLoaded.push(...pageData.data);
+    for (const p of first.data) {
+      if (targetSet.has(p.reference.trim().toUpperCase())) found.push(p);
+    }
+
+    for (let p = 2; p <= totalPages; p++) {
+      if (found.length >= targetSet.size) break;
+      const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE);
+      if (pageData.data.length === 0) break;
+      for (const prod of pageData.data) {
+        if (targetSet.has(prod.reference.trim().toUpperCase())) found.push(prod);
+      }
+    }
+
+    products = found;
+  } else {
+    // Browse mode: load all pages and filter out existing products
+    const allLoaded: PfsProduct[] = [];
+    const first = await pfsListProducts(1, PFS_LIST_PAGE_SIZE);
+    allLoaded.push(...first.data);
+    const totalPages = first.meta?.last_page ?? 1;
+
     products = await filterImportable(allLoaded);
-  }
 
-  // Limite au nombre demandé
-  if (maxImportable && products.length > maxImportable) {
-    products = products.slice(0, maxImportable);
+    for (let p = 2; p <= totalPages; p++) {
+      if (maxImportable && products.length >= maxImportable) break;
+      const pageData = await pfsListProducts(p, PFS_LIST_PAGE_SIZE);
+      if (pageData.data.length === 0) break;
+      allLoaded.push(...pageData.data);
+      products = await filterImportable(allLoaded);
+    }
+
+    if (maxImportable && products.length > maxImportable) {
+      products = products.slice(0, maxImportable);
+    }
   }
 
   // Référentiel PFS officiel des catégories : `listProducts` ne renvoie pas
@@ -343,6 +367,44 @@ export async function scanPfsAttributes(options?: {
   }
   const categoryById = new Map<string, PfsAttributeCategory>();
   for (const c of pfsCategoriesList) categoryById.set(c.id, c);
+
+  // Toutes les familles connues de la taxonomie locale (set plat, pour vérif rapide)
+  const knownFamilyNames = new Set<string>();
+  for (const fams of Object.values(PFS_FAMILIES_BY_GENDER)) {
+    for (const f of fams) knownFamilyNames.add(f);
+  }
+
+  // Référentiel familles PFS : résout les IDs famille (prod.family) vers un
+  // nom compatible avec la taxonomie locale. Étapes de résolution :
+  //   1) Si l'ID brut est déjà dans la taxonomie → garder tel quel
+  //   2) Sinon chercher dans le référentiel API : label FR, puis ID → match taxonomie
+  //   3) Fallback : l'ID brut (sera affiché tel quel)
+  const familyIdToName = new Map<string, string>();
+  try {
+    const pfsFamiliesList = await pfsGetFamilies();
+    for (const f of pfsFamiliesList) {
+      // Si l'ID API est déjà un nom connu de la taxonomie, rien à faire
+      if (knownFamilyNames.has(f.id)) continue;
+      // Sinon essayer de trouver une correspondance via le label
+      const label = pickBestLabel(f.labels);
+      if (!label) continue;
+      // Le label peut contenir des espaces ("Bijoux Fantaisie") alors que
+      // la taxonomie utilise des underscores ("Bijoux_Fantaisie").
+      const underscored = label.replace(/\s+/g, "_");
+      if (knownFamilyNames.has(underscored)) {
+        familyIdToName.set(f.id, underscored);
+      } else if (knownFamilyNames.has(label)) {
+        familyIdToName.set(f.id, label);
+      } else {
+        // Aucune correspondance dans la taxonomie — stocker le label lisible
+        familyIdToName.set(f.id, label);
+      }
+    }
+  } catch (err) {
+    logger.warn("[PFS Import] pfsGetFamilies failed, falling back to raw family IDs", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   // Collecte des attributs "peu coûteux" (visibles dans listProducts)
   const rawCategories: {
@@ -364,13 +426,17 @@ export async function scanPfsAttributes(options?: {
       // retombe sur labels embarqués sur le produit. JAMAIS sur l'ID ni sur
       // `prod.family` — sinon la modale affiche un code au lieu d'un vrai nom.
       const catLabel = pickBestLabel(refCategory?.labels) ?? pickBestLabel(prod.category.labels);
-      const familyName = prod.family?.trim() || null;
+      const rawFamily = prod.family?.trim() || null;
+      // Résolution famille : le label lisible du référentiel PFS prend
+      // priorité sur l'identifiant brut renvoyé par listProducts.
+      const familyName = (rawFamily ? familyIdToName.get(rawFamily) : null) ?? rawFamily;
       // Genre : 1) référentiel PFS (le plus fiable), 2) gender du produit,
-      // 3) inférence via la famille.
+      // 3) inférence via la famille (essaie le nom résolu ET l'ID brut).
       const pfsGender =
         normalizePfsGenderCode(refCategory?.gender) ??
         normalizePfsGenderCode(prod.gender) ??
-        inferPfsGenderFromFamily(familyName);
+        inferPfsGenderFromFamily(familyName) ??
+        inferPfsGenderFromFamily(rawFamily);
       rawCategories.push({
         pfsRef: prod.category.id,
         label: catLabel ?? familyName ?? prod.category.id,
@@ -379,13 +445,16 @@ export async function scanPfsAttributes(options?: {
         pfsCategoryName: catLabel,
       });
     } else if (prod.family) {
+      const rawFamily = prod.family.trim();
+      const familyName = familyIdToName.get(rawFamily) ?? rawFamily;
       rawCategories.push({
         pfsRef: prod.family,
-        label: prod.family,
+        label: familyName,
         pfsGender:
           normalizePfsGenderCode(prod.gender) ??
-          inferPfsGenderFromFamily(prod.family),
-        pfsFamilyName: prod.family,
+          inferPfsGenderFromFamily(familyName) ??
+          inferPfsGenderFromFamily(rawFamily),
+        pfsFamilyName: familyName,
         pfsCategoryName: null,
       });
     }
@@ -565,6 +634,10 @@ export interface CreateMappingInput {
   label: string;
   // Lier à une entité existante au lieu de créer (facultatif)
   linkToExistingId?: string;
+  // Métadonnées catégorie (genre / famille / sous-catégorie PFS)
+  pfsGender?: string | null;
+  pfsFamilyName?: string | null;
+  pfsCategoryName?: string | null;
 }
 
 export interface CreateMappingResult {
@@ -574,17 +647,54 @@ export interface CreateMappingResult {
 }
 
 export async function createOrLinkMapping(input: CreateMappingInput): Promise<CreateMappingResult> {
-  const { type, pfsRef, label, linkToExistingId } = input;
+  const { type, pfsRef, label, linkToExistingId, pfsGender, pfsFamilyName, pfsCategoryName } = input;
 
   switch (type) {
     case "category": {
+      const catData = {
+        pfsCategoryId: pfsRef,
+        pfsCategoryName: pfsCategoryName?.trim() || label,
+        ...(pfsGender ? { pfsGender: pfsGender.trim() } : {}),
+        ...(pfsFamilyName ? { pfsFamilyName: pfsFamilyName.trim() } : {}),
+      };
       if (linkToExistingId) {
         const upd = await prisma.category.update({
           where: { id: linkToExistingId },
-          data: { pfsCategoryId: pfsRef, pfsCategoryName: label },
+          data: catData,
           select: { id: true, name: true },
         });
         return { id: upd.id, name: upd.name, created: false };
+      }
+      // D'abord chercher par pfsCategoryId (match exact PFS) pour ne pas
+      // écraser une catégorie différente qui a le même nom
+      const existingByPfsId = await prisma.category.findFirst({
+        where: { pfsCategoryId: pfsRef },
+      });
+      if (existingByPfsId) {
+        await prisma.category.update({
+          where: { id: existingByPfsId.id },
+          data: catData,
+        });
+        return { id: existingByPfsId.id, name: existingByPfsId.name, created: false };
+      }
+      // Sinon chercher par nom, mais SEULEMENT si cette catégorie n'a pas
+      // déjà un pfsCategoryId différent (sinon on écraserait sa correspondance PFS)
+      const existingByName = await prisma.category.findFirst({
+        where: {
+          name: label,
+          OR: [
+            { pfsCategoryId: null },
+            { pfsCategoryId: "" },
+            { pfsCategoryId: pfsRef },
+          ],
+        },
+      });
+      if (existingByName) {
+        await prisma.category.update({
+          where: { id: existingByName.id },
+          data: catData,
+        });
+        return { id: existingByName.id, name: existingByName.name, created: false };
       }
       const slug = label
         .toLowerCase()
@@ -593,7 +703,7 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "");
       const created = await prisma.category.create({
-        data: { name: label, slug, pfsCategoryId: pfsRef, pfsCategoryName: label },
+        data: { name: label, slug, ...catData },
         select: { id: true, name: true },
       });
       autoTranslateCategory(created.id, created.name);
@@ -717,16 +827,29 @@ export async function listImportablePfsProducts(options?: { maxProducts?: number
   // Limite au nombre demandé
   const result = maxProducts ? importable.slice(0, maxProducts) : importable;
 
-  return result.map((p) => ({
-    pfsId: p.id,
-    reference: p.reference,
-    name: p.labels?.fr ?? p.labels?.en ?? p.reference,
-    category: p.category?.labels?.fr ?? p.category?.labels?.en ?? p.family ?? "",
-    family: p.family ?? "",
-    colorCount: (p.colors ?? "").split(";").filter((c) => c.trim()).length,
-    variantCount: p.count_variants ?? 0,
-    defaultImage: pickDefaultImage(p.images),
-  }));
+  // Résolution famille ID → nom pour l'affichage dans la grille de sélection
+  const famMap = new Map<string, string>();
+  try {
+    const fams = await pfsGetFamilies();
+    for (const f of fams) {
+      const label = pickBestLabel(f.labels);
+      if (label) famMap.set(f.id, label);
+    }
+  } catch { /* ignoré */ }
+
+  return result.map((p) => {
+    const resolvedFamily = (p.family ? famMap.get(p.family) : null) ?? p.family ?? "";
+    return {
+      pfsId: p.id,
+      reference: p.reference,
+      name: p.labels?.fr ?? p.labels?.en ?? p.reference,
+      category: p.category?.labels?.fr ?? p.category?.labels?.en ?? resolvedFamily,
+      family: resolvedFamily,
+      colorCount: (p.colors ?? "").split(";").filter((c) => c.trim()).length,
+      variantCount: p.count_variants ?? 0,
+      defaultImage: pickDefaultImage(p.images),
+    };
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -909,14 +1032,38 @@ export async function approveAndImportPfsProduct(
   const refData = await pfsCheckReference(product.reference);
   const detail = refData.product;
 
-  // Résolution catégorie — cherche par pfsCategoryId (précis), sinon par pfsFamilyName (legacy)
+  // Résolution catégorie — cherche par pfsCategoryId (précis), sinon par pfsFamilyName (legacy).
+  // pfsFamilyName en DB peut contenir le nom résolu (label) ou l'identifiant brut,
+  // selon le moment où la catégorie a été créée. On cherche les deux pour couvrir
+  // les deux cas.
   const pfsCatId = product.category?.id;
-  const category = await prisma.category.findFirst({
-    where: pfsCatId
-      ? { OR: [{ pfsCategoryId: pfsCatId }, { pfsFamilyName: product.family }] }
-      : { pfsFamilyName: product.family },
-    select: { id: true, name: true },
-  });
+  const rawFamily = product.family?.trim() || null;
+  // Résolution rapide du nom de famille via le référentiel PFS.
+  // On génère toutes les variantes possibles du nom (label, label avec underscores,
+  // ID brut) pour maximiser les chances de retrouver la catégorie en DB.
+  const familyLookupValues: string[] = [];
+  if (rawFamily) familyLookupValues.push(rawFamily);
+  try {
+    const families = await pfsGetFamilies();
+    const match = families.find((f) => f.id === rawFamily);
+    const label = pickBestLabel(match?.labels);
+    if (label && !familyLookupValues.includes(label)) familyLookupValues.push(label);
+    const underscored = label?.replace(/\s+/g, "_");
+    if (underscored && !familyLookupValues.includes(underscored)) familyLookupValues.push(underscored);
+  } catch { /* ignoré — on retombe sur l'ID brut */ }
+  // Priorité au match exact sur pfsCategoryId, puis fallback sur pfsFamilyName
+  let category = pfsCatId
+    ? await prisma.category.findFirst({
+        where: { pfsCategoryId: pfsCatId },
+        select: { id: true, name: true },
+      })
+    : null;
+  if (!category && familyLookupValues.length > 0) {
+    category = await prisma.category.findFirst({
+      where: { pfsFamilyName: { in: familyLookupValues } },
+      select: { id: true, name: true },
+    });
+  }
   if (!category) {
     const catLabel = product.category?.labels?.fr ?? product.family;
     throw new Error(`Catégorie non mappée : "${catLabel}". Créez d'abord la correspondance.`);
@@ -1230,14 +1377,25 @@ async function downloadImagesWithPlaywright(
   const isCancelled = options?.isCancelled;
   const { chromium } = await import("playwright");
 
-  // Construire la liste complète d'images à télécharger
+  // Construire la liste d'images à télécharger, dédoublonnée par couleur.
+  // Plusieurs variantes peuvent partager la même couleur (ex. même couleur en
+  // UNIT et PACK, ou plusieurs tailles). On ne télécharge qu'une seule fois
+  // les images par couleur, en les rattachant à la première variante rencontrée.
   const allImages: PendingImage[] = [];
+  const seenByColor = new Map<string, Set<string>>(); // colorId → Set<url>
   for (const v of variants) {
+    if (!seenByColor.has(v.colorId)) {
+      seenByColor.set(v.colorId, new Set());
+    }
+    const seen = seenByColor.get(v.colorId)!;
     for (let idx = 0; idx < v.pfsVariant.imageUrls.length; idx++) {
+      const url = v.pfsVariant.imageUrls[idx];
+      if (seen.has(url)) continue; // déjà planifié pour cette couleur
+      seen.add(url);
       allImages.push({
         variantId: v.id,
         colorId: v.colorId,
-        url: v.pfsVariant.imageUrls[idx],
+        url,
         order: idx,
       });
     }

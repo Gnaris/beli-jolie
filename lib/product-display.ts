@@ -173,7 +173,18 @@ const CAROUSEL_SELECT = {
       colorId: true,
       unitPrice: true,
       isPrimary: true,
+      saleType: true,
+      packQuantity: true,
+      stock: true,
       color: { select: { name: true, hex: true, patternImage: true } },
+      subColors: {
+        orderBy: { position: "asc" as const },
+        select: { color: { select: { name: true, hex: true, patternImage: true } } },
+      },
+      variantSizes: {
+        orderBy: { size: { position: "asc" as const } },
+        select: { size: { select: { name: true } }, quantity: true },
+      },
     },
   },
 } as const;
@@ -189,7 +200,12 @@ type CarouselPrismaProduct = {
     colorId: string | null;
     unitPrice: number | Decimal;
     isPrimary: boolean;
+    saleType: string;
+    packQuantity: number | null;
+    stock: number;
     color: { name: string; hex: string | null; patternImage?: string | null } | null;
+    subColors: { color: { name: string; hex: string | null; patternImage?: string | null } }[];
+    variantSizes: { size: { name: string }; quantity: number }[];
   }[];
 };
 

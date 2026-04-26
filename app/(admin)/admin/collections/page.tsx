@@ -74,8 +74,9 @@ export default async function AdminCollectionsPage() {
         /* Grid de cartes */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {collections.map((col) => (
-            <div
+            <Link
               key={col.id}
+              href={`/admin/collections/${col.id}/modifier`}
               className="group bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.10)] hover:scale-[1.02] transition-all duration-200"
             >
               {/* Image */}
@@ -122,18 +123,12 @@ export default async function AdminCollectionsPage() {
                   </span>
                 </div>
 
-                {/* Boutons */}
-                <div className="flex items-center gap-2">
-                  <Link
-                    href={`/admin/collections/${col.id}/modifier`}
-                    className="btn-secondary text-xs flex-1 text-center"
-                  >
-                    Modifier
-                  </Link>
+                {/* Bouton supprimer */}
+                <div className="flex items-center justify-end">
                   <DeleteCollectionButton id={col.id} name={col.name} />
                 </div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

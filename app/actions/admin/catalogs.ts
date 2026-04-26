@@ -25,15 +25,13 @@ export async function createCatalog(title: string) {
 }
 
 // ─────────────────────────────────────────────
-// Mettre à jour titre + couleur + photo de fond + statut
+// Mettre à jour titre + statut
 // ─────────────────────────────────────────────
 export async function updateCatalog(
   id: string,
   data: {
     title?: string;
-    primaryColor?: string;
-    coverImagePath?: string | null;
-    status?: "DRAFT" | "PUBLISHED";
+    status?: "INACTIVE" | "ACTIVE";
   }
 ) {
   await requireAdmin();

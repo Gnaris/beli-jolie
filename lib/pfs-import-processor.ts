@@ -20,6 +20,37 @@ const CANCEL_POLL_INTERVAL_MS = 2000;
 /** Nombre de produits traités en parallèle. */
 const IMPORT_CONCURRENCY = 5;
 
+/**
+ * Exécute une opération Prisma avec retry automatique en cas de déconnexion.
+ * MySQL ferme les connexions inactives après wait_timeout — pendant l'import
+ * d'images qui peut durer longtemps, la connexion expire. Ce wrapper
+ * re-tente automatiquement l'opération pour rétablir la connexion.
+ */
+async function withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = ((err as Error).message || "").toLowerCase();
+      const isConnectionError =
+        msg.includes("server has closed the connection") ||
+        msg.includes("econnreset") ||
+        msg.includes("socket hang up") ||
+        msg.includes("connection lost") ||
+        msg.includes("etimedout");
+      if (!isConnectionError || attempt === retries) throw err;
+      logger.warn("[PFS Import Processor] DB connection lost, retrying", {
+        attempt,
+        retries,
+        err: (err as Error).message,
+      });
+      // Petit délai avant retry pour laisser la connexion se rétablir
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
+  throw new Error("withRetry: unreachable");
+}
+
 export interface PfsImportItem {
   pfsId: string;
   reference: string;
@@ -39,18 +70,18 @@ export async function processPfsImport(jobId: string): Promise<void> {
 
   const items: PfsImportItem[] = (job.resultDetails as { items?: PfsImportItem[] })?.items ?? [];
   if (items.length === 0) {
-    await prisma.importJob.update({
+    await withRetry(() => prisma.importJob.update({
       where: { id: jobId },
       data: { status: "COMPLETED", errorMessage: "Aucun produit à importer" },
-    });
+    }));
     return;
   }
 
   // Mark as processing
-  await prisma.importJob.update({
+  await withRetry(() => prisma.importJob.update({
     where: { id: jobId },
     data: { status: "PROCESSING", totalItems: items.length },
-  });
+  }));
 
   emitProgress(jobId, 0, items.length, 0, 0, "PROCESSING", [], IMPORT_CONCURRENCY);
 
@@ -59,10 +90,10 @@ export async function processPfsImport(jobId: string): Promise<void> {
   let jobCancelled = false;
   const cancelPoller = setInterval(async () => {
     try {
-      const current = await prisma.importJob.findUnique({
+      const current = await withRetry(() => prisma.importJob.findUnique({
         where: { id: jobId },
         select: { status: true },
-      });
+      }));
       if (current?.status === "CANCELLED") {
         jobCancelled = true;
       }
@@ -82,10 +113,10 @@ export async function processPfsImport(jobId: string): Promise<void> {
       // Double-vérif synchrone avant de réclamer le prochain produit (au cas où
       // le poller n'aurait pas encore tourné depuis le dernier tick).
       if (!jobCancelled) {
-        const current = await prisma.importJob.findUnique({
+        const current = await withRetry(() => prisma.importJob.findUnique({
           where: { id: jobId },
           select: { status: true },
-        });
+        }));
         if (current?.status === "CANCELLED") jobCancelled = true;
       }
       if (jobCancelled) return;
@@ -138,7 +169,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
       }
 
       processed++;
-      await prisma.importJob.update({
+      await withRetry(() => prisma.importJob.update({
         where: { id: jobId },
         data: {
           processedItems: processed,
@@ -146,7 +177,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
           errorItems: errors,
           resultDetails: { items, results },
         },
-      });
+      }));
 
       emitProgress(jobId, processed, items.length, success, errors, "PROCESSING", results, IMPORT_CONCURRENCY);
     }
@@ -162,7 +193,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
 
   if (jobCancelled) {
     logger.info("[PFS Import Processor] Job cancelled", { jobId, processed });
-    await prisma.importJob.update({
+    await withRetry(() => prisma.importJob.update({
       where: { id: jobId },
       data: {
         processedItems: processed,
@@ -170,7 +201,7 @@ export async function processPfsImport(jobId: string): Promise<void> {
         errorItems: errors,
         resultDetails: { items, results },
       },
-    });
+    }));
     emitProgress(jobId, processed, items.length, success, errors, "FAILED", results, IMPORT_CONCURRENCY);
     return;
   }
@@ -185,14 +216,14 @@ export async function processPfsImport(jobId: string): Promise<void> {
   const summary = summaryParts.join(" — ");
 
   const finalStatus = errors === items.length ? "FAILED" : "COMPLETED";
-  await prisma.importJob.update({
+  await withRetry(() => prisma.importJob.update({
     where: { id: jobId },
     data: {
       status: finalStatus,
       resultDetails: { items, results, summary, successRefs, errorRefs },
       errorMessage: errors > 0 ? summary : null,
     },
-  });
+  }));
 
   emitProgress(jobId, items.length, items.length, success, errors, finalStatus, results, IMPORT_CONCURRENCY);
   logger.info("[PFS Import Processor] Job completed", { jobId, success, errors, summary });

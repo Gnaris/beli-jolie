@@ -41,7 +41,12 @@ type PrismaProduct = {
     colorId: string | null;
     unitPrice: number;
     isPrimary: boolean;
+    saleType: string;
+    packQuantity: number | null;
+    stock: number;
     color: { name: string; hex: string | null; patternImage?: string | null } | null;
+    subColors: { color: { name: string; hex: string | null; patternImage?: string | null } }[];
+    variantSizes: { size: { name: string }; quantity: number }[];
   }[];
 };
 
@@ -52,27 +57,63 @@ function computeDiscountedPrice(unitPrice: number, discountPercent: number | nul
 
 function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string, string>>): CarouselProduct[] {
   return products.map((p) => {
-    // Deduplicate by colorId, take min price per color
-    const colorMap = new Map<string, { id: string; colorId: string; hex: string | null; patternImage: string | null; name: string; unitPrice: number; discountedPrice: number; hasDiscount: boolean; isPrimary: boolean; variantId: string }>();
     const productDiscountPercent = p.discountPercent != null ? Number(p.discountPercent) : null;
+
+    // Group variants by color (using colorId + sorted subColor names as groupKey)
+    const colorMap = new Map<string, {
+      colorId: string; groupKey: string; hex: string | null; patternImage: string | null;
+      name: string; isPrimary: boolean; unitPrice: number; discountedPrice: number; hasDiscount: boolean;
+      subColors: { name: string; hex: string | null; patternImage?: string | null }[];
+      variants: { id: string; saleType: string; packQuantity: number | null; unitPrice: number; stock: number; sizes: { name: string; quantity: number }[] }[];
+    }>();
+
     for (const c of p.colors) {
       if (!c.colorId) continue;
+      const base = c.colorId;
+      const subNames = c.subColors?.map((sc) => sc.color.name).sort().join("|") ?? "";
+      const groupKey = subNames ? `${base}::${subNames}` : base;
+
       const price = Number(c.unitPrice);
       const discounted = computeDiscountedPrice(price, productDiscountPercent);
       const hasDsc = discounted < price;
-      if (!colorMap.has(c.colorId)) {
-        colorMap.set(c.colorId, { id: c.colorId, colorId: c.colorId, hex: c.color?.hex ?? null, patternImage: c.color?.patternImage ?? null, name: c.color?.name ?? "", unitPrice: price, discountedPrice: discounted, hasDiscount: hasDsc, isPrimary: c.isPrimary, variantId: c.id });
-      } else {
-        const entry = colorMap.get(c.colorId)!;
-        if (discounted < entry.discountedPrice) {
-          entry.unitPrice = price;
-          entry.discountedPrice = discounted;
-          entry.hasDiscount = hasDsc;
-          entry.variantId = c.id;
+
+      const variant = {
+        id: c.id,
+        saleType: c.saleType ?? "UNIT",
+        packQuantity: c.packQuantity ?? null,
+        unitPrice: price,
+        stock: c.stock ?? 0,
+        sizes: (c.variantSizes ?? []).map((vs) => ({ name: vs.size.name, quantity: vs.quantity })),
+      };
+
+      const existing = colorMap.get(groupKey);
+      if (existing) {
+        existing.variants.push(variant);
+        if (c.isPrimary) existing.isPrimary = true;
+        if (discounted < existing.discountedPrice) {
+          existing.unitPrice = price;
+          existing.discountedPrice = discounted;
+          existing.hasDiscount = hasDsc;
         }
-        if (c.isPrimary) entry.isPrimary = true;
+      } else {
+        colorMap.set(groupKey, {
+          colorId: c.colorId,
+          groupKey,
+          hex: c.color?.hex ?? null,
+          patternImage: c.color?.patternImage ?? null,
+          name: c.color?.name ?? "",
+          isPrimary: c.isPrimary,
+          unitPrice: price,
+          discountedPrice: discounted,
+          hasDiscount: hasDsc,
+          subColors: (c.subColors ?? []).map((sc) => ({
+            name: sc.color.name, hex: sc.color.hex, patternImage: sc.color.patternImage,
+          })),
+          variants: [variant],
+        });
       }
     }
+
     return {
       id:        p.id,
       name:      p.name,
@@ -80,15 +121,17 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
       category:  p.category.name,
       colors:    [...colorMap.values()].map((c) => ({
         id:              c.colorId,
+        groupKey:        c.groupKey,
         hex:             c.hex,
         patternImage:    c.patternImage,
         name:            c.name,
+        subColors:       c.subColors,
         firstImage:      imageMap.get(p.id)?.get(c.colorId) ?? null,
         unitPrice:       c.unitPrice,
         discountedPrice: c.discountedPrice,
         hasDiscount:     c.hasDiscount,
         isPrimary:       c.isPrimary,
-        variantId:       c.variantId,
+        variants:        c.variants,
       })),
     };
   });
@@ -102,6 +145,8 @@ function serializeProducts(products: Array<Record<string, unknown>>): PrismaProd
     colors: p.colors.map((c: any) => ({
       ...c,
       unitPrice: Number(c.unitPrice),
+      stock: Number(c.stock ?? 0),
+      packQuantity: c.packQuantity != null ? Number(c.packQuantity) : null,
     })),
   }));
 }

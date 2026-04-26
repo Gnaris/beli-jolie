@@ -25,7 +25,7 @@ export default function DeleteCollectionButton({
   return (
     <button
       type="button"
-      onClick={handleClick}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleClick(); }}
       className="text-xs font-medium text-red-600 border border-red-200 px-3 py-1.5 rounded hover:bg-red-50 transition-colors font-body"
     >
       Supprimer

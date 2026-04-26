@@ -14,7 +14,6 @@ import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
 import StripeConfig from "@/components/admin/settings/StripeConfig";
-import SmtpConfig from "@/components/admin/settings/SmtpConfig";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import DeeplApiKeyConfig from "@/components/admin/settings/DeeplApiKeyConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
@@ -26,7 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: `Paramètres — ${shopName} Admin` };
 }
 
-const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "paiement", "email", "livraison", "marketplaces", "horaires", "traduction"] as const;
+const VALID_TABS = ["general", "societe", "catalogue", "carrousels", "stock", "maintenance", "paiement", "livraison", "marketplaces", "horaires", "traduction"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -60,7 +59,6 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           {activeTab === "stock" && <StockTab />}
           {activeTab === "maintenance" && <MaintenanceTab />}
           {activeTab === "paiement" && <PaiementTab />}
-          {activeTab === "email" && <EmailTab />}
           {activeTab === "livraison" && <LivraisonTab />}
           {activeTab === "marketplaces" && <MarketplacesTab />}
           {activeTab === "horaires" && <HorairesTab />}
@@ -296,21 +294,6 @@ async function PaiementTab() {
       <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Paiement Stripe</h3>
       <p className="text-sm text-text-secondary font-body mb-4">Connectez votre compte Stripe pour accepter les paiements.</p>
       <StripeConfig hasConnect={!!stripeConnectConfig} />
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Email — SMTP
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function EmailTab() {
-  const smtpConfig = await prisma.siteConfig.findUnique({ where: { key: "smtp_password" }, select: { key: true } });
-
-  return (
-    <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-6 shadow-sm">
-      <h3 className="font-heading text-base font-semibold text-text-primary mb-1">Notifications email</h3>
-      <p className="text-sm text-text-secondary font-body mb-4">Envoi d&apos;emails via votre serveur SMTP (inscriptions, commandes, alertes, réclamations).</p>
-      <SmtpConfig hasConfig={!!smtpConfig} />
     </div>
   );
 }

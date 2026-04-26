@@ -68,16 +68,6 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/cached-data", () => ({
   getCachedShopName: vi.fn(async () => "Beli Jolie"),
-  getCachedSmtpConfig: vi.fn(async () => ({
-    host: null,
-    port: null,
-    secure: null,
-    user: null,
-    password: null,
-    fromEmail: null,
-    fromName: null,
-    notifyEmail: null,
-  })),
 }));
 
 vi.mock("@/lib/email", () => ({

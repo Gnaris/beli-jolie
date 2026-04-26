@@ -64,12 +64,28 @@ export interface PlaceOrderError {
 // ─────────────────────────────────────────────
 
 async function generateOrderNumber(): Promise<string> {
-  const year = new Date().getFullYear();
-  const count = await prisma.order.count({
-    where: { orderNumber: { startsWith: `BJ-${year}-` } },
-  });
-  const seq = String(count + 1).padStart(6, "0");
-  return `BJ-${year}-${seq}`;
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const generate = () => {
+    let id = "";
+    for (let i = 0; i < 8; i++) {
+      id += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return id;
+  };
+
+  // Garantir l'unicité
+  let orderNumber: string;
+  let exists = true;
+  do {
+    orderNumber = generate();
+    const found = await prisma.order.findUnique({
+      where: { orderNumber },
+      select: { id: true },
+    });
+    exists = !!found;
+  } while (exists);
+
+  return orderNumber;
 }
 
 // ─────────────────────────────────────────────
