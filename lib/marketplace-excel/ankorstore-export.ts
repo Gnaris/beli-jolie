@@ -26,6 +26,10 @@
 import path from "node:path";
 import ExcelJS from "exceljs";
 import { applyMarketplaceMarkup } from "@/lib/marketplace-pricing";
+import {
+  ANKORSTORE_DESCRIPTION_MIN_CHARS,
+  composeAnkorstoreDescription,
+} from "@/lib/ankorstore-description";
 import type { ExportContext, ExportProduct, ExportVariant } from "./types";
 
 const TEMPLATE_PATH = path.join(process.cwd(), "lib", "marketplace-excel", "templates", "ankorstore-template.xlsx");
@@ -134,12 +138,12 @@ export async function buildAnkorstoreWorkbook(
     if (!p.manufacturingCountryIso) {
       warnings.push({ reference: p.reference, message: "Code ISO2 du pays de fabrication manquant (ManufacturingCountry.isoCode)" });
     }
-    if (!p.description || p.description.trim().length < 30) {
-      warnings.push({ reference: p.reference, message: "Description < 30 caractères — Ankorstore exige 30 min" });
-    }
 
     const productName = p.name || p.reference;
-    const description = p.description;
+    const description = composeAnkorstoreDescription(p.description, p.reference);
+    if (description.length < ANKORSTORE_DESCRIPTION_MIN_CHARS) {
+      warnings.push({ reference: p.reference, message: "Description < 30 caractères — Ankorstore exige 30 min" });
+    }
     const composition = formatCompositionShort(p);
     const iso = p.manufacturingCountryIso ?? "";
     const gallery = productGalleryUrls(p, ctx);

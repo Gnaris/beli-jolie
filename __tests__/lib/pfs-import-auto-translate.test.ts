@@ -49,7 +49,7 @@ const {
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     category: { update: mockCategoryUpdate, create: mockCategoryCreate },
-    color: { update: mockColorUpdate, create: mockColorCreate },
+    color: { update: mockColorUpdate, create: mockColorCreate, findUnique: vi.fn().mockResolvedValue({ hex: null }) },
     size: { update: mockSizeUpdate, create: mockSizeCreate },
     composition: { update: mockCompositionUpdate, create: mockCompositionCreate },
     manufacturingCountry: { update: mockCountryUpdate, create: mockCountryCreate },

@@ -8,8 +8,10 @@ import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedSiteConfig, getCachedTags } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
+import { pickFirstImage } from "@/lib/pick-first-image";
+import { buildAdminProductsWhere } from "@/lib/admin-products-filter";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -33,8 +35,11 @@ interface PageProps {
     page?: string;
     perPage?: string;
     cat?: string;
+    subCat?: string;
+    tag?: string;
+    bestSeller?: string;
+    refresh?: string;
     status?: string;
-    syncStatus?: string;
     minPrice?: string;
     maxPrice?: string;
     dateFrom?: string;
@@ -112,8 +117,11 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     page: pageParam = "1",
     perPage: perPageParam = "20",
     cat = "",
+    subCat = "",
+    tag = "",
+    bestSeller = "",
+    refresh = "",
     status: statusFilter = "",
-    syncStatus: syncStatusFilter = "",
     minPrice: minPriceParam = "",
     maxPrice: maxPriceParam = "",
     dateFrom = "",
@@ -126,59 +134,25 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   const perPage     = Math.max(1, parseInt(perPageParam) || 20);
   const minPrice    = minPriceParam ? parseFloat(minPriceParam) : null;
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
+  const stockBelow  = stockBelowParam ? parseInt(stockBelowParam) : null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const where: Record<string, any> = {};
+  const where = buildAdminProductsWhere({
+    q,
+    exactRef,
+    cat,
+    subCat,
+    tag,
+    bestSeller,
+    refresh,
+    status: statusFilter,
+    minPrice,
+    maxPrice,
+    dateFrom,
+    dateTo,
+    stockBelow,
+  });
 
-  if (q) {
-    if (exactRef) {
-      where.reference = { equals: q.toUpperCase() };
-    } else {
-      where.OR = [
-        { name:      { contains: q } },
-        { reference: { contains: q } },
-      ];
-    }
-  }
-
-  if (cat) where.categoryId = cat;
-  if (statusFilter === "DRAFT") {
-    where.status = "OFFLINE";
-    where.isIncomplete = true;
-  } else if (statusFilter === "OFFLINE") {
-    where.status = "OFFLINE";
-    where.isIncomplete = false;
-  } else if (statusFilter === "ONLINE" || statusFilter === "ARCHIVED" || statusFilter === "SYNCING") {
-    where.status = statusFilter;
-  }
-
-  // Sync marketplace filter removed — marketplaces are now populated via Excel export.
-  void syncStatusFilter;
-
-  if (minPrice !== null || maxPrice !== null) {
-    where.colors = {
-      some: {
-        unitPrice: {
-          ...(minPrice !== null && { gte: minPrice }),
-          ...(maxPrice !== null && { lte: maxPrice }),
-        },
-      },
-    };
-  }
-
-  if (dateFrom) where.createdAt = { ...where.createdAt, gte: new Date(dateFrom) };
-  if (dateTo) {
-    const end = new Date(dateTo);
-    end.setHours(23, 59, 59, 999);
-    where.createdAt = { ...where.createdAt, lte: end };
-  }
-
-  const stockBelow = stockBelowParam ? parseInt(stockBelowParam) : null;
-  if (stockBelow !== null && !isNaN(stockBelow)) {
-    where.colors = { ...where.colors, some: { ...where.colors?.some, stock: { lte: stockBelow } } };
-  }
-
-  const [products, totalCount, categories, sectionCounts] = await Promise.all([
+  const [products, totalCount, categories, tags, sectionCounts] = await Promise.all([
     prisma.product.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -207,7 +181,15 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       },
     }),
     prisma.product.count({ where }),
-    prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true } },
+      },
+    }),
+    getCachedTags(),
     // Section counts for tabs (lightweight parallel queries)
     Promise.all([
       prisma.product.count(),
@@ -218,27 +200,29 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ]).then(([all, online, offline, draft, archived]) => ({ all, online, offline, draft, archived })),
   ]);
 
-  const productIds = products.map((p) => p.id);
-  // Image principale affichée dans la liste : on prend d'abord celle de la
-  // variante marquée isPrimary, ensuite l'ordre interne de la variante.
-  const firstImages = productIds.length > 0
-    ? await prisma.productColorImage.findMany({
-        where:   { productId: { in: productIds } },
-        orderBy: [
-          { productColor: { isPrimary: "desc" } },
-          { order: "asc" },
-        ],
-        select:  { productId: true, path: true },
-      })
-    : [];
-  const firstImageMap = new Map<string, string>();
-  for (const img of firstImages) {
-    if (!firstImageMap.has(img.productId)) firstImageMap.set(img.productId, img.path);
-  }
-
   const totalPages = Math.ceil(totalCount / perPage);
 
-  const serializedProducts = products.map((p) => ({
+  // Images chargées en une seule requête, indexées par (productId, colorId).
+  // L'image étant rattachée au couple Produit × Couleur (et pas à une variante
+  // spécifique), toutes les variantes qui partagent la même couleur la verront.
+  const productIds = products.map((p) => p.id);
+  const allImages = productIds.length > 0
+    ? await prisma.productColorImage.findMany({
+        where:   { productId: { in: productIds } },
+        orderBy: { order: "asc" },
+        select:  { productId: true, colorId: true, path: true },
+      })
+    : [];
+  const imagesByProductColor = new Map<string, string>();
+  for (const img of allImages) {
+    const key = `${img.productId}::${img.colorId}`;
+    if (!imagesByProductColor.has(key)) imagesByProductColor.set(key, img.path);
+  }
+
+  const serializedProducts = products.map((p) => {
+    const colorImagePath = (colorId: string | null) =>
+      colorId ? imagesByProductColor.get(`${p.id}::${colorId}`) ?? null : null;
+    return {
     id:              p.id,
     reference:       p.reference,
     name:            p.name,
@@ -248,7 +232,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),
     lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
-    firstImage:      firstImageMap.get(p.id) ?? null,
+    firstImage:      pickFirstImage(p.colors, colorImagePath),
     colors:          p.colors.map((c) => ({
       id:            c.id,
       colorId:       c.colorId ?? "",
@@ -263,7 +247,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       subColors:     c.subColors,
     })),
     translations:    p.translations,
-  }));
+    };
+  });
 
   return (
     <>
@@ -330,7 +315,11 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       {/* Filtres */}
       <div className="bg-bg-primary border border-border rounded-2xl px-6 py-5 mt-4 shadow-sm">
         <Suspense>
-          <AdminProductsFilters totalCount={totalCount} categories={categories} />
+          <AdminProductsFilters
+            totalCount={totalCount}
+            categories={categories}
+            tags={tags}
+          />
         </Suspense>
       </div>
 

@@ -10,6 +10,7 @@ import { fetchPfsColorsForMapping, updateColorPfsRef } from "@/app/actions/admin
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import QuickCreateSizeModal, { type QuickCreateSizeModalResult } from "@/components/admin/products/QuickCreateSizeModal";
 import { usePfsAttributes } from "@/components/admin/MarketplaceMappingSection";
+import { generateSku } from "@/lib/sku";
 
 // ─────────────────────────────────────────────
 // Exported types
@@ -93,6 +94,8 @@ interface Props {
   /** Called after a size is created via the quick-create modal — parent should add to availableSizes */
   onSizeAdded?: (size: AvailableSize) => void;
   variantErrors?: Map<string, Set<string>>;
+  /** Référence du produit — utilisée pour pré-afficher un SKU dès qu'une couleur est choisie (visuel uniquement, non persisté). */
+  productReference?: string;
 }
 
 // ─────────────────────────────────────────────
@@ -230,6 +233,78 @@ function defaultVariant(): VariantState {
     pfsColorRef: "",
     sku: "",
     disabled: false,
+  };
+}
+
+/**
+ * True si la variante semble "vierge" (l'utilisateur n'a encore rien tapé
+ * dans les champs prix / stock / poids / tailles). Utilisé pour décider si
+ * on peut pré-remplir automatiquement à partir d'une autre variante.
+ */
+function isVariantPristine(v: VariantState): boolean {
+  return (
+    v.sizeEntries.length === 0 &&
+    !v.unitPrice.trim() &&
+    !v.stock.trim() &&
+    !v.weight.trim() &&
+    !v.packQuantity.trim()
+  );
+}
+
+/**
+ * Cherche dans les variantes existantes celle dont on peut recopier les
+ * attributs (tailles, prix, stock, poids). Priorité :
+ *   1. Même type de vente ET même couleur principale
+ *   2. Même type de vente
+ *   3. Même couleur principale
+ *   4. La dernière variante remplie (toutes confondues)
+ * On ignore les variantes désactivées et celles qui n'ont aucune donnée.
+ */
+export function findDonorVariant(
+  target: Pick<VariantState, "tempId" | "saleType" | "colorId">,
+  all: VariantState[]
+): VariantState | null {
+  const candidates = all.filter(
+    (v) =>
+      v.tempId !== target.tempId &&
+      !v.disabled &&
+      (v.sizeEntries.length > 0 ||
+        !!v.unitPrice.trim() ||
+        !!v.stock.trim() ||
+        !!v.weight.trim())
+  );
+  if (candidates.length === 0) return null;
+  const findLast = <T,>(arr: T[], pred: (x: T) => boolean): T | null => {
+    for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) return arr[i];
+    return null;
+  };
+  return (
+    findLast(candidates, (v) => v.saleType === target.saleType && !!target.colorId && v.colorId === target.colorId) ??
+    findLast(candidates, (v) => v.saleType === target.saleType) ??
+    findLast(candidates, (v) => !!target.colorId && v.colorId === target.colorId) ??
+    candidates[candidates.length - 1]
+  );
+}
+
+/**
+ * Recopie les champs "remplissage rapide" depuis le donneur vers la cible.
+ * On préserve `tempId`, identité couleur, statut primaire / désactivé, etc.
+ * Si le donneur a un autre type de vente, on ne recopie ni tailles ni
+ * `packQuantity` (incompatibles entre UNIT et PACK).
+ */
+export function applyDonorAutofill(target: VariantState, donor: VariantState, makeId: () => string): VariantState {
+  const sameType = donor.saleType === target.saleType;
+  return {
+    ...target,
+    unitPrice: donor.unitPrice,
+    weight: donor.weight,
+    stock: donor.stock,
+    ...(sameType
+      ? {
+          sizeEntries: donor.sizeEntries.map((se) => ({ ...se, tempId: makeId() })),
+          packQuantity: donor.packQuantity,
+        }
+      : {}),
   };
 }
 
@@ -2148,6 +2223,7 @@ export default function ColorVariantManager({
   onColorAdded,
   onSizeAdded,
   variantErrors,
+  productReference,
 }: Props) {
   const { confirm: confirmDialog } = useConfirm();
 
@@ -2284,13 +2360,20 @@ export default function ColorVariantManager({
         const oldKey = variantGroupKeyFromState(v);
         const newKey = rest.length === 0 ? main.colorId : `${main.colorId}::${rest.map((c) => c.colorName).join(",")}`;
         const combinationChanged = oldKey !== newKey;
-        return {
+        let next: VariantState = {
           ...v,
           colorId: main.colorId, colorName: main.colorName, colorHex: main.colorHex,
           subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
           // Use explicit override if provided, auto-resolved, otherwise clear if combination changed
           pfsColorRef: finalPfsRef !== undefined ? finalPfsRef : (combinationChanged ? "" : v.pfsColorRef),
         };
+        // Auto-fill prix / stock / poids / tailles depuis une variante existante
+        // (raccourci création) — uniquement si la variante est encore vierge.
+        if (isVariantPristine(v)) {
+          const donor = findDonorVariant(next, variants);
+          if (donor) next = applyDonorAutofill(next, donor, uid);
+        }
+        return next;
       }
       // Auto-propagate to sibling variants with same color combination
       // When override is explicit (user chose), propagate to ALL siblings; when auto-resolved, only unmapped ones
@@ -2355,6 +2438,23 @@ export default function ColorVariantManager({
     const packs = variants.filter((v) => v.saleType === "PACK");
     return [...unitVars, ...packs];
   }, [variants]);
+
+  // ── Display-only SKU preview ──────────────────────────────────────────────
+  // Si une couleur est attribuée et que la référence produit est connue, on
+  // calcule un SKU "visuel" (non enregistré). Le SKU réel est généré par le
+  // serveur à la sauvegarde. Si `v.sku` existe déjà (édition), on le garde.
+  const displaySkuByTempId = useMemo(() => {
+    const map = new Map<string, string>();
+    const ref = (productReference ?? "").trim().toUpperCase();
+    for (let i = 0; i < variants.length; i++) {
+      const v = variants[i];
+      if (v.sku) { map.set(v.tempId, v.sku); continue; }
+      if (!ref || !v.colorId || !v.colorName) continue;
+      const colorNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean);
+      map.set(v.tempId, generateSku(ref, colorNames, v.saleType, i + 1));
+    }
+    return map;
+  }, [variants, productReference]);
 
   // ── Render helper: size summary cell ──────────────────────────────────────
   function renderSizeSummary(v: VariantState) {
@@ -2529,11 +2629,14 @@ export default function ColorVariantManager({
 
                   <div className={v.disabled ? "opacity-50 space-y-2.5" : "space-y-2.5"}>
                   {/* SKU */}
-                  {v.sku && (
-                    <div className="text-[10px] text-text-muted font-mono truncate" title={v.sku}>
-                      SKU: {v.sku}
-                    </div>
-                  )}
+                  {(() => {
+                    const dsku = displaySkuByTempId.get(v.tempId);
+                    return dsku ? (
+                      <div className="text-[10px] text-text-muted font-mono truncate" title={dsku}>
+                        SKU: {dsku}
+                      </div>
+                    ) : null;
+                  })()}
 
                   {/* Row 2: color */}
                   <MultiColorSelect
@@ -2777,9 +2880,14 @@ export default function ColorVariantManager({
 
                         {/* SKU */}
                         <td className={`px-1 py-2${dimCls}`}>
-                          <span className="text-[10px] text-text-muted font-mono truncate block" title={v.sku || "—"}>
-                            {v.sku || "—"}
-                          </span>
+                          {(() => {
+                            const dsku = displaySkuByTempId.get(v.tempId) || "—";
+                            return (
+                              <span className="text-[10px] text-text-muted font-mono truncate block" title={dsku}>
+                                {dsku}
+                              </span>
+                            );
+                          })()}
                         </td>
 
                         {/* Sizes — click to open modal */}

@@ -221,6 +221,7 @@ export default function ImportPfsClient({ embedded }: { embedded?: boolean }) {
           pfsFamilyName: a.meta.pfsFamilyName ?? undefined,
           pfsCategoryName: a.meta.pfsCategoryName ?? undefined,
         } : {}),
+        ...(a.type === "color" && a.meta?.hex ? { hex: a.meta.hex } : {}),
       }));
       const res = await fetch("/api/admin/pfs-import/bulk-create-mappings", {
         method: "POST",

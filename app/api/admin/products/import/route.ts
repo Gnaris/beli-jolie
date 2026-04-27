@@ -352,24 +352,28 @@ async function createProductsInBackground(
           tags: tagIds.length > 0 ? { create: tagIds.map((id) => ({ tagId: id })) } : undefined,
           compositions: compPairs.length > 0 ? { create: compPairs } : undefined,
           colors: {
-            create: resolvedColors.map(({ row, color }, i) => {
-              const isPack = row.saleType === "PACK";
-              const sizeEntries = isPack ? parseSizeField(row.size, "PACK") : [];
-              const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
-              return {
-                colorId: isPack ? null : color.id,
-                unitPrice: isPack && totalQty > 0
-                  ? Math.round(row.unitPrice * totalQty * 100) / 100
-                  : row.unitPrice,
-                weight: row.weight ? row.weight / 1000 : 0.1, // g → kg
-                stock: row.stock,
-                isPrimary: row.isPrimary || i === 0,
-                saleType: row.saleType,
-                packQuantity: isPack
-                  ? (totalQty > 0 ? totalQty : (row.packQuantity ?? null))
-                  : null,
-              };
-            }),
+            create: (() => {
+              const firstPrimaryIdx = resolvedColors.findIndex(({ row }) => row.isPrimary);
+              const primaryIdx = firstPrimaryIdx === -1 ? 0 : firstPrimaryIdx;
+              return resolvedColors.map(({ row, color }, i) => {
+                const isPack = row.saleType === "PACK";
+                const sizeEntries = isPack ? parseSizeField(row.size, "PACK") : [];
+                const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
+                return {
+                  colorId: isPack ? null : color.id,
+                  unitPrice: isPack && totalQty > 0
+                    ? Math.round(row.unitPrice * totalQty * 100) / 100
+                    : row.unitPrice,
+                  weight: row.weight ? row.weight / 1000 : 0.1, // g → kg
+                  stock: row.stock,
+                  isPrimary: i === primaryIdx,
+                  saleType: row.saleType,
+                  packQuantity: isPack
+                    ? (totalQty > 0 ? totalQty : (row.packQuantity ?? null))
+                    : null,
+                };
+              });
+            })(),
           },
         },
         include: { colors: true },

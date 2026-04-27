@@ -14,8 +14,8 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
+import { ANKORSTORE_DESCRIPTION_MIN_CHARS, ankorstoreDescriptionLength } from "@/lib/ankorstore-description";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
-import { useMarketplaceSync } from "@/components/admin/marketplace/MarketplaceSyncOverlay";
 import type { MarketplaceId } from "@/lib/product-events";
 import { subscribeSSE } from "@/lib/shared-sse";
 
@@ -359,13 +359,12 @@ export default function ProductForm({
 }: ProductFormProps) {
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
-  const { startSync, syncingProductIds } = useMarketplaceSync();
 
   // ── Marketplace sync lock ──────────────────────────────────────────────
   // Starts from DB status (survives refresh), unlocks when SSE reports completion
   const [dbSyncing, setDbSyncing] = useState(initialSyncing);
 
-  const isSyncLocked = dbSyncing || (!!productId && syncingProductIds.has(productId));
+  const isSyncLocked = dbSyncing;
 
   // ── Local lists — fetched from DB on mount (no cache) ────────────────
   const [localCategories,   setLocalCategories]   = useState<Category[]>(_initialCategories ?? []);
@@ -917,7 +916,7 @@ export default function ProductForm({
     if (!reference.trim())    errors.push("Référence produit manquante");
     if (!name.trim())         errors.push("Nom du produit manquant");
     if (!description.trim())  errors.push("Description manquante");
-    else if (description.trim().length < 30) errors.push("Description trop courte (30 caractères minimum)");
+    else if (ankorstoreDescriptionLength(description, reference) < ANKORSTORE_DESCRIPTION_MIN_CHARS) errors.push("Description trop courte (30 caractères minimum)");
     if (!categoryId)          errors.push("Catégorie non sélectionnée");
     if (compositions.length === 0) {
       errors.push("Au moins une composition est requise");
@@ -1156,67 +1155,6 @@ export default function ProductForm({
     const isIncomplete = completenessErrors.length > 0;
     const outOfStock = isOutOfStock();
 
-    // ── Marketplace sync state ──
-    const shouldSyncPfs = { current: hasPfsConfig };
-    const shouldSyncAnkorstore = { current: hasAnkorstoreConfig };
-    const canShowMarketplaceCheckboxes = !isIncomplete && !hasVariantsWithMissingPriceWeightOrStock();
-    const showPfsCheckbox = hasPfsConfig && canShowMarketplaceCheckboxes;
-    const showAnkorstoreCheckbox = hasAnkorstoreConfig && canShowMarketplaceCheckboxes;
-
-    // ── PFS pre-check: when finalizing a draft, check if product exists on PFS ──
-    let pfsCheckResult: { existsOnPfs: boolean; canCreate: boolean; mappingIssues: string[] } | null = null;
-    if (showPfsCheckbox && mode === "create" && productId && reference.trim()) {
-      try {
-        const res = await fetch("/api/admin/pfs-sync/check-creation", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reference: reference.trim().toUpperCase(), productId }),
-        });
-        if (res.ok) {
-          pfsCheckResult = await res.json();
-        }
-      } catch {
-        // Failed to check — proceed without PFS info
-      }
-    }
-
-    const pfsCreationBlocked = pfsCheckResult && !pfsCheckResult.canCreate && !pfsCheckResult.existsOnPfs;
-
-    // If PFS creation is blocked due to missing mappings, disable PFS sync
-    if (pfsCreationBlocked) {
-      shouldSyncPfs.current = false;
-    }
-
-    // Build marketplace checkboxes array
-    const marketplaceCheckboxes: { id: string; label: string; defaultChecked: boolean; onChange: (v: boolean) => void }[] = [];
-
-    if (showPfsCheckbox && !pfsCreationBlocked) {
-      const pfsLabel = mode === "edit"
-        ? "Paris Fashion Shop"
-        : pfsCheckResult?.existsOnPfs
-          ? "Paris Fashion Shop (produit existant)"
-          : "Paris Fashion Shop";
-      marketplaceCheckboxes.push({
-        id: "pfs",
-        label: pfsLabel,
-        defaultChecked: true,
-        onChange: (v: boolean) => { shouldSyncPfs.current = v; },
-      });
-    }
-
-    if (showAnkorstoreCheckbox) {
-      marketplaceCheckboxes.push({
-        id: "ankorstore",
-        label: "Ankorstore",
-        defaultChecked: true,
-        onChange: (v: boolean) => { shouldSyncAnkorstore.current = v; },
-      });
-    }
-
-    const marketplaceCheckboxOption = marketplaceCheckboxes.length > 0
-      ? { checkboxes: marketplaceCheckboxes, checkboxesLabel: "Synchronisation marketplaces" }
-      : {};
-
     let downgradeConfirmed = false;
     if (productStatus === "ONLINE" && isIncomplete) {
       const okDowngrade = await confirmDialog({
@@ -1225,7 +1163,6 @@ export default function ProductForm({
         message: "Ce produit est actuellement en ligne mais certaines informations sont manquantes. Si vous confirmez, le produit sera mis hors ligne et passera en brouillon.",
         confirmLabel: "Enregistrer en brouillon",
         cancelLabel: "Annuler",
-        ...marketplaceCheckboxOption,
       });
       if (!okDowngrade) return;
       downgradeConfirmed = true;
@@ -1239,7 +1176,6 @@ export default function ProductForm({
         message: "Toutes les variantes de ce produit sont en rupture de stock. Le produit sera automatiquement mis hors ligne.",
         confirmLabel: "Enregistrer et mettre hors ligne",
         cancelLabel: "Annuler",
-        ...marketplaceCheckboxOption,
       });
       if (!okDowngrade) return;
       downgradeConfirmed = true;
@@ -1288,15 +1224,7 @@ export default function ProductForm({
       } else if (mode === "create" && productId) {
         confirmTitle = "Finaliser le produit";
         confirmLabel = "Finaliser";
-        if (pfsCheckResult?.existsOnPfs) {
-          confirmMessage = "Voulez-vous finaliser ce produit ? Il existe déjà sur Paris Fashion Shop — les modifications seront synchronisées.";
-        } else if (pfsCreationBlocked) {
-          confirmType = "warning";
-          const issueList = pfsCheckResult?.mappingIssues.join(", ") ?? "";
-          confirmMessage = `Voulez-vous finaliser ce produit ? Création Paris Fashion Shop impossible (${issueList}). Le produit sera créé localement uniquement.`;
-        } else {
-          confirmMessage = "Voulez-vous finaliser ce produit ?";
-        }
+        confirmMessage = "Voulez-vous finaliser ce produit ?";
       } else {
         confirmMessage = "Voulez-vous enregistrer toutes les modifications ?";
       }
@@ -1307,7 +1235,6 @@ export default function ProductForm({
         message: confirmMessage,
         confirmLabel,
         cancelLabel: "Annuler",
-        ...marketplaceCheckboxOption,
       });
       if (!okSave) return;
     }
@@ -1377,10 +1304,8 @@ export default function ProductForm({
         .map(([locale, t]) => ({ locale, name: t.name, description: t.description })),
     };
 
-    // Determine which marketplaces will be synced
     // Marketplace publishing is no longer triggered from the form — the admin
     // generates a marketplace Excel archive from /admin/produits after saving.
-    void startSync;
 
     showLoading();
     startTransition(async () => {
@@ -1638,11 +1563,18 @@ export default function ProductForm({
                   <label className="block text-sm font-body font-semibold text-text-secondary">
                     Description *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
                   </label>
-                  {activeLocale === "fr" && (
-                    <span className={`text-[11px] font-body ${description.trim().length < 30 ? "text-[#EF4444]" : "text-text-tertiary"}`}>
-                      {description.trim().length} / 30 min
-                    </span>
-                  )}
+                  {activeLocale === "fr" && (() => {
+                    const effectiveLen = ankorstoreDescriptionLength(description, reference);
+                    const tooShort = effectiveLen < ANKORSTORE_DESCRIPTION_MIN_CHARS;
+                    return (
+                      <span
+                        className={`text-[11px] font-body ${tooShort ? "text-[#EF4444]" : "text-text-tertiary"}`}
+                        title={`Inclut "Référence : ${reference || "…"}" ajouté automatiquement à l'export Ankorstore`}
+                      >
+                        {effectiveLen} / {ANKORSTORE_DESCRIPTION_MIN_CHARS} min
+                      </span>
+                    );
+                  })()}
                 </div>
                 <textarea
                   value={activeDescription}
@@ -1650,14 +1582,14 @@ export default function ProductForm({
                   onBlur={() => { if (activeLocale === "fr") markTouched("description"); }}
                   rows={4}
                   placeholder={activeLocale === "fr" ? "Description commerciale du produit (30 caractères minimum pour Ankorstore)…" : `Description en ${LOCALE_LABELS[activeLocale]}…`}
-                  className={`field-input resize-none${activeLocale === "fr" && touchedFields.has("description") && (!description.trim() || description.trim().length < 30) ? " field-error" : ""}`}
+                  className={`field-input resize-none${activeLocale === "fr" && touchedFields.has("description") && (!description.trim() || ankorstoreDescriptionLength(description, reference) < ANKORSTORE_DESCRIPTION_MIN_CHARS) ? " field-error" : ""}`}
                   required={activeLocale === "fr"}
                 />
                 {activeLocale === "fr" && touchedFields.has("description") && !description.trim() && (
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">La description est requise pour la mise en ligne.</p>
                 )}
-                {activeLocale === "fr" && touchedFields.has("description") && description.trim() && description.trim().length < 30 && (
-                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">Minimum 30 caractères requis (Ankorstore). Actuellement : {description.trim().length}.</p>
+                {activeLocale === "fr" && touchedFields.has("description") && description.trim() && ankorstoreDescriptionLength(description, reference) < ANKORSTORE_DESCRIPTION_MIN_CHARS && (
+                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">Minimum {ANKORSTORE_DESCRIPTION_MIN_CHARS} caractères requis (Ankorstore). Actuellement : {ankorstoreDescriptionLength(description, reference)} (avec « Référence : {reference || "…"} » ajouté à l'export).</p>
                 )}
               </div>
             </div>
@@ -1820,6 +1752,7 @@ export default function ProductForm({
             onColorAdded={(color) => setLocalColors((prev) => prev.some((c) => c.id === color.id) ? prev : [...prev, color])}
             onSizeAdded={handleSizeAdded}
             variantErrors={variantErrors}
+            productReference={reference}
           />
         </section>
 

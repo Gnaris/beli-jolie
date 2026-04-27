@@ -131,8 +131,7 @@ npm run test / test:watch / test:coverage   # Vitest
 npm run test:pfs-smoke                      # PFS smoke tests
 npx prisma db push && npx prisma generate   # Apres modif schema, redemerrer dev server d'abord
 npx prisma studio
-npx tsx scripts/create-admin.ts / generate-translations.ts / seed.ts / encrypt-secrets.ts
-npm run clear:products
+npx tsx scripts/create-admin.ts
 ```
 
 ### Testing
@@ -210,7 +209,6 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 - **`SENSITIVE_KEYS`** dans encryption.ts = liste des clés SiteConfig chiffrées. Toute nouvelle clé sensible doit y être ajoutée
 - **Écriture** : `encryptIfSensitive(key, value)` avant `prisma.siteConfig.upsert()`
 - **Lecture** : `decryptIfSensitive(key, value)` après lecture BDD. Compatible migration progressive (valeurs en clair retournées telles quelles)
-- **Migration** : `npx tsx scripts/encrypt-secrets.ts` — chiffre les valeurs existantes, idempotent
 
 ### Custom Hooks (`hooks/`)
 - **`useProductStream()`** — SSE real-time product updates (5s reconnect)

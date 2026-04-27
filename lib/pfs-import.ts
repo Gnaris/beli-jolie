@@ -638,6 +638,17 @@ export interface CreateMappingInput {
   pfsGender?: string | null;
   pfsFamilyName?: string | null;
   pfsCategoryName?: string | null;
+  // Code hex PFS (#RRGGBB) — appliqué uniquement pour le type "color"
+  hex?: string | null;
+}
+
+/** Normalise un code hex PFS en #RRGGBB (ou null si invalide). */
+function normalizePfsHex(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const withHash = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toLowerCase() : null;
 }
 
 export interface CreateMappingResult {
@@ -647,7 +658,7 @@ export interface CreateMappingResult {
 }
 
 export async function createOrLinkMapping(input: CreateMappingInput): Promise<CreateMappingResult> {
-  const { type, pfsRef, label, linkToExistingId, pfsGender, pfsFamilyName, pfsCategoryName } = input;
+  const { type, pfsRef, label, linkToExistingId, pfsGender, pfsFamilyName, pfsCategoryName, hex } = input;
 
   switch (type) {
     case "category": {
@@ -711,16 +722,24 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
     }
 
     case "color": {
+      const normalizedHex = normalizePfsHex(hex);
       if (linkToExistingId) {
+        const existing = await prisma.color.findUnique({
+          where: { id: linkToExistingId },
+          select: { hex: true },
+        });
         const upd = await prisma.color.update({
           where: { id: linkToExistingId },
-          data: { pfsColorRef: pfsRef },
+          data: {
+            pfsColorRef: pfsRef,
+            ...(normalizedHex && !existing?.hex ? { hex: normalizedHex } : {}),
+          },
           select: { id: true, name: true },
         });
         return { id: upd.id, name: upd.name, created: false };
       }
       const created = await prisma.color.create({
-        data: { name: label, pfsColorRef: pfsRef, hex: null },
+        data: { name: label, pfsColorRef: pfsRef, hex: normalizedHex },
         select: { id: true, name: true },
       });
       autoTranslateColor(created.id, created.name);

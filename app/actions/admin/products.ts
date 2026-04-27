@@ -13,6 +13,9 @@ import { generateSku } from "@/lib/sku";
 import { deleteFiles, keyFromDbPath } from "@/lib/storage";
 import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
+import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
+import { findMissingImageCoverage } from "@/lib/variant-image-coverage";
+import { ANKORSTORE_DESCRIPTION_MIN_CHARS, ankorstoreDescriptionLength } from "@/lib/ankorstore-description";
 
 // Marketplace sync is fully manual: create/update/delete on PFS and Ankorstore are all
 // handled via Excel export (lib/marketplace-excel). Local product deletion never touches
@@ -198,10 +201,13 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   // Skip strict variant validation for incomplete products
   if (!input.isIncomplete) {
     validateVariants(input.colors);
-    if (input.description.trim().length < 30) {
+    if (ankorstoreDescriptionLength(input.description, input.reference) < ANKORSTORE_DESCRIPTION_MIN_CHARS) {
       throw new Error("La description doit faire au moins 30 caractères (requis pour Ankorstore).");
     }
   }
+
+  // Garantir une seule variante primaire avant l'écriture en BDD
+  input = { ...input, colors: normalizePrimaryFlag(input.colors) };
 
   if (/\s/.test(input.reference)) throw new Error("La référence ne doit pas contenir d'espaces.");
 
@@ -275,7 +281,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         unitPrice:     color.unitPrice,
         weight:        color.weight,
         stock:         color.stock,
-        isPrimary:     color.isPrimary || i === 0,
+        isPrimary:     color.isPrimary,
         saleType:      color.saleType,
         packQuantity:  color.packQuantity,
         disabled:      color.disabled ?? false,
@@ -344,17 +350,37 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     }
   }
 
-  // Auto-downgrade to OFFLINE if any variant has no image
+  // Auto-downgrade to OFFLINE if any *color composition* has no image. UNIT+PACK
+  // d'une même couleur partagent le même jeu d'images côté UI : on autorise donc
+  // qu'une seule des deux porte les images en BDD.
   let effectiveStatus = input.status;
   if (input.status === "ONLINE" && createdVariants.length > 0) {
-    const variantImageCounts = await prisma.productColorImage.groupBy({
-      by: ["productColorId"],
-      where: { productColorId: { in: createdVariants.map((v) => v.id) } },
-      _count: { id: true },
+    const variantsWithDetails = await prisma.productColor.findMany({
+      where: { productId: product.id },
+      select: {
+        id: true,
+        colorId: true,
+        color: { select: { name: true } },
+        subColors: {
+          select: { colorId: true, position: true, color: { select: { name: true } } },
+        },
+        _count: { select: { images: true } },
+      },
     });
-    const variantIdsWithImages = new Set(variantImageCounts.map((v) => v.productColorId));
-    const allHaveImages = createdVariants.every((v) => variantIdsWithImages.has(v.id));
-    if (!allHaveImages) {
+    const missing = findMissingImageCoverage(
+      variantsWithDetails.map((v) => ({
+        id: v.id,
+        colorId: v.colorId,
+        colorName: v.color?.name ?? null,
+        subColors: v.subColors.map((s) => ({
+          colorId: s.colorId,
+          colorName: s.color?.name ?? null,
+          position: s.position,
+        })),
+        imageCount: v._count.images,
+      })),
+    );
+    if (missing.length > 0) {
       effectiveStatus = "OFFLINE";
       await prisma.product.update({ where: { id: product.id }, data: { status: "OFFLINE" } });
     }
@@ -430,7 +456,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   // Skip strict validation for incomplete products (variants, description, etc.)
   if (!input.isIncomplete) {
     if (!input.description?.trim()) throw new Error("La description est requise.");
-    if (input.description.trim().length < 30) {
+    if (ankorstoreDescriptionLength(input.description, input.reference) < ANKORSTORE_DESCRIPTION_MIN_CHARS) {
       throw new Error("La description doit faire au moins 30 caractères (requis pour Ankorstore).");
     }
     if (!input.colors || input.colors.length === 0) {
@@ -438,6 +464,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
     validateVariants(input.colors);
   }
+
+  // Garantir une seule variante primaire (corrige aussi les produits legacy
+  // créés avant le fix où plusieurs variantes pouvaient être marquées primaires).
+  input = { ...input, colors: normalizePrimaryFlag(input.colors) };
 
   const oldProduct = await prisma.product.findUnique({
     where: { id },
@@ -772,15 +802,38 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
   }
 
-  // Auto-downgrade to OFFLINE if any variant has no image
+  // Auto-downgrade to OFFLINE si une composition de couleurs n'a aucune image.
+  // UNIT et PACK d'une même couleur partagent le jeu d'images côté UI : on
+  // autorise donc qu'une seule des deux porte les images en BDD.
   let effectiveStatus = input.status;
   if (input.status === "ONLINE") {
     const allVariants = await prisma.productColor.findMany({
       where: { productId: id },
-      select: { id: true, _count: { select: { images: true } } },
+      select: {
+        id: true,
+        colorId: true,
+        color: { select: { name: true } },
+        subColors: {
+          select: { colorId: true, position: true, color: { select: { name: true } } },
+        },
+        _count: { select: { images: true } },
+      },
     });
-    const allHaveImages = allVariants.length > 0 && allVariants.every((v) => v._count.images > 0);
-    if (!allHaveImages) {
+    const missing = findMissingImageCoverage(
+      allVariants.map((v) => ({
+        id: v.id,
+        colorId: v.colorId,
+        colorName: v.color?.name ?? null,
+        subColors: v.subColors.map((s) => ({
+          colorId: s.colorId,
+          colorName: s.color?.name ?? null,
+          position: s.position,
+        })),
+        imageCount: v._count.images,
+      })),
+    );
+    const noVariants = allVariants.length === 0;
+    if (noVariants || missing.length > 0) {
       effectiveStatus = "OFFLINE";
       await prisma.product.update({ where: { id }, data: { status: "OFFLINE" } });
     }
@@ -943,23 +996,46 @@ export async function bulkUpdateProductStatus(
     },
   });
 
-  // Check images exist per variant (each color must have at least one image)
-  const variantsWithoutImages = new Map<string, string[]>();
+  // Check images at the *color composition* level: deux variantes partageant la
+  // même composition (ex. Argent UNIT + Argent PACK) partagent le même jeu
+  // d'images dans le formulaire, donc si l'une a une image l'autre est couverte.
+  const missingByProduct = new Map<string, string[]>();
   if (status === "ONLINE") {
     const allColors = await prisma.productColor.findMany({
       where: { productId: { in: productIds } },
       select: {
         id: true,
         productId: true,
+        colorId: true,
         color: { select: { name: true } },
+        subColors: {
+          select: { colorId: true, position: true, color: { select: { name: true } } },
+        },
         _count: { select: { images: true } },
       },
     });
+    const byProduct = new Map<string, typeof allColors>();
     for (const c of allColors) {
-      if (c._count.images === 0) {
-        const existing = variantsWithoutImages.get(c.productId) ?? [];
-        existing.push(c.color?.name || "variante");
-        variantsWithoutImages.set(c.productId, existing);
+      const arr = byProduct.get(c.productId) ?? [];
+      arr.push(c);
+      byProduct.set(c.productId, arr);
+    }
+    for (const [productId, variants] of byProduct) {
+      const missing = findMissingImageCoverage(
+        variants.map((v) => ({
+          id: v.id,
+          colorId: v.colorId,
+          colorName: v.color?.name ?? null,
+          subColors: v.subColors.map((s) => ({
+            colorId: s.colorId,
+            colorName: s.color?.name ?? null,
+            position: s.position,
+          })),
+          imageCount: v._count.images,
+        })),
+      );
+      if (missing.length > 0) {
+        missingByProduct.set(productId, missing.map((m) => m.label));
       }
     }
   }
@@ -973,8 +1049,8 @@ export async function bulkUpdateProductStatus(
       if (product.isIncomplete) reasons.push("produit en brouillon");
       if (product.colors.length === 0) reasons.push("aucune variante");
       if (product.colors.length > 0 && product.colors.every(c => c.stock === 0)) reasons.push("aucun stock");
-      const missingImgVariants = variantsWithoutImages.get(product.id);
-      if (missingImgVariants) reasons.push(`image manquante : ${missingImgVariants.join(", ")}`);
+      const missingImgLabels = missingByProduct.get(product.id);
+      if (missingImgLabels) reasons.push(`image manquante : ${missingImgLabels.join(", ")}`);
       if (!product.categoryId) reasons.push("pas de catégorie");
       if (reasons.length > 0) {
         errors.push({ id: product.id, reference: product.reference, reason: reasons.join(", ") });

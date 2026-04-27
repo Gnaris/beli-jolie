@@ -6,14 +6,17 @@ import CustomSelect from "@/components/ui/CustomSelect";
 
 const PRESET_PER_PAGE = [20, 30, 50, 100];
 
-interface CategoryOption { id: string; name: string }
+interface SubCategoryOption { id: string; name: string }
+interface CategoryOption { id: string; name: string; subCategories?: SubCategoryOption[] }
+interface TagOption { id: string; name: string }
 
 interface Props {
   totalCount: number;
   categories: CategoryOption[];
+  tags?: TagOption[];
 }
 
-export default function AdminProductsFilters({ totalCount, categories }: Props) {
+export default function AdminProductsFilters({ totalCount, categories, tags = [] }: Props) {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -22,8 +25,11 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
   const urlQ         = searchParams.get("q")          ?? "";
   const urlExactRef  = searchParams.get("exactRef") === "1";
   const urlCat       = searchParams.get("cat")        ?? "";
+  const urlSubCat    = searchParams.get("subCat")     ?? "";
+  const urlTag       = searchParams.get("tag")        ?? "";
+  const urlBestSeller = searchParams.get("bestSeller") ?? "";
+  const urlRefresh   = searchParams.get("refresh")    ?? "";
   const urlStatus    = searchParams.get("status")     ?? "";
-  const urlSyncStatus = searchParams.get("syncStatus") ?? "";
   const urlMinPrice  = searchParams.get("minPrice")   ?? "";
   const urlMaxPrice  = searchParams.get("maxPrice")   ?? "";
   const urlDateFrom  = searchParams.get("dateFrom")   ?? "";
@@ -49,7 +55,7 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
   useEffect(() => { setLocalDateTo(urlDateTo); }, [urlDateTo]);
   useEffect(() => { setLocalStockBelow(urlStockBelow); }, [urlStockBelow]);
 
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlStatus || urlSyncStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow);
   const hasLocalChanges = localQ !== urlQ || localExactRef !== urlExactRef || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [customValue, setCustomValue] = useState("");
@@ -269,10 +275,31 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
               </label>
               <CustomSelect
                 value={urlCat}
-                onChange={(v) => navigate({ cat: v || null })}
+                onChange={(v) => navigate({ cat: v || null, subCat: null })}
                 options={[
                   { value: "", label: "Toutes" },
                   ...categories.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+                size="sm"
+              />
+            </div>
+
+            {/* Sous-catégorie — applies immediately, filtered by selected category if any */}
+            <div>
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
+                Sous-catégorie
+              </label>
+              <CustomSelect
+                value={urlSubCat}
+                onChange={(v) => navigate({ subCat: v || null })}
+                options={[
+                  { value: "", label: "Toutes" },
+                  ...categories.flatMap((c) =>
+                    (urlCat && c.id !== urlCat ? [] : (c.subCategories ?? [])).map((s) => ({
+                      value: s.id,
+                      label: urlCat ? s.name : `${c.name} › ${s.name}`,
+                    }))
+                  ),
                 ]}
                 size="sm"
               />
@@ -298,20 +325,51 @@ export default function AdminProductsFilters({ totalCount, categories }: Props) 
               />
             </div>
 
-            {/* Sync marketplace — applies immediately */}
+            {/* Mot-clé — applies immediately */}
             <div>
               <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
-                Sync marketplace
+                Mot-clé
               </label>
               <CustomSelect
-                value={urlSyncStatus}
-                onChange={(v) => navigate({ syncStatus: v || null })}
+                value={urlTag}
+                onChange={(v) => navigate({ tag: v || null })}
                 options={[
                   { value: "", label: "Tous" },
-                  { value: "synced", label: "Synchronisé" },
-                  { value: "pending", label: "Sync en cours" },
-                  { value: "failed", label: "Sync échouée" },
-                  { value: "none", label: "Non synchronisé" },
+                  ...tags.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+                size="sm"
+              />
+            </div>
+
+            {/* Best-sellers — applies immediately */}
+            <div>
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
+                Best-sellers
+              </label>
+              <CustomSelect
+                value={urlBestSeller}
+                onChange={(v) => navigate({ bestSeller: v || null })}
+                options={[
+                  { value: "", label: "Tous" },
+                  { value: "1", label: "Best-sellers uniquement" },
+                ]}
+                size="sm"
+              />
+            </div>
+
+            {/* Rafraîchissement — applies immediately */}
+            <div>
+              <label className="block text-[10px] font-semibold text-text-secondary uppercase tracking-wider font-body mb-1">
+                Rafraîchissement
+              </label>
+              <CustomSelect
+                value={urlRefresh}
+                onChange={(v) => navigate({ refresh: v || null })}
+                options={[
+                  { value: "", label: "Tous" },
+                  { value: "recent", label: "Rafraîchi récemment (30j)" },
+                  { value: "refreshed", label: "Déjà rafraîchi" },
+                  { value: "never", label: "Jamais rafraîchi" },
                 ]}
                 size="sm"
               />
