@@ -13,6 +13,7 @@
     "test:pfs-smoke": "vitest run __tests__/pfs/pfs-smoke.test.ts",
     "c": "claude --dangerously-skip-permissions",
     "pull": "git pull && npx prisma db push && npx prisma generate && npm run dev",
+    "deploy": "bash deploy.sh",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
