@@ -6,6 +6,34 @@ import Link from "next/link";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { revalidateAfterImport } from "@/app/actions/admin/products";
 import type { PreviewResult, PreviewProduct, MissingEntity } from "@/app/api/admin/products/import/preview/route";
+import { PFS_GENDER_LABELS, PFS_FAMILIES_BY_GENDER } from "@/lib/marketplace-excel/pfs-taxonomy";
+
+// Flat set of all known PFS family names (for exact matching)
+const ALL_KNOWN_FAMILIES = new Set<string>();
+for (const fams of Object.values(PFS_FAMILIES_BY_GENDER)) {
+  for (const f of fams) ALL_KNOWN_FAMILIES.add(f);
+}
+
+/**
+ * Resolve a PFS family API label (e.g. "Bijoux Fantaisie", "Fête et Décorations")
+ * to the taxonomy key (e.g. "Bijoux_Fantaisie", "Fête_et_Décorations").
+ * Must match exactly — no fuzzy/includes to avoid cross-gender collisions
+ * (e.g. "Accessoires" vs "Accessoires_H" vs "Accessoires_K").
+ */
+function resolveFamilyLabel(label: string): string | null {
+  // 1) Direct match (rare — labels usually have spaces)
+  if (ALL_KNOWN_FAMILIES.has(label)) return label;
+  // 2) Replace spaces with underscores (most common case)
+  const underscored = label.replace(/\s+/g, "_");
+  if (ALL_KNOWN_FAMILIES.has(underscored)) return underscored;
+  // 3) Strip diacritics + underscored, case-insensitive search
+  const norm = label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[\s_]+/g, "_");
+  for (const known of ALL_KNOWN_FAMILIES) {
+    const normKnown = known.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[\s_]+/g, "_");
+    if (normKnown === norm) return known;
+  }
+  return null;
+}
 
 // PFS attribute types for correspondance dropdowns
 interface PfsColor { reference: string; value: string; image: string | null; labels: Record<string, string> }
@@ -1136,11 +1164,28 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
     if (entity.type === "category" && pfsCategoryIds[entity.name]) {
       const catId = pfsCategoryIds[entity.name];
       fields.pfsCategoryId = catId;
-      // Derive gender and family from PFS category
+      // Derive gender, family name and category name from PFS category
       const pfsCat = pfsAttrs?.categories.find((c) => c.id === catId);
       if (pfsCat) {
         fields.pfsGender = pfsCat.gender;
-        fields.pfsFamilyId = typeof pfsCat.family === "string" ? pfsCat.family : pfsCat.family?.id;
+        // Category label = subcategory name (e.g. "Blouses")
+        const catLabel = pfsCat.labels?.fr;
+        if (catLabel) fields.pfsCategoryName = catLabel;
+        // Resolve family ID → readable family name from taxonomy
+        const familyId = typeof pfsCat.family === "string" ? pfsCat.family : pfsCat.family?.id;
+        if (familyId && pfsAttrs) {
+          // If the raw family ID is already a known taxonomy name, use it directly
+          if (ALL_KNOWN_FAMILIES.has(familyId)) {
+            fields.pfsFamilyName = familyId;
+          } else {
+            // Look up the family in the API reference data and resolve its label
+            const pfsFamily = pfsAttrs.families.find((f) => f.id === familyId);
+            if (pfsFamily) {
+              const familyLabel = pfsFamily.labels?.fr ?? "";
+              fields.pfsFamilyName = resolveFamilyLabel(familyLabel) ?? familyLabel.replace(/\s+/g, "_");
+            }
+          }
+        }
       }
     }
     if (entity.type === "composition" && pfsCompositionRefs[entity.name]) {

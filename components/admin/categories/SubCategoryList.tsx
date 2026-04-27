@@ -32,6 +32,13 @@ interface Category {
   subCategories: SubCategoryItem[];
 }
 
+/** Detect Salesforce IDs stored in pfsFamilyName (e.g. "a0358000001JibC") */
+function isSalesforceId(value: string | null): boolean {
+  if (!value) return false;
+  // Salesforce IDs are 15 or 18 char alphanumeric starting with "a0"
+  return /^[a-zA-Z0-9]{15,18}$/.test(value) && /^a0/.test(value);
+}
+
 export default function CategoriesManager({ categories }: { categories: Category[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [subModalOpen, setSubModalOpen] = useState(false);
@@ -245,7 +252,7 @@ export default function CategoriesManager({ categories }: { categories: Category
                         </td>
                         {/* PFS */}
                         <td className="px-4 py-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
-                          {cat.pfsGender && cat.pfsFamilyName && cat.pfsCategoryName ? (
+                          {cat.pfsGender && cat.pfsFamilyName && !isSalesforceId(cat.pfsFamilyName) && cat.pfsCategoryName ? (
                             <div className="flex flex-col gap-0.5">
                               <span className="badge badge-purple text-[10px]">
                                 {GENDER_LABELS[cat.pfsGender] ?? cat.pfsGender}
@@ -403,7 +410,7 @@ export default function CategoriesManager({ categories }: { categories: Category
             name: editCat.name,
             translations: editCat.translations,
             pfsGender: editCat.pfsGender,
-            pfsFamilyName: editCat.pfsFamilyName,
+            pfsFamilyName: isSalesforceId(editCat.pfsFamilyName) ? null : editCat.pfsFamilyName,
             pfsCategoryName: editCat.pfsCategoryName,
             onSave: handleSaveCat,
           }}

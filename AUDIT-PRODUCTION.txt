@@ -1,0 +1,787 @@
+================================================================================
+         AUDIT COMPLET DU SITE — AVANT MISE EN PRODUCTION
+         Date : 28 avril 2026
+         Généré par : 12 agents IA en parallèle
+================================================================================
+
+TABLE DES MATIÈRES :
+  [P1] PROBLÈMES CRITIQUES (bloquants pour la production)
+  [P2] PROBLÈMES IMPORTANTS (à corriger rapidement)
+  [P3] PROBLÈMES MINEURS (à corriger quand possible)
+  [OK] CE QUI FONCTIONNE BIEN
+
+================================================================================
+[P1] PROBLÈMES CRITIQUES — BLOQUANTS POUR LA PRODUCTION
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+P1-01 — PAS DE VÉRIFICATION DU STOCK AU MOMENT DE LA COMMANDE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/client/order.ts (fonction placeOrder, ligne ~95)
+PROBLÈME : Quand un client passe commande, le code ne vérifie jamais si le
+  produit est encore en stock. Si 2 clients commandent le même produit au
+  même moment, les 2 commandes passent même s'il n'y a qu'1 pièce.
+  Le stock est déduit plus tard quand l'admin passe la commande en
+  "En préparation" (via decrementStockForOrder dans orders.ts ligne 28-31),
+  mais entre-temps rien n'empêche la survente.
+IMPACT : Survente de produits. Commandes impossibles à honorer.
+CORRECTION :
+  Dans placeOrder() (app/actions/client/order.ts), AVANT la création de la
+  commande (avant le prisma.order.create), ajouter une vérification :
+
+  1. Pour chaque article du panier, lire le stock actuel du ProductColor
+  2. Vérifier que stock >= quantité demandée
+  3. Si stock insuffisant, retourner une erreur avec le détail
+  4. Déduire le stock dans la même transaction Prisma que la création de
+     commande (utiliser prisma.$transaction)
+
+  Exemple de code à ajouter :
+  ```typescript
+  await prisma.$transaction(async (tx) => {
+    // Pour chaque article du panier
+    for (const item of cartItems) {
+      const variant = await tx.productColor.findUnique({
+        where: { id: item.productColorId },
+        select: { stock: true, id: true }
+      });
+      if (!variant || variant.stock < item.quantity) {
+        throw new Error(`Stock insuffisant pour ${item.productName}`);
+      }
+      // Déduire le stock
+      await tx.productColor.update({
+        where: { id: item.productColorId },
+        data: { stock: { decrement: item.quantity } }
+      });
+    }
+    // Créer la commande ici (dans la même transaction)
+    const order = await tx.order.create({ ... });
+  });
+  ```
+
+  AUSSI : Retirer l'appel à decrementStockForOrder() dans updateOrderStatus()
+  (orders.ts ligne 28-31) puisque le stock sera déjà déduit à la commande.
+  Garder reinstateStockForOrder() pour les annulations.
+
+──────────────────────────────────────────────────────────────────────────────
+P1-02 — PAS D'EMAIL QUAND UN COMPTE CLIENT EST APPROUVÉ OU REFUSÉ
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/admin/updateUserStatus.ts (lignes 19-54)
+PROBLÈME : Quand l'admin approuve ou refuse un client, aucun email n'est
+  envoyé. Le client ne sait pas que son compte est activé.
+IMPACT : Les clients ne reviennent jamais commander car ils ne savent pas
+  que leur compte est prêt.
+CORRECTION :
+  1. Créer 2 nouvelles fonctions dans lib/notifications.ts :
+     - notifyClientAccountApproved(email, firstName, shopName)
+     - notifyClientAccountRejected(email, firstName, reason, shopName)
+
+  2. Dans updateUserStatus.ts, après le prisma.user.update() :
+  ```typescript
+  // Après la ligne qui fait le update
+  if (status === "APPROVED") {
+    const shopName = await getCachedShopName();
+    notifyClientAccountApproved(user.email, user.firstName, shopName)
+      .catch((err) => logger.error("[notify] Erreur email approbation", { error: err }));
+  } else if (status === "REJECTED") {
+    const shopName = await getCachedShopName();
+    notifyClientAccountRejected(user.email, user.firstName, reason, shopName)
+      .catch((err) => logger.error("[notify] Erreur email refus", { error: err }));
+  }
+  ```
+
+  3. Template email approbation (dans notifications.ts) :
+     Sujet : "Votre compte a été validé — {shopName}"
+     Corps : "Bonjour {firstName}, votre compte professionnel a été validé.
+              Vous pouvez maintenant passer commande sur {lien site}."
+
+  4. Template email refus (dans notifications.ts) :
+     Sujet : "Votre demande de compte — {shopName}"
+     Corps : "Bonjour {firstName}, nous n'avons pas pu valider votre compte.
+              {reason si fourni}. Contactez-nous pour plus d'informations."
+
+──────────────────────────────────────────────────────────────────────────────
+P1-03 — PAS D'EMAIL QUAND L'ADMIN RÉPOND À UN MESSAGE SUPPORT
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/admin/messages.ts (fonction sendAdminReply, lignes 64-113)
+PROBLÈME : Quand l'admin répond à un client dans la messagerie, le client ne
+  reçoit pas d'email. Il ne voit la réponse que s'il est connecté au site.
+IMPACT : Les réponses support ne sont jamais lues par les clients.
+CORRECTION :
+  La fonction notifyClientNewReply() existe DÉJÀ dans lib/notifications.ts
+  (lignes 449-482). Il suffit de l'appeler.
+
+  Dans sendAdminReply() (messages.ts), après la ligne 108 (revalidateTag) :
+  ```typescript
+  // Envoyer email au client
+  const client = await prisma.user.findUnique({
+    where: { id: conversation.clientId },
+    select: { email: true, firstName: true }
+  });
+  if (client) {
+    notifyClientNewReply(
+      client.email,
+      conversation.reference,
+      conversation.subject,
+      content
+    ).catch((err) => logger.error("[notify] Erreur email réponse support", { error: err }));
+  }
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P1-04 — CLIENTS EN ATTENTE PEUVENT ACCÉDER AUX FONCTIONS RÉSERVÉES
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : middleware.ts (lignes 104-120 et 152-221)
+NOTE : Le middleware a un check global aux lignes 104-120 qui redirige les
+  PENDING vers /espace-pro. Mais il faut vérifier que ce check s'applique
+  AVANT les checks des routes /panier, /favoris, /commandes. Si l'ordre
+  est correct, ce bug n'existe pas en réalité. VÉRIFIER L'ORDRE DU CODE.
+
+AUSSI VÉRIFIER CES PAGES (côté serveur, en plus du middleware) :
+  - app/(client)/espace-pro/reclamations/nouveau/page.tsx (ligne ~20)
+    → Pas de check session.user.status !== "APPROVED"
+  - app/(client)/espace-pro/reclamations/[id]/page.tsx (ligne ~20)
+    → Pas de check session.user.status !== "APPROVED"
+  - app/actions/client/messages.ts → sendClientMessage() (ligne 80)
+    → Pas de check session.user.status !== "APPROVED"
+    (alors que createSupportConversation ligne 13 le vérifie)
+
+CORRECTION :
+  1. Vérifier l'ordre dans middleware.ts — si le check PENDING (104-120) est
+     AVANT les routes /panier etc., le middleware est OK
+  2. Ajouter un check status dans les pages réclamations :
+  ```typescript
+  const session = await getServerSession(authOptions);
+  if (!session) redirect("/connexion");
+  if (session.user.status !== "APPROVED") redirect("/espace-pro");
+  ```
+  3. Dans messages.ts sendClientMessage() (ligne 80), ajouter :
+  ```typescript
+  if (!session || session.user.role !== "CLIENT" || session.user.status !== "APPROVED") {
+    return { success: false, error: "Accès non autorisé." };
+  }
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P1-05 — ROUTE API PFS REFRESH MANQUANTE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER MANQUANT : app/api/admin/pfs-refresh/route.ts (N'EXISTE PAS)
+APPELÉ PAR : components/admin/pfs/PfsRefreshContext.tsx (ligne 54)
+PROBLÈME : Le composant PfsRefreshContext appelle fetch("/api/admin/pfs-refresh")
+  mais cette route n'existe pas. Le rafraîchissement PFS depuis le widget
+  en bas à droite retourne une erreur 404.
+IMPACT : Le bouton "Rafraîchir" PFS ne fonctionne pas du tout.
+CORRECTION :
+  Créer le fichier app/api/admin/pfs-refresh/route.ts :
+  ```typescript
+  import { getServerSession } from "next-auth";
+  import { authOptions } from "@/lib/auth";
+  import { NextRequest, NextResponse } from "next/server";
+  import { refreshProductOnMarketplaces } from "@/app/actions/admin/marketplace-refresh";
+
+  export async function POST(req: NextRequest) {
+    const session = await getServerSession(authOptions);
+    if (!session || session.user.role !== "ADMIN") {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    const { productId } = await req.json();
+    if (!productId) {
+      return NextResponse.json({ error: "productId requis" }, { status: 400 });
+    }
+    try {
+      const result = await refreshProductOnMarketplaces(productId, {
+        refreshShop: false,
+        refreshPfs: true,
+        refreshAnkorstore: false,
+      });
+      return NextResponse.json(result);
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Erreur inconnue" },
+        { status: 500 }
+      );
+    }
+  }
+  ```
+  NOTE : Vérifier la signature exacte de refreshProductOnMarketplaces dans
+  app/actions/admin/marketplace-refresh.ts avant d'implémenter.
+
+──────────────────────────────────────────────────────────────────────────────
+P1-06 — PRIX PACK INCOHÉRENTS ENTRE EXPORT EXCEL ET REFRESH PFS
+──────────────────────────────────────────────────────────────────────────────
+FICHIER 1 : lib/marketplace-excel/pfs-export.ts (lignes 80-81)
+  → Divise unitPrice par packQuantity
+
+FICHIER 2 : lib/pfs-refresh.ts (lignes 118-127)
+  → Divise unitPrice par la somme des variantSizes.quantity
+  → Fallback sur packQuantity seulement si la somme = 0
+
+PROBLÈME : Les 2 fichiers calculent le prix unitaire d'un pack différemment.
+  Si un pack a packQuantity=10 mais les tailles font 4+3+3=10, ça donne
+  le même résultat. Mais si les chiffres divergent (par ex. packQuantity=10
+  mais tailles = 5+5=10... ou 4+4=8), le prix sera différent.
+IMPACT : Le même produit a un prix différent sur PFS selon qu'on l'exporte
+  via Excel ou qu'on le rafraîchit via le bouton.
+CORRECTION :
+  Unifier la logique. Toujours utiliser packQuantity (c'est la source de
+  vérité). Dans lib/pfs-refresh.ts, remplacer les lignes 118-127 par :
+  ```typescript
+  if (variant.saleType === "PACK" && variant.packQuantity && variant.packQuantity > 0) {
+    unitPrice = Math.round((price / variant.packQuantity) * 100) / 100;
+  }
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P1-07 — PRIX PEUT CHANGER ENTRE PAIEMENT ET COMMANDE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER 1 : app/api/payments/create-intent/route.ts (lignes 151-166)
+FICHIER 2 : app/actions/client/order.ts (lignes 185-197)
+PROBLÈME : Le montant du Payment Intent Stripe et le montant de la commande
+  sont calculés indépendamment. Si un prix produit change entre les deux
+  appels, le client paie un montant différent de celui sur la facture.
+IMPACT : Incohérences comptables. Risque de fraude potentiel.
+CORRECTION :
+  Option A (simple) : Dans placeOrder(), recalculer le total et vérifier
+  qu'il correspond au montant du Payment Intent Stripe :
+  ```typescript
+  const intent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
+  const expectedAmountCents = Math.round(totalTTC * 100);
+  if (intent.amount !== expectedAmountCents) {
+    return { success: false, error: "Le montant a changé. Veuillez recommencer." };
+  }
+  ```
+  Option B (robuste) : Stocker le prix au moment du create-intent dans les
+  metadata du Payment Intent et le relire dans placeOrder().
+
+
+================================================================================
+[P2] PROBLÈMES IMPORTANTS — À CORRIGER RAPIDEMENT
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+P2-01 — PAS DE VALIDATION DES TRANSITIONS DE STATUT COMMANDE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/admin/orders.ts (fonction updateOrderStatus, lignes 16-48)
+PROBLÈME : On peut faire passer une commande "Livrée" en "En préparation" ou
+  une commande "Expédiée" en "En attente". Aucune règle de transition.
+CORRECTION :
+  Ajouter une map de transitions autorisées :
+  ```typescript
+  const VALID_TRANSITIONS: Record<string, string[]> = {
+    PENDING:    ["PROCESSING", "CANCELLED"],
+    PROCESSING: ["SHIPPED", "CANCELLED"],
+    SHIPPED:    ["DELIVERED"],
+    DELIVERED:  [], // statut final
+    CANCELLED:  [], // statut final
+  };
+
+  // Dans updateOrderStatus, après avoir récupéré la commande
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) throw new Error("Commande introuvable");
+  const allowed = VALID_TRANSITIONS[order.status] || [];
+  if (!allowed.includes(status)) {
+    throw new Error(`Impossible de passer de ${order.status} à ${status}`);
+  }
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P2-02 — PAS D'EMAIL D'ANNULATION DE COMMANDE (côté client)
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/client/order.ts (fonction cancelOrder, lignes 13-30)
+PROBLÈME : Quand un client annule sa commande PENDING, aucun email n'est
+  envoyé ni au client ni à l'admin.
+CORRECTION :
+  Après le update du statut dans cancelOrder(), ajouter :
+  ```typescript
+  // Notifier le client
+  notifyOrderStatusChange(order.user.email, order.orderNumber, "CANCELLED", shopName)
+    .catch(err => logger.error("[notify] Erreur email annulation", { error: err }));
+  // Notifier l'admin
+  notifyAdminOrderCancelled(order.orderNumber, order.user.company)
+    .catch(err => logger.error("[notify] Erreur notif admin annulation", { error: err }));
+  ```
+  Note : notifyAdminOrderCancelled n'existe peut-être pas encore, la créer
+  dans lib/notifications.ts si nécessaire.
+
+──────────────────────────────────────────────────────────────────────────────
+P2-03 — IDENTIFIANT ANKORSTORE PAS CHIFFRÉ EN BASE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/encryption.ts (lignes 16-23, constante SENSITIVE_KEYS)
+PROBLÈME : "ankors_client_secret" est dans SENSITIVE_KEYS (chiffré) mais
+  "ankors_client_id" ne l'est pas (stocké en clair).
+CORRECTION :
+  Ajouter "ankors_client_id" dans le Set SENSITIVE_KEYS :
+  ```typescript
+  const SENSITIVE_KEYS = new Set([
+    "easy_express_api_key",
+    "deepl_api_key",
+    "pfs_email",
+    "pfs_password",
+    "stripe_connect_account_id",
+    "ankors_client_secret",
+    "ankors_client_id",  // ← AJOUTER
+  ]);
+  ```
+  Note : Les valeurs existantes en clair seront automatiquement migrées
+  car decryptIfSensitive() gère les valeurs non chiffrées (retourne tel quel).
+  La prochaine écriture via l'admin chiffrera la valeur.
+
+──────────────────────────────────────────────────────────────────────────────
+P2-04 — WEBHOOKS STRIPE INCOMPLETS
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/api/payments/webhook/route.ts
+PROBLÈME : Seuls payment_intent.succeeded et payment_intent.payment_failed
+  sont gérés. Manquent :
+  - charge.refunded (remboursements)
+  - payment_intent.canceled (paiement annulé)
+  - charge.dispute.created (litiges/chargebacks)
+CORRECTION :
+  Ajouter les handlers dans le switch/case du webhook :
+  ```typescript
+  case "charge.refunded":
+    // Mettre à jour le statut de la commande si remboursement total
+    // Logger le remboursement partiel
+    break;
+  case "payment_intent.canceled":
+    // Annuler la commande si elle existe
+    break;
+  case "charge.dispute.created":
+    // Logger le litige, notifier l'admin par email
+    break;
+  ```
+  AUSSI : Dans le dashboard Stripe, activer l'envoi de ces événements
+  vers le webhook endpoint.
+
+──────────────────────────────────────────────────────────────────────────────
+P2-05 — GROUPKEY DANS ADMINTABLE UTILISE LES NOMS DE SOUS-COULEURS
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : components/admin/products/AdminProductsTable.tsx
+  Ligne 367-368 : subNames = c.subColors?.map(sc => sc.color.name)
+  Ligne 476-477 : subNamesForKey = c.subColors?.map(sc => sc.color.name)
+PROBLÈME : Le groupKey est construit avec colorId + noms de sous-couleurs.
+  Si 2 couleurs différentes ont le même nom, les variantes se mélangent.
+  Le standard dans ColorVariantManager (ligne 179-181) utilise les IDs.
+CORRECTION :
+  Remplacer les noms par les IDs dans les 2 endroits :
+  ```typescript
+  // Ligne 367-368 : remplacer
+  const subIds = c.subColors?.map((sc: { colorId: string }) => sc.colorId).sort() ?? [];
+  const gk = subIds.length === 0 ? c.colorId! : `${c.colorId!}::${subIds.join(",")}`;
+
+  // Ligne 476-477 : même correction
+  const subIdsForKey = c.subColors?.map((sc: { colorId: string }) => sc.colorId).sort() ?? [];
+  const colorKey = subIdsForKey.length === 0 ? c.colorId : `${c.colorId}::${subIdsForKey.join(",")}`;
+  ```
+  IMPORTANT : Les sub-IDs doivent être triés (.sort()) pour être cohérents
+  avec variantGroupKeyFromState() du ColorVariantManager.
+
+──────────────────────────────────────────────────────────────────────────────
+P2-06 — AVERTISSEMENTS PFS BLOQUENT L'EXPORT ANKORSTORE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/api/admin/marketplace-export/route.ts (lignes 46-54)
+PROBLÈME : Si un produit a un avertissement lié à PFS (genre manquant, famille
+  manquante), l'export ENTIER est bloqué même si on exporte seulement vers
+  Ankorstore. Les warnings ne sont pas filtrés par marketplace.
+CORRECTION :
+  Filtrer les warnings selon les marketplaces sélectionnées :
+  ```typescript
+  // Après avoir collecté tous les warnings
+  const filteredWarnings = warnings.filter(w => {
+    if (!includePfs && w.message.includes("PFS")) return false;
+    if (!includeAnkorstore && w.message.includes("Ankorstore")) return false;
+    return true;
+  });
+  if (filteredWarnings.length > 0) {
+    return NextResponse.json(
+      { error: "Export bloqué", warnings: filteredWarnings, counts },
+      { status: 422 }
+    );
+  }
+  ```
+  NOTE : Il faudra peut-être taguer les warnings avec leur marketplace
+  d'origine dans pfs-export.ts et ankorstore-export.ts pour un filtrage
+  plus précis.
+
+──────────────────────────────────────────────────────────────────────────────
+P2-07 — PROTECTION ANTI-BRUTE FORCE : 4 ESSAIS AU LIEU DE 3
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/security.ts (lignes 77-86)
+PROBLÈME : Le code fait un upsert qui incrémente failureCount, puis ajoute
+  encore 1 au résultat. Prisma retourne la valeur APRÈS l'update, donc
+  le +1 supplémentaire est de trop. Résultat : le lockout se déclenche
+  à 4 essais au lieu de 3.
+
+  Ligne 80 : update: { failureCount: { increment: 1 } }
+  Ligne 83 : const newFailureCount = lockout.failureCount + 1  ← DOUBLON
+
+  NOTE IMPORTANTE : Le commentaire ligne 83 dit "upsert returns state BEFORE
+  update" — c'est FAUX. Prisma upsert retourne l'état APRÈS le update.
+  Mais il faut vérifier : pour le CREATE (première tentative), l'upsert
+  retourne bien failureCount=1 (la valeur créée). Dans ce cas le +1 donne 2,
+  ce qui est faux. VÉRIFIER le comportement exact de Prisma upsert.
+
+CORRECTION (si Prisma retourne bien la valeur APRÈS update) :
+  Ligne 83, remplacer :
+  ```typescript
+  const newFailureCount = lockout.failureCount;  // Plus de +1
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P2-08 — PAS DE NOTIFICATION EMAIL POUR MODIFICATIONS D'ARTICLES COMMANDE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/admin/orders.ts (fonction modifyOrderItems, lignes 58-176)
+PROBLÈME : Quand l'admin modifie les quantités d'une commande (rupture de stock
+  partielle), le client n'est pas prévenu par email.
+CORRECTION :
+  Créer notifyClientOrderModified() dans lib/notifications.ts, puis l'appeler
+  à la fin de modifyOrderItems() avec le détail des modifications.
+
+──────────────────────────────────────────────────────────────────────────────
+P2-09 — ERREUR DE CONVERSION IMAGE SILENCIEUSE À L'EXPORT
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/marketplace-excel/build-archive.ts (lignes 109-114)
+PROBLÈME : Si la conversion WebP→JPEG échoue pour une image, l'erreur est
+  loguée mais PAS ajoutée aux avertissements. L'admin ne voit pas que
+  des images manquent dans l'export.
+CORRECTION :
+  Dans le catch (ligne 109-114), ajouter :
+  ```typescript
+  allWarnings.push({
+    reference: product.reference,
+    message: `Image ${imagePath} : conversion JPEG échouée`
+  });
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P2-10 — SUPPRESSION COLLECTION SANS GESTION D'ERREUR
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : components/admin/collections/DeleteCollectionButton.tsx (lignes 15-27)
+PROBLÈME : La suppression n'a pas de try-catch. Si ça échoue, le dialogue
+  se ferme quand même sans message d'erreur.
+CORRECTION :
+  Ajouter un try-catch avec toast d'erreur :
+  ```typescript
+  const handleDelete = async () => {
+    try {
+      await deleteCollection(id);
+      toast.success("Collection supprimée");
+    } catch (err) {
+      toast.error("Erreur lors de la suppression");
+    }
+  };
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P2-11 — ROLLBACK PFS REFRESH RESTAURE TOUJOURS "READY_FOR_SALE"
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/pfs-refresh.ts (lignes 521-529)
+PROBLÈME : En cas d'erreur pendant le refresh, le rollback remet le produit
+  en "READY_FOR_SALE" même s'il était "ARCHIVED" avant.
+CORRECTION :
+  Stocker le statut original avant les modifications :
+  ```typescript
+  const originalStatus = existingProduct.status; // Lire AVANT les changements
+  // ... dans le catch/rollback :
+  await pfsUpdateStatus([{ id: oldPfsProductId, status: originalStatus }]);
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P2-12 — POIDS ANKORSTORE INCORRECT POUR LES PACKS
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/marketplace-excel/ankorstore-export.ts (lignes 187-188)
+PROBLÈME : Le poids exporté est celui de la variante sans ajustement pour les
+  packs. Si le poids en base est par unité, il faut le multiplier par la
+  quantité du pack. Si c'est déjà par pack, c'est correct.
+CORRECTION :
+  Vérifier la sémantique du champ poids en base. Si c'est par unité :
+  ```typescript
+  const weight = variant.saleType === "PACK" && variant.packQuantity
+    ? (variant.weight || 0) * variant.packQuantity
+    : (variant.weight || 0);
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P2-13 — 2 CONTEXTES PFS REFRESH DIFFÉRENTS (DUPLICATION)
+──────────────────────────────────────────────────────────────────────────────
+FICHIER 1 : components/admin/pfs/PfsRefreshContext.tsx
+FICHIER 2 : components/admin/products/PfsRefreshContext.tsx
+PROBLÈME : 2 contextes React gèrent le refresh PFS avec des logiques
+  différentes. Risque de confusion et de maintenance difficile.
+CORRECTION :
+  Consolider en un seul contexte. Garder le plus complet
+  (products/PfsRefreshContext.tsx) et adapter l'autre pour l'utiliser.
+  Ou clairement séparer : un pour le widget rapide, un pour le batch.
+
+
+================================================================================
+[P3] PROBLÈMES MINEURS — À CORRIGER QUAND POSSIBLE
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+P3-01 — ACCENTS MANQUANTS DANS LES EMAILS
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/notifications.ts
+CORRECTIONS :
+  Ligne 431 : "vous a envoye un message" → "vous a envoyé un message"
+  Ligne 465 : "Reponse a votre message" → "Réponse à votre message"
+  Ligne 469 : "reponse a votre message" → "réponse à votre message"
+  Ligne 507 : "Nouvelle reclamation" → "Nouvelle réclamation"
+  Ligne 510 : "Nouvelle reclamation" → "Nouvelle réclamation"
+  Ligne 519 : "Examiner la reclamation" → "Examiner la réclamation"
+  Ligne 521 : "Voir la reclamation" → "Voir la réclamation"
+  Ligne 561 : "reclamation" → "réclamation"
+  Ligne 565 : "Voir la reclamation" → "Voir la réclamation"
+
+──────────────────────────────────────────────────────────────────────────────
+P3-02 — TEXTES EN FRANÇAIS NON TRADUITS (i18n)
+──────────────────────────────────────────────────────────────────────────────
+FICHIERS ET CORRECTIONS :
+  - components/produits/SearchFilters.tsx ligne 351 :
+    "Référence exacte" → utiliser t("exactRef")
+  - components/produits/SearchFilters.tsx ligne 183 :
+    "Tout effacer" → utiliser t("clearAll")
+  - components/produits/CategoriesAccordion.tsx ligne 67 :
+    "sous-cat." → utiliser t("subcategories")
+
+  Ajouter les clés correspondantes dans messages/fr.json et les autres
+  fichiers de traduction.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-03 — MÉTADONNÉES PAGES RÉCLAMATIONS SANS NOM DE BOUTIQUE
+──────────────────────────────────────────────────────────────────────────────
+FICHIERS :
+  - app/(client)/espace-pro/reclamations/page.tsx (ligne 7)
+  - app/(client)/espace-pro/reclamations/nouveau/page.tsx (ligne 8)
+  - app/(client)/espace-pro/reclamations/[id]/page.tsx (ligne 10)
+CORRECTION : Remplacer le metadata statique par generateMetadata() avec
+  getCachedShopName() comme sur les autres pages.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-04 — SCROLL INFINI : ERREURS RÉSEAU IGNORÉES SILENCIEUSEMENT
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : components/produits/ProductsInfiniteScroll.tsx (lignes 199-202)
+PROBLÈME : Le .catch() ignore silencieusement les erreurs réseau.
+CORRECTION : Afficher un message "Erreur de chargement, réessayer" au lieu
+  de ne rien faire.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-05 — NETTOYAGE WEBHOOK STRIPE NON IMPLÉMENTÉ
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/api/payments/webhook/route.ts (lignes 51-54)
+PROBLÈME : TODO dans le code : "Set up a cron job to delete
+  StripeWebhookEvent records older than 30 days". Non implémenté.
+CORRECTION : Créer un cron job ou une action admin qui supprime les
+  StripeWebhookEvent de plus de 30 jours.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-06 — VALIDATION PROFIL CLIENT INSUFFISANTE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/client/profile.ts (lignes 8-33)
+PROBLÈME : Pas de validation du format téléphone, numéro TVA, longueur max.
+CORRECTION : Ajouter un schéma Zod pour valider les champs avant update.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-07 — FORMAT TÉLÉPHONE LIMITÉ À LA FRANCE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/validations/auth.ts (lignes 42-45)
+PROBLÈME : Le regex n'accepte que les numéros français (+33 ou 0).
+  Les clients allemands, espagnols, etc. ne peuvent pas s'inscrire.
+CORRECTION : Élargir le regex pour accepter les numéros internationaux :
+  /^(\+[0-9]{1,3}|0)[1-9](\d{7,12})$/
+
+──────────────────────────────────────────────────────────────────────────────
+P3-08 — REORDER RÉDUIT LES QUANTITÉS SILENCIEUSEMENT
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/client/reorder.ts (lignes 81-92)
+PROBLÈME : Si le stock a baissé, la quantité est réduite automatiquement
+  sans demander au client. Il reçoit un warning mais la commande passe.
+CORRECTION : Retourner les warnings AVANT de créer le panier, et demander
+  confirmation au client via l'UI.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-09 — ERREURS SILENCIEUSES DANS L'ENVOI D'EMAILS
+──────────────────────────────────────────────────────────────────────────────
+FICHIERS :
+  - app/actions/client/messages.ts ligne 51 : .catch(() => {})
+  - app/actions/client/claims.ts ligne 87 : .catch(() => {})
+  - app/actions/admin/claims.ts ligne 110 : .catch(() => {})
+CORRECTION : Remplacer les .catch(() => {}) par :
+  .catch((err) => logger.error("[notify] Erreur envoi email", { error: err }))
+
+──────────────────────────────────────────────────────────────────────────────
+P3-10 — MENTION "RESEND" AU LIEU DE "SMTP" DANS LES LOGS
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/password-reset.ts (ligne 46)
+PROBLÈME : Le log dit "Configuration Resend manquante" mais le système
+  utilise SMTP via nodemailer, pas Resend.
+CORRECTION : Changer le message en "Configuration SMTP manquante".
+
+──────────────────────────────────────────────────────────────────────────────
+P3-11 — REVALIDATION CATALOGUE PUBLIC MANQUANTE À LA SUPPRESSION
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/admin/catalogs.ts (lignes 46-50)
+PROBLÈME : Quand un catalogue est supprimé, la page publique /catalogue/{token}
+  reste en cache.
+CORRECTION : Ajouter revalidateTag pour le token du catalogue.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-12 — COLLECTION : AJOUT DE PRODUIT SANS VÉRIFICATION STATUS
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/admin/collections.ts (lignes 133-156)
+PROBLÈME : On peut ajouter un produit OFFLINE ou ARCHIVED à une collection.
+CORRECTION : Vérifier que product.status === "ONLINE" avant l'ajout.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-13 — RÉORDONNANCEMENT COLLECTION NON ATOMIQUE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/actions/admin/collections.ts (lignes 199-217)
+PROBLÈME : Promise.all() pour les mises à jour de position sans transaction.
+CORRECTION : Envelopper dans prisma.$transaction().
+
+──────────────────────────────────────────────────────────────────────────────
+P3-14 — ARRONDI MARKUP À 1 DÉCIMALE AU LIEU DE 2
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/marketplace-pricing.ts (lignes 44-54)
+PROBLÈME : Les modes "up" et "down" arrondissent à 0.1€ (1 décimale) au lieu
+  de 0.01€ (2 décimales) comme le mode "none".
+CORRECTION :
+  ```typescript
+  case "down": price = Math.floor(price * 100) / 100; break;
+  case "up":   price = Math.ceil(price * 100) / 100;  break;
+  ```
+
+──────────────────────────────────────────────────────────────────────────────
+P3-15 — IMPORT : NORMALISATION ACCENTS COULEURS INCOHÉRENTE
+──────────────────────────────────────────────────────────────────────────────
+FICHIER 1 : app/api/admin/products/import/route.ts (ligne 257)
+  → Utilise .toLowerCase() SANS normaliser les accents
+FICHIER 2 : app/api/admin/products/import/draft/[id]/route.ts (ligne 112)
+  → Utilise normalizeColorName() QUI normalise les accents
+CORRECTION : Utiliser normalizeColorName() partout.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-16 — IMPORT : FICHIERS TEMPORAIRES JAMAIS NETTOYÉS
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/api/admin/products/import/images/route.ts (lignes 168-171)
+PROBLÈME : Les images sauvées dans public/uploads/temp/ ne sont jamais
+  nettoyées si le brouillon est supprimé ou abandonné.
+CORRECTION : Ajouter un nettoyage dans l'action de suppression de brouillon,
+  ou un cron job qui supprime les fichiers temp de plus de 24h.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-17 — LIMIT 500 PRODUITS DANS LE PICKER COLLECTION
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/api/admin/collections/products/route.ts (lignes 16-19)
+PROBLÈME : Si la boutique a plus de 500 produits ONLINE, certains ne sont
+  pas visibles dans le sélecteur.
+CORRECTION : Ajouter pagination ou recherche dans le picker.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-18 — GALERIE IMAGES ANKORSTORE : LIMITE 10 vs 5
+──────────────────────────────────────────────────────────────────────────────
+FICHIER 1 : lib/ankorstore-refresh.ts (lignes 82-84) → limite 10
+FICHIER 2 : lib/marketplace-excel/ankorstore-export.ts → colonnes pour 5
+CORRECTION : Harmoniser à 5 images dans les 2 fichiers.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-19 — computeTotalPrice RETOURNE LE PRIX UNITAIRE QUAND PACK QTY = 0
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : components/admin/products/ColorVariantManager.tsx (lignes 108-119)
+PROBLÈME : Si un pack a des tailles mais toutes les quantités = 0, la
+  fonction retourne le prix unitaire au lieu de null.
+CORRECTION : Dernière ligne de la fonction, remplacer :
+  return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : unit;
+  Par :
+  return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : null;
+
+──────────────────────────────────────────────────────────────────────────────
+P3-20 — RATE LIMITING EN MÉMOIRE (PERDU AU REDÉMARRAGE)
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/rate-limit.ts (lignes 3-20)
+PROBLÈME : Le rate limiting utilise un Map en mémoire. Si le serveur
+  redémarre, tous les compteurs sont remis à zéro.
+NOTE : Acceptable pour un seul serveur. Si plusieurs instances en production,
+  migrer vers Redis.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-21 — IMPORT : PAS DE TRANSACTION PAR PRODUIT
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : app/api/admin/products/import/route.ts (lignes 341-439)
+PROBLÈME : Si la création d'un produit échoue à mi-parcours (couleurs créées
+  mais tailles échouent), le produit reste en base dans un état incomplet.
+CORRECTION : Envelopper chaque création de produit dans prisma.$transaction().
+
+──────────────────────────────────────────────────────────────────────────────
+P3-22 — EMAILS : PAS DE LIEN DE DÉSINSCRIPTION
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/notifications.ts (tous les templates)
+PROBLÈME : Aucun email n'a de lien de désinscription ni d'en-tête
+  List-Unsubscribe. Peut poser problème RGPD/CNIL et délivrabilité.
+CORRECTION : Ajouter un header List-Unsubscribe dans sendMail() et un lien
+  en bas de chaque template.
+
+──────────────────────────────────────────────────────────────────────────────
+P3-23 — EMAILS : PAS DE TRADUCTION (TOUT EN FRANÇAIS)
+──────────────────────────────────────────────────────────────────────────────
+FICHIER : lib/notifications.ts
+PROBLÈME : Tous les templates email sont en français. Les clients qui
+  utilisent le site en anglais/allemand/etc. reçoivent des emails en français.
+NOTE : Pas bloquant pour le lancement si les clients sont francophones.
+  À considérer plus tard si clientèle internationale.
+
+
+================================================================================
+[OK] CE QUI FONCTIONNE BIEN — PAS BESOIN D'Y TOUCHER
+================================================================================
+
+✓ Protection des pages admin (requireAdmin() sur toutes les 28 actions)
+✓ Protection des API routes admin (vérification session.user.role)
+✓ Chiffrement AES-256-GCM des données sensibles en base
+✓ Hashage des mots de passe (bcrypt, 12 tours)
+✓ Pas de faille SQL injection (Prisma paramétré)
+✓ Pas de faille XSS (pas de dangerouslySetInnerHTML avec du contenu user)
+✓ Validation des fichiers uploadés (type MIME, taille, magic bytes)
+✓ Protection CSRF (intégrée aux Server Actions Next.js)
+✓ Mode maintenance fonctionnel (cache 60s, fail-safe)
+✓ Réinitialisation de mot de passe sécurisée (anti-enumeration)
+✓ Validation des variables d'environnement au démarrage (lib/env.ts)
+✓ Verrouillage progressif des comptes après échecs de connexion
+✓ Cooldown 3h pour les inscriptions (anti-spam)
+✓ Token JWT 30 jours avec rôle/statut embarqués
+✓ OTP sécurisé (crypto.randomInt, expiration 10 min)
+✓ Webhook Stripe avec vérification de signature
+✓ Stripe Connect isolation correcte
+✓ Error boundaries par segment (admin, client, auth)
+✓ Logger structuré (JSON en prod, lisible en dev)
+✓ Schema.org JSON-LD sur les pages produit et home
+
+
+================================================================================
+ORDRE DE CORRECTION RECOMMANDÉ
+================================================================================
+
+PHASE 1 — BLOQUANTS PRODUCTION (faire en premier) :
+  1. P1-01 : Stock (vérification + déduction à la commande)
+  2. P1-02 : Email approbation/refus compte
+  3. P1-03 : Email réponse support
+  4. P1-04 : Accès clients PENDING (vérifier middleware + pages réclamations)
+  5. P1-05 : Créer route API pfs-refresh
+  6. P1-06 : Unifier calcul prix pack (export vs refresh)
+  7. P1-07 : Vérifier prix entre paiement et commande
+
+PHASE 2 — IMPORTANTS (faire avant le premier vrai client) :
+  8. P2-01 : Transitions statut commande
+  9. P2-03 : Chiffrer ankors_client_id
+  10. P2-04 : Webhooks Stripe (refund, cancel, dispute)
+  11. P2-05 : GroupKey IDs dans AdminProductsTable
+  12. P2-06 : Filtrer warnings export par marketplace
+  13. P2-07 : Fix comptage lockout
+  14. P2-02 : Email annulation commande
+  15. P2-08 : Email modification articles commande
+
+PHASE 3 — MINEURS (quand on a le temps) :
+  P3-01 à P3-23 dans l'ordre de votre choix.
+
+
+================================================================================
+FIN DU RAPPORT
+================================================================================

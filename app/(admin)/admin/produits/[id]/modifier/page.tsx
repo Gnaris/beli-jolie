@@ -8,6 +8,7 @@ import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapp
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
+import { getCachedPfsEnabled, getCachedSiteConfig } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, existingTranslations, colorImagesDb] = await Promise.all([
+  const [product, existingTranslations, colorImagesDb, hasPfsConfig, ankorsEnabled] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -99,6 +100,8 @@ export default async function ModifierProduitPage({
       where:   { productId: id },
       orderBy: { order: "asc" },
     }),
+    getCachedPfsEnabled(),
+    getCachedSiteConfig("ankors_enabled"),
   ]);
 
   if (!product) notFound();
@@ -247,6 +250,8 @@ export default async function ModifierProduitPage({
         <ProductForm
           mode="create"
           productId={product.id}
+          hasPfsConfig={hasPfsConfig}
+          hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
           initialData={{
             reference:         product.reference,
             name:              product.name,
@@ -380,6 +385,8 @@ export default async function ModifierProduitPage({
       <ProductForm
         mode="edit"
         productId={product.id}
+        hasPfsConfig={hasPfsConfig}
+        hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
         initialData={{
           reference:         product.reference,
           name:              product.name,

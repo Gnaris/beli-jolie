@@ -42,6 +42,8 @@ export async function POST(req: NextRequest) {
     pfsCategoryId?: string;
     pfsGender?: string;
     pfsFamilyId?: string;
+    pfsFamilyName?: string;
+    pfsCategoryName?: string;
     pfsCompositionRef?: string;
     pfsCountryRef?: string;
     pfsRef?: string; // PFS collection reference for seasons
@@ -61,7 +63,21 @@ export async function POST(req: NextRequest) {
     if (!name) return NextResponse.json({ error: "Nom requis." }, { status: 400 });
     if (body.action === "create_category") {
       const existing = await prisma.category.findFirst({ where: { name } });
-      if (existing) return NextResponse.json({ ok: true, entity: existing, already: true });
+      if (existing) {
+        // Update PFS fields if provided and missing on the existing category
+        const pfsUpdate: Record<string, string> = {};
+        if (body.pfsGender && !existing.pfsGender) pfsUpdate.pfsGender = body.pfsGender;
+        if (body.pfsFamilyName && !existing.pfsFamilyName) pfsUpdate.pfsFamilyName = body.pfsFamilyName;
+        if (body.pfsCategoryName && !existing.pfsCategoryName) pfsUpdate.pfsCategoryName = body.pfsCategoryName;
+        if (body.pfsCategoryId && !existing.pfsCategoryId) pfsUpdate.pfsCategoryId = body.pfsCategoryId;
+        if (body.pfsFamilyId && !existing.pfsFamilyId) pfsUpdate.pfsFamilyId = body.pfsFamilyId;
+        if (Object.keys(pfsUpdate).length > 0) {
+          const updated = await prisma.category.update({ where: { id: existing.id }, data: pfsUpdate });
+          revalidateTag("categories", "default");
+          return NextResponse.json({ ok: true, entity: updated, already: true });
+        }
+        return NextResponse.json({ ok: true, entity: existing, already: true });
+      }
 
       const slug = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
       const category = await prisma.category.create({
@@ -71,6 +87,8 @@ export async function POST(req: NextRequest) {
           ...(body.pfsCategoryId ? { pfsCategoryId: body.pfsCategoryId } : {}),
           ...(body.pfsGender ? { pfsGender: body.pfsGender } : {}),
           ...(body.pfsFamilyId ? { pfsFamilyId: body.pfsFamilyId } : {}),
+          ...(body.pfsFamilyName ? { pfsFamilyName: body.pfsFamilyName } : {}),
+          ...(body.pfsCategoryName ? { pfsCategoryName: body.pfsCategoryName } : {}),
         },
       });
       revalidateTag("categories", "default");

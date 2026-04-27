@@ -369,7 +369,7 @@ export const PFS_SUBCATEGORIES_BY_FAMILY: Record<string, string[]> = {
     "Boîtes & Pochettes",
     "Sacs"
   ],
-  "Fêtes_et_Décorations": [
+  "Fête_et_Décorations": [
     "Décorations d'intérieur",
     "Fête"
   ],
