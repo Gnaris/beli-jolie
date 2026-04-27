@@ -4,6 +4,8 @@
 
 set -e  # arrete tout si une commande echoue
 
+APP_NAME="beli-jolie"
+
 echo ""
 echo "==> 1/6  Recuperation du code depuis GitHub..."
 git pull
@@ -25,5 +27,14 @@ echo "==> 5/6  Construction du site..."
 npm run build
 
 echo ""
-echo "==> 6/6  Demarrage du site..."
-npm run start
+echo "==> 6/6  Demarrage / redemarrage du site avec PM2..."
+if pm2 describe "$APP_NAME" > /dev/null 2>&1; then
+  pm2 restart "$APP_NAME" --update-env
+else
+  pm2 start npm --name "$APP_NAME" -- run start
+  pm2 save
+fi
+
+echo ""
+echo "Deploiement termine. Le site tourne en arriere-plan."
+pm2 status "$APP_NAME"
