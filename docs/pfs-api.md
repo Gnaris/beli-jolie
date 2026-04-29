@@ -43,6 +43,8 @@ Donnees exclusives (absentes de listProducts): `material_composition[]` (ref + %
 
 Si inexistant: `{ "exists": false }`.
 
+**Note** : fonctionne cross-statuts — trouve les produits en `NEW`, `DELETED`, etc. alors que `listProducts` ne les liste pas. Utile pour vérifier si une référence est déjà prise avant création.
+
 ---
 
 ## 4. Variants — `GET /catalog/products/{id}/variants`
@@ -102,6 +104,8 @@ Champs partiels OK. Changement categorie possible a tout moment (meme cross-genr
 **Multipart**: champ `image` (fichier JPEG/PNG, PAS WebP), `slot` (int, position), `color` (ref PFS).
 **JSON**: `{ "image_url": "...", "slot": 2, "color": "SILVER" }`.
 Premiere image d'une couleur → definit `default_color`. Pour READY_FOR_SALE: chaque couleur doit avoir min 1 image.
+
+**⚠ Piège CDN** : les images servies par `static.parisfashionshops.com` sont en **WebP** même si l'URL se termine par `.jpg`. L'API upload refuse le WebP (422 "Le champ image doit être un fichier de type : jpeg, jpg, png"). Toujours convertir en JPEG (via `sharp`) avant de re-uploader une image téléchargée depuis le CDN PFS.
 
 ---
 
