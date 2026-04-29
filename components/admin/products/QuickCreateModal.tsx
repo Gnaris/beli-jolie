@@ -385,7 +385,7 @@ export default function QuickCreateModal({
           if (!res.ok) throw new Error(data.error || "Erreur upload motif.");
           patternPath = data.path;
         }
-        result = await createColorQuick(names, colorMode === "hex" ? hex : null, colorMode === "pattern" ? patternPath : null);
+        result = await createColorQuick(names, colorMode === "hex" ? hex : null, colorMode === "pattern" ? patternPath : null, pfsRef || null);
       }
       onCreated(result);
       onClose();

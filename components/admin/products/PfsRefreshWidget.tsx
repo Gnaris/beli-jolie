@@ -94,7 +94,7 @@ export function PfsRefreshWidget() {
       className="fixed bottom-4 right-4 z-[9000] animate-fadeIn"
       style={{ maxWidth: "calc(100vw - 2rem)" }}
       role="region"
-      aria-label="Rafraîchissement en cours"
+      aria-label="Marketplace en cours"
     >
       {minimized ? (
         <button
@@ -119,7 +119,7 @@ export function PfsRefreshWidget() {
             </svg>
           )}
           <span className="text-[13px] font-medium text-text-primary tabular-nums">
-            {done}/{total} rafraîchi{total > 1 ? "s" : ""}
+            {done}/{total} traité{total > 1 ? "s" : ""}
           </span>
           {errorsCount > 0 && (
             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold tabular-nums">
@@ -149,8 +149,8 @@ export function PfsRefreshWidget() {
                 {isAllFinished
                   ? errorsCount > 0
                     ? "Terminé avec des erreurs"
-                    : "Rafraîchissement terminé"
-                  : "Rafraîchissement en cours"}
+                    : "Marketplace — terminé"
+                  : "Marketplace — en cours"}
               </h3>
               <p className="text-[11px] font-body text-text-muted tabular-nums mt-0.5">
                 {done}/{total} produit{total > 1 ? "s" : ""}

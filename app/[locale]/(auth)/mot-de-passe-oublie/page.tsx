@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
 import { getCachedShopName } from "@/lib/cached-data";
 

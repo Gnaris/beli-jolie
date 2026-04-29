@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { pfsRefreshProduct } from "@/lib/pfs-refresh";
+import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
 import { pfsPublishProduct } from "@/lib/pfs-publish";
 import { ankorstoreRefreshProduct } from "@/lib/ankorstore-refresh";
 import { ankorstorePublishProduct } from "@/lib/ankorstore-publish";
@@ -23,10 +23,10 @@ export interface MarketplacePublishOutcome {
   reference: string;
   productName: string;
   pfs?:
-    | { status: "ok"; mode: "create" | "refresh"; archived?: boolean }
+    | { status: "ok"; mode: "create" | "update"; archived?: boolean }
     | { status: "error"; message: string };
   ankorstore?:
-    | { status: "ok"; mode: "create" | "refresh"; opId?: string; warning: string }
+    | { status: "ok"; mode: "create" | "update"; opId?: string; warning: string }
     | { status: "error"; message: string };
 }
 
@@ -66,15 +66,24 @@ export async function publishProductToMarketplaces(
   if (options.pfs) {
     try {
       if (product.pfsProductId) {
-        // Déjà publié sur PFS → refresh (crée nouveau + remplace ID)
-        const res = await pfsRefreshProduct(productId, undefined, { skipRevalidation: true });
+        // Déjà publié sur PFS → mise à jour en place (PATCH)
+        const res = await pfsUpdateProductInPlace(productId, undefined, { skipRevalidation: true });
         if (res.success) {
-          outcome.pfs = { status: "ok", mode: "refresh", archived: res.archived };
-        } else if (res.reason === "not_found") {
-          // Cas limite : on avait un ID, mais PFS ne le trouve plus. On retombe en publish.
+          outcome.pfs = { status: "ok", mode: "update", archived: res.archived };
+        } else {
+          // Si l'update échoue (ex: produit supprimé côté PFS), on retombe en publish
+          logger.warn("[Marketplace Publish] PFS update failed, falling back to publish", {
+            productId,
+            error: res.error,
+          });
           await prisma.product.update({
             where: { id: productId },
             data: { pfsProductId: null },
+          });
+          // Nettoyer les pfsVariantId aussi
+          await prisma.productColor.updateMany({
+            where: { productId },
+            data: { pfsVariantId: null },
           });
           const pubRes = await pfsPublishProduct(productId, undefined, { skipRevalidation: true });
           if (pubRes.success) {
@@ -82,8 +91,6 @@ export async function publishProductToMarketplaces(
           } else {
             outcome.pfs = { status: "error", message: pubRes.error };
           }
-        } else {
-          outcome.pfs = { status: "error", message: res.error };
         }
       } else {
         // Première publication
@@ -104,12 +111,12 @@ export async function publishProductToMarketplaces(
   if (options.ankorstore) {
     try {
       if (product.ankorsProductId) {
-        // Déjà publié → refresh
+        // Déjà publié → mise à jour (upsert via Ankorstore)
         const res = await ankorstoreRefreshProduct(productId);
         if (res.success) {
           outcome.ankorstore = {
             status: "ok",
-            mode: "refresh",
+            mode: "update",
             opId: res.opId,
             warning: res.warning,
           };

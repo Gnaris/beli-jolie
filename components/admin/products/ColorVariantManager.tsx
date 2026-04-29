@@ -146,7 +146,7 @@ export function computeGlobalPrice(v: VariantState): number | null {
 
 export function uid() { return Math.random().toString(36).slice(2, 9); }
 
-function buildVariantDuplicateKey(v: VariantState): string {
+export function buildVariantDuplicateKey(v: VariantState): string {
   if (isMultiColorPack(v)) {
     const lineKey = v.packLines
       .map((l) => {

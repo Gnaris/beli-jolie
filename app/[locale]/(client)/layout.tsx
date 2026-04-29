@@ -1,5 +1,6 @@
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
+import { redirect } from "@/i18n/navigation";
+import { redirect as nextRedirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { authOptions } from "@/lib/auth";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -16,13 +17,13 @@ export default async function ClientLayout({ children, params }: ClientLayoutPro
   const session = await getServerSession(authOptions);
 
   if (!session) {
-    redirect(`/${locale}/connexion?callbackUrl=/${locale}/espace-pro`);
+    return redirect({href: {pathname: "/connexion", query: { callbackUrl: `/${locale}/espace-pro` }}, locale});
   }
 
   const cookieStore = await cookies();
   const isPreview = cookieStore.get("bj_admin_preview")?.value === "1";
 
-  if (session.user.role === "ADMIN" && !isPreview) redirect("/admin");
+  if (session.user.role === "ADMIN" && !isPreview) nextRedirect("/admin");
 
   const shopName = await getCachedShopName();
 

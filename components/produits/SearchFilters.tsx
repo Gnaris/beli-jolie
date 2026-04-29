@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/i18n/navigation";
 import { useCallback, useRef, useEffect, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";

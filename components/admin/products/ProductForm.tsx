@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack } from "./ColorVariantManager";
+import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, buildVariantDuplicateKey } from "./ColorVariantManager";
 import CompletenessChecklist from "./CompletenessChecklist";
 import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller, fetchProductFormAttributes } from "@/app/actions/admin/products";
 
@@ -103,6 +103,9 @@ interface ProductFormProps {
     translations?: { locale: string; name: string; description: string }[];
     status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
     discountPercent?: string;
+    /** IDs marketplace — présents = déjà publié sur cette marketplace */
+    pfsProductId?: string | null;
+    ankorsProductId?: string | null;
   };
 }
 
@@ -884,6 +887,13 @@ export default function ProductForm({
       setSubCategoryIds((prev) => [...prev, item.id]);
     } else if (modalType === "composition") {
       setLocalCompositions((prev) => [...prev, { id: item.id, name: item.name }]);
+      // Auto-apply: add composition to product with evenly distributed percentages
+      setCompositions((prev) => {
+        if (prev.some((c) => c.compositionId === item.id)) return prev;
+        const evenPct = (100 / (prev.length + 1)).toFixed(1);
+        const updated = prev.map((c) => ({ ...c, percentage: evenPct }));
+        return [...updated, { compositionId: item.id, percentage: evenPct }];
+      });
     } else if (modalType === "color") {
       setLocalColors((prev) => [...prev, { id: item.id, name: item.name, hex: item.hex ?? null }]);
     } else if (modalType === "tag") {
@@ -1016,10 +1026,12 @@ export default function ProductForm({
     const seen = new Set<string>();
     for (const v of variants) {
       if (!v.colorId) continue;
-      const sizeKey = v.sizeEntries.map((se) => se.sizeId).sort().join(",");
-      const key = `${v.saleType}::${variantGroupKeyFromState(v)}::${sizeKey}`;
+      const key = buildVariantDuplicateKey(v);
       if (seen.has(key)) {
-        errors.push(`Doublon : deux variantes ${v.saleType} ont la même couleur et la même taille (${v.colorName})`);
+        const label = isMultiColorPack(v)
+          ? `pack multi-couleurs`
+          : `${v.saleType} (${v.colorName})`;
+        errors.push(`Doublon : deux variantes ${label} ont la même composition`);
       }
       seen.add(key);
     }
@@ -1380,15 +1392,22 @@ export default function ProductForm({
         hideLoading();
       }
 
-      // ── Proposer la publication sur les marketplaces ──
-      // Uniquement si :
-      //  - le produit est complet (sinon l'API marketplace rejettera)
-      //  - au moins une marketplace est configurée
+      // ── Proposer la publication / mise à jour sur les marketplaces ──
+      // Deux cas :
+      //  A) Déjà publié sur au moins une marketplace → proposer "Mettre à jour" (même si OFFLINE)
+      //  B) Pas encore publié + ONLINE + complet → proposer "Publier"
+      //  C) Pas encore publié + OFFLINE → ne rien proposer
+      const alreadyOnPfs = !!initialData?.pfsProductId;
+      const alreadyOnAnkorstore = !!initialData?.ankorsProductId;
+      const alreadyPublished = alreadyOnPfs || alreadyOnAnkorstore;
+      const isUpdate = alreadyPublished;
+
       const canPublish =
         savedProductId &&
         finalStatus !== "ARCHIVED" &&
         !isIncomplete &&
-        (hasPfsConfig || hasAnkorstoreConfig);
+        (hasPfsConfig || hasAnkorstoreConfig) &&
+        (alreadyPublished || finalStatus !== "OFFLINE");
 
       if (canPublish && savedProductId) {
         const checked = { pfs: false, ankorstore: false };
@@ -1421,12 +1440,15 @@ export default function ProductForm({
 
         const ok = await confirmDialog({
           type: "info",
-          title: "Publier sur les marketplaces ?",
-          message:
-            "Souhaitez-vous publier ce produit en direct sur les marketplaces ? Cochez celles qui vous intéressent. Vous pourrez aussi le faire plus tard.",
+          title: isUpdate
+            ? "Mettre à jour sur les marketplaces ?"
+            : "Publier sur les marketplaces ?",
+          message: isUpdate
+            ? "Souhaitez-vous mettre à jour ce produit sur les marketplaces ? Les modifications seront appliquées directement."
+            : "Souhaitez-vous publier ce produit en direct sur les marketplaces ? Cochez celles qui vous intéressent. Vous pourrez aussi le faire plus tard.",
           checkboxes,
           checkboxesLabel: "Marketplaces",
-          confirmLabel: "Publier",
+          confirmLabel: isUpdate ? "Mettre à jour" : "Publier",
           cancelLabel: "Plus tard",
         });
 

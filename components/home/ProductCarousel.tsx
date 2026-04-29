@@ -1,10 +1,9 @@
 "use client";
 
 import { useRef, useState, useMemo, useTransition, useCallback } from "react";
-import Link from "next/link";
+import { Link, useRouter } from "@/i18n/navigation";
 import Image from "next/image";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useScrollReveal } from "./useScrollReveal";

@@ -66,16 +66,20 @@ export async function updateColorDirect(
   hex: string | null,
   translations: Record<string, string>,
   patternImage?: string | null,
+  pfsColorRef?: string | null,
 ) {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
 
-  const data: { name: string; hex: string | null; patternImage?: string | null } = {
+  const data: { name: string; hex: string | null; patternImage?: string | null; pfsColorRef?: string | null } = {
     name: name.trim(),
     hex: patternImage ? null : hex,
   };
   if (patternImage !== undefined) {
     data.patternImage = patternImage;
+  }
+  if (pfsColorRef !== undefined) {
+    data.pfsColorRef = pfsColorRef?.trim() || null;
   }
 
   await prisma.color.update({ where: { id }, data });

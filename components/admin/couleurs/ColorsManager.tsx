@@ -13,6 +13,7 @@ interface ColorItem {
   name: string;
   hex: string | null;
   patternImage: string | null;
+  pfsColorRef: string | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -59,9 +60,10 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
     translations: Record<string, string>,
     hex?: string,
     patternImage?: string | null,
+    extra?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
   ) {
     if (!editTarget) return;
-    await updateColorDirect(editTarget.id, name, hex ?? null, translations, patternImage ?? null);
+    await updateColorDirect(editTarget.id, name, hex ?? null, translations, patternImage ?? null, extra?.ref || null);
     router.refresh();
   }
 
@@ -204,6 +206,7 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
             translations: editTarget.translations,
             hex: editTarget.hex,
             patternImage: editTarget.patternImage,
+            pfsRef: editTarget.pfsColorRef,
             onSave: handleSave,
           }}
         />

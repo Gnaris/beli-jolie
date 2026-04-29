@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect } from "@/i18n/navigation";
 import { getServerSession } from "next-auth";
-import { getTranslations } from "next-intl/server";
+import { getTranslations, getLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseDisplayConfig, fetchCarouselProducts, type HomepageCarousel } from "@/lib/product-display";
@@ -204,7 +204,8 @@ export default async function HomePage() {
     cookies(),
   ]);
   const hasAccessCode = !!cookieStore.get("bj_access_code")?.value;
-  if (!session && !hasAccessCode) redirect("/connexion");
+  const locale = await getLocale();
+  if (!session && !hasAccessCode) redirect({href: "/connexion", locale});
   const userId  = session?.user?.id;
 
   // ── Load banner image + display config + shop name ─────────────────────────

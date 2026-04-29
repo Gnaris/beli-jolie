@@ -184,6 +184,7 @@ model Color {
   name           String              @unique
   hex            String?
   patternImage   String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
+  pfsColorRef    String?             // Référence PFS (ex: "GOLDEN", "SILVER") — utilisée pour publish/refresh
   createdAt      DateTime            @default(now())
   productColors  ProductColor[]
   colorImages    ProductColorImage[]

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { registerSchema } from "@/lib/validations/auth";
 import StaffAvailability from "@/components/auth/StaffAvailability";

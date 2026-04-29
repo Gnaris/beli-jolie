@@ -7,10 +7,10 @@ import { hexForPfsColor } from "@/lib/marketplace-excel/pfs-color-hex";
 import { logger } from "@/lib/logger";
 
 export interface PfsLiveColor {
-  reference: string;
-  value: string;
+  reference: string;   // PFS API reference (e.g. "GOLDEN", "SILVER")
+  value: string;       // hex color
   image: string | null;
-  label: string;
+  label: string;       // French display label (e.g. "Doré", "Argent")
 }
 
 // ─── Catégories (avec sous-catégories) ─────────────────────────────────────────
@@ -217,7 +217,7 @@ export const getCachedPfsColors = unstable_cache(
       return colors.map((c) => {
         const frLabel = c.labels?.fr?.trim() || c.reference;
         return {
-          reference: frLabel,
+          reference: c.reference,
           value: c.value || "",
           image: c.image ?? null,
           label: frLabel,

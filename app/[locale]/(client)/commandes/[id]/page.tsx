@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
-import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
+import { notFound } from "next/navigation";
+import { Link, redirect } from "@/i18n/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -27,13 +27,13 @@ export default async function CommandeDetailPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ id: string; locale: string }>;
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const { id } = await params;
+  const { id, locale } = await params;
   void searchParams;
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/connexion?callbackUrl=/commandes");
+  if (!session) return redirect({href: {pathname: "/connexion", query: { callbackUrl: "/commandes" }}, locale});
 
   const t = await getTranslations("orders");
 

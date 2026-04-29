@@ -30,6 +30,9 @@ import {
   type PfsVariantCreateData,
   type PfsVariantUpdateData,
   type PfsStatus,
+  pfsGetCategories,
+  pfsGetFamilies,
+  pfsGetColors,
 } from "@/lib/pfs-api-write";
 import { applyMarketplaceMarkup, loadMarketplaceMarkupConfigs, type MarkupConfig } from "@/lib/marketplace-pricing";
 import sharp from "sharp";
@@ -77,8 +80,12 @@ interface FullVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   variantSizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
-  color: { name: string } | null;
-  packLines: { color: { name: string }; position: number }[];
+  color: { name: string; pfsColorRef: string | null } | null;
+  packLines: {
+    color: { name: string; pfsColorRef: string | null };
+    position: number;
+    sizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
+  }[];
   images: { path: string; order: number }[];
 }
 
@@ -93,7 +100,7 @@ interface FullProduct {
   dimensionHeight: number | null;
   dimensionDiameter: number | null;
   dimensionCircumference: number | null;
-  category: { pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null };
+  category: { id: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null; pfsFamilyName: string | null; pfsCategoryName: string | null };
   colors: FullVariant[];
   compositions: {
     percentage: number | { toString(): string };
@@ -111,8 +118,41 @@ const PFS_DEFAULTS = {
   country_of_manufacture: "CN",
 };
 
-function getEffectiveColorRef(variant: FullVariant): string | null {
-  return variant.color?.name || null;
+/**
+ * Build a map from French color labels → PFS references.
+ * e.g. "Doré" → "DORE", "Argenté" → "ARGENTE"
+ */
+async function buildColorLabelToRefMap(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const pfsColors = await pfsGetColors();
+    for (const c of pfsColors) {
+      const frLabel = c.labels?.fr?.trim();
+      if (frLabel) {
+        map.set(frLabel, c.reference);
+      }
+      map.set(c.reference, c.reference);
+    }
+  } catch (err) {
+    logger.warn("[PFS Refresh] Failed to load PFS color references", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return map;
+}
+
+function getEffectiveColorRef(variant: FullVariant, colorRefMap?: Map<string, string>): string | null {
+  if (!variant.color) return null;
+  if (variant.color.pfsColorRef) return variant.color.pfsColorRef;
+  return colorRefMap?.get(variant.color.name) ?? variant.color.name;
+}
+
+function resolvePfsColorRef(
+  color: { name: string; pfsColorRef: string | null },
+  colorRefMap?: Map<string, string>,
+): string {
+  if (color.pfsColorRef) return color.pfsColorRef;
+  return colorRefMap?.get(color.name) ?? color.name;
 }
 
 function getPfsUnitPrice(variant: FullVariant, markup?: MarkupConfig): number {
@@ -147,7 +187,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
-      category: { select: { pfsCategoryId: true, pfsGender: true, pfsFamilyId: true } },
+      category: { select: { id: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true, pfsFamilyName: true, pfsCategoryName: true } },
       colors: {
         select: {
           id: true,
@@ -160,9 +200,16 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           variantSizes: {
             select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
           },
-          color: { select: { name: true } },
+          color: { select: { name: true, pfsColorRef: true } },
           packLines: {
-            select: { color: { select: { name: true } }, position: true },
+            select: {
+              color: { select: { name: true, pfsColorRef: true } },
+              position: true,
+              sizes: {
+                select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
+                orderBy: { size: { position: "asc" as const } },
+              },
+            },
             orderBy: { position: "asc" as const },
           },
           images: {
@@ -195,6 +242,75 @@ function buildDimensionsSuffix(
   if (product.dimensionCircumference != null) parts.push(`Circonférence : ${product.dimensionCircumference}mm`);
   if (parts.length === 0) return "";
   return `\n\nDimensions : ${parts.join(" / ")}`;
+}
+
+/**
+ * Résout les IDs Salesforce PFS (pfsCategoryId, pfsFamilyId) à partir des noms
+ * lisibles (pfsFamilyName, pfsCategoryName) en interrogeant l'API PFS.
+ * Met à jour la catégorie en BDD pour éviter de refaire l'appel la prochaine fois.
+ */
+async function resolvePfsCategoryIds(category: {
+  id: string;
+  pfsCategoryId: string | null;
+  pfsFamilyId: string | null;
+  pfsFamilyName: string | null;
+  pfsCategoryName: string | null;
+  pfsGender: string | null;
+}): Promise<{ pfsCategoryId: string | null; pfsFamilyId: string | null }> {
+  const result: { pfsCategoryId: string | null; pfsFamilyId: string | null } = {
+    pfsCategoryId: category.pfsCategoryId,
+    pfsFamilyId: category.pfsFamilyId,
+  };
+
+  if (result.pfsCategoryId && result.pfsFamilyId) return result;
+
+  try {
+    const pickFr = (labels: Record<string, string> | undefined | null, fallback = ""): string => {
+      if (!labels) return fallback;
+      return labels.fr ?? labels.en ?? Object.values(labels)[0] ?? fallback;
+    };
+
+    const normalize = (s: string) => s.replace(/_/g, " ").trim().toLowerCase();
+
+    if (!result.pfsFamilyId && category.pfsFamilyName) {
+      const families = await pfsGetFamilies();
+      const target = normalize(category.pfsFamilyName);
+      const match = families.find((f) => normalize(pickFr(f.labels, f.id)) === target);
+      if (match) result.pfsFamilyId = match.id;
+    }
+
+    if (!result.pfsCategoryId && category.pfsCategoryName) {
+      const categories = await pfsGetCategories();
+      const target = normalize(category.pfsCategoryName);
+      const match = categories.find((c) => {
+        const label = normalize(pickFr(c.labels));
+        if (label !== target) return false;
+        if (result.pfsFamilyId && c.family) {
+          const catFamilyId = typeof c.family === "string" ? c.family : c.family.id;
+          return catFamilyId === result.pfsFamilyId;
+        }
+        return true;
+      });
+      if (match) result.pfsCategoryId = match.id;
+    }
+
+    const updates: Record<string, string> = {};
+    if (result.pfsFamilyId && !category.pfsFamilyId) updates.pfsFamilyId = result.pfsFamilyId;
+    if (result.pfsCategoryId && !category.pfsCategoryId) updates.pfsCategoryId = result.pfsCategoryId;
+    if (Object.keys(updates).length > 0) {
+      await prisma.category.update({ where: { id: category.id }, data: updates });
+      logger.info("[PFS Refresh] Auto-resolved PFS IDs for category", {
+        categoryId: category.id,
+        ...updates,
+      });
+    }
+  } catch (err) {
+    logger.warn("[PFS Refresh] Failed to auto-resolve PFS category IDs", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return result;
 }
 
 export async function pfsRefreshProduct(
@@ -250,6 +366,9 @@ export async function pfsRefreshProduct(
   const markupConfigs = await loadMarketplaceMarkupConfigs();
   const pfsMarkup = markupConfigs.pfs;
 
+  // Load PFS color label → reference mapping (e.g. "Doré" → "DORE")
+  const colorRefMap = await buildColorLabelToRefMap();
+
   try {
     // ── Step 2: Create new product with TEMP reference ──
     const tempRef = generateRandomRef();
@@ -263,6 +382,13 @@ export async function pfsRefreshProduct(
       .map((c) => ({ id: c.composition.pfsCompositionRef!, value: String(c.percentage) }));
     if (compositionArray.length === 0) {
       compositionArray.push({ id: "ACIERINOXYDABLE", value: "100" });
+    }
+
+    // ── Auto-resolve missing PFS IDs from names ──
+    if (!product.category.pfsCategoryId || !product.category.pfsFamilyId) {
+      const resolved = await resolvePfsCategoryIds(product.category);
+      if (resolved.pfsCategoryId) product.category.pfsCategoryId = resolved.pfsCategoryId;
+      if (resolved.pfsFamilyId) product.category.pfsFamilyId = resolved.pfsFamilyId;
     }
 
     const gender = existingGender || product.category.pfsGender || PFS_DEFAULTS.gender;
@@ -302,7 +428,7 @@ export async function pfsRefreshProduct(
 
     for (const variant of product.colors) {
       if (variant.saleType === "UNIT") {
-        const colorRef = getEffectiveColorRef(variant);
+        const colorRef = getEffectiveColorRef(variant, colorRefMap);
         if (!colorRef) continue;
         const sizeRef = variant.variantSizes[0] ? getSizeRef(variant.variantSizes[0]) : "TU";
 
@@ -322,35 +448,48 @@ export async function pfsRefreshProduct(
 
       if (variant.saleType === "PACK") {
         const packEntries: { color: string; size: string; qty: number }[] = [];
-        const packColors: { ref: string }[] = [];
+        let firstColorRef: string | null = null;
+        let firstSizeRef = "TU";
 
         if (variant.packLines.length > 0) {
+          // Multi-color pack: read sizes from each packLine
           for (const pl of variant.packLines) {
-            if (pl.color?.name) packColors.push({ ref: pl.color.name });
+            if (!pl.color?.name) continue;
+            const plColorRef = resolvePfsColorRef(pl.color, colorRefMap);
+            if (!firstColorRef) firstColorRef = plColorRef;
+            if (pl.sizes && pl.sizes.length > 0) {
+              for (const ps of pl.sizes) {
+                const sizeRef = ps.size.pfsSizeRef || ps.size.name || "TU";
+                if (!firstSizeRef || firstSizeRef === "TU") firstSizeRef = sizeRef;
+                packEntries.push({ color: plColorRef, size: sizeRef, qty: ps.quantity });
+              }
+            } else {
+              // packLine without sizes — fallback to TU
+              packEntries.push({ color: plColorRef, size: "TU", qty: variant.packQuantity ?? 1 });
+            }
           }
         } else if (variant.color?.name) {
-          packColors.push({ ref: variant.color.name });
-        }
-
-        if (packColors.length === 0) continue;
-
-        const variantSizes =
-          variant.variantSizes.length > 0
-            ? variant.variantSizes
-            : [{ size: { name: "TU", pfsSizeRef: "TU" }, quantity: variant.packQuantity ?? 1 }];
-
-        for (const pc of packColors) {
+          // Mono-color pack: use variantSizes
+          firstColorRef = resolvePfsColorRef(variant.color, colorRefMap);
+          const variantSizes =
+            variant.variantSizes.length > 0
+              ? variant.variantSizes
+              : [{ size: { name: "TU", pfsSizeRef: "TU" }, quantity: variant.packQuantity ?? 1 }];
           for (const vs of variantSizes) {
-            packEntries.push({ color: pc.ref, size: getSizeRef(vs), qty: vs.quantity });
+            const sizeRef = getSizeRef(vs);
+            if (!firstSizeRef || firstSizeRef === "TU") firstSizeRef = sizeRef;
+            packEntries.push({ color: firstColorRef, size: sizeRef, qty: vs.quantity });
           }
         }
+
+        if (!firstColorRef || packEntries.length === 0) continue;
 
         variantCreateData.push({
           bjVariant: variant,
           pfsData: {
             type: "PACK",
-            color: packColors[0].ref,
-            size: variantSizes[0] ? getSizeRef(variantSizes[0]) : "TU",
+            color: firstColorRef,
+            size: firstSizeRef,
             price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
@@ -364,13 +503,38 @@ export async function pfsRefreshProduct(
     let createdVariantIds: (string | null)[] = [];
     let allVariantsOutOfStock = false;
 
+    if (variantCreateData.length === 0) {
+      logger.warn("[PFS Refresh] No variant data to send — product.colors may be empty or all skipped", {
+        reference: product.reference,
+        colorsCount: product.colors.length,
+        colorDetails: product.colors.map((c) => ({
+          id: c.id,
+          saleType: c.saleType,
+          colorName: c.color?.name ?? null,
+          sizesCount: c.variantSizes.length,
+          packLinesCount: c.packLines.length,
+        })),
+      });
+    }
+
     if (variantCreateData.length > 0) {
+      logger.info("[PFS Refresh] Sending variant data to PFS", {
+        pfsProductId: newPfsProductId,
+        variantCount: variantCreateData.length,
+        variants: variantCreateData.map((v) => v.pfsData),
+      });
+
       try {
         const { variantIds } = await pfsCreateVariants(
           newPfsProductId,
           variantCreateData.map((v) => v.pfsData),
         );
         createdVariantIds = variantIds;
+        logger.info("[PFS Refresh] Batch variant create result", {
+          variantIds: createdVariantIds,
+          successCount: createdVariantIds.filter(Boolean).length,
+          failCount: createdVariantIds.filter((id) => !id).length,
+        });
       } catch (err) {
         logger.warn("[PFS Refresh] Batch variant create failed, falling back to individual", {
           error: err instanceof Error ? err.message : String(err),
@@ -380,11 +544,26 @@ export async function pfsRefreshProduct(
             const { variantIds } = await pfsCreateVariants(newPfsProductId, [item.pfsData]);
             createdVariantIds.push(...variantIds);
           } catch (err2) {
-            logger.warn("[PFS Refresh] Failed individual variant create", {
+            logger.error("[PFS Refresh] Failed individual variant create", {
+              variantData: item.pfsData,
               error: err2 instanceof Error ? err2.message : String(err2),
             });
           }
         }
+      }
+
+      // Check if ALL variant creations failed
+      const successfulIds = createdVariantIds.filter(Boolean);
+      if (successfulIds.length === 0) {
+        logger.error("[PFS Refresh] ALL variant creations failed — product has no variants on PFS", {
+          reference: product.reference,
+          pfsProductId: newPfsProductId,
+          attemptedCount: variantCreateData.length,
+        });
+        throw new Error(
+          `Aucune variante n'a pu être créée sur PFS (${variantCreateData.length} tentée(s)). ` +
+          `Vérifiez que les couleurs et tailles existent dans le référentiel PFS.`,
+        );
       }
 
       // PFS forces stock 300 on creation with stock 0 — patch back afterwards
@@ -414,9 +593,10 @@ export async function pfsRefreshProduct(
     const imagesByColor = new Map<string, { path: string; order: number }[]>();
 
     for (const variant of product.colors) {
-      let colorRef = getEffectiveColorRef(variant);
+      let colorRef = getEffectiveColorRef(variant, colorRefMap);
       if (!colorRef && variant.saleType === "PACK" && variant.packLines.length > 0) {
-        colorRef = variant.packLines[0]?.color?.name ?? null;
+        const plColor = variant.packLines[0]?.color;
+        colorRef = plColor ? resolvePfsColorRef(plColor, colorRefMap) : null;
       }
       if (!colorRef) continue;
       if (imagesByColor.has(colorRef) && imagesByColor.get(colorRef)!.length > 0) continue;
@@ -457,7 +637,7 @@ export async function pfsRefreshProduct(
 
     // Set default_color on new product
     const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
-    const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant) : null;
+    const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant, colorRefMap) : null;
     if (primaryColorRef) {
       try {
         await pfsUpdateProduct(newPfsProductId, { default_color: primaryColorRef });

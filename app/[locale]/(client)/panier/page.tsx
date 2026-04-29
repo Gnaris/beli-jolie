@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import Link from "next/link";
+import { redirect, Link } from "@/i18n/navigation";
+import { getLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCart } from "@/app/actions/client/cart";
@@ -15,7 +15,8 @@ export const metadata: Metadata = {
 
 export default async function PanierPage() {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/connexion?callbackUrl=/panier");
+  const locale = await getLocale();
+  if (!session) return redirect({href: {pathname: "/connexion", query: { callbackUrl: "/panier" }}, locale});
 
   if (session.user.status !== "APPROVED") {
     return (

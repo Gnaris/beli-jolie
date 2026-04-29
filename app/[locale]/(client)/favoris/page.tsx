@@ -1,14 +1,13 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { getTranslations } from "next-intl/server";
+import { redirect, Link } from "@/i18n/navigation";
+import { getTranslations, getLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedShopName } from "@/lib/cached-data";
 import SearchFilters from "@/components/produits/SearchFilters";
 import ProductCard from "@/components/produits/ProductCard";
-import Link from "next/link";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -33,7 +32,8 @@ const NEW_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
 
 export default async function FavorisPage({ searchParams }: PageProps) {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/connexion?callbackUrl=/favoris");
+  const locale = await getLocale();
+  if (!session) return redirect({href: {pathname: "/connexion", query: { callbackUrl: "/favoris" }}, locale});
 
   const [tFav, tProd] = await Promise.all([
     getTranslations("favorites"),

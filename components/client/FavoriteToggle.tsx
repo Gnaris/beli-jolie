@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/i18n/navigation";
 import { toggleFavorite } from "@/app/actions/client/favorites";
 
 interface Props {

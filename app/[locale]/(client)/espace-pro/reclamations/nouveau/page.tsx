@@ -1,10 +1,10 @@
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import Link from "next/link";
+import { redirect, Link } from "@/i18n/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import ClaimForm from "@/components/client/claims/ClaimForm";
+import { getLocale } from "next-intl/server";
 import type { Metadata } from "next";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -14,8 +14,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NewClaimPage({ searchParams }: { searchParams: Promise<{ order?: string }> }) {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/connexion");
-  if (session.user.status !== "APPROVED") redirect("/espace-pro");
+  const locale = await getLocale();
+  if (!session) return redirect({href: "/connexion", locale});
+  if (session.user.status !== "APPROVED") return redirect({href: "/espace-pro", locale});
 
   const { order: preselectedOrderId } = await searchParams;
 

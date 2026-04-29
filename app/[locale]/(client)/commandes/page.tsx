@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import Link from "next/link";
+import { redirect } from "@/i18n/navigation";
+import { Link } from "@/i18n/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import OrdersTableClient from "@/components/client/orders/OrdersTableClient";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -43,7 +43,8 @@ interface CommandesPageProps {
 
 export default async function CommandesPage({ searchParams }: CommandesPageProps) {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/connexion?callbackUrl=/commandes");
+  const locale = await getLocale();
+  if (!session) return redirect({href: {pathname: "/connexion", query: { callbackUrl: "/commandes" }}, locale});
 
   const t = await getTranslations("orders");
   const { page: pageParam } = await searchParams;

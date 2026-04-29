@@ -8,6 +8,7 @@ import { ProductEditWrapper } from "@/components/admin/products/ProductEditWrapp
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
+import { MarketplaceStatusButtons } from "@/components/admin/products/MarketplaceStatusButtons";
 import { getCachedPfsEnabled, getCachedSiteConfig } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
@@ -311,6 +312,8 @@ export default async function ModifierProduitPage({
             manufacturingCountryId: product.manufacturingCountryId ?? "",
             seasonId: product.seasonId ?? "",
             discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
+            pfsProductId: product.pfsProductId,
+            ankorsProductId: product.ankorsProductId,
           }}
         />
       </div>
@@ -366,28 +369,16 @@ export default async function ModifierProduitPage({
                   </>
                 )}
                 <span className="hidden sm:block h-4 w-px bg-border" />
-                <span
-                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
-                    product.pfsProductId
-                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
-                      : "bg-bg-secondary text-text-muted border-border"
-                  }`}
-                  title={product.pfsProductId ? "Publié sur Paris Fashion Shop" : "Non publié sur Paris Fashion Shop"}
-                >
-                  <span className={`w-1 h-1 rounded-full ${product.pfsProductId ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
-                  PFS
-                </span>
-                <span
-                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
-                    product.ankorsProductId
-                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
-                      : "bg-bg-secondary text-text-muted border-border"
-                  }`}
-                  title={product.ankorsProductId ? "Publié sur Ankorstore" : "Non publié sur Ankorstore"}
-                >
-                  <span className={`w-1 h-1 rounded-full ${product.ankorsProductId ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
-                  Ankorstore
-                </span>
+                <MarketplaceStatusButtons
+                  productId={product.id}
+                  reference={product.reference}
+                  productName={product.name}
+                  firstImage={colorImagesDb[0]?.path ?? null}
+                  pfsProductId={product.pfsProductId}
+                  ankorsProductId={product.ankorsProductId}
+                  hasPfsConfig={hasPfsConfig}
+                  hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
+                />
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -469,6 +460,8 @@ export default async function ModifierProduitPage({
           manufacturingCountryId: product.manufacturingCountryId ?? "",
           seasonId: product.seasonId ?? "",
           discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
+          pfsProductId: product.pfsProductId,
+          ankorsProductId: product.ankorsProductId,
         }}
       />
     </ProductEditWrapper>

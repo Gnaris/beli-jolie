@@ -294,13 +294,20 @@ export async function pfsCreateVariants(
     resume?: { products?: number; errors?: number };
   };
 
+  logger.info("[PFS] Create variants response", {
+    status,
+    pfsProductId,
+    variantsSent: variants.length,
+    response: JSON.stringify(data).slice(0, 2000),
+  });
+
   // Detect HTML response (session expired / auth redirect)
   if (typeof data === "string" && data.includes("<!DOCTYPE")) {
     throw new Error("PFS create variants failed: received HTML instead of JSON (session expired?)");
   }
 
   if (status !== 200) {
-    throw new Error(`PFS create variants failed (${status}): ${JSON.stringify(data).slice(0, 300)}`);
+    throw new Error(`PFS create variants failed (${status}): ${JSON.stringify(data).slice(0, 500)}`);
   }
 
   // Check for errors reported in resume (PFS can return 200 with errors)
@@ -309,11 +316,23 @@ export async function pfsCreateVariants(
       ?.filter((v) => v.errors)
       .map((v) => Object.entries(v.errors!).map(([k, msgs]) => `${k}: ${msgs.join(", ")}`).join("; "))
       .join(" | ");
-    logger.warn("[PFS] Create variants returned errors", { errorCount: resp.resume.errors, details: errorDetails || JSON.stringify(data).slice(0, 300) });
+    logger.error("[PFS] Create variants returned errors from PFS", {
+      errorCount: resp.resume.errors,
+      successCount: resp.resume.products ?? 0,
+      details: errorDetails || JSON.stringify(data).slice(0, 500),
+    });
   }
 
   // Keep index alignment: do NOT filter — variantIds[i] must match variants[i]
   const ids = resp.data?.map((v) => v.id ?? null) ?? [];
+
+  if (ids.length === 0) {
+    logger.error("[PFS] Create variants returned no IDs — response format may have changed", {
+      responseKeys: typeof data === "object" && data !== null ? Object.keys(data) : "not-object",
+      fullResponse: JSON.stringify(data).slice(0, 1000),
+    });
+  }
+
   return { variantIds: ids };
 }
 

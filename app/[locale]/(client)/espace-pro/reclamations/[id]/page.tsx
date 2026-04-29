@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
-import { redirect, notFound } from "next/navigation";
-import Link from "next/link";
+import { notFound } from "next/navigation";
+import { redirect, Link } from "@/i18n/navigation";
 import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { getClientClaim } from "@/app/actions/client/claims";
@@ -22,12 +22,11 @@ const REASON_LABELS: Record<string, string> = {
   OTHER: "Autre",
 };
 
-export default async function ClientClaimDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ClientClaimDetailPage({ params }: { params: Promise<{ id: string; locale: string }> }) {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/connexion");
-  if (session.user.status !== "APPROVED") redirect("/espace-pro");
-
-  const { id } = await params;
+  const { id, locale } = await params;
+  if (!session) return redirect({href: "/connexion", locale});
+  if (session.user.status !== "APPROVED") return redirect({href: "/espace-pro", locale});
   const claim = await getClientClaim(id);
   if (!claim) notFound();
 

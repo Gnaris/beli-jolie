@@ -131,6 +131,7 @@ export async function createColorQuick(
   translations: Record<string, string>,
   hex: string | null | undefined,
   patternImage: string | null | undefined,
+  pfsColorRef?: string | null,
 ): Promise<{ id: string; name: string; hex: string | null; patternImage: string | null }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -143,7 +144,7 @@ export async function createColorQuick(
     throw new Error(`La couleur « ${existing.name} » existe déjà dans la bibliothèque.`);
   }
   const created = await prisma.color.create({
-    data: { name, hex: hex ?? null, patternImage: patternImage ?? null },
+    data: { name, hex: hex ?? null, patternImage: patternImage ?? null, pfsColorRef: pfsColorRef?.trim() || null },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;

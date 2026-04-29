@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
+import { redirect } from "@/i18n/navigation";
+import { getLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCart, getShippingAddresses } from "@/app/actions/client/cart";
@@ -14,8 +15,9 @@ export const metadata: Metadata = {
 
 export default async function CommandePage() {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/connexion?callbackUrl=/panier/commande");
-  if (session.user.status !== "APPROVED") redirect("/panier");
+  const locale = await getLocale();
+  if (!session) return redirect({href: {pathname: "/connexion", query: { callbackUrl: "/panier/commande" }}, locale});
+  if (session.user.status !== "APPROVED") return redirect({href: "/panier", locale});
 
   const [cart, addresses, user, minConfig] = await Promise.all([
     getCart(),
@@ -38,11 +40,11 @@ export default async function CommandePage() {
     prisma.siteConfig.findUnique({ where: { key: "min_order_ht" } }),
   ]);
 
-  if (!cart || cart.items.length === 0) redirect("/panier");
+  if (!cart || cart.items.length === 0) return redirect({href: "/panier", locale});
 
   // Bloquer le checkout si Stripe n'est pas relié
   const stripeReady = await isStripeConnectReady();
-  if (!stripeReady) redirect("/panier");
+  if (!stripeReady) return redirect({href: "/panier", locale});
 
   // Vérification minimum commande (couche serveur — ne peut pas être contournée)
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
@@ -59,7 +61,7 @@ export default async function CommandePage() {
       }
       subtotalHT += price * item.quantity;
     }
-    if (subtotalHT < minOrderHT) redirect("/panier");
+    if (subtotalHT < minOrderHT) redirect({href: "/panier", locale});
   }
 
   // Sérialiser les Decimal Prisma en number pour le client component

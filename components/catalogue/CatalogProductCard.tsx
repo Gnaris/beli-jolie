@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useRef, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/i18n/navigation";
 import { addToCart } from "@/app/actions/client/cart";
 import { getImageSrc } from "@/lib/image-utils";
 import ColorSwatch from "@/components/ui/ColorSwatch";

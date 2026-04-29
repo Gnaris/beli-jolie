@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import LoginForm from "@/components/auth/LoginForm";
 import AccessCodeForm from "@/components/auth/AccessCodeForm";
 import { getCachedShopName } from "@/lib/cached-data";

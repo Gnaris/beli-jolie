@@ -159,7 +159,7 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
     const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
     for (const alert of alerts) {
-      const productUrl = `${baseUrl}/produits/${alert.product.id}`;
+      const productUrl = `${baseUrl}/fr/produits/${alert.product.id}`;
       const colorName = alert.productColor.color?.name ?? "";
 
       const result = await sendMail({
@@ -372,7 +372,7 @@ export async function notifyOrderStatusChange(
 
           <!-- Lien espace client -->
           <div style="text-align:center;margin-top:28px;">
-            <a href="${baseUrl}/commandes/${order.id}"
+            <a href="${baseUrl}/fr/commandes/${order.id}"
                style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
               Voir ma commande →
             </a>
@@ -470,7 +470,7 @@ export async function notifyClientNewReply(params: {
         <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
           <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
         </div>
-        <a href="${baseUrl}/espace-pro"
+        <a href="${baseUrl}/fr/espace-pro"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
           Voir la conversation
         </a>
@@ -560,7 +560,7 @@ export async function notifyClientClaimUpdate(params: {
         <h2 style="color:#1A1A1A;">Bonjour ${escapeHtml(clientName)},</h2>
         <p>Votre réclamation <strong>${escapeHtml(claimReference)}</strong> est maintenant <strong>${statusLabels[newStatus] || newStatus}</strong>.</p>
         ${message ? `<div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;"><p style="margin:0;">${escapeHtml(message)}</p></div>` : ''}
-        <a href="${baseUrl}/espace-pro/reclamations/${claimId}"
+        <a href="${baseUrl}/fr/espace-pro/reclamations/${claimId}"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
           Voir la réclamation
         </a>
@@ -754,7 +754,7 @@ export async function notifyClientAccountApproved(params: {
               Vous pouvez maintenant vous connecter, consulter notre catalogue et passer commande.
             </p>
             <div style="text-align:center;margin-top:24px;">
-              <a href="${baseUrl}/connexion"
+              <a href="${baseUrl}/fr/connexion"
                  style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
                 Accéder à la boutique →
               </a>
@@ -942,7 +942,7 @@ export async function notifyClientOrderModified(
               Le montant correspondant vous sera remboursé ou crédité prochainement.
             </p>
             <div style="text-align:center;margin-top:24px;">
-              <a href="${baseUrl}/commandes/${order.id}"
+              <a href="${baseUrl}/fr/commandes/${order.id}"
                  style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
                 Voir ma commande →
               </a>

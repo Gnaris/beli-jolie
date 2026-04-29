@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import Link from "next/link";
+import { redirect, Link } from "@/i18n/navigation";
 import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -9,7 +8,7 @@ import { getCachedShopName } from "@/lib/cached-data";
 import { getAvailableCredit } from "@/lib/credits";
 import AccountEditor from "@/components/client/AccountEditor";
 import LogoutButton from "@/components/client/LogoutButton";
-import { getTranslations } from "next-intl/server";
+import { getTranslations, getLocale } from "next-intl/server";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -130,7 +129,8 @@ function EmptyState({
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/connexion");
+  const locale = await getLocale();
+  if (!session) return redirect({href: "/connexion", locale});
 
   const userId = session.user.id;
   const [t, tOrders] = await Promise.all([
@@ -184,7 +184,7 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  if (!user) redirect("/connexion");
+  if (!user) return redirect({href: "/connexion", locale});
 
   // Fetch first image for favorited products
   const favProductIds = favorites.map((f) => f.product.id);

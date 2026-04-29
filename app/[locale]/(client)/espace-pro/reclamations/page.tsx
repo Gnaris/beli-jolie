@@ -1,9 +1,9 @@
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import Link from "next/link";
+import { redirect, Link } from "@/i18n/navigation";
 import { authOptions } from "@/lib/auth";
 import { getClientClaims } from "@/app/actions/client/claims";
 import { getCachedShopName } from "@/lib/cached-data";
+import { getLocale } from "next-intl/server";
 import type { Metadata } from "next";
 
 // P3-03 — titre dynamique avec le nom de la boutique.
@@ -27,8 +27,9 @@ const STATUS_CONFIG: Record<string, { badge: string; label: string; borderColor:
 
 export default async function ClientClaimsPage() {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/connexion");
-  if (session.user.status !== "APPROVED") redirect("/espace-pro");
+  const locale = await getLocale();
+  if (!session) return redirect({href: "/connexion", locale});
+  if (session.user.status !== "APPROVED") return redirect({href: "/espace-pro", locale});
 
   const claims = await getClientClaims();
 

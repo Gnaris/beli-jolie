@@ -8,8 +8,6 @@
 
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import * as readline from "readline";
-
 const prisma = new PrismaClient();
 
 const KEEP_TABLES = [
@@ -110,16 +108,6 @@ const TABLES_TO_CLEAR = [
   "TranslationQuota",
 ];
 
-function ask(question: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) =>
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    }),
-  );
-}
-
 async function main() {
   console.log("\n========================================");
   console.log("   Reset de la base de données");
@@ -129,13 +117,7 @@ async function main() {
   console.log("Sera VIDÉ :");
   console.log(`  ${TABLES_TO_CLEAR.length} tables (produits, commandes, panier, SAV, etc.)\n`);
 
-  const answer = await ask("Tapez 'OUI' pour confirmer : ");
-  if (answer !== "OUI") {
-    console.log("Annulé.\n");
-    return;
-  }
-
-  console.log("\nDésactivation des contraintes FK...");
+  console.log("Désactivation des contraintes FK...");
   await prisma.$executeRawUnsafe("SET FOREIGN_KEY_CHECKS = 0");
 
   let ok = 0;
