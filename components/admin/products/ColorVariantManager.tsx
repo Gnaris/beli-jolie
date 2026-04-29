@@ -6,53 +6,50 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
-import { fetchPfsColorsForMapping, updateColorPfsRef } from "@/app/actions/admin/colors";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import QuickCreateSizeModal, { type QuickCreateSizeModalResult } from "@/components/admin/products/QuickCreateSizeModal";
-import { usePfsAttributes } from "@/components/admin/MarketplaceMappingSection";
+import PackCompositionModal from "@/components/admin/products/PackCompositionModal";
 import { generateSku } from "@/lib/sku";
 
 // ─────────────────────────────────────────────
 // Exported types
 // ─────────────────────────────────────────────
 
-export interface SubColorState {
-  colorId: string;
-  colorName: string;
-  colorHex: string;
-}
-
 export interface SizeEntryState {
   tempId: string;
   sizeId: string;
   sizeName: string;
-  quantity: string;     // string for form input
-  pricePerUnit?: string; // kept for backward compat during migration — ignored in new UI
+  quantity: string;
+  pricePerUnit?: string;
+}
+
+/** Une ligne d'un PACK multi-couleurs : 1 couleur + ses tailles/quantités. */
+export interface PackLineState {
+  tempId: string;
+  colorId: string;
+  colorName: string;
+  colorHex: string;
+  sizeEntries: SizeEntryState[];
 }
 
 export interface VariantState {
   tempId: string;
-  dbId?: string;           // ProductColor.id when editing
-  // Color composition (colorId = 1ère couleur, subColors = suivantes) — UNIT and PACK
+  dbId?: string;
+  // Couleur unique de la variante
   colorId: string;
   colorName: string;
   colorHex: string;
-  subColors: SubColorState[];
-  // Sizes with quantities (UNIT ou PACK)
+  // Tailles avec quantités (UNIT ou PACK mono-couleur)
   sizeEntries: SizeEntryState[];
-  // Pricing & metadata
-  unitPrice: string;       // Prix HT par unité
+  unitPrice: string;
   weight: string;
   stock: string;
   isPrimary: boolean;
   saleType: "UNIT" | "PACK";
-  packQuantity: string;    // Quantité par paquet (PACK only)
-  // PFS color override for multi-color variants — retained in the UI state but
-  // no longer persisted. Populated for backwards compatibility with legacy UI.
-  pfsColorRef?: string;
-  // SKU auto-généré: {ref}_{couleurs}_{UNIT|PACK}_{index}
+  packQuantity: string;
+  // PACK multi-couleurs : si non-vide, supplante colorId/sizeEntries.
+  packLines: PackLineState[];
   sku: string;
-  // Variante désactivée (masquée côté client)
   disabled: boolean;
 }
 
@@ -72,7 +69,6 @@ export interface AvailableColor {
   name: string;
   hex: string | null;
   patternImage?: string | null;
-  pfsColorRef?: string | null;
 }
 
 export interface AvailableSize {
@@ -85,29 +81,36 @@ interface Props {
   colorImages: ColorImageState[];
   availableColors: AvailableColor[];
   availableSizes: AvailableSize[];
-  /** PFS size references (from the Excel annexes) for the quick-create size modal. */
   pfsSizes?: { reference: string; label: string }[];
   onChange: (variants: VariantState[]) => void;
   onChangeImages: (images: ColorImageState[]) => void;
   onQuickCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
   onColorAdded?: (color: AvailableColor) => void;
-  /** Called after a size is created via the quick-create modal — parent should add to availableSizes */
   onSizeAdded?: (size: AvailableSize) => void;
   variantErrors?: Map<string, Set<string>>;
-  /** Référence du produit — utilisée pour pré-afficher un SKU dès qu'une couleur est choisie (visuel uniquement, non persisté). */
   productReference?: string;
 }
 
 // ─────────────────────────────────────────────
-// Price helpers (exported for reuse in ProductForm)
+// Price helpers
 // ─────────────────────────────────────────────
 
-/** Total price = unitPrice × total quantity across all sizes.
- *  For UNIT: if no sizes, total = unitPrice × 1.
- *  For PACK: total = unitPrice × sum(quantities across sizes). */
 export function computeTotalPrice(v: VariantState): number | null {
   const unit = parseFloat(v.unitPrice);
   if (isNaN(unit) || unit <= 0) return null;
+  if (isMultiColorPack(v)) {
+    let totalQty = 0;
+    for (const line of v.packLines) {
+      if (!line.colorId) return null;
+      if (line.sizeEntries.length === 0) return null;
+      for (const se of line.sizeEntries) {
+        const qty = parseInt(se.quantity);
+        if (isNaN(qty) || qty <= 0) return null;
+        totalQty += qty;
+      }
+    }
+    return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : null;
+  }
   if (v.sizeEntries.length === 0) return v.saleType === "PACK" ? null : unit;
   let totalQty = 0;
   for (const se of v.sizeEntries) {
@@ -115,15 +118,14 @@ export function computeTotalPrice(v: VariantState): number | null {
     if (isNaN(qty) || qty <= 0) return null;
     totalQty += qty;
   }
-  return totalQty > 0 ? Math.round(unit * totalQty * 100) / 100 : unit;
+  if (totalQty === 0) return v.saleType === "PACK" ? null : unit;
+  return Math.round(unit * totalQty * 100) / 100;
 }
 
-/** Get total quantity across all size entries. */
 export function computePackTotalQty(v: VariantState): number {
+  if (isMultiColorPack(v)) return computePackLinesTotal(v.packLines);
   let total = 0;
-  for (const se of v.sizeEntries) {
-    total += parseInt(se.quantity) || 0;
-  }
+  for (const se of v.sizeEntries) total += parseInt(se.quantity) || 0;
   return total;
 }
 
@@ -134,10 +136,6 @@ export function computeFinalPrice(v: VariantState, discountPercent?: number | nu
   return Math.max(0, total * (1 - discountPercent / 100));
 }
 
-/**
- * Compute global price = unitPrice × total quantity (same as computeTotalPrice now).
- * Kept for backward compat.
- */
 export function computeGlobalPrice(v: VariantState): number | null {
   return computeTotalPrice(v);
 }
@@ -148,16 +146,25 @@ export function computeGlobalPrice(v: VariantState): number | null {
 
 export function uid() { return Math.random().toString(36).slice(2, 9); }
 
-// ─────────────────────────────────────────────
-// Duplicate detection (saleType + color composition + sizes/quantities)
-// ─────────────────────────────────────────────
 function buildVariantDuplicateKey(v: VariantState): string {
+  if (isMultiColorPack(v)) {
+    const lineKey = v.packLines
+      .map((l) => {
+        const sk = [...l.sizeEntries]
+          .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
+          .map((s) => `${s.sizeId}:${s.quantity}`)
+          .join(",");
+        return `${l.colorId}:[${sk}]`;
+      })
+      .sort()
+      .join("|");
+    return `PACK::MULTI::${lineKey}`;
+  }
   const sizeKey = [...v.sizeEntries]
     .sort((a, b) => a.sizeId.localeCompare(b.sizeId))
     .map((s) => `${s.sizeId}:${s.quantity}`)
     .join(",");
-  const subColorKey = v.subColors.map((sc) => sc.colorId).join(",");
-  return `${v.saleType}::${v.colorId}::${subColorKey}::${sizeKey}`;
+  return `${v.saleType}::${v.colorId}::${sizeKey}`;
 }
 
 function findDuplicateVariantTempIds(variants: VariantState[]): Set<string> {
@@ -175,42 +182,32 @@ function findDuplicateVariantTempIds(variants: VariantState[]): Set<string> {
   return duplicates;
 }
 
-/** Unique key for a color+sub-colors combination. Uses colorId (not name) to avoid collisions. */
-export function variantGroupKeyFromState(v: { colorId: string; subColors: { colorId: string }[] }): string {
-  if (v.subColors.length === 0) return v.colorId;
-  return `${v.colorId}::${v.subColors.map(sc => sc.colorId).join(",")}`;
+/** Clé de groupe = colorId. */
+export function variantGroupKeyFromState(v: { colorId: string }): string {
+  return v.colorId;
 }
 
-/** Image group key — based on color composition (UNIT and PACK use the same scheme). */
 export function imageGroupKeyFromVariant(v: VariantState): string {
   return variantGroupKeyFromState(v);
 }
 
-/** Fingerprint of a variant's color state — changes when colors change. */
 export function variantColorFingerprint(v: VariantState): string {
-  if (!v.colorId) return "";
-  return variantGroupKeyFromState(v);
+  return v.colorId ?? "";
 }
 
-/** Unique color combinations across a variant set — one entry per distinct
- *  color composition, regardless of UNIT vs PACK. */
+/** Liste des couleurs distinctes utilisées dans les variantes existantes. */
 export function computeExistingColorCombos(
   existingVariants: VariantState[],
-): { key: string; colors: { colorId: string; colorName: string; colorHex: string }[]; pfsColorRef?: string }[] {
+): { key: string; color: { colorId: string; colorName: string; colorHex: string } }[] {
   const seen = new Set<string>();
-  const combos: { key: string; colors: { colorId: string; colorName: string; colorHex: string }[]; pfsColorRef?: string }[] = [];
+  const combos: { key: string; color: { colorId: string; colorName: string; colorHex: string } }[] = [];
   for (const v of existingVariants) {
     if (!v.colorId) continue;
-    const gk = variantGroupKeyFromState(v);
-    if (seen.has(gk)) continue;
-    seen.add(gk);
+    if (seen.has(v.colorId)) continue;
+    seen.add(v.colorId);
     combos.push({
-      key: gk,
-      colors: [
-        { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
-        ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
-      ],
-      pfsColorRef: v.pfsColorRef || undefined,
+      key: v.colorId,
+      color: { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
     });
   }
   return combos;
@@ -218,29 +215,44 @@ export function computeExistingColorCombos(
 
 function defaultVariant(): VariantState {
   return {
-    tempId:       uid(),
-    colorId:      "",
-    colorName:    "",
-    colorHex:     "#9CA3AF",
-    subColors:    [],
-    sizeEntries:  [],
-    unitPrice:    "",
-    weight:       "",
-    stock:        "",
-    isPrimary:    false,
-    saleType:     "UNIT",
+    tempId: uid(),
+    colorId: "",
+    colorName: "",
+    colorHex: "#9CA3AF",
+    sizeEntries: [],
+    unitPrice: "",
+    weight: "",
+    stock: "",
+    isPrimary: false,
+    saleType: "UNIT",
     packQuantity: "",
-    pfsColorRef: "",
+    packLines: [],
     sku: "",
     disabled: false,
   };
 }
 
-/**
- * True si la variante semble "vierge" (l'utilisateur n'a encore rien tapé
- * dans les champs prix / stock / poids / tailles). Utilisé pour décider si
- * on peut pré-remplir automatiquement à partir d'une autre variante.
- */
+/** True si la variante PACK utilise la composition multi-couleurs. */
+export function isMultiColorPack(v: Pick<VariantState, "saleType" | "packLines">): boolean {
+  return v.saleType === "PACK" && v.packLines.length > 0;
+}
+
+/** Total des pièces d'un pack multi-couleurs. */
+export function computePackLinesTotal(lines: PackLineState[]): number {
+  let total = 0;
+  for (const line of lines) {
+    for (const se of line.sizeEntries) total += parseInt(se.quantity) || 0;
+  }
+  return total;
+}
+
+/** Liste des couleurs distinctes d'un pack multi-couleurs. */
+export function packLinesColorList(lines: PackLineState[]): { colorId: string; colorName: string; colorHex: string }[] {
+  return lines
+    .filter((l) => l.colorId)
+    .map((l) => ({ colorId: l.colorId, colorName: l.colorName, colorHex: l.colorHex }));
+}
+
 function isVariantPristine(v: VariantState): boolean {
   return (
     v.sizeEntries.length === 0 &&
@@ -251,15 +263,6 @@ function isVariantPristine(v: VariantState): boolean {
   );
 }
 
-/**
- * Cherche dans les variantes existantes celle dont on peut recopier les
- * attributs (tailles, prix, stock, poids). Priorité :
- *   1. Même type de vente ET même couleur principale
- *   2. Même type de vente
- *   3. Même couleur principale
- *   4. La dernière variante remplie (toutes confondues)
- * On ignore les variantes désactivées et celles qui n'ont aucune donnée.
- */
 export function findDonorVariant(
   target: Pick<VariantState, "tempId" | "saleType" | "colorId">,
   all: VariantState[]
@@ -286,12 +289,6 @@ export function findDonorVariant(
   );
 }
 
-/**
- * Recopie les champs "remplissage rapide" depuis le donneur vers la cible.
- * On préserve `tempId`, identité couleur, statut primaire / désactivé, etc.
- * Si le donneur a un autre type de vente, on ne recopie ni tailles ni
- * `packQuantity` (incompatibles entre UNIT et PACK).
- */
 export function applyDonorAutofill(target: VariantState, donor: VariantState, makeId: () => string): VariantState {
   const sameType = donor.saleType === target.saleType;
   return {
@@ -308,454 +305,77 @@ export function applyDonorAutofill(target: VariantState, donor: VariantState, ma
   };
 }
 
-// ─────────────────────────────────────────────
-// Bulk edit state
-// ─────────────────────────────────────────────
-interface BulkEditState {
-  unitPrice:    string;
-  weight:       string;
-  stock:        string;
-}
-
-function defaultBulkEdit(): BulkEditState {
-  return { unitPrice: "", weight: "", stock: "" };
-}
+interface BulkEditState { unitPrice: string; weight: string; stock: string; }
+function defaultBulkEdit(): BulkEditState { return { unitPrice: "", weight: "", stock: "" }; }
 
 // ─────────────────────────────────────────────
-// PFS Color Mapping types & dropdown
+// SingleColorSelect — modale pour choisir UNE couleur
 // ─────────────────────────────────────────────
-interface PfsColorOption {
-  reference: string;
-  value: string;       // hex
-  image: string | null;
-  label: string;       // French label
-}
-
-interface PfsMappingData {
-  pfsColors: PfsColorOption[];
-  existingMappings: Record<string, { colorId: string; colorName: string }>;
-}
-
-function PfsColorDropdown({
-  colorId,
-  currentPfsRef,
-  pfsData,
-  onMap,
+function SingleColorSelect({
+  selected,
+  options,
+  onChange,
+  onCreateColor,
+  onColorAdded,
 }: {
-  colorId: string;
-  currentPfsRef: string | null;
-  pfsData: PfsMappingData;
-  onMap: (colorId: string, pfsRef: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      const target = e.target as Node;
-      // Ne pas fermer si le clic est dans le trigger OU dans le menu porté
-      if (ref.current?.contains(target)) return;
-      if (menuRef.current?.contains(target)) return;
-      setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  const filtered = search.trim()
-    ? pfsData.pfsColors.filter((c) =>
-        c.label.toLowerCase().includes(search.trim().toLowerCase()) ||
-        c.reference.toLowerCase().includes(search.trim().toLowerCase())
-      )
-    : pfsData.pfsColors;
-
-  const currentPfs = currentPfsRef ? pfsData.pfsColors.find((c) => c.reference === currentPfsRef) : null;
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className={`w-full flex items-center gap-1.5 border px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[28px] ${
-          currentPfsRef
-            ? "bg-[#F0FDF4] border-[#BBF7D0] text-text-primary"
-            : "bg-bg-primary border-border text-text-muted hover:border-[#9CA3AF]"
-        }`}
-      >
-        {currentPfs ? (
-          <>
-            <span
-              className="w-3 h-3 rounded-full shrink-0 border border-black/10"
-              style={{ backgroundColor: currentPfs.value || "#9CA3AF" }}
-            />
-            <span className="flex-1 truncate font-body">{currentPfs.label}</span>
-          </>
-        ) : (
-          <span className="flex-1 italic font-body">Aucune correspondance</span>
-        )}
-        <svg className="w-3 h-3 shrink-0 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {open && createPortal(
-        <div
-          ref={menuRef}
-          className="fixed bg-bg-primary border border-border rounded-lg shadow-2xl z-[9999] max-h-[220px] flex flex-col"
-          style={(() => {
-            const rect = ref.current?.getBoundingClientRect();
-            if (!rect) return {};
-            return { top: rect.bottom + 4, left: rect.left, width: rect.width };
-          })()}
-        >
-          <div className="px-2 py-1.5 border-b border-border-light shrink-0">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher..."
-              className="w-full text-xs bg-transparent outline-none text-text-primary placeholder:text-text-muted font-body"
-              autoFocus
-            />
-          </div>
-          <div className="overflow-y-auto flex-1">
-            {/* Option to unmap */}
-            {currentPfsRef && (
-              <button
-                type="button"
-                onClick={() => { onMap(colorId, null); setOpen(false); setSearch(""); }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left hover:bg-[#FEF2F2] text-[#EF4444] font-body border-b border-border-light"
-              >
-                <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Retirer la correspondance
-              </button>
-            )}
-            {filtered.length === 0 ? (
-              <div className="px-2.5 py-3 text-xs text-text-muted text-center font-body">Aucun résultat</div>
-            ) : filtered.map((pfs) => {
-              const mapping = pfsData.existingMappings[pfs.reference];
-              const isUsedByOther = mapping && mapping.colorId !== colorId;
-              const isCurrentMapping = currentPfsRef === pfs.reference;
-
-              return (
-                <button
-                  key={pfs.reference}
-                  type="button"
-                  disabled={isUsedByOther}
-                  onClick={() => {
-                    if (!isUsedByOther) {
-                      onMap(colorId, pfs.reference);
-                      setOpen(false);
-                      setSearch("");
-                    }
-                  }}
-                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left transition-colors font-body ${
-                    isUsedByOther
-                      ? "opacity-50 cursor-not-allowed bg-bg-secondary"
-                      : isCurrentMapping
-                        ? "bg-[#F0FDF4]"
-                        : "hover:bg-bg-secondary"
-                  }`}
-                >
-                  <span
-                    className="w-3 h-3 rounded-full shrink-0 border border-black/10"
-                    style={{ backgroundColor: pfs.value || "#9CA3AF" }}
-                  />
-                  <span className={`flex-1 truncate ${isUsedByOther ? "line-through text-text-muted" : "text-text-primary"}`}>
-                    {pfs.label}
-                  </span>
-                  {isUsedByOther && (
-                    <span className="text-[9px] text-text-muted shrink-0 whitespace-nowrap">
-                      Utilisé par {mapping.colorName}
-                    </span>
-                  )}
-                  {isCurrentMapping && (
-                    <svg className="w-3 h-3 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// MultiColorSelect — modal-based multi-select (first = main, rest = sub-colors)
-// With drag & drop reordering + remove in the selection zone
-// ─────────────────────────────────────────────
-function MultiColorSelect({ selected, options, onChange, existingVariants, editingGroupKey, pfsColorRef, pfsColorRefLabel, onPfsColorRefChange, usedPfsColorRefs, onCreateColor, onColorAdded, mappedCombos }: {
-  selected: { colorId: string; colorName: string; colorHex: string }[];
+  selected: { colorId: string; colorName: string; colorHex: string } | null;
   options: AvailableColor[];
-  onChange: (colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) => void;
-  existingVariants?: VariantState[];
-  /** GroupKey of the variant being edited — excluded from duplicate check */
-  editingGroupKey?: string;
-  /** Per-variant PFS color override (multi-color only) */
-  pfsColorRef?: string;
-  /** French label for the PFS color reference (display only) */
-  pfsColorRefLabel?: string;
-  onPfsColorRefChange?: (ref: string) => void;
-  /** PFS color refs already used by other variants in this product */
-  usedPfsColorRefs?: Map<string, string>; // pfsRef → variantLabel
+  onChange: (color: { colorId: string; colorName: string; colorHex: string } | null) => void;
   onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
-  /** Notify parent that a color was created inline (so it can update its own list) */
   onColorAdded?: (color: AvailableColor) => void;
-  /** Mapped multi-color combinations from DB: sortedColorIds → pfsColorRef */
-  mappedCombos?: Record<string, string>;
 }) {
+  void onCreateColor;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
-
-  // Local draft so user can review before confirming
-  const [draft, setDraft] = useState(selected);
-
-  // Drag state for reordering
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-
-  // Quick-create color modal
+  const [draft, setDraft] = useState<{ colorId: string; colorName: string; colorHex: string } | null>(selected);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
-
-  // Colors created inline (not yet in parent options)
   const [localCreatedColors, setLocalCreatedColors] = useState<AvailableColor[]>([]);
-  const allOptions = (() => {
+  const backdropColorPicker = useBackdropClose(() => cancel());
+
+  const allOptions = useMemo(() => {
     const ids = new Set(options.map((o) => o.id));
     return [...options, ...localCreatedColors.filter((c) => !ids.has(c.id))];
-  })();
+  }, [options, localCreatedColors]);
 
-  // Marketplace mapping state
-  const [showMapping, setShowMapping] = useState(false);
-  const [pfsData, setPfsData] = useState<PfsMappingData | null>(null);
-  const [pfsLoading, setPfsLoading] = useState(false);
-  const [pfsSaving, setPfsSaving] = useState<string | null>(null); // colorId being saved
-  // Per-variant PFS color override for multi-color combos
-  const [draftPfsColorRef, setDraftPfsColorRef] = useState(pfsColorRef ?? "");
-
-  // Auto-load PFS data when multi-color is selected (mapping becomes mandatory)
-  useEffect(() => {
-    if (draft.length > 1 && !pfsData && !pfsLoading) {
-      loadPfsData();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.length]);
-
-  // Track the combo key to detect changes
-  const draftComboKey = draft.length > 1 ? draft.map((c) => c.colorId).sort().join("+") : "";
-  const prevComboKeyRef = useRef(draftComboKey);
-
-  // Auto-resolve PFS color ref when draft multi-color combination changes
-  useEffect(() => {
-    if (draft.length <= 1) return;
-    const comboChanged = prevComboKeyRef.current !== draftComboKey;
-    prevComboKeyRef.current = draftComboKey;
-    // Only auto-resolve on combo change, or initial load when no PFS ref
-    if (!comboChanged && draftPfsColorRef) return;
-
-    // Collect PFS refs already used by other variants in this product
-    const usedRefs = new Set<string>();
-    if (existingVariants) {
-      for (const ov of existingVariants) {
-        if (ov.pfsColorRef) usedRefs.add(ov.pfsColorRef);
-      }
-    }
-
-    // 1. Check same-product variants for a matching combo
-    if (existingVariants) {
-      for (const ov of existingVariants) {
-        if (!ov.pfsColorRef) continue;
-        if (ov.colorId && ov.subColors.length > 0) {
-          const vIds = [ov.colorId, ...ov.subColors.map((sc) => sc.colorId)].sort().join("+");
-          if (vIds === draftComboKey) { setDraftPfsColorRef(ov.pfsColorRef); return; }
-        }
-      }
-    }
-    // 2. Check cross-product mapped combinations from DB
-    const dbRef = mappedCombos?.[draftComboKey];
-    if (dbRef && !usedRefs.has(dbRef)) {
-      setDraftPfsColorRef(dbRef);
-      return;
-    }
-    // 3. No match found — clear the PFS ref if combo changed
-    if (comboChanged) {
-      setDraftPfsColorRef("");
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftComboKey]);
-
-  async function loadPfsData() {
-    if (pfsData) { setShowMapping(true); return; }
-    setPfsLoading(true);
-    try {
-      const data = await fetchPfsColorsForMapping();
-      setPfsData(data);
-      setShowMapping(true);
-    } catch (err) {
-      console.error("[PFS mapping] load error:", err);
-    } finally {
-      setPfsLoading(false);
-    }
-  }
-
-  async function handlePfsMap(colorId: string, pfsRef: string | null) {
-    setPfsSaving(colorId);
-    try {
-      await updateColorPfsRef(colorId, pfsRef);
-      // Update local pfsData mappings
-      setPfsData((prev) => {
-        if (!prev) return prev;
-        const next = { ...prev, existingMappings: { ...prev.existingMappings } };
-        // Remove old mapping for this color
-        for (const [ref, m] of Object.entries(next.existingMappings)) {
-          if (m.colorId === colorId) delete next.existingMappings[ref];
-        }
-        // Add new mapping
-        if (pfsRef) {
-          const opt = allOptions.find((o) => o.id === colorId);
-          next.existingMappings[pfsRef] = { colorId, colorName: opt?.name || "" };
-        }
-        return next;
-      });
-    } catch (err) {
-      console.error("[PFS mapping] save error:", err);
-    } finally {
-      setPfsSaving(null);
-    }
-  }
-
-  const openModal = useCallback(() => {
+  function openModal() {
     setDraft(selected);
-    setSearch("");
-    setShowQuickCreate(false);
-    setDraftPfsColorRef(pfsColorRef ?? "");
     setOpen(true);
-  }, [selected, pfsColorRef]);
+    setTimeout(() => searchRef.current?.focus(), 0);
+  }
 
-  // Multi-color without PFS mapping — warn but don't block
-  const multiColorMissingPfs = draft.length > 1 && !draftPfsColorRef;
-
-  const confirm = useCallback(() => {
-    onChange(draft, draft.length > 1 ? draftPfsColorRef || undefined : undefined);
-    if (draft.length > 1 && onPfsColorRefChange) {
-      onPfsColorRefChange(draftPfsColorRef);
-    }
+  function cancel() {
     setOpen(false);
-  }, [draft, draftPfsColorRef, onChange, onPfsColorRefChange]);
+    setSearch("");
+  }
 
-  const cancel = useCallback(() => {
+  function confirm() {
+    onChange(draft);
     setOpen(false);
-  }, []);
-  const backdropColorPicker = useBackdropClose(cancel);
+    setSearch("");
+  }
 
-  useEffect(() => {
-    if (open) setTimeout(() => searchRef.current?.focus(), 50);
-  }, [open]);
+  function pickColor(opt: AvailableColor) {
+    setDraft({ colorId: opt.id, colorName: opt.name, colorHex: opt.hex ?? "#9CA3AF" });
+  }
 
-  // Lock body scroll when modal is open
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [open]);
+  function clearDraft() {
+    setDraft(null);
+  }
+
+  function handleQuickColorCreated(item: { id: string; name: string; hex?: string | null; patternImage?: string | null }) {
+    const newColor: AvailableColor = { id: item.id, name: item.name, hex: item.hex ?? null, patternImage: item.patternImage ?? null };
+    setLocalCreatedColors((prev) => [...prev, newColor]);
+    onColorAdded?.(newColor);
+    setDraft({ colorId: newColor.id, colorName: newColor.name, colorHex: newColor.hex ?? "#9CA3AF" });
+    setShowQuickCreate(false);
+  }
 
   const filtered = search.trim()
     ? allOptions.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()))
     : allOptions;
 
-  const draftIds = new Set(draft.map((s) => s.colorId));
-
-  // Build unique existing color combinations from variants
-  const existingCombinations = (() => {
-    if (!existingVariants || existingVariants.length === 0) return [];
-    const seen = new Set<string>();
-    const combos: { key: string; colors: { colorId: string; colorName: string; colorHex: string }[]; saleTypes: string[] }[] = [];
-    for (const v of existingVariants) {
-      if (!v.colorId) continue;
-      const gk = variantGroupKeyFromState(v);
-      if (seen.has(gk)) {
-        const existing = combos.find((c) => c.key === gk);
-        if (existing && !existing.saleTypes.includes(v.saleType)) {
-          existing.saleTypes.push(v.saleType);
-        }
-        continue;
-      }
-      seen.add(gk);
-      const colors = [
-        { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
-        ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
-      ];
-      combos.push({ key: gk, colors, saleTypes: [v.saleType] });
-    }
-    return combos;
-  })();
-
-  // Check if draft matches an existing combination
-  const draftGroupKey = draft.length > 0
-    ? (draft.length === 1 ? draft[0].colorId : `${draft[0].colorId}::${draft.slice(1).map((s) => s.colorName).join(",")}`)
-    : "";
-  const matchingCombo = existingCombinations.find((c) => c.key === draftGroupKey && c.key !== editingGroupKey);
-
-  function selectCombination(combo: typeof existingCombinations[0]) {
-    setDraft(combo.colors);
-  }
-
-  function toggle(opt: AvailableColor) {
-    if (draftIds.has(opt.id)) {
-      setDraft(draft.filter((s) => s.colorId !== opt.id));
-    } else {
-      setDraft([...draft, { colorId: opt.id, colorName: opt.name, colorHex: opt.hex ?? "#9CA3AF" }]);
-    }
-  }
-
-  function removeFromDraft(colorId: string) {
-    setDraft(draft.filter((s) => s.colorId !== colorId));
-  }
-
-  // Drag & drop handlers for reordering
-  function handleDragStart(idx: number) {
-    setDragIdx(idx);
-  }
-  function handleDragOver(e: React.DragEvent, idx: number) {
-    e.preventDefault();
-    setDragOverIdx(idx);
-  }
-  function handleDragEnd() {
-    if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
-      const updated = [...draft];
-      const [moved] = updated.splice(dragIdx, 1);
-      updated.splice(dragOverIdx, 0, moved);
-      setDraft(updated);
-    }
-    setDragIdx(null);
-    setDragOverIdx(null);
-  }
-
-  function handleQuickColorCreated(item: { id: string; name: string; hex?: string | null; patternImage?: string | null; pfsColorRef?: string | null }) {
-    setDraft((prev) => [...prev, { colorId: item.id, colorName: item.name, colorHex: item.hex ?? "#9CA3AF" }]);
-    const newColor: AvailableColor = { id: item.id, name: item.name, hex: item.hex ?? null, patternImage: item.patternImage ?? null, pfsColorRef: item.pfsColorRef ?? null };
-    setLocalCreatedColors((prev) => [...prev, newColor]);
-    onColorAdded?.(newColor);
-    setShowQuickCreate(false);
-  }
-
-  // Build display for the trigger button
-  const displayName = selected.map((s) => s.colorName).join(" / ");
-  const selectedSegments = selected.map((s) => {
-    const opt = allOptions.find((o) => o.id === s.colorId);
-    return { hex: s.colorHex, patternImage: opt?.patternImage ?? null };
-  });
+  const triggerOpt = selected ? allOptions.find((o) => o.id === selected.colorId) : null;
 
   return (
     <div>
@@ -764,45 +384,29 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
         onClick={openModal}
         className="w-full flex items-center gap-1.5 bg-bg-primary border border-border px-2 py-1.5 text-xs font-body text-text-primary focus:outline-none focus:border-[#1A1A1A] hover:border-[#9CA3AF] transition-colors text-left min-h-[32px] rounded-md"
       >
-        {selected.length === 0 ? (
+        {!selected ? (
           <span className="text-text-muted flex-1 italic">— Couleur</span>
         ) : (
           <span className="flex items-center gap-1.5 flex-1 min-w-0">
-            {selectedSegments.length === 1 ? (
-              <ColorSwatch hex={selectedSegments[0].hex} patternImage={selectedSegments[0].patternImage} size={14} rounded="full" />
-            ) : (
-              <ColorSwatch hex={selectedSegments[0]?.hex} patternImage={selectedSegments[0]?.patternImage} subColors={selectedSegments.slice(1)} size={14} rounded="full" />
-            )}
-            <span className="truncate text-[11px]">{displayName}</span>
+            <ColorSwatch hex={selected.colorHex} patternImage={triggerOpt?.patternImage ?? null} size={14} rounded="full" />
+            <span className="truncate text-[11px]">{selected.colorName}</span>
           </span>
         )}
         <svg className="w-3 h-3 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
-      {/* PFS badge — below trigger */}
-      {selected.length > 1 && pfsColorRef && (
-        <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600 truncate max-w-full">
-          <span className="w-1.5 h-1.5 rounded-full bg-purple-300 animate-pulse shrink-0" />
-          PFS : {pfsColorRefLabel || pfsColorRef}
-        </span>
-      )}
 
-      {/* Modal */}
       {open && createPortal(
         <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onMouseDown={backdropColorPicker.onMouseDown} onMouseUp={backdropColorPicker.onMouseUp}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-
           <div
-            className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col"
-            style={{ maxHeight: "min(90vh, 720px)" }}
+            className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col"
+            style={{ maxHeight: "min(85vh, 640px)" }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* ── Header ── */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-              <h3 className="text-base font-semibold font-heading text-text-primary">
-                Couleurs de la variante
-              </h3>
+              <h3 className="text-base font-semibold font-heading text-text-primary">Couleur de la variante</h3>
               <button type="button" onClick={cancel} className="p-1.5 hover:bg-bg-secondary rounded-lg transition-colors" aria-label="Fermer">
                 <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -810,180 +414,22 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
               </button>
             </div>
 
-            {/* ── Selected colors zone (top, always visible) ── */}
             <div className="px-6 py-4 bg-[#FAFAFA] border-b border-border shrink-0">
-              {draft.length === 0 ? (
+              {!draft ? (
                 <div className="flex items-center gap-3 text-text-muted">
-                  <div className="w-8 h-8 rounded-full border-2 border-dashed border-[#D1D5DB] flex items-center justify-center">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </div>
-                  <span className="text-sm font-body">
-                    Sélectionnez une ou plusieurs couleurs ci-dessous
-                  </span>
+                  <div className="w-8 h-8 rounded-full border-2 border-dashed border-[#D1D5DB]" />
+                  <span className="text-sm font-body">Sélectionnez une couleur ci-dessous</span>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {/* Chips row */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {draft.map((s, i) => {
-                      const opt = allOptions.find((o) => o.id === s.colorId);
-                      return (
-                        <div
-                          key={s.colorId}
-                          draggable
-                          onDragStart={() => handleDragStart(i)}
-                          onDragOver={(e) => handleDragOver(e, i)}
-                          onDragEnd={handleDragEnd}
-                          className={`group flex items-center gap-2 pl-1.5 pr-1 py-1 rounded-full border cursor-grab active:cursor-grabbing transition-all ${
-                            i === 0
-                              ? "bg-bg-dark border-[#1A1A1A] text-text-inverse"
-                              : dragOverIdx === i ? "bg-[#F0F0F0] border-[#1A1A1A]" : "bg-bg-primary border-border hover:border-[#9CA3AF]"
-                          }`}
-                        >
-                          <ColorSwatch hex={s.colorHex} patternImage={opt?.patternImage ?? null} size={20} rounded="full" border />
-                          <span className={`text-xs font-medium font-body max-w-[100px] truncate ${i === 0 ? "text-text-inverse" : "text-text-primary"}`}>
-                            {s.colorName}
-                          </span>
-                          {i === 0 && (
-                            <span className="text-[9px] bg-bg-primary/20 text-text-inverse px-1.5 py-0.5 rounded-full font-semibold">1re</span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); removeFromDraft(s.colorId); }}
-                            className={`p-0.5 rounded-full transition-colors ${
-                              i === 0 ? "text-text-inverse/60 hover:text-text-inverse hover:bg-bg-primary/20" : "text-text-muted hover:text-[#EF4444] hover:bg-[#FEF2F2]"
-                            }`}
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                      );
-                    })}
-                    {draft.length > 1 && (
-                      <button type="button" onClick={() => setDraft([])} className="text-[11px] text-text-muted hover:text-[#EF4444] font-body transition-colors ml-1">
-                        Vider
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Reorder hint */}
-                  {draft.length > 1 && (
-                    <p className="text-[10px] text-text-muted font-body">
-                      Glissez pour réordonner. La 1re couleur = couleur principale.
-                    </p>
-                  )}
-
-                  {/* PFS mapping — inline, only for multi-color */}
-                  {draft.length > 1 && (
-                    <div className="flex items-center gap-3 pt-1">
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
-                        <span className="text-[11px] font-semibold text-text-secondary font-body">Couleur Paris Fashion Shop</span>
-                      </div>
-                      {!pfsData && !pfsLoading ? (
-                        <button type="button" onClick={loadPfsData} className="text-[11px] text-text-secondary hover:text-text-primary underline font-body">
-                          Charger les options
-                        </button>
-                      ) : pfsLoading ? (
-                        <div className="flex items-center gap-1.5 text-text-muted">
-                          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                          <span className="text-[11px] font-body">Chargement…</span>
-                        </div>
-                      ) : pfsData ? (
-                        <div className="flex-1 min-w-0">
-                          <PfsColorDropdown
-                            colorId={"__variant__"}
-                            currentPfsRef={draftPfsColorRef || null}
-                            pfsData={{
-                              ...pfsData,
-                              // Pour le variant override, ne bloquer que les refs utilisées par
-                              // d'autres variantes du même produit (pas les mappings Color-level)
-                              existingMappings: (() => {
-                                const map: Record<string, { colorId: string; colorName: string }> = {};
-                                if (usedPfsColorRefs) {
-                                  for (const [ref, label] of usedPfsColorRefs) {
-                                    map[ref] = { colorId: "__other__", colorName: label };
-                                  }
-                                }
-                                return map;
-                              })(),
-                            }}
-                            onMap={(_id, ref) => setDraftPfsColorRef(ref ?? "")}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                  {/* PFS conflict warning */}
-                  {draft.length > 1 && draftPfsColorRef && usedPfsColorRefs?.has(draftPfsColorRef) && (
-                    <p className="text-[10px] text-[#EF4444] font-body">
-                      Couleur Paris Fashion Shop déjà utilisée par « {usedPfsColorRefs.get(draftPfsColorRef)} »
-                    </p>
-                  )}
-
-                  {/* Single-color PFS status */}
-                  {draft.length === 1 && (() => {
-                    const mainOpt = allOptions.find((o) => o.id === draft[0].colorId);
-                    const autoRef = mainOpt?.pfsColorRef;
-                    if (!autoRef) return null;
-                    return (
-                      <div className="flex items-center gap-1.5 pt-0.5">
-                        <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
-                        <span className="text-[10px] text-[#22C55E] font-body">
-                          Paris Fashion Shop : {autoRef}
-                        </span>
-                      </div>
-                    );
-                  })()}
+                <div className="flex items-center gap-2">
+                  <ColorSwatch hex={draft.colorHex} patternImage={allOptions.find((o) => o.id === draft.colorId)?.patternImage ?? null} size={28} rounded="full" border />
+                  <span className="text-sm font-medium text-text-primary font-body flex-1">{draft.colorName}</span>
+                  <button type="button" onClick={clearDraft} className="text-[11px] text-text-muted hover:text-[#EF4444] font-body">Vider</button>
                 </div>
               )}
             </div>
 
-            {/* ── Existing combinations (quick-pick bar) ── */}
-            {existingCombinations.length > 0 && (
-              <div className="px-6 py-2.5 border-b border-border shrink-0 bg-bg-primary">
-                <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-                  <span className="text-[10px] text-text-muted font-body uppercase tracking-wide shrink-0">Existantes</span>
-                  {existingCombinations.map((combo) => {
-                    const isMatch = combo.key === draftGroupKey;
-                    return (
-                      <button
-                        key={combo.key}
-                        type="button"
-                        onClick={() => selectCombination(combo)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] whitespace-nowrap transition-colors shrink-0 font-body ${
-                          isMatch ? "border-[#22C55E] bg-[#F0FDF4] text-text-primary" : "border-border bg-bg-primary text-text-secondary hover:border-[#9CA3AF]"
-                        }`}
-                      >
-                        <div className="flex -space-x-0.5">
-                          {combo.colors.slice(0, 3).map((c, ci) => {
-                            const optC = allOptions.find((o) => o.id === c.colorId);
-                            return <ColorSwatch key={ci} hex={c.colorHex} patternImage={optC?.patternImage ?? null} size={12} rounded="full" border />;
-                          })}
-                        </div>
-                        <span className="max-w-[100px] truncate">{combo.colors.map((c) => c.colorName).join(" / ")}</span>
-                        {isMatch && (
-                          <svg className="w-3 h-3 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ── Color catalogue (scrollable) ── */}
             <div className="flex-1 flex flex-col min-h-0">
-              {/* Search */}
               <div className="px-6 py-3 shrink-0">
                 <div className="flex items-center gap-2.5 bg-bg-secondary border border-border px-3 py-2 rounded-xl">
                   <svg className="w-4 h-4 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1007,39 +453,26 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                 </div>
               </div>
 
-              {/* Color grid */}
               <div className="flex-1 overflow-y-auto px-6 pb-3">
                 {filtered.length === 0 ? (
                   <div className="py-12 text-center text-sm text-text-muted font-body">Aucun résultat</div>
                 ) : (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                     {filtered.map((opt) => {
-                      const isChecked = draftIds.has(opt.id);
-                      const position = draft.findIndex((s) => s.colorId === opt.id);
+                      const isChecked = draft?.colorId === opt.id;
                       return (
                         <button
                           key={opt.id}
                           type="button"
-                          onClick={() => toggle(opt)}
+                          onClick={() => pickColor(opt)}
                           className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all text-center ${
                             isChecked
                               ? "border-[#1A1A1A] bg-bg-secondary shadow-sm"
                               : "border-transparent bg-bg-primary hover:bg-bg-secondary hover:border-border"
                           }`}
                         >
-                          <div className="relative">
-                            <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={36} rounded="lg" />
-                            {isChecked && (
-                              <span className={`absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                                position === 0 ? "bg-bg-dark text-text-inverse" : "bg-[#E5E5E5] text-text-primary"
-                              }`}>
-                                {position + 1}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[11px] font-body text-text-primary truncate w-full leading-tight">
-                            {opt.name}
-                          </span>
+                          <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={36} rounded="lg" />
+                          <span className="text-[11px] font-body text-text-primary truncate w-full leading-tight">{opt.name}</span>
                         </button>
                       );
                     })}
@@ -1047,7 +480,6 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
                 )}
               </div>
 
-              {/* Create new color — uses the same modal as /admin/couleurs */}
               <div className="border-t border-border px-6 py-3 shrink-0 bg-bg-primary">
                 <button
                   type="button"
@@ -1068,33 +500,257 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
               />
             </div>
 
-            {/* ── Footer ── */}
-            <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
-              {multiColorMissingPfs ? (
-                <span className="text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] px-3 py-1 rounded-lg font-body">
-                  Synchronisation Paris Fashion Shop impossible sans correspondance couleur
+            <div className="flex items-center justify-end gap-2.5 px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
+              <button type="button" onClick={cancel}
+                className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-xl hover:bg-bg-secondary transition-colors"
+              >Annuler</button>
+              <button type="button" onClick={confirm}
+                className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!draft}
+              >Valider</button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// MultiColorSelect — modale pour choisir PLUSIEURS couleurs (PACK multi-couleurs)
+// ─────────────────────────────────────────────
+interface MultiColorOption { colorId: string; colorName: string; colorHex: string; }
+
+function MultiColorSelect({
+  selected,
+  options,
+  onChange,
+  onCreateColor,
+  onColorAdded,
+}: {
+  selected: MultiColorOption[];
+  options: AvailableColor[];
+  onChange: (colors: MultiColorOption[]) => void;
+  onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
+  onColorAdded?: (color: AvailableColor) => void;
+}) {
+  void onCreateColor;
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState<MultiColorOption[]>(selected);
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const [localCreatedColors, setLocalCreatedColors] = useState<AvailableColor[]>([]);
+  const backdropPicker = useBackdropClose(() => cancel());
+
+  const allOptions = useMemo(() => {
+    const ids = new Set(options.map((o) => o.id));
+    return [...options, ...localCreatedColors.filter((c) => !ids.has(c.id))];
+  }, [options, localCreatedColors]);
+
+  function openModal() {
+    setDraft(selected);
+    setOpen(true);
+    setTimeout(() => searchRef.current?.focus(), 0);
+  }
+  function cancel() { setOpen(false); setSearch(""); }
+  function confirm() { onChange(draft); setOpen(false); setSearch(""); }
+
+  function toggleColor(opt: AvailableColor) {
+    const exists = draft.find((d) => d.colorId === opt.id);
+    if (exists) {
+      setDraft(draft.filter((d) => d.colorId !== opt.id));
+    } else {
+      setDraft([...draft, { colorId: opt.id, colorName: opt.name, colorHex: opt.hex ?? "#9CA3AF" }]);
+    }
+  }
+  function removeFromDraft(colorId: string) {
+    setDraft(draft.filter((d) => d.colorId !== colorId));
+  }
+  function clearDraft() { setDraft([]); }
+
+  function handleQuickColorCreated(item: { id: string; name: string; hex?: string | null; patternImage?: string | null }) {
+    const newColor: AvailableColor = { id: item.id, name: item.name, hex: item.hex ?? null, patternImage: item.patternImage ?? null };
+    setLocalCreatedColors((prev) => [...prev, newColor]);
+    onColorAdded?.(newColor);
+    setDraft((prev) => [...prev, { colorId: newColor.id, colorName: newColor.name, colorHex: newColor.hex ?? "#9CA3AF" }]);
+    setShowQuickCreate(false);
+  }
+
+  const filtered = search.trim()
+    ? allOptions.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : allOptions;
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={openModal}
+        className="w-full flex items-center gap-1.5 bg-bg-primary border border-border px-2 py-1.5 text-xs font-body text-text-primary focus:outline-none focus:border-[#1A1A1A] hover:border-[#9CA3AF] transition-colors text-left min-h-[32px] rounded-md"
+      >
+        {selected.length === 0 ? (
+          <span className="text-text-muted flex-1 italic">— Couleurs du paquet</span>
+        ) : (
+          <span className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
+            {selected.slice(0, 4).map((c) => {
+              const opt = allOptions.find((o) => o.id === c.colorId);
+              return (
+                <span key={c.colorId} className="inline-flex items-center gap-1 bg-bg-secondary px-1.5 py-0.5 rounded-md text-[10px] border border-border-light">
+                  <ColorSwatch hex={c.colorHex} patternImage={opt?.patternImage ?? null} size={10} rounded="full" />
+                  <span className="truncate max-w-[60px]">{c.colorName}</span>
                 </span>
-              ) : matchingCombo ? (
-                <span className="text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] px-3 py-1 rounded-lg font-body">
-                  Combinaison déjà utilisée ({matchingCombo.saleTypes.join(" + ")})
-                </span>
+              );
+            })}
+            {selected.length > 4 && (
+              <span className="text-[10px] text-text-muted font-medium">+{selected.length - 4}</span>
+            )}
+          </span>
+        )}
+        <svg className="w-3 h-3 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && createPortal(
+        <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onMouseDown={backdropPicker.onMouseDown} onMouseUp={backdropPicker.onMouseUp}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col"
+            style={{ maxHeight: "min(85vh, 680px)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+              <div>
+                <h3 className="text-base font-semibold font-heading text-text-primary">Couleurs du paquet</h3>
+                <p className="text-[11px] text-text-muted font-body mt-0.5">Choisissez toutes les couleurs présentes dans le paquet.</p>
+              </div>
+              <button type="button" onClick={cancel} className="p-1.5 hover:bg-bg-secondary rounded-lg transition-colors" aria-label="Fermer">
+                <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Sélection actuelle */}
+            <div className="px-6 py-3 bg-[#FAFAFA] border-b border-border shrink-0 min-h-[58px]">
+              {draft.length === 0 ? (
+                <div className="flex items-center gap-3 text-text-muted h-9">
+                  <div className="w-7 h-7 rounded-full border-2 border-dashed border-[#D1D5DB]" />
+                  <span className="text-sm font-body">Aucune couleur sélectionnée</span>
+                </div>
               ) : (
-                <span className="text-sm text-text-muted font-body">
-                  {draft.length === 0 ? "Aucune couleur" : `${draft.length} couleur${draft.length > 1 ? "s" : ""}`}
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {draft.map((c) => {
+                    const opt = allOptions.find((o) => o.id === c.colorId);
+                    return (
+                      <span key={c.colorId} className="inline-flex items-center gap-1.5 bg-bg-primary border border-border px-2 py-1 rounded-lg text-xs font-body">
+                        <ColorSwatch hex={c.colorHex} patternImage={opt?.patternImage ?? null} size={14} rounded="full" />
+                        <span className="text-text-primary">{c.colorName}</span>
+                        <button type="button" onClick={() => removeFromDraft(c.colorId)} className="text-text-muted hover:text-[#EF4444] ml-0.5" aria-label="Retirer">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </span>
+                    );
+                  })}
+                  {draft.length > 1 && (
+                    <button type="button" onClick={clearDraft} className="text-[11px] text-text-muted hover:text-[#EF4444] font-body underline ml-1">Tout vider</button>
+                  )}
+                </div>
               )}
+            </div>
+
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="px-6 py-3 shrink-0">
+                <div className="flex items-center gap-2.5 bg-bg-secondary border border-border px-3 py-2 rounded-xl">
+                  <svg className="w-4 h-4 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                  </svg>
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Rechercher une couleur…"
+                    className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted outline-none min-w-0 font-body"
+                  />
+                  {search && (
+                    <button type="button" onClick={() => setSearch("")} className="p-0.5 text-text-muted hover:text-text-primary">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 pb-3">
+                {filtered.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-text-muted font-body">Aucun résultat</div>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {filtered.map((opt) => {
+                      const isChecked = draft.some((d) => d.colorId === opt.id);
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => toggleColor(opt)}
+                          className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all text-center ${
+                            isChecked
+                              ? "border-[#1A1A1A] bg-bg-secondary shadow-sm"
+                              : "border-transparent bg-bg-primary hover:bg-bg-secondary hover:border-border"
+                          }`}
+                        >
+                          {isChecked && (
+                            <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[#1A1A1A] flex items-center justify-center">
+                              <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            </span>
+                          )}
+                          <ColorSwatch hex={opt.hex} patternImage={opt.patternImage} size={36} rounded="lg" />
+                          <span className="text-[11px] font-body text-text-primary truncate w-full leading-tight">{opt.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-border px-6 py-3 shrink-0 bg-bg-primary">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickCreate(true)}
+                  className="flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary font-body transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Créer une couleur
+                </button>
+              </div>
+              <QuickCreateModal
+                type="color"
+                open={showQuickCreate}
+                onClose={() => setShowQuickCreate(false)}
+                onCreated={handleQuickColorCreated}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-2.5 px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
+              <span className="text-xs text-text-muted font-body">
+                {draft.length === 0 ? "Aucune couleur" : `${draft.length} couleur${draft.length > 1 ? "s" : ""} sélectionnée${draft.length > 1 ? "s" : ""}`}
+              </span>
               <div className="flex items-center gap-2.5">
                 <button type="button" onClick={cancel}
                   className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-xl hover:bg-bg-secondary transition-colors"
-                >
-                  Annuler
-                </button>
+                >Annuler</button>
                 <button type="button" onClick={confirm}
-                  className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={draft.length === 0}
-                >
-                  Valider
-                </button>
+                  className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors"
+                >Valider</button>
               </div>
             </div>
           </div>
@@ -1105,31 +761,23 @@ function MultiColorSelect({ selected, options, onChange, existingVariants, editi
   );
 }
 
-
 // ─────────────────────────────────────────────
-// ImageGalleryModal — galerie plein écran par couleur
+// ImageGalleryModal
 // ─────────────────────────────────────────────
-interface ImageGalleryModalProps {
-  open: boolean;
-  onClose: () => void;
-  images: string[];
-  colorName: string;
-  colorHex: string;
-}
-
-function ImageGalleryModal({ open, onClose, images, colorName, colorHex }: ImageGalleryModalProps) {
+function ImageGalleryModal({ open, onClose, images, colorName, colorHex }: {
+  open: boolean; onClose: () => void; images: string[]; colorName: string; colorHex: string;
+}) {
   const [idx, setIdx] = useState(0);
   const backdrop = useBackdropClose(onClose);
-
   const prev = useCallback(() => setIdx((i) => (i === 0 ? images.length - 1 : i - 1)), [images.length]);
   const next = useCallback(() => setIdx((i) => (i === images.length - 1 ? 0 : i + 1)), [images.length]);
 
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "ArrowLeft")  prev();
+      if (e.key === "ArrowLeft") prev();
       if (e.key === "ArrowRight") next();
-      if (e.key === "Escape")     onClose();
+      if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -1138,49 +786,31 @@ function ImageGalleryModal({ open, onClose, images, colorName, colorHex }: Image
   if (!open || images.length === 0) return null;
 
   const modal = (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
-      onMouseDown={backdrop.onMouseDown}
-      onMouseUp={backdrop.onMouseUp}
-    >
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4" onMouseDown={backdrop.onMouseDown} onMouseUp={backdrop.onMouseUp}>
       <div className="relative bg-bg-primary rounded-2xl shadow-2xl overflow-hidden flex flex-col" style={{ width: 560, maxWidth: "95vw" }}>
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
             <span className="w-3.5 h-3.5 rounded-full border border-border shrink-0" style={{ backgroundColor: colorHex || "#9CA3AF" }} />
             <span className="text-sm font-semibold text-text-primary font-heading">{colorName}</span>
             <span className="text-xs text-text-muted font-body">{idx + 1} / {images.length}</span>
           </div>
-          <button type="button" onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-colors"
-          >
+          <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
-
-        {/* Image principale */}
         <div className="relative bg-bg-secondary flex items-center justify-center" style={{ height: 400 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={images[idx]}
-            alt={`${colorName} ${idx + 1}`}
-            className="w-full h-full object-contain select-none"
-            draggable={false}
-          />
+          <img src={images[idx]} alt={`${colorName} ${idx + 1}`} className="w-full h-full object-contain select-none" draggable={false} />
           {images.length > 1 && (
             <>
-              <button type="button" onClick={prev}
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-bg-primary/90 hover:bg-bg-primary shadow-md rounded-full flex items-center justify-center transition-all hover:scale-105"
-              >
+              <button type="button" onClick={prev} className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-bg-primary/90 hover:bg-bg-primary shadow-md rounded-full flex items-center justify-center transition-all hover:scale-105">
                 <svg className="w-5 h-5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <button type="button" onClick={next}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-bg-primary/90 hover:bg-bg-primary shadow-md rounded-full flex items-center justify-center transition-all hover:scale-105"
-              >
+              <button type="button" onClick={next} className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-bg-primary/90 hover:bg-bg-primary shadow-md rounded-full flex items-center justify-center transition-all hover:scale-105">
                 <svg className="w-5 h-5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
@@ -1188,19 +818,11 @@ function ImageGalleryModal({ open, onClose, images, colorName, colorHex }: Image
             </>
           )}
         </div>
-
-        {/* Pagination */}
         {images.length > 1 && (
           <div className="flex items-center justify-center gap-1.5 py-3 bg-bg-primary shrink-0">
             {images.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => setIdx(i)}
-                className={`rounded-full transition-all duration-200 ${
-                  i === idx ? "w-6 h-2 bg-bg-dark" : "w-2 h-2 bg-[#D1D5DB] hover:bg-[#9CA3AF]"
-                }`}
-              />
+              <button key={i} type="button" onClick={() => setIdx(i)}
+                className={`rounded-full transition-all duration-200 ${i === idx ? "w-6 h-2 bg-bg-dark" : "w-2 h-2 bg-[#D1D5DB] hover:bg-[#9CA3AF]"}`} />
             ))}
           </div>
         )}
@@ -1214,7 +836,7 @@ function ImageGalleryModal({ open, onClose, images, colorName, colorHex }: Image
 // ─────────────────────────────────────────────
 // ImageManagerModal
 // ─────────────────────────────────────────────
-interface ImageManagerModalProps {
+function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, onSetPrimary }: {
   open: boolean;
   onClose: () => void;
   colorImages: ColorImageState[];
@@ -1222,10 +844,7 @@ interface ImageManagerModalProps {
   variants: VariantState[];
   availableColors: AvailableColor[];
   onSetPrimary: (variantTempId: string) => void;
-  pfsColorLabels: Map<string, string>;
-}
-
-function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, onSetPrimary, pfsColorLabels }: ImageManagerModalProps) {
+}) {
   const { confirm: confirmDialog } = useConfirm();
   const backdrop = useBackdropClose(onClose);
   const colorImagesRef = useRef(colorImages);
@@ -1235,16 +854,11 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     return variants.find((v) => imageGroupKeyFromVariant(v) === groupKey);
   }
 
-  function getSwatchSegments(groupKey: string): { main: { hex?: string | null; patternImage?: string | null }; subs: { hex?: string | null; patternImage?: string | null }[] } {
+  function getSwatch(groupKey: string): { hex?: string | null; patternImage?: string | null } {
     const v = findVariantByGroupKey(groupKey);
-    if (!v) return { main: { hex: "#9CA3AF" }, subs: [] };
-    const mainOpt = availableColors.find((c) => c.id === v.colorId);
-    const main = { hex: v.colorHex || mainOpt?.hex, patternImage: mainOpt?.patternImage ?? null };
-    const subs = v.subColors.map((sc) => {
-      const scOpt = availableColors.find((c) => c.id === sc.colorId);
-      return { hex: sc.colorHex || scOpt?.hex, patternImage: scOpt?.patternImage ?? null };
-    });
-    return { main, subs };
+    if (!v) return { hex: "#9CA3AF" };
+    const opt = availableColors.find((c) => c.id === v.colorId);
+    return { hex: v.colorHex || opt?.hex, patternImage: opt?.patternImage ?? null };
   }
 
   const [uploadingSlots, setUploadingSlots] = useState<Record<string, number | null>>({});
@@ -1252,21 +866,16 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   async function handleAddImageAtPosition(groupKey: string, file: File, _position: number) {
     const state = colorImagesRef.current.find((c) => c.groupKey === groupKey);
     if (!state) return;
-
-    // Auto-assign to the smallest free position
     const usedPositions = new Set(state.orders);
     let position = 0;
     while (usedPositions.has(position)) position++;
-    if (position >= 5) return; // Max 5 images reached
-
+    if (position >= 5) return;
     const blob = URL.createObjectURL(file);
     setUploadingSlots((prev) => ({ ...prev, [groupKey]: position }));
-
     onChange(colorImagesRef.current.map((c) => c.groupKey === groupKey
       ? { ...c, imagePreviews: [...c.imagePreviews, blob], orders: [...c.orders, position], uploading: true }
       : c
     ));
-
     let path = "";
     const fd = new FormData(); fd.append("image", file);
     try {
@@ -1274,9 +883,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
       const json = await res.json();
       if (res.ok) path = json.path;
     } catch { console.error("Erreur upload"); }
-
     setUploadingSlots((prev) => ({ ...prev, [groupKey]: null }));
-
     if (!path) {
       onChange(colorImagesRef.current.map((c) => {
         if (c.groupKey !== groupKey) return c;
@@ -1289,7 +896,6 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
       }));
       return;
     }
-
     onChange(colorImagesRef.current.map((c) => {
       if (c.groupKey !== groupKey) return c;
       return { ...c, uploadedPaths: [...c.uploadedPaths, path], uploading: false };
@@ -1312,10 +918,7 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
         ...c,
         imagePreviews: c.imagePreviews.filter((_, j) => j !== idx),
         uploadedPaths: c.uploadedPaths.filter((_, j) => j !== idx),
-        // Remove position and shift all higher positions down by 1 to keep them compact
-        orders: c.orders
-          .filter((_, j) => j !== idx)
-          .map((o) => (o > position ? o - 1 : o)),
+        orders: c.orders.filter((_, j) => j !== idx).map((o) => (o > position ? o - 1 : o)),
       };
     }));
   }
@@ -1323,13 +926,8 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   function handleSwapPositions(groupKey: string, fromPos: number, toPos: number) {
     onChange(colorImages.map((c) => {
       if (c.groupKey !== groupKey) return c;
-      // Only swap if both positions have images (no gap creation)
       if (!c.orders.includes(fromPos) || !c.orders.includes(toPos)) return c;
-      const newOrders = c.orders.map((o) => {
-        if (o === fromPos) return toPos;
-        if (o === toPos) return fromPos;
-        return o;
-      });
+      const newOrders = c.orders.map((o) => (o === fromPos ? toPos : o === toPos ? fromPos : o));
       return { ...c, orders: newOrders };
     }));
   }
@@ -1339,26 +937,20 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
     if (!srcState) return;
     const srcIdx = srcState.orders.indexOf(sourcePos);
     if (srcIdx === -1 || !srcState.imagePreviews[srcIdx]) return;
-
     const srcPreview = srcState.imagePreviews[srcIdx];
     const srcPath = srcState.uploadedPaths[srcIdx];
-
     onChange(colorImagesRef.current.map((c) => {
       if (c.groupKey === sourceGroupKey) {
-        // Remove from source and compact remaining positions
         const newPreviews = c.imagePreviews.filter((_, i) => i !== srcIdx);
         const newPaths = c.uploadedPaths.filter((_, i) => i !== srcIdx);
-        const newOrders = c.orders
-          .filter((_, i) => i !== srcIdx)
-          .map((o) => (o > sourcePos ? o - 1 : o));
+        const newOrders = c.orders.filter((_, i) => i !== srcIdx).map((o) => (o > sourcePos ? o - 1 : o));
         return { ...c, imagePreviews: newPreviews, uploadedPaths: newPaths, orders: newOrders };
       }
       if (c.groupKey === targetGroupKey) {
-        // Auto-assign to smallest free position
         const usedPositions = new Set(c.orders);
         let finalPos = 0;
         while (usedPositions.has(finalPos) && finalPos < 5) finalPos++;
-        if (finalPos >= 5) return c; // Target is full
+        if (finalPos >= 5) return c;
         return {
           ...c,
           imagePreviews: [...c.imagePreviews, srcPreview],
@@ -1371,66 +963,43 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
   }
 
   const totalPhotos = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
-
   if (!open) return null;
 
   const modal = (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/50 overflow-y-auto" onMouseDown={backdrop.onMouseDown} onMouseUp={backdrop.onMouseUp}>
       <div className="bg-bg-primary w-full max-w-3xl rounded-2xl shadow-2xl mt-8 mb-8 overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
-            <h3 className="text-base font-bold text-text-primary font-heading">
-              Images par couleur
-            </h3>
+            <h3 className="text-base font-bold text-text-primary font-heading">Images par couleur</h3>
             <p className="text-xs text-text-muted font-body mt-0.5">
               {totalPhotos} photo{totalPhotos !== 1 ? "s" : ""} — partagées entre toutes les variantes de la même couleur
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-colors"
-          >
+          <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
           {colorImages.length > 0 && (
             <div className="border border-border rounded-xl p-4">
-              <p className="text-xs font-semibold text-text-primary uppercase tracking-wider font-body mb-3">
-                Couleur principale
-              </p>
+              <p className="text-xs font-semibold text-text-primary uppercase tracking-wider font-body mb-3">Couleur principale</p>
               <div className="flex flex-wrap gap-2">
                 {colorImages.map((cimg) => {
                   const variant = findVariantByGroupKey(cimg.groupKey);
                   const isPrimary = variant?.isPrimary ?? false;
-                  const seg = getSwatchSegments(cimg.groupKey);
+                  const seg = getSwatch(cimg.groupKey);
                   return (
-                    <button
-                      key={cimg.groupKey}
-                      type="button"
+                    <button key={cimg.groupKey} type="button"
                       onClick={() => { const v = findVariantByGroupKey(cimg.groupKey); if (v) onSetPrimary(v.tempId); }}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all font-body ${
-                        isPrimary
-                          ? "border-bg-dark bg-bg-secondary shadow-sm"
-                          : "border-border hover:border-text-muted bg-bg-primary"
+                        isPrimary ? "border-bg-dark bg-bg-secondary shadow-sm" : "border-border hover:border-text-muted bg-bg-primary"
                       }`}
                     >
-                      <ColorSwatch
-                        hex={seg.main.hex}
-                        patternImage={seg.main.patternImage}
-                        subColors={seg.subs.length > 0 ? seg.subs : undefined}
-                        size={16}
-                        rounded="full"
-                      />
-                      <span className={`text-xs font-medium ${isPrimary ? "text-text-primary" : "text-text-secondary"}`}>
-                        {cimg.colorName}
-                      </span>
+                      <ColorSwatch hex={seg.hex} patternImage={seg.patternImage} size={16} rounded="full" />
+                      <span className={`text-xs font-medium ${isPrimary ? "text-text-primary" : "text-text-secondary"}`}>{cimg.colorName}</span>
                       {isPrimary && (
                         <svg className="w-3 h-3 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -1444,69 +1013,42 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
           )}
 
           {colorImages.length === 0 ? (
-            <p className="text-sm text-text-muted font-body text-center py-8">
-              Aucune couleur dans les variantes. Ajoutez d&apos;abord des variantes.
-            </p>
+            <p className="text-sm text-text-muted font-body text-center py-8">Aucune couleur dans les variantes. Ajoutez d&apos;abord des variantes.</p>
           ) : colorImages.map((cimg, idx) => {
-            const seg = getSwatchSegments(cimg.groupKey);
-            const imgVariant = findVariantByGroupKey(cimg.groupKey);
-            const hasMultiColors = imgVariant && (imgVariant.subColors.length > 0 || imgVariant.saleType === "PACK");
-            const imgPfsRef = imgVariant?.pfsColorRef;
-            const imgPfsLabel = imgPfsRef ? pfsColorLabels.get(imgPfsRef) : undefined;
+            const seg = getSwatch(cimg.groupKey);
             const missingImages = cimg.uploadedPaths.length === 0;
             return (
-            <div key={cimg.groupKey} className={`border rounded-xl p-4 ${missingImages ? "border-[#EF4444] bg-red-50/30" : "border-border"}`}>
-              <div className="flex items-center gap-2 mb-3">
-                <ColorSwatch
-                  hex={seg.main.hex}
-                  patternImage={seg.main.patternImage}
-                  subColors={seg.subs.length > 0 ? seg.subs : undefined}
-                  size={16}
-                  rounded="full"
+              <div key={cimg.groupKey} className={`border rounded-xl p-4 ${missingImages ? "border-[#EF4444] bg-red-50/30" : "border-border"}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <ColorSwatch hex={seg.hex} patternImage={seg.patternImage} size={16} rounded="full" />
+                  <span className="text-sm font-semibold text-text-primary font-body">{cimg.colorName}</span>
+                  <span className="text-xs text-text-muted font-body">({cimg.imagePreviews.length}/5)</span>
+                </div>
+                <ImageDropzone
+                  colorIndex={idx}
+                  groupKey={cimg.groupKey}
+                  previews={cimg.imagePreviews}
+                  orders={cimg.orders}
+                  onAddAtPosition={(file, pos) => handleAddImageAtPosition(cimg.groupKey, file, pos)}
+                  onRemoveAtPosition={(pos) => handleRemoveImageAtPosition(cimg.groupKey, pos)}
+                  onSwapPositions={(from, to) => handleSwapPositions(cimg.groupKey, from, to)}
+                  onCrossColorDrop={(srcGroupKey, srcPos, targetPos) => handleCrossColorDrop(srcGroupKey, srcPos, cimg.groupKey, targetPos)}
+                  uploading={cimg.uploading}
+                  uploadingPosition={uploadingSlots[cimg.groupKey] ?? null}
+                  hasError={missingImages}
                 />
-                <span className="text-sm font-semibold text-text-primary font-body">
-                  {cimg.colorName}
-                </span>
-                <span className="text-xs text-text-muted font-body">
-                  ({cimg.imagePreviews.length}/5)
-                </span>
-                {hasMultiColors && imgPfsRef && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-purple-600 whitespace-nowrap">
-                    <span className="w-1.5 h-1.5 rounded-full bg-purple-300 animate-pulse shrink-0" />
-                    PFS : {imgPfsLabel || imgPfsRef}
-                  </span>
+                {missingImages && (
+                  <p className="text-xs text-[#EF4444] mt-1.5 font-body">Aucune image — ajoutez au moins une image pour cette variante</p>
                 )}
               </div>
-              <ImageDropzone
-                colorIndex={idx}
-                groupKey={cimg.groupKey}
-                previews={cimg.imagePreviews}
-                orders={cimg.orders}
-                onAddAtPosition={(file, pos) => handleAddImageAtPosition(cimg.groupKey, file, pos)}
-                onRemoveAtPosition={(pos) => handleRemoveImageAtPosition(cimg.groupKey, pos)}
-                onSwapPositions={(from, to) => handleSwapPositions(cimg.groupKey, from, to)}
-                onCrossColorDrop={(srcGroupKey, srcPos, targetPos) => handleCrossColorDrop(srcGroupKey, srcPos, cimg.groupKey, targetPos)}
-                uploading={cimg.uploading}
-                uploadingPosition={uploadingSlots[cimg.groupKey] ?? null}
-                hasError={missingImages}
-              />
-              {missingImages && (
-                <p className="text-xs text-[#EF4444] mt-1.5 font-body">Aucune image — ajoutez au moins une image pour cette variante</p>
-              )}
-            </div>
-          );
+            );
           })}
         </div>
 
-        {/* Footer */}
         <div className="px-6 py-4 border-t border-border flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
+          <button type="button" onClick={onClose}
             className="px-5 py-2.5 bg-bg-dark text-text-inverse text-sm font-medium rounded-lg hover:bg-black transition-colors font-body"
-          >
-            Fermer
-          </button>
+          >Fermer</button>
         </div>
       </div>
     </div>
@@ -1516,30 +1058,20 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
 }
 
 // ─────────────────────────────────────────────
-// SizeModal — modal for editing sizes per variant
+// SizeModal
 // ─────────────────────────────────────────────
-interface SizeModalProps {
-  open: boolean;
-  onClose: () => void;
-  variant: VariantState;
-  availableSizes: AvailableSize[];
-  pfsSizes: { reference: string; label: string }[];
-  onSave: (entries: SizeEntryState[]) => void;
-  /** Called after a size is created via the quick-create modal — parent should add to its availableSizes list */
+function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, onSizeAdded }: {
+  open: boolean; onClose: () => void; variant: VariantState; availableSizes: AvailableSize[];
+  pfsSizes: { reference: string; label: string }[]; onSave: (entries: SizeEntryState[]) => void;
   onSizeAdded?: (size: AvailableSize) => void;
-}
-
-function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, onSizeAdded }: SizeModalProps) {
+}) {
   const backdrop = useBackdropClose(onClose);
   const isUnit = variant.saleType === "UNIT";
   const isPack = variant.saleType === "PACK";
-
   const [draft, setDraft] = useState<SizeEntryState[]>(variant.sizeEntries);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
 
-  useEffect(() => {
-    setDraft(variant.sizeEntries);
-  }, [variant.sizeEntries]);
+  useEffect(() => { setDraft(variant.sizeEntries); }, [variant.sizeEntries]);
 
   useEffect(() => {
     if (!open) return;
@@ -1548,68 +1080,45 @@ function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, o
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  const currentDraft = draft;
-  const usedSizeIds = new Set(currentDraft.map((s) => s.sizeId));
-
-  function setCurrentDraft(newDraft: SizeEntryState[]) {
-    setDraft(newDraft);
-  }
+  const usedSizeIds = new Set(draft.map((s) => s.sizeId));
 
   function toggleSize(size: AvailableSize) {
     if (usedSizeIds.has(size.id)) {
-      setCurrentDraft(currentDraft.filter((s) => s.sizeId !== size.id));
+      setDraft(draft.filter((s) => s.sizeId !== size.id));
     } else {
-      if (isUnit && currentDraft.length >= 1) {
-        setCurrentDraft([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+      if (isUnit && draft.length >= 1) {
+        setDraft([{ tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
       } else {
-        setCurrentDraft([...currentDraft, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
+        setDraft([...draft, { tempId: uid(), sizeId: size.id, sizeName: size.name, quantity: "1" }]);
       }
     }
   }
 
   function updateQty(sizeId: string, qty: string) {
-    setCurrentDraft(currentDraft.map((s) => s.sizeId === sizeId ? { ...s, quantity: qty } : s));
+    setDraft(draft.map((s) => s.sizeId === sizeId ? { ...s, quantity: qty } : s));
   }
 
-  function handleSave() {
-    onSave(draft);
-    onClose();
-  }
+  function handleSave() { onSave(draft); onClose(); }
 
   function handleSizeCreated(result: QuickCreateSizeModalResult) {
     const newSize: AvailableSize = { id: result.id, name: result.name };
     onSizeAdded?.(newSize);
-    if (isUnit) {
-      setCurrentDraft([{ tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
-    } else {
-      setCurrentDraft([...currentDraft, { tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
-    }
+    if (isUnit) setDraft([{ tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
+    else setDraft([...draft, { tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
     setQuickCreateOpen(false);
   }
 
-  const packTotalQty = isPack
-    ? currentDraft.reduce((s, e) => s + (parseInt(e.quantity) || 0), 0)
-    : 0;
-
+  const packTotalQty = isPack ? draft.reduce((s, e) => s + (parseInt(e.quantity) || 0), 0) : 0;
   if (!open) return null;
 
   const modal = (
     <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onMouseDown={backdrop.onMouseDown} onMouseUp={backdrop.onMouseUp}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-      <div
-        className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-lg flex flex-col"
-        style={{ maxHeight: "min(85vh, 600px)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
+      <div className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: "min(85vh, 600px)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
-            <h3 className="text-base font-semibold font-heading text-text-primary">
-              {isUnit ? "Taille" : "Tailles & quantités"}
-            </h3>
-            <p className="text-xs text-text-muted font-body mt-0.5">
-              {isUnit ? "Sélectionnez une taille (max 1)" : "Configurez les tailles et quantités du paquet"}
-            </p>
+            <h3 className="text-base font-semibold font-heading text-text-primary">{isUnit ? "Taille" : "Tailles & quantités"}</h3>
+            <p className="text-xs text-text-muted font-body mt-0.5">{isUnit ? "Sélectionnez une taille (max 1)" : "Configurez les tailles et quantités du paquet"}</p>
           </div>
           <button type="button" onClick={onClose} className="p-2 hover:bg-bg-secondary rounded-xl transition-colors" aria-label="Fermer">
             <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1617,17 +1126,11 @@ function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, o
             </svg>
           </button>
         </div>
-
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-
-          {/* Selected sizes with quantity */}
-          {currentDraft.length > 0 && (
+          {draft.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
-                Sélectionnées ({currentDraft.length})
-              </p>
-              {currentDraft.map((se) => (
+              <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">Sélectionnées ({draft.length})</p>
+              {draft.map((se) => (
                 <div key={se.tempId} className="flex items-center gap-3 px-3 py-2.5 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg">
                   <svg className="w-4 h-4 text-[#22C55E] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -1636,9 +1139,7 @@ function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, o
                   {!isUnit && (
                     <div className="flex items-center gap-1.5">
                       <label className="text-[10px] text-text-secondary font-body">Qté</label>
-                      <input
-                        type="number" min="1" step="1"
-                        value={se.quantity}
+                      <input type="number" min="1" step="1" value={se.quantity}
                         onChange={(e) => updateQty(se.sizeId, e.target.value)}
                         className="w-16 border border-border bg-bg-primary px-2 py-1 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body"
                       />
@@ -1653,47 +1154,28 @@ function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, o
               ))}
             </div>
           )}
-
-          {/* Available sizes */}
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">
-              Tailles disponibles
-            </p>
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide font-body">Tailles disponibles</p>
             {availableSizes.length === 0 ? (
-              <p className="text-xs text-amber-600 font-body">
-                Aucune taille dans la bibliothèque. Créez-en une ci-dessous.
-              </p>
+              <p className="text-xs text-amber-600 font-body">Aucune taille dans la bibliothèque. Créez-en une ci-dessous.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {availableSizes.map((size) => {
                   const isSelected = usedSizeIds.has(size.id);
                   return (
-                    <button
-                      key={size.id}
-                      type="button"
-                      onClick={() => toggleSize(size)}
+                    <button key={size.id} type="button" onClick={() => toggleSize(size)}
                       className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors font-body ${
-                        isSelected
-                          ? "bg-bg-dark text-text-inverse border-[#1A1A1A]"
-                          : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark hover:text-text-primary"
+                        isSelected ? "bg-bg-dark text-text-inverse border-[#1A1A1A]" : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark hover:text-text-primary"
                       }`}
-                    >
-                      {size.name}
-                    </button>
+                    >{size.name}</button>
                   );
                 })}
               </div>
             )}
           </div>
-
-          {/* Quick create size — opens dedicated modal */}
           {onSizeAdded && (
             <div className="border-t border-border pt-4">
-              <button
-                type="button"
-                onClick={() => setQuickCreateOpen(true)}
-                className="text-sm text-text-primary font-medium hover:underline flex items-center gap-2 font-body"
-              >
+              <button type="button" onClick={() => setQuickCreateOpen(true)} className="text-sm text-text-primary font-medium hover:underline flex items-center gap-2 font-body">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
@@ -1702,102 +1184,63 @@ function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, o
             </div>
           )}
         </div>
-
-        {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
           <span className="text-sm text-text-muted font-body">
-            {isPack ? (
-              packTotalQty > 0
-                ? `${packTotalQty} pièce${packTotalQty > 1 ? "s" : ""} au total`
-                : "Aucune taille configurée"
-            ) : (
-              <>
-                {currentDraft.length === 0 ? "Aucune taille" : `${currentDraft.length} taille${currentDraft.length > 1 ? "s" : ""}`}
-                {currentDraft.length > 0 && (() => {
-                  const totalQty = currentDraft.reduce((a, s) => a + (parseInt(s.quantity) || 0), 0);
-                  return ` — ${totalQty} pièce${totalQty > 1 ? "s" : ""}`;
-                })()}
-              </>
-            )}
+            {isPack
+              ? (packTotalQty > 0 ? `${packTotalQty} pièce${packTotalQty > 1 ? "s" : ""} au total` : "Aucune taille configurée")
+              : (
+                <>
+                  {draft.length === 0 ? "Aucune taille" : `${draft.length} taille${draft.length > 1 ? "s" : ""}`}
+                  {draft.length > 0 && (() => {
+                    const totalQty = draft.reduce((a, s) => a + (parseInt(s.quantity) || 0), 0);
+                    return ` — ${totalQty} pièce${totalQty > 1 ? "s" : ""}`;
+                  })()}
+                </>
+              )
+            }
           </span>
           <div className="flex items-center gap-2.5">
-            <button type="button" onClick={onClose}
-              className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-xl hover:bg-bg-secondary transition-colors"
-            >Annuler</button>
-            <button type="button" onClick={handleSave}
-              className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors"
-            >Valider</button>
+            <button type="button" onClick={onClose} className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-xl hover:bg-bg-secondary transition-colors">Annuler</button>
+            <button type="button" onClick={handleSave} className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors">Valider</button>
           </div>
         </div>
       </div>
-
-      <QuickCreateSizeModal
-        open={quickCreateOpen}
-        onClose={() => setQuickCreateOpen(false)}
-        pfsSizes={pfsSizes}
-        onCreated={handleSizeCreated}
-      />
+      <QuickCreateSizeModal open={quickCreateOpen} onClose={() => setQuickCreateOpen(false)} pfsSizes={pfsSizes} onCreated={handleSizeCreated} />
     </div>
   );
 
   return typeof window !== "undefined" ? createPortal(modal, document.body) : null;
 }
 
-
 // ─────────────────────────────────────────────
-// QuickAddModal — create multiple variants at once
+// QuickAddModal — créer plusieurs variantes d'un coup
 // ─────────────────────────────────────────────
 interface QuickAddColorLine {
   id: string;
-  colors: { colorId: string; colorName: string; colorHex: string }[];
-  pfsColorRef?: string;
-}
-
-interface QuickAddModalProps {
-  open: boolean;
-  onClose: () => void;
-  existingVariants: VariantState[];
-  availableColors: AvailableColor[];
-  availableSizes: AvailableSize[];
-  pfsSizes: { reference: string; label: string }[];
-  onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
-  onColorAdded?: (color: AvailableColor) => void;
-  onSizeAdded?: (size: AvailableSize) => void;
-  onConfirm: (variants: VariantState[]) => void;
+  color: { colorId: string; colorName: string; colorHex: string } | null;
 }
 
 function QuickAddModal({
   open, onClose, existingVariants, availableColors, availableSizes, pfsSizes,
   onCreateColor, onColorAdded, onSizeAdded, onConfirm,
-}: QuickAddModalProps) {
+}: {
+  open: boolean; onClose: () => void; existingVariants: VariantState[];
+  availableColors: AvailableColor[]; availableSizes: AvailableSize[];
+  pfsSizes: { reference: string; label: string }[];
+  onCreateColor?: (name: string, hex: string | null, patternImage: string | null) => Promise<AvailableColor>;
+  onColorAdded?: (color: AvailableColor) => void;
+  onSizeAdded?: (size: AvailableSize) => void;
+  onConfirm: (variants: VariantState[]) => void;
+}) {
   const backdrop = useBackdropClose(onClose);
-
-  // PFS color labels (cached globally — no extra network call)
-  const { data: pfsAttrData } = usePfsAttributes();
-  const pfsColorLabels = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const c of pfsAttrData?.colors ?? []) {
-      if (c.reference && c.labels?.fr) map.set(c.reference, c.labels.fr);
-    }
-    return map;
-  }, [pfsAttrData]);
-
-  // Color lines — each line becomes one variant
-  const [colorLines, setColorLines] = useState<QuickAddColorLine[]>([
-    { id: uid(), colors: [] },
-  ]);
-
-  // Shared fields
+  const [colorLines, setColorLines] = useState<QuickAddColorLine[]>([{ id: uid(), color: null }]);
   const [saleType, setSaleType] = useState<"UNIT" | "PACK">("UNIT");
   const [unitPrice, setUnitPrice] = useState("");
   const [stock, setStock] = useState("");
   const [weight, setWeight] = useState("");
   const [sizeEntries, setSizeEntries] = useState<SizeEntryState[]>([]);
-
-  // Size quick-create modal
   const [sizeQuickCreateOpen, setSizeQuickCreateOpen] = useState(false);
 
-  // Lock body scroll
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -1805,10 +1248,9 @@ function QuickAddModal({
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  // Reset on open
   useEffect(() => {
     if (open) {
-      setColorLines([{ id: uid(), colors: [] }]);
+      setColorLines([{ id: uid(), color: null }]);
       setSaleType("UNIT");
       setUnitPrice("");
       setStock("");
@@ -1817,39 +1259,19 @@ function QuickAddModal({
     }
   }, [open]);
 
-  // Existing color combos for quick-select (with pfsColorRef if already mapped)
   const existingCombos = useMemo(() => computeExistingColorCombos(existingVariants), [existingVariants]);
-
   const usedSizeIds = new Set(sizeEntries.map((s) => s.sizeId));
 
-  function addColorLine() {
-    setColorLines((prev) => [...prev, { id: uid(), colors: [] }]);
+  function addColorLine() { setColorLines((prev) => [...prev, { id: uid(), color: null }]); }
+  function removeColorLine(lineId: string) { setColorLines((prev) => prev.filter((l) => l.id !== lineId)); }
+  function updateColorLine(lineId: string, color: { colorId: string; colorName: string; colorHex: string } | null) {
+    setColorLines((prev) => prev.map((l) => l.id === lineId ? { ...l, color } : l));
   }
-
-  function removeColorLine(lineId: string) {
-    setColorLines((prev) => prev.filter((l) => l.id !== lineId));
+  function addExistingColor(combo: typeof existingCombos[0]) {
+    setColorLines((prev) => [...prev, { id: uid(), color: combo.color }]);
   }
-
-  function updateColorLine(lineId: string, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRef?: string) {
-    let resolvedRef = pfsColorRef;
-    if (resolvedRef === undefined && colors.length > 0) {
-      const sortedIds = colors.map((c) => c.colorId).sort().join("+");
-      for (const v of existingVariants) {
-        if (v.pfsColorRef && v.colorId && v.subColors.length > 0) {
-          const vIds = [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+");
-          if (vIds === sortedIds) { resolvedRef = v.pfsColorRef; break; }
-        }
-      }
-    }
-    setColorLines((prev) => prev.map((l) => l.id === lineId ? { ...l, colors, pfsColorRef: resolvedRef } : l));
-  }
-
-  function addExistingCombo(combo: typeof existingCombos[0]) {
-    setColorLines((prev) => [...prev, { id: uid(), colors: combo.colors, pfsColorRef: combo.pfsColorRef }]);
-  }
-
-  function addAllExistingCombos() {
-    const newLines = existingCombos.map((c) => ({ id: uid(), colors: c.colors, pfsColorRef: c.pfsColorRef }));
+  function addAllExistingColors() {
+    const newLines = existingCombos.map((c) => ({ id: uid(), color: c.color }));
     setColorLines((prev) => [...prev, ...newLines]);
   }
 
@@ -1864,11 +1286,9 @@ function QuickAddModal({
       }
     }
   }
-
   function updateSizeQty(sizeId: string, qty: string) {
     setSizeEntries((prev) => prev.map((s) => s.sizeId === sizeId ? { ...s, quantity: qty } : s));
   }
-
   function handleQuickAddSizeCreated(result: QuickCreateSizeModalResult) {
     const newSize: AvailableSize = { id: result.id, name: result.name };
     onSizeAdded?.(newSize);
@@ -1880,22 +1300,19 @@ function QuickAddModal({
     setSizeQuickCreateOpen(false);
   }
 
-  const validLines = colorLines.filter((l) => l.colors.length > 0);
+  const validLines = colorLines.filter((l) => l.color !== null);
   const canConfirm = validLines.length > 0;
 
   function handleConfirm() {
     const isUnitType = saleType === "UNIT";
     const totalQty = sizeEntries.reduce((s, e) => s + (parseInt(e.quantity) || 0), 0);
-
-    // One variant per color line — PACK and UNIT use the same structure
     const newVariants: VariantState[] = validLines.map((line, i) => {
-      const [main, ...rest] = line.colors;
+      const c = line.color!;
       return {
         tempId: uid(),
-        colorId: main?.colorId ?? "",
-        colorName: main?.colorName ?? "",
-        colorHex: main?.colorHex ?? "#9CA3AF",
-        subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
+        colorId: c.colorId,
+        colorName: c.colorName,
+        colorHex: c.colorHex,
         sizeEntries: sizeEntries.map((se) => ({ ...se, tempId: uid() })),
         unitPrice,
         weight,
@@ -1903,7 +1320,7 @@ function QuickAddModal({
         isPrimary: i === 0 && existingVariants.length === 0,
         saleType: isUnitType ? "UNIT" : "PACK",
         packQuantity: isUnitType ? "" : String(totalQty || 1),
-        pfsColorRef: line.pfsColorRef || "",
+        packLines: [],
         sku: "",
         disabled: false,
       };
@@ -1917,20 +1334,11 @@ function QuickAddModal({
   const modal = (
     <div className="fixed inset-0 z-[9000] flex items-center justify-center p-3 sm:p-6" onMouseDown={backdrop.onMouseDown} onMouseUp={backdrop.onMouseUp}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-      <div
-        className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col"
-        style={{ maxHeight: "min(92vh, 750px)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
+      <div className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: "min(92vh, 750px)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
-            <h3 className="text-lg font-semibold font-heading text-text-primary">
-              Ajouter des couleurs
-            </h3>
-            <p className="text-xs text-text-muted font-body mt-1">
-              Les paramètres de prix, stock et tailles s’appliqueront à chacune.
-            </p>
+            <h3 className="text-lg font-semibold font-heading text-text-primary">Ajouter des couleurs</h3>
+            <p className="text-xs text-text-muted font-body mt-1">Les paramètres de prix, stock et tailles s’appliqueront à chacune.</p>
           </div>
           <button type="button" onClick={onClose} className="p-2 -mr-1 hover:bg-bg-secondary rounded-xl transition-colors" aria-label="Fermer">
             <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1938,76 +1346,50 @@ function QuickAddModal({
             </svg>
           </button>
         </div>
-
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-
-          {/* ── Section 1 : Couleurs ── */}
           <section className="space-y-3">
             <div>
-              <h4 className="text-sm font-semibold text-text-primary font-body">
-                Quelles couleurs ?
-              </h4>
-              <p className="text-xs text-text-muted font-body mt-0.5">
-                Une couleur peut combiner plusieurs teintes (ex. rouge + blanc).
-              </p>
+              <h4 className="text-sm font-semibold text-text-primary font-body">Quelles couleurs ?</h4>
+              <p className="text-xs text-text-muted font-body mt-0.5">Une couleur par variante.</p>
             </div>
 
-            {/* Réutiliser des couleurs déjà créées sur ce produit */}
             {existingCombos.length > 0 && (
               <div className="rounded-xl bg-bg-secondary/60 border border-border-light p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs text-text-secondary font-body">
-                    Déjà sur ce produit — cliquez pour réutiliser
-                  </p>
-                  <button type="button" onClick={addAllExistingCombos}
+                  <p className="text-xs text-text-secondary font-body">Déjà sur ce produit — cliquez pour réutiliser</p>
+                  <button type="button" onClick={addAllExistingColors}
                     className="text-[11px] text-text-secondary hover:text-text-primary font-body hover:underline transition-colors">
                     Toutes les ajouter
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {existingCombos.map((combo) => (
-                    <button
-                      key={combo.key}
-                      type="button"
-                      onClick={() => addExistingCombo(combo)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-bg-primary hover:border-bg-dark hover:shadow-sm transition-all text-left"
-                    >
-                      <div className="flex -space-x-1">
-                        {combo.colors.slice(0, 4).map((c, ci) => {
-                          const optC = availableColors.find((o) => o.id === c.colorId);
-                          return (
-                            <ColorSwatch key={ci} hex={c.colorHex} patternImage={optC?.patternImage ?? null} size={14} rounded="full" border />
-                          );
-                        })}
-                      </div>
-                      <span className="text-[11px] text-text-secondary font-body truncate max-w-[140px]">
-                        {combo.colors.map((c) => c.colorName).join(" / ")}
-                      </span>
-                      <svg className="w-3 h-3 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                    </button>
-                  ))}
+                  {existingCombos.map((combo) => {
+                    const optC = availableColors.find((o) => o.id === combo.color.colorId);
+                    return (
+                      <button key={combo.key} type="button" onClick={() => addExistingColor(combo)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-bg-primary hover:border-bg-dark hover:shadow-sm transition-all text-left">
+                        <ColorSwatch hex={combo.color.colorHex} patternImage={optC?.patternImage ?? null} size={14} rounded="full" border />
+                        <span className="text-[11px] text-text-secondary font-body truncate max-w-[140px]">{combo.color.colorName}</span>
+                        <svg className="w-3 h-3 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
-            {/* Liste éditable */}
             <div className="space-y-2">
               {colorLines.map((line) => (
                 <div key={line.id} className="flex items-center gap-2">
                   <div className="flex-1">
-                    <MultiColorSelect
-                      selected={line.colors}
+                    <SingleColorSelect
+                      selected={line.color}
                       options={availableColors}
-                      onChange={(colors, pfsRef) => updateColorLine(line.id, colors, pfsRef)}
-                      existingVariants={existingVariants}
+                      onChange={(c) => updateColorLine(line.id, c)}
                       onCreateColor={onCreateColor}
                       onColorAdded={onColorAdded}
-                      pfsColorRef={line.pfsColorRef}
-                      pfsColorRefLabel={line.pfsColorRef ? (pfsColorLabels.get(line.pfsColorRef) ?? undefined) : undefined}
-                      mappedCombos={pfsAttrData?.mappedCombos}
                     />
                   </div>
                   {colorLines.length > 1 && (
@@ -2021,7 +1403,6 @@ function QuickAddModal({
                   )}
                 </div>
               ))}
-
               <button type="button" onClick={addColorLine}
                 className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-text-secondary font-medium font-body border border-dashed border-border rounded-xl hover:border-bg-dark hover:text-text-primary transition-colors">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2032,18 +1413,13 @@ function QuickAddModal({
             </div>
           </section>
 
-          {/* ── Section 2 : Mode de vente ── */}
           <section className="space-y-2">
-            <h4 className="text-sm font-semibold text-text-primary font-body">
-              Mode de vente
-            </h4>
+            <h4 className="text-sm font-semibold text-text-primary font-body">Mode de vente</h4>
             <div className="grid grid-cols-2 gap-2">
               <button type="button"
                 onClick={() => { setSaleType("UNIT"); if (sizeEntries.length > 1) setSizeEntries(sizeEntries.slice(0, 1)); }}
                 className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-all font-body ${
-                  saleType === "UNIT"
-                    ? "border-[#1A1A1A] bg-bg-secondary ring-1 ring-[#1A1A1A]"
-                    : "border-border bg-bg-primary hover:border-bg-dark"
+                  saleType === "UNIT" ? "border-[#1A1A1A] bg-bg-secondary ring-1 ring-[#1A1A1A]" : "border-border bg-bg-primary hover:border-bg-dark"
                 }`}>
                 <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${saleType === "UNIT" ? "border-[#1A1A1A]" : "border-border"}`}>
                   {saleType === "UNIT" && <div className="w-2 h-2 rounded-full bg-[#1A1A1A]" />}
@@ -2056,9 +1432,7 @@ function QuickAddModal({
               <button type="button"
                 onClick={() => setSaleType("PACK")}
                 className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-all font-body ${
-                  saleType === "PACK"
-                    ? "border-[#7C3AED] bg-[#FAF5FF] ring-1 ring-[#7C3AED]"
-                    : "border-border bg-bg-primary hover:border-bg-dark"
+                  saleType === "PACK" ? "border-[#7C3AED] bg-[#FAF5FF] ring-1 ring-[#7C3AED]" : "border-border bg-bg-primary hover:border-bg-dark"
                 }`}>
                 <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${saleType === "PACK" ? "border-[#7C3AED]" : "border-border"}`}>
                   {saleType === "PACK" && <div className="w-2 h-2 rounded-full bg-[#7C3AED]" />}
@@ -2071,11 +1445,8 @@ function QuickAddModal({
             </div>
           </section>
 
-          {/* ── Section 3 : Prix, stock, poids ── */}
           <section className="space-y-3">
-            <h4 className="text-sm font-semibold text-text-primary font-body">
-              Prix & stock
-            </h4>
+            <h4 className="text-sm font-semibold text-text-primary font-body">Prix & stock</h4>
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium text-text-secondary font-body mb-1">Prix unitaire</label>
@@ -2104,18 +1475,11 @@ function QuickAddModal({
             </div>
           </section>
 
-          {/* ── Section 4 : Tailles ── */}
           <section className="space-y-3">
             <div className="flex items-baseline justify-between">
-              <h4 className="text-sm font-semibold text-text-primary font-body">
-                Tailles disponibles
-              </h4>
-              <p className="text-[11px] text-text-muted font-body">
-                {saleType === "UNIT" ? "Une seule taille possible" : "Définissez la quantité par taille"}
-              </p>
+              <h4 className="text-sm font-semibold text-text-primary font-body">Tailles disponibles</h4>
+              <p className="text-[11px] text-text-muted font-body">{saleType === "UNIT" ? "Une seule taille possible" : "Définissez la quantité par taille"}</p>
             </div>
-
-            {/* Available sizes (toggle chips) */}
             {availableSizes.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {availableSizes.map((size) => {
@@ -2123,47 +1487,30 @@ function QuickAddModal({
                   return (
                     <button key={size.id} type="button" onClick={() => toggleSize(size)}
                       className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors font-body ${
-                        isSelected
-                          ? "bg-bg-dark text-text-inverse border-[#1A1A1A]"
-                          : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
-                      }`}>
-                      {size.name}
-                    </button>
+                        isSelected ? "bg-bg-dark text-text-inverse border-[#1A1A1A]" : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
+                      }`}>{size.name}</button>
                   );
                 })}
               </div>
             ) : (
-              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 font-body">
-                Aucune taille dans la bibliothèque. Créez-en une ci-dessous.
-              </p>
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 font-body">Aucune taille dans la bibliothèque. Créez-en une ci-dessous.</p>
             )}
-
-            {/* PACK : pièces par taille */}
             {saleType === "PACK" && sizeEntries.length > 0 && (
               <div className="rounded-xl bg-bg-secondary/60 border border-border-light p-3 space-y-1.5">
-                <p className="text-[11px] text-text-muted font-body mb-1">
-                  Pièces par taille dans un pack
-                </p>
+                <p className="text-[11px] text-text-muted font-body mb-1">Pièces par taille dans un pack</p>
                 {sizeEntries.map((se) => (
                   <div key={se.tempId} className="flex items-center gap-2">
                     <span className="text-xs text-text-primary font-medium flex-1 font-body">{se.sizeName}</span>
                     <input type="number" min="1" step="1" value={se.quantity}
                       onChange={(e) => updateSizeQty(se.sizeId, e.target.value)}
-                      className="w-16 border border-border bg-bg-primary px-2 py-1 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body"
-                    />
+                      className="w-16 border border-border bg-bg-primary px-2 py-1 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body" />
                     <span className="text-[10px] text-text-muted font-body w-10">pièces</span>
                   </div>
                 ))}
               </div>
             )}
-
-            {/* Créer une taille */}
             {onSizeAdded && (
-              <button
-                type="button"
-                onClick={() => setSizeQuickCreateOpen(true)}
-                className="text-xs text-text-secondary hover:text-text-primary flex items-center gap-1 font-body hover:underline transition-colors"
-              >
+              <button type="button" onClick={() => setSizeQuickCreateOpen(true)} className="text-xs text-text-secondary hover:text-text-primary flex items-center gap-1 font-body hover:underline transition-colors">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
@@ -2172,99 +1519,57 @@ function QuickAddModal({
             )}
           </section>
         </div>
-
-        {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
           <span className="text-sm text-text-secondary font-body">
             {validLines.length === 0
               ? "Choisissez au moins une couleur"
               : validLines.length === 1
                 ? "Prêt à ajouter 1 couleur"
-                : `Prêt à ajouter ${validLines.length} couleurs`
-            }
+                : `Prêt à ajouter ${validLines.length} couleurs`}
           </span>
           <div className="flex items-center gap-2.5">
-            <button type="button" onClick={onClose}
-              className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-xl hover:bg-bg-secondary transition-colors"
-            >Annuler</button>
-            <button type="button" onClick={handleConfirm} disabled={!canConfirm}
-              className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >Ajouter</button>
+            <button type="button" onClick={onClose} className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-xl hover:bg-bg-secondary transition-colors">Annuler</button>
+            <button type="button" onClick={handleConfirm} disabled={!canConfirm} className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Ajouter</button>
           </div>
         </div>
       </div>
-
-      <QuickCreateSizeModal
-        open={sizeQuickCreateOpen}
-        onClose={() => setSizeQuickCreateOpen(false)}
-        pfsSizes={pfsSizes}
-        onCreated={handleQuickAddSizeCreated}
-      />
+      <QuickCreateSizeModal open={sizeQuickCreateOpen} onClose={() => setSizeQuickCreateOpen(false)} pfsSizes={pfsSizes} onCreated={handleQuickAddSizeCreated} />
     </div>
   );
 
   return typeof window !== "undefined" ? createPortal(modal, document.body) : null;
 }
 
-
 // ─────────────────────────────────────────────
-// Main component — TABLE LAYOUT
+// Main component
 // ─────────────────────────────────────────────
-
 export default function ColorVariantManager({
-  variants,
-  colorImages,
-  availableColors,
-  availableSizes,
-  pfsSizes = [],
-  onChange,
-  onChangeImages,
-  onQuickCreateColor,
-  onColorAdded,
-  onSizeAdded,
-  variantErrors,
-  productReference,
+  variants, colorImages, availableColors, availableSizes, pfsSizes = [],
+  onChange, onChangeImages, onQuickCreateColor, onColorAdded, onSizeAdded,
+  variantErrors, productReference,
 }: Props) {
   const { confirm: confirmDialog } = useConfirm();
-
-  // PFS color labels (reference → French label) for button display — cached globally
-  const { data: pfsAttrData } = usePfsAttributes();
-  const pfsColorLabels = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const c of pfsAttrData?.colors ?? []) {
-      if (c.reference && c.labels?.fr) map.set(c.reference, c.labels.fr);
-    }
-    return map;
-  }, [pfsAttrData]);
-
   const [showImageModal, setShowImageModal] = useState(false);
   const [galleryState, setGalleryState] = useState<{ images: string[]; colorName: string; colorHex: string } | null>(null);
-
-  // ── Bulk edit state ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkEdit, setBulkEdit]       = useState<BulkEditState>(defaultBulkEdit());
-  const selectAllRef                  = useRef<HTMLInputElement>(null);
-
-  // ── Size modal state ─────────────────────────────────────────────────────
+  const [bulkEdit, setBulkEdit] = useState<BulkEditState>(defaultBulkEdit());
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const [sizeModalVariantId, setSizeModalVariantId] = useState<string | null>(null);
   const sizeModalVariant = variants.find((v) => v.tempId === sizeModalVariantId);
-
-  // ── Quick-add modal state ─────────────────────────────────────────────────
+  const [packCompoVariantId, setPackCompoVariantId] = useState<string | null>(null);
+  const packCompoVariant = variants.find((v) => v.tempId === packCompoVariantId);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
-
-  // ── Action dropdown state ─────────────────────────────────────────────────
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const actionMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (selectAllRef.current) {
-      const allSelected  = selectedIds.size === variants.length && variants.length > 0;
+      const allSelected = selectedIds.size === variants.length && variants.length > 0;
       const someSelected = selectedIds.size > 0 && !allSelected;
       selectAllRef.current.indeterminate = someSelected;
     }
   }, [selectedIds, variants.length]);
 
-  // Close action dropdown on outside click
   useEffect(() => {
     if (!actionMenuId) return;
     function handleClick(e: MouseEvent) {
@@ -2276,12 +1581,11 @@ export default function ColorVariantManager({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [actionMenuId]);
 
-  const totalPhotos   = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
+  const totalPhotos = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
   const hasAnyMissingImages = colorImages.some((c) => c.uploadedPaths.length === 0);
-  const showBulkRow   = selectedIds.size > 0;
+  const showBulkRow = selectedIds.size > 0;
   const duplicateTempIds = findDuplicateVariantTempIds(variants);
 
-  // ── Mutations ─────────────────────────────────────────────────────────────
   function updateVariant(tempId: string, patch: Partial<VariantState>) {
     onChange(variants.map((v) => v.tempId === tempId ? { ...v, ...patch } : v));
   }
@@ -2293,15 +1597,11 @@ export default function ColorVariantManager({
   function addVariant() {
     const def = defaultVariant();
     const isPrimary = variants.length === 0;
-    const newV = { ...def, isPrimary };
-    onChange([...variants, newV]);
+    onChange([...variants, { ...def, isPrimary }]);
   }
 
   function handleQuickAddConfirm(newVariants: VariantState[]) {
-    // If no existing variants, first new one is primary
-    if (variants.length === 0 && newVariants.length > 0) {
-      newVariants[0].isPrimary = true;
-    }
+    if (variants.length === 0 && newVariants.length > 0) newVariants[0].isPrimary = true;
     onChange([...variants, ...newVariants]);
   }
 
@@ -2324,73 +1624,89 @@ export default function ColorVariantManager({
     onChange(variants.map((v) => v.tempId === tempId ? { ...v, disabled: !v.disabled } : v));
   }
 
-  function handleMultiColorChange(tempIds: Set<string>, colors: { colorId: string; colorName: string; colorHex: string }[], pfsColorRefOverride?: string) {
-    if (colors.length === 0) {
-      onChange(variants.map((v) => tempIds.has(v.tempId) ? { ...v, colorId: "", colorName: "", colorHex: "#9CA3AF", subColors: [], pfsColorRef: "" } : v));
+  function handleColorChange(tempId: string, color: { colorId: string; colorName: string; colorHex: string } | null) {
+    if (!color) {
+      updateVariant(tempId, { colorId: "", colorName: "", colorHex: "#9CA3AF" });
       return;
     }
-    const [main, ...rest] = colors;
-    // Auto-resolve pfsColorRef from existing variant with same color combination
-    let resolvedRef = pfsColorRefOverride;
-    if (resolvedRef === undefined && colors.length > 1) {
-      const sortedIds = colors.map((c) => c.colorId).sort().join("+");
-      // 1. Check same-product variants first
-      for (const ov of variants) {
-        if (!tempIds.has(ov.tempId) && ov.pfsColorRef) {
-          if (ov.colorId && ov.subColors.length > 0) {
-            const vIds = [ov.colorId, ...ov.subColors.map((sc) => sc.colorId)].sort().join("+");
-            if (vIds === sortedIds) { resolvedRef = ov.pfsColorRef; break; }
-          }
-        }
-      }
-      // 2. Check cross-product mapped combinations from DB (skip if already used by another variant)
-      if (resolvedRef === undefined && pfsAttrData?.mappedCombos?.[sortedIds]) {
-        const candidate = pfsAttrData.mappedCombos[sortedIds];
-        const alreadyUsed = variants.some((ov) => !tempIds.has(ov.tempId) && ov.pfsColorRef === candidate);
-        if (!alreadyUsed) resolvedRef = candidate;
-      }
-    }
-    // Compute the final combo key for sibling detection
-    const finalComboSortedIds = colors.map((c) => c.colorId).sort().join("+");
-    const finalPfsRef = resolvedRef;
-
     onChange(variants.map((v) => {
-      if (tempIds.has(v.tempId)) {
-        // Check if color combination actually changed — if so, clear pfsColorRef override
-        const oldKey = variantGroupKeyFromState(v);
-        const newKey = rest.length === 0 ? main.colorId : `${main.colorId}::${rest.map((c) => c.colorName).join(",")}`;
-        const combinationChanged = oldKey !== newKey;
-        let next: VariantState = {
-          ...v,
-          colorId: main.colorId, colorName: main.colorName, colorHex: main.colorHex,
-          subColors: rest.map((c) => ({ colorId: c.colorId, colorName: c.colorName, colorHex: c.colorHex })),
-          // Use explicit override if provided, auto-resolved, otherwise clear if combination changed
-          pfsColorRef: finalPfsRef !== undefined ? finalPfsRef : (combinationChanged ? "" : v.pfsColorRef),
-        };
-        // Auto-fill prix / stock / poids / tailles depuis une variante existante
-        // (raccourci création) — uniquement si la variante est encore vierge.
-        if (isVariantPristine(v)) {
-          const donor = findDonorVariant(next, variants);
-          if (donor) next = applyDonorAutofill(next, donor, uid);
-        }
-        return next;
+      if (v.tempId !== tempId) return v;
+      let next: VariantState = { ...v, colorId: color.colorId, colorName: color.colorName, colorHex: color.colorHex };
+      if (isVariantPristine(v)) {
+        const donor = findDonorVariant(next, variants);
+        if (donor) next = applyDonorAutofill(next, donor, uid);
       }
-      // Auto-propagate to sibling variants with same color combination
-      // When override is explicit (user chose), propagate to ALL siblings; when auto-resolved, only unmapped ones
-      // Persistence happens on full-form save (updateProduct) — no inline DB write here.
-      if (finalPfsRef && colors.length > 1 && (pfsColorRefOverride !== undefined || !v.pfsColorRef)) {
-        if (v.colorId && v.subColors.length > 0) {
-          const vIds = [v.colorId, ...v.subColors.map((sc) => sc.colorId)].sort().join("+");
-          if (vIds === finalComboSortedIds) {
-            return { ...v, pfsColorRef: finalPfsRef };
-          }
-        }
-      }
-      return v;
+      return next;
     }));
   }
 
-  // ── Size modal save ─────────────────────────────────────────────────────
+  /** PACK : la cellule Couleur est multi-select. Chaque couleur choisie devient une packLine.
+   *  Règle PFS : toutes les couleurs partagent les mêmes tailles. Une nouvelle couleur hérite
+   *  des tailles communes existantes (qty=1 par défaut). Les quantités déjà saisies pour les
+   *  couleurs préservées sont conservées. La 1ère couleur est aussi écrite dans
+   *  colorId/colorName/colorHex pour le SKU et l'index images. */
+  function handlePackColorsChange(tempId: string, colors: { colorId: string; colorName: string; colorHex: string }[]) {
+    onChange(variants.map((v) => {
+      if (v.tempId !== tempId) return v;
+
+      // Tailles communes du paquet = union des tailles présentes dans les packLines actuelles.
+      const commonSizes = new Map<string, { sizeId: string; sizeName: string }>();
+      for (const l of v.packLines) {
+        for (const s of l.sizeEntries) {
+          if (!commonSizes.has(s.sizeId)) commonSizes.set(s.sizeId, { sizeId: s.sizeId, sizeName: s.sizeName });
+        }
+      }
+      const commonList = [...commonSizes.values()];
+
+      const newPackLines: PackLineState[] = colors.map((c) => {
+        const existing = v.packLines.find((l) => l.colorId === c.colorId);
+        if (existing) {
+          // Couleur déjà présente : on conserve ses quantités, mais on s'assure qu'elle
+          // a bien toutes les tailles communes (et seulement celles-ci).
+          const byId = new Map(existing.sizeEntries.map((s) => [s.sizeId, s]));
+          return {
+            ...existing,
+            colorName: c.colorName,
+            colorHex: c.colorHex,
+            sizeEntries: commonList.map((u) => {
+              const prev = byId.get(u.sizeId);
+              return prev
+                ? { ...prev, tempId: prev.tempId || uid() }
+                : { tempId: uid(), sizeId: u.sizeId, sizeName: u.sizeName, quantity: "1" };
+            }),
+          };
+        }
+        // Nouvelle couleur : hérite des tailles communes avec qty=1.
+        return {
+          tempId: uid(),
+          colorId: c.colorId,
+          colorName: c.colorName,
+          colorHex: c.colorHex,
+          sizeEntries: commonList.map((u) => ({
+            tempId: uid(),
+            sizeId: u.sizeId,
+            sizeName: u.sizeName,
+            quantity: "1",
+          })),
+        };
+      });
+      const first = colors[0];
+      const totalQty = newPackLines.reduce(
+        (s, l) => s + l.sizeEntries.reduce((a, e) => a + (parseInt(e.quantity) || 0), 0),
+        0,
+      );
+      return {
+        ...v,
+        colorId: first?.colorId ?? "",
+        colorName: first?.colorName ?? "",
+        colorHex: first?.colorHex ?? "#9CA3AF",
+        packLines: newPackLines,
+        // Quand la composition change, on recalcule packQuantity à partir des lignes.
+        packQuantity: totalQty > 0 ? String(totalQty) : v.packQuantity,
+      };
+    }));
+  }
+
   function handleSizeSave(variantTempId: string, entries: SizeEntryState[]) {
     const v = variants.find((x) => x.tempId === variantTempId);
     if (!v) return;
@@ -2402,21 +1718,19 @@ export default function ColorVariantManager({
     updateVariant(variantTempId, patch);
   }
 
-  // ── Bulk apply ─────────────────────────────────────────────────────────────
   function applyBulk() {
     if (selectedIds.size === 0) return;
     onChange(variants.map((v) => {
       if (!selectedIds.has(v.tempId)) return v;
       const patch: Partial<VariantState> = {};
-      if (bulkEdit.unitPrice  !== "") patch.unitPrice  = bulkEdit.unitPrice;
-      if (bulkEdit.weight     !== "") patch.weight     = bulkEdit.weight;
-      if (bulkEdit.stock      !== "") patch.stock      = bulkEdit.stock;
+      if (bulkEdit.unitPrice !== "") patch.unitPrice = bulkEdit.unitPrice;
+      if (bulkEdit.weight !== "") patch.weight = bulkEdit.weight;
+      if (bulkEdit.stock !== "") patch.stock = bulkEdit.stock;
       return { ...v, ...patch };
     }));
     setBulkEdit(defaultBulkEdit());
   }
 
-  // ── Sorted variants ────────────────────────────────────────────────────────
   const sortedVariants = useMemo(() => {
     const firstSeenByKey = new Map<string, number>();
     for (let i = 0; i < variants.length; i++) {
@@ -2425,7 +1739,6 @@ export default function ColorVariantManager({
       const gk = variantGroupKeyFromState(v);
       if (!firstSeenByKey.has(gk)) firstSeenByKey.set(gk, i);
     }
-    // UNIT first (grouped by color), then PACK
     const unitVars = variants
       .map((v, i) => ({ v, i }))
       .filter(({ v }) => v.saleType === "UNIT")
@@ -2439,10 +1752,6 @@ export default function ColorVariantManager({
     return [...unitVars, ...packs];
   }, [variants]);
 
-  // ── Display-only SKU preview ──────────────────────────────────────────────
-  // Si une couleur est attribuée et que la référence produit est connue, on
-  // calcule un SKU "visuel" (non enregistré). Le SKU réel est généré par le
-  // serveur à la sauvegarde. Si `v.sku` existe déjà (édition), on le garde.
   const displaySkuByTempId = useMemo(() => {
     const map = new Map<string, string>();
     const ref = (productReference ?? "").trim().toUpperCase();
@@ -2450,27 +1759,57 @@ export default function ColorVariantManager({
       const v = variants[i];
       if (v.sku) { map.set(v.tempId, v.sku); continue; }
       if (!ref || !v.colorId || !v.colorName) continue;
-      const colorNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean);
+      const colorNames = isMultiColorPack(v)
+        ? v.packLines.map((l) => l.colorName).filter(Boolean)
+        : [v.colorName].filter(Boolean);
       map.set(v.tempId, generateSku(ref, colorNames, v.saleType, i + 1));
     }
     return map;
   }, [variants, productReference]);
 
-  // ── Render helper: size summary cell ──────────────────────────────────────
   function renderSizeSummary(v: VariantState) {
-    if (v.sizeEntries.length === 0) return <span className="text-text-muted italic">—</span>;
-    if (v.saleType === "UNIT") {
-      return <span className="text-text-primary font-medium">{v.sizeEntries[0]?.sizeName}</span>;
+    if (isMultiColorPack(v)) {
+      const summary = v.packLines
+        .map((l) => `${l.colorName}: ${l.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}`)
+        .join(" | ");
+      const aggregated = new Map<string, number>();
+      const order: string[] = [];
+      v.packLines.forEach((l) => {
+        l.sizeEntries.forEach((s) => {
+          const qty = parseInt(s.quantity) || 0;
+          if (!aggregated.has(s.sizeName)) order.push(s.sizeName);
+          aggregated.set(s.sizeName, (aggregated.get(s.sizeName) ?? 0) + qty);
+        });
+      });
+      if (order.length === 0) return <span className="text-text-muted italic">—</span>;
+      return (
+        <span className="inline-flex items-center gap-1.5 flex-wrap" title={summary}>
+          {order.map((name, i) => (
+            <span key={`${name}-${i}`} className="inline-flex flex-col items-center leading-none gap-0.5">
+              <span className="text-[10px] font-semibold text-text-primary">{name}</span>
+              <span className="text-[9px] text-text-muted">{aggregated.get(name)}</span>
+            </span>
+          ))}
+        </span>
+      );
     }
-    const summary = v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ");
+    if (v.sizeEntries.length === 0) return <span className="text-text-muted italic">—</span>;
+    const entries = v.saleType === "UNIT"
+      ? [{ sizeName: v.sizeEntries[0]?.sizeName ?? "", quantity: "1" }]
+      : v.sizeEntries;
+    const summary = entries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ");
     return (
-      <span className="truncate text-text-primary font-medium" title={summary}>
-        {summary}
+      <span className="inline-flex items-center gap-1.5 flex-wrap" title={summary}>
+        {entries.map((s, i) => (
+          <span key={`${s.sizeName}-${i}`} className="inline-flex flex-col items-center leading-none gap-0.5">
+            <span className="text-[10px] font-semibold text-text-primary">{s.sizeName}</span>
+            <span className="text-[9px] text-text-muted">{s.quantity}</span>
+          </span>
+        ))}
       </span>
     );
   }
 
-  // ── Render helper: total price ────────────────────────────────────────────
   function renderTotalPrice(v: VariantState) {
     const total = computeTotalPrice(v);
     const final = computeFinalPrice(v);
@@ -2491,34 +1830,16 @@ export default function ColorVariantManager({
     );
   }
 
-  function getUsedPfsColorRefs(excludeTempId: string): Map<string, string> {
-    const map = new Map<string, string>();
-    for (const ov of variants) {
-      if (ov.tempId === excludeTempId) continue;
-      if (!ov.colorId) continue;
-      if (ov.subColors.length > 0 && ov.pfsColorRef) {
-        map.set(ov.pfsColorRef, [ov.colorName, ...ov.subColors.map((sc) => sc.colorName)].join(" / "));
-      } else if (ov.subColors.length === 0) {
-        const colorOpt = availableColors.find((c) => c.id === ov.colorId);
-        if (colorOpt?.pfsColorRef) map.set(colorOpt.pfsColorRef, ov.colorName);
-      }
-    }
-    return map;
-  }
-
   return (
     <div className="space-y-4">
-
-      {/* ── Variants area ── */}
       {variants.length === 0 ? (
         <div className="text-center py-10 border-2 border-dashed border-border text-text-muted text-sm font-body rounded-lg">
           Cliquez sur &ldquo;Ajouter une variante&rdquo; pour commencer.
         </div>
       ) : (
         <div className="space-y-3">
-          {/* ── Variants CARDS (mobile only) ── */}
+          {/* Mobile cards */}
           <div className="block md:hidden border border-border rounded-xl overflow-visible divide-y divide-[#F0F0F0]">
-            {/* Mobile bulk bar */}
             <div className={`px-3 py-2 flex items-center gap-2 ${showBulkRow ? "bg-[#F0FDF4]" : "bg-[#FAFAFA]"}`}>
               <input type="checkbox"
                 checked={selectedIds.size === variants.length && variants.length > 0}
@@ -2526,8 +1847,7 @@ export default function ColorVariantManager({
                   if (e.target.checked) setSelectedIds(new Set(variants.map((v) => v.tempId)));
                   else setSelectedIds(new Set());
                 }}
-                className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0"
-              />
+                className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
               <span className={`text-[10px] font-body flex-1 ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
                 {showBulkRow ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}` : "Tout sélectionner"}
               </span>
@@ -2539,8 +1859,7 @@ export default function ColorVariantManager({
                   <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock}
                     onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
                     className="w-14 border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
-                  <button type="button" onClick={applyBulk}
-                    className="p-1 rounded text-[#16A34A] hover:bg-[#DCFCE7] transition-colors">
+                  <button type="button" onClick={applyBulk} className="p-1 rounded text-[#16A34A] hover:bg-[#DCFCE7] transition-colors">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                     </svg>
@@ -2549,21 +1868,15 @@ export default function ColorVariantManager({
               )}
             </div>
 
-            {/* Variant cards */}
             {sortedVariants.map((v) => {
-              const isSelected  = selectedIds.has(v.tempId);
+              const isSelected = selectedIds.has(v.tempId);
               const isDuplicate = duplicateTempIds.has(v.tempId);
-              const isUnit = v.saleType === "UNIT";
               const vErrs = variantErrors?.get(v.tempId);
-              const isMultiColor = v.subColors.length > 0;
-              const pfsMissing = !!pfsAttrData && isMultiColor && !v.pfsColorRef;
               const imgGk = imageGroupKeyFromVariant(v);
               const imgEntry = colorImages.find((c) => c.groupKey === imgGk);
               const imgCount = imgEntry?.uploadedPaths.length ?? 0;
-
               return (
-                <div key={v.tempId} className={`p-3 space-y-2.5 ${pfsMissing ? "ring-2 ring-[#EF4444]/50 rounded-lg bg-[#FEF2F2]/40" : isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
-                  {/* Row 1: checkbox + status dot + type + image badge + action */}
+                <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
                   <div className="flex items-center gap-2">
                     <input type="checkbox" checked={isSelected}
                       onChange={(e) => {
@@ -2572,31 +1885,58 @@ export default function ColorVariantManager({
                         setSelectedIds(next);
                       }}
                       className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
-                    <span
-                      title={v.disabled ? "Désactivée" : "Active"}
-                      className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`}
-                    />
+                    <span title={v.disabled ? "Désactivée" : "Active"}
+                      className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`} />
                     <div className={v.disabled ? "opacity-50" : ""}><CustomSelect
                       value={v.saleType}
                       onChange={(val) => {
                         if (val === "PACK" && v.saleType === "UNIT") {
-                          const totalQty = v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0);
-                          updateVariant(v.tempId, { saleType: "PACK", packQuantity: String(totalQty || 1) });
+                          // Conversion UNIT→PACK : la couleur de la variante devient la 1ère ligne du pack
+                          // (avec ses tailles éventuelles déjà saisies). L'admin pourra ajouter d'autres couleurs.
+                          const initialLine: PackLineState | null = v.colorId
+                            ? {
+                                tempId: uid(),
+                                colorId: v.colorId,
+                                colorName: v.colorName,
+                                colorHex: v.colorHex,
+                                sizeEntries: v.sizeEntries.map((se) => ({ ...se, tempId: uid() })),
+                              }
+                            : null;
+                          const totalQty = initialLine
+                            ? initialLine.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0)
+                            : 0;
+                          updateVariant(v.tempId, {
+                            saleType: "PACK",
+                            packLines: initialLine ? [initialLine] : [],
+                            sizeEntries: [],
+                            packQuantity: String(totalQty || 1),
+                          });
                         } else if (val === "UNIT" && v.saleType === "PACK") {
-                          const restoredSizes = v.sizeEntries.slice(0, 1);
-                          updateVariant(v.tempId, { saleType: "UNIT", packQuantity: "", sizeEntries: restoredSizes });
+                          // Conversion PACK→UNIT : on garde la 1ère couleur du pack et sa 1ère taille.
+                          if (v.packLines.length > 0) {
+                            const [first] = v.packLines;
+                            const restoredSizes = first.sizeEntries.slice(0, 1).map((se) => ({ ...se, tempId: uid() }));
+                            updateVariant(v.tempId, {
+                              saleType: "UNIT",
+                              packQuantity: "",
+                              colorId: first.colorId,
+                              colorName: first.colorName,
+                              colorHex: first.colorHex,
+                              sizeEntries: restoredSizes,
+                              packLines: [],
+                            });
+                          } else {
+                            const restoredSizes = v.sizeEntries.slice(0, 1);
+                            updateVariant(v.tempId, { saleType: "UNIT", packQuantity: "", sizeEntries: restoredSizes });
+                          }
                         }
                       }}
                       options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
                       size="sm" className="w-[75px]" /></div>
                     <div className="flex-1" />
-                    {/* Image count badge */}
-                    <span
-                      title={imgCount === 0 ? "Aucune image" : `${imgCount} image${imgCount > 1 ? "s" : ""}`}
+                    <span title={imgCount === 0 ? "Aucune image" : `${imgCount} image${imgCount > 1 ? "s" : ""}`}
                       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-body ${
-                        imgCount === 0
-                          ? "bg-[#FEE2E2] text-[#DC2626]"
-                          : "bg-bg-secondary text-text-muted"
+                        imgCount === 0 ? "bg-[#FEE2E2] text-[#DC2626]" : "bg-bg-secondary text-text-muted"
                       }`}
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2604,7 +1944,6 @@ export default function ColorVariantManager({
                       </svg>
                       {imgCount}/5
                     </span>
-                    {/* Action dropdown */}
                     <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
                       <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
                         className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
@@ -2612,13 +1951,11 @@ export default function ColorVariantManager({
                       </button>
                       {actionMenuId === v.tempId && (
                         <div className="absolute right-0 top-full mt-1 bg-bg-primary border border-border rounded-lg shadow-md z-50 min-w-[140px] py-1">
-                          <button type="button"
-                            onClick={() => { setActionMenuId(null); toggleVariantDisabled(v.tempId); }}
+                          <button type="button" onClick={() => { setActionMenuId(null); toggleVariantDisabled(v.tempId); }}
                             className="w-full text-left px-3 py-1.5 text-xs font-body hover:bg-bg-secondary transition-colors">
                             {v.disabled ? "Activer" : "Désactiver"}
                           </button>
-                          <button type="button"
-                            onClick={() => { setActionMenuId(null); removeVariant(v.tempId); }}
+                          <button type="button" onClick={() => { setActionMenuId(null); removeVariant(v.tempId); }}
                             className="w-full text-left px-3 py-1.5 text-xs font-body text-[#EF4444] hover:bg-[#FEF2F2] transition-colors">
                             Supprimer
                           </button>
@@ -2628,417 +1965,325 @@ export default function ColorVariantManager({
                   </div>
 
                   <div className={v.disabled ? "opacity-50 space-y-2.5" : "space-y-2.5"}>
-                  {/* SKU */}
-                  {(() => {
-                    const dsku = displaySkuByTempId.get(v.tempId);
-                    return dsku ? (
-                      <div className="text-[10px] text-text-muted font-mono truncate" title={dsku}>
-                        SKU: {dsku}
+                    {(() => {
+                      const dsku = displaySkuByTempId.get(v.tempId);
+                      return dsku ? (
+                        <div className="text-[10px] text-text-muted font-mono truncate" title={dsku}>SKU: {dsku}</div>
+                      ) : null;
+                    })()}
+
+                    {v.saleType === "PACK" ? (
+                      <MultiColorSelect
+                        selected={v.packLines.length > 0
+                          ? v.packLines.map((l) => ({ colorId: l.colorId, colorName: l.colorName, colorHex: l.colorHex }))
+                          : (v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }] : [])}
+                        options={availableColors}
+                        onChange={(colors) => handlePackColorsChange(v.tempId, colors)}
+                        onCreateColor={onQuickCreateColor}
+                        onColorAdded={onColorAdded}
+                      />
+                    ) : (
+                      <SingleColorSelect
+                        selected={v.colorId ? { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex } : null}
+                        options={availableColors}
+                        onChange={(c) => handleColorChange(v.tempId, c)}
+                        onCreateColor={onQuickCreateColor}
+                        onColorAdded={onColorAdded}
+                      />
+                    )}
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Prix/u</p>
+                        <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
+                          onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                          className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
                       </div>
-                    ) : null;
-                  })()}
-
-                  {/* Row 2: color */}
-                  <MultiColorSelect
-                    selected={v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }, ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex }))] : []}
-                    options={availableColors}
-                    onChange={(colors, pfsRef) => handleMultiColorChange(new Set([v.tempId]), colors, pfsRef)}
-                    existingVariants={variants}
-                    editingGroupKey={variantGroupKeyFromState(v)}
-                    pfsColorRef={v.pfsColorRef}
-                    pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                    usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
-                    onCreateColor={onQuickCreateColor}
-                    onColorAdded={onColorAdded}
-                    mappedCombos={pfsAttrData?.mappedCombos}
-                  />
-                  {pfsMissing && (
-                    <span className="flex items-center gap-1 text-[10px] text-[#DC2626] font-medium">
-                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                      </svg>
-                      Correspondance Paris Fashion Shop manquante
-                    </span>
-                  )}
-
-                  {/* Row 3: prix / stock / poids */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Prix/u</p>
-                      <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
-                        onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
-                        className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Stock</p>
+                        <input type="number" min="0" step="1" value={v.stock} placeholder="0"
+                          onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
+                          className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Poids</p>
+                        <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.000"
+                          onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
+                          className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Stock</p>
-                      <input type="number" min="0" step="1" value={v.stock} placeholder="0"
-                        onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
-                        className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
-                    </div>
-                    <div>
-                      <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Poids</p>
-                      <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.000"
-                        onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
-                        className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">
+                          {v.saleType === "PACK" ? "Composition" : "Tailles"}
+                        </p>
+                        <button type="button" onClick={() => v.saleType === "PACK" ? setPackCompoVariantId(v.tempId) : setSizeModalVariantId(v.tempId)}
+                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px]`}>
+                          {renderSizeSummary(v)}
+                          <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="shrink-0">
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Total</p>
+                        <div className="text-xs pt-1.5">{renderTotalPrice(v)}</div>
+                      </div>
                     </div>
                   </div>
-
-                  {/* Row 4: tailles + total + remise */}
-                  <div className="flex items-start gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Tailles</p>
-                      <button type="button" onClick={() => setSizeModalVariantId(v.tempId)}
-                        className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px]`}>
-                        {renderSizeSummary(v)}
-                        <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                        </svg>
-                      </button>
-                    </div>
-                    <div className="shrink-0">
-                      <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Total</p>
-                      <div className="text-xs pt-1.5">{renderTotalPrice(v)}</div>
-                    </div>
-                  </div>
-                  </div>{/* end dim wrapper */}
                 </div>
               );
             })}
           </div>
 
-          {/* ── Variants TABLE (desktop only) ── */}
+          {/* Desktop table */}
           <div className="hidden md:block border border-border rounded-xl overflow-visible">
-              <table className="w-full table-fixed text-xs font-body">
-                <thead>
-                  {/* Column headers */}
-                  <tr className="bg-bg-secondary border-b border-border">
-                    <th className="w-8 px-2 py-2 text-center">
-                      <input type="checkbox"
-                        checked={selectedIds.size === variants.length && variants.length > 0}
-                        ref={selectAllRef}
-                        onChange={(e) => {
-                          if (e.target.checked) setSelectedIds(new Set(variants.map((v) => v.tempId)));
-                          else setSelectedIds(new Set());
-                        }}
-                        className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5"
-                      />
-                    </th>
-                    <th className="w-6 px-0 py-2 text-center" title="Statut"></th>
-                    <th className="w-[78px] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Type</th>
-                    <th className="w-[20%] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Couleur</th>
-                    <th className="w-[11%] px-1 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">SKU</th>
-                    <th className="w-[14%] px-1 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Tailles</th>
-                    <th className="w-[60px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Stock</th>
-                    <th className="w-[62px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Poids</th>
-                    <th className="w-[68px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Prix/u.</th>
-                    <th className="w-[56px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Total</th>
-                    <th className="w-[80px] px-1 py-2 text-center text-[10px] uppercase tracking-wider text-text-muted font-semibold">Actions</th>
-                  </tr>
-                  {/* Bulk edit row — inline in thead */}
-                  <tr className={`border-b transition-colors ${showBulkRow ? "bg-[#F0FDF4] border-[#BBF7D0]" : "bg-[#FAFAFA] border-border"}`}>
-                    <td className="px-2 py-1.5 text-center">
-                      <span className={`text-[9px] font-semibold ${showBulkRow ? "text-[#16A34A]" : "text-[#D1D5DB]"}`}>
-                        {showBulkRow ? selectedIds.size : "—"}
-                      </span>
-                    </td>
-                    <td className="px-2 py-1.5" colSpan={4}>
-                      <span className={`text-[10px] font-body ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
-                        {showBulkRow
-                          ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}`
-                          : "Modification en masse"}
-                      </span>
-                    </td>
-                    <td className="px-1 py-1.5">
-                      {/* Tailles: not bulk-editable */}
-                    </td>
-                    <td className="px-1 py-1.5">
-                      <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock} disabled={!showBulkRow}
-                        onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
-                        className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
-                          showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
-                        }`} />
-                    </td>
-                    <td className="px-1 py-1.5">
-                      <input type="number" min="0" step="0.001" placeholder="Poids" value={bulkEdit.weight} disabled={!showBulkRow}
-                        onChange={(e) => setBulkEdit((b) => ({ ...b, weight: e.target.value }))}
-                        className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
-                          showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
-                        }`} />
-                    </td>
-                    <td className="px-1 py-1.5">
-                      <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice} disabled={!showBulkRow}
-                        onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
-                        className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
-                          showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
-                        }`} />
-                    </td>
-                    <td className="px-1 py-1.5">
-                      {/* Total: computed */}
-                    </td>
-                    <td className="px-1 py-1.5 text-center">
-                      <button type="button" onClick={applyBulk} disabled={!showBulkRow}
-                        title="Appliquer en masse"
-                        className={`p-1 rounded transition-colors ${
-                          showBulkRow ? "text-[#16A34A] hover:bg-[#DCFCE7]" : "text-[#D1D5DB] cursor-not-allowed"
-                        }`}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedVariants.map((v) => {
-                    const isSelected  = selectedIds.has(v.tempId);
-                    const isDuplicate = duplicateTempIds.has(v.tempId);
-                    const vErrs = variantErrors?.get(v.tempId);
-                    const colorDisplayName = [v.colorName, ...v.subColors.map((sc) => sc.colorName)].filter(Boolean).join(", ") || "Sans couleur";
-                    void colorDisplayName;
-                    const isMultiColorD = v.subColors.length > 0;
-                    const pfsMissingD = !!pfsAttrData && isMultiColorD && !v.pfsColorRef;
-                    const imgGkD = imageGroupKeyFromVariant(v);
-                    const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
-                    const imgCountD = imgEntryD?.uploadedPaths.length ?? 0;
-                    const dimCls = v.disabled ? " opacity-50" : "";
-
-                    return (
-                      <tr
-                        key={v.tempId}
-                        className={`border-b border-border-light last:border-b-0 transition-colors ${
-                          pfsMissingD ? "bg-[#FEF2F2]/60 outline outline-2 outline-[#EF4444]/40" : isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "hover:bg-[#FAFAFA]"
-                        }`}
-                      >
-                        {/* Checkbox */}
-                        <td className={`px-2 py-2 text-center${dimCls}`}>
-                          <input type="checkbox" checked={isSelected}
-                            onChange={(e) => {
-                              const next = new Set(selectedIds);
-                              if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
-                              setSelectedIds(next);
-                            }}
-                            className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5" />
-                        </td>
-
-                        {/* Status dot */}
-                        <td className="px-0 py-2 text-center">
-                          <span
-                            title={v.disabled ? "Désactivée" : "Active"}
-                            className={`inline-block w-2.5 h-2.5 rounded-full ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`}
-                          />
-                        </td>
-
-                        {/* Type */}
-                        <td className={`px-2 py-2${dimCls}`}>
-                          <CustomSelect
-                            value={v.saleType}
-                            onChange={(val) => {
-                              if (val === "PACK" && v.saleType === "UNIT") {
-                                const totalQty = v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0);
-                                updateVariant(v.tempId, { saleType: "PACK", packQuantity: String(totalQty || 1) });
-                              } else if (val === "UNIT" && v.saleType === "PACK") {
-                                const restoredSizes = v.sizeEntries.slice(0, 1);
-                                updateVariant(v.tempId, { saleType: "UNIT", packQuantity: "", sizeEntries: restoredSizes });
-                              }
-                            }}
-                            options={[
-                              { value: "UNIT", label: "Unité" },
-                              { value: "PACK", label: "Pack" },
-                            ]}
-                            size="sm"
-                            className="w-[72px]"
-                          />
-                        </td>
-
-                        {/* Color */}
-                        <td className={`px-2 py-2${dimCls}`}>
+            <table className="w-full table-fixed text-xs font-body">
+              <thead>
+                <tr className="bg-bg-secondary border-b border-border">
+                  <th className="w-8 px-2 py-2 text-center">
+                    <input type="checkbox"
+                      checked={selectedIds.size === variants.length && variants.length > 0}
+                      ref={selectAllRef}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedIds(new Set(variants.map((v) => v.tempId)));
+                        else setSelectedIds(new Set());
+                      }}
+                      className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5"
+                    />
+                  </th>
+                  <th className="w-6 px-0 py-2 text-center" title="Statut"></th>
+                  <th className="w-[78px] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Type</th>
+                  <th className="w-[20%] px-2 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Couleur</th>
+                  <th className="w-[11%] px-1 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">SKU</th>
+                  <th className="w-[14%] px-1 py-2 text-left text-[10px] uppercase tracking-wider text-text-muted font-semibold">Tailles</th>
+                  <th className="w-[60px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Stock</th>
+                  <th className="w-[62px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Poids</th>
+                  <th className="w-[68px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Prix/u.</th>
+                  <th className="w-[56px] px-1 py-2 text-right text-[10px] uppercase tracking-wider text-text-muted font-semibold">Total</th>
+                  <th className="w-[80px] px-1 py-2 text-center text-[10px] uppercase tracking-wider text-text-muted font-semibold">Actions</th>
+                </tr>
+                <tr className={`border-b transition-colors ${showBulkRow ? "bg-[#F0FDF4] border-[#BBF7D0]" : "bg-[#FAFAFA] border-border"}`}>
+                  <td className="px-2 py-1.5 text-center">
+                    <span className={`text-[9px] font-semibold ${showBulkRow ? "text-[#16A34A]" : "text-[#D1D5DB]"}`}>
+                      {showBulkRow ? selectedIds.size : "—"}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1.5" colSpan={4}>
+                    <span className={`text-[10px] font-body ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
+                      {showBulkRow ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}` : "Modification en masse"}
+                    </span>
+                  </td>
+                  <td className="px-1 py-1.5" />
+                  <td className="px-1 py-1.5">
+                    <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock} disabled={!showBulkRow}
+                      onChange={(e) => setBulkEdit((b) => ({ ...b, stock: e.target.value }))}
+                      className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
+                        showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
+                      }`} />
+                  </td>
+                  <td className="px-1 py-1.5">
+                    <input type="number" min="0" step="0.001" placeholder="Poids" value={bulkEdit.weight} disabled={!showBulkRow}
+                      onChange={(e) => setBulkEdit((b) => ({ ...b, weight: e.target.value }))}
+                      className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
+                        showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
+                      }`} />
+                  </td>
+                  <td className="px-1 py-1.5">
+                    <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice} disabled={!showBulkRow}
+                      onChange={(e) => setBulkEdit((b) => ({ ...b, unitPrice: e.target.value }))}
+                      className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
+                        showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
+                      }`} />
+                  </td>
+                  <td className="px-1 py-1.5" />
+                  <td className="px-1 py-1.5 text-center">
+                    <button type="button" onClick={applyBulk} disabled={!showBulkRow}
+                      title="Appliquer en masse"
+                      className={`p-1 rounded transition-colors ${showBulkRow ? "text-[#16A34A] hover:bg-[#DCFCE7]" : "text-[#D1D5DB] cursor-not-allowed"}`}>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedVariants.map((v) => {
+                  const isSelected = selectedIds.has(v.tempId);
+                  const isDuplicate = duplicateTempIds.has(v.tempId);
+                  const vErrs = variantErrors?.get(v.tempId);
+                  const imgGkD = imageGroupKeyFromVariant(v);
+                  const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
+                  const imgCountD = imgEntryD?.uploadedPaths.length ?? 0;
+                  const dimCls = v.disabled ? " opacity-50" : "";
+                  return (
+                    <tr key={v.tempId}
+                      className={`border-b border-border-light last:border-b-0 transition-colors ${
+                        isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : "hover:bg-[#FAFAFA]"
+                      }`}
+                    >
+                      <td className={`px-2 py-2 text-center${dimCls}`}>
+                        <input type="checkbox" checked={isSelected}
+                          onChange={(e) => {
+                            const next = new Set(selectedIds);
+                            if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
+                            setSelectedIds(next);
+                          }}
+                          className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5" />
+                      </td>
+                      <td className="px-0 py-2 text-center">
+                        <span title={v.disabled ? "Désactivée" : "Active"}
+                          className={`inline-block w-2.5 h-2.5 rounded-full ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`} />
+                      </td>
+                      <td className={`px-2 py-2${dimCls}`}>
+                        <CustomSelect
+                          value={v.saleType}
+                          onChange={(val) => {
+                            if (val === "PACK" && v.saleType === "UNIT") {
+                              const totalQty = v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0);
+                              updateVariant(v.tempId, { saleType: "PACK", packQuantity: String(totalQty || 1) });
+                            } else if (val === "UNIT" && v.saleType === "PACK") {
+                              const restoredSizes = v.sizeEntries.slice(0, 1);
+                              updateVariant(v.tempId, { saleType: "UNIT", packQuantity: "", sizeEntries: restoredSizes });
+                            }
+                          }}
+                          options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
+                          size="sm" className="w-[72px]" />
+                      </td>
+                      <td className={`px-2 py-2${dimCls}`}>
+                        {v.saleType === "PACK" ? (
                           <MultiColorSelect
-                            selected={v.colorId ? [
-                              { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex },
-                              ...v.subColors.map((sc) => ({ colorId: sc.colorId, colorName: sc.colorName, colorHex: sc.colorHex })),
-                            ] : []}
+                            selected={v.packLines.length > 0
+                              ? v.packLines.map((l) => ({ colorId: l.colorId, colorName: l.colorName, colorHex: l.colorHex }))
+                              : (v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }] : [])}
                             options={availableColors}
-                            onChange={(colors, pfsRef) => handleMultiColorChange(new Set([v.tempId]), colors, pfsRef)}
-                            existingVariants={variants}
-                            editingGroupKey={variantGroupKeyFromState(v)}
-                            pfsColorRef={v.pfsColorRef}
-                            pfsColorRefLabel={v.pfsColorRef ? (pfsColorLabels.get(v.pfsColorRef) ?? undefined) : undefined}
-                            usedPfsColorRefs={getUsedPfsColorRefs(v.tempId)}
+                            onChange={(colors) => handlePackColorsChange(v.tempId, colors)}
                             onCreateColor={onQuickCreateColor}
                             onColorAdded={onColorAdded}
-                            mappedCombos={pfsAttrData?.mappedCombos}
                           />
-                          {pfsMissingD && (
-                            <span className="flex items-center gap-1 mt-1 text-[10px] text-[#DC2626] font-medium">
-                              <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                              </svg>
-                              Correspondance Paris Fashion Shop manquante
-                            </span>
-                          )}
-                        </td>
-
-                        {/* SKU */}
-                        <td className={`px-1 py-2${dimCls}`}>
-                          {(() => {
-                            const dsku = displaySkuByTempId.get(v.tempId) || "—";
-                            return (
-                              <span className="text-[10px] text-text-muted font-mono truncate block" title={dsku}>
-                                {dsku}
-                              </span>
-                            );
-                          })()}
-                        </td>
-
-                        {/* Sizes — click to open modal */}
-                        <td className={`px-1 py-2${dimCls}`}>
-                          <button
-                            type="button"
-                            onClick={() => setSizeModalVariantId(v.tempId)}
-                            className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px]`}
-                            title={v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ") : "Ajouter des tailles"}
+                        ) : (
+                          <SingleColorSelect
+                            selected={v.colorId ? { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex } : null}
+                            options={availableColors}
+                            onChange={(c) => handleColorChange(v.tempId, c)}
+                            onCreateColor={onQuickCreateColor}
+                            onColorAdded={onColorAdded}
+                          />
+                        )}
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        {(() => {
+                          const dsku = displaySkuByTempId.get(v.tempId) || "—";
+                          return <span className="text-[10px] text-text-muted font-mono truncate block" title={dsku}>{dsku}</span>;
+                        })()}
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        <button type="button" onClick={() => v.saleType === "PACK" ? setPackCompoVariantId(v.tempId) : setSizeModalVariantId(v.tempId)}
+                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px]`}
+                          title={v.saleType === "PACK"
+                            ? (isMultiColorPack(v)
+                                ? v.packLines.map((l) => `${l.colorName}: ${l.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}`).join(" | ")
+                                : "Définir la composition du paquet")
+                            : (v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ") : "Ajouter des tailles")}
+                        >
+                          {renderSizeSummary(v)}
+                          <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        <input type="number" min="0" step="1" value={v.stock} placeholder="0"
+                          onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
+                          className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.000"
+                          onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
+                          className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
+                          onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                          className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </td>
+                      <td className={`px-1 py-2 text-right text-xs${dimCls}`}>{renderTotalPrice(v)}</td>
+                      <td className="px-1 py-2 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <span title={imgCountD === 0 ? "Aucune image" : `${imgCountD} image${imgCountD > 1 ? "s" : ""}`}
+                            className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold font-body ${
+                              imgCountD === 0 ? "bg-[#FEE2E2] text-[#DC2626]" : "text-text-muted"
+                            }`}
                           >
-                            {renderSizeSummary(v)}
-                            <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
                             </svg>
-                          </button>
-                        </td>
-
-                        {/* Stock */}
-                        <td className={`px-1 py-2${dimCls}`}>
-                          <input
-                            type="number" min="0" step="1"
-                            value={v.stock}
-                            placeholder="0"
-                            onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
-                            className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
-                          />
-                        </td>
-
-                        {/* Weight */}
-                        <td className={`px-1 py-2${dimCls}`}>
-                          <input
-                            type="number" min="0" step="0.001"
-                            value={v.weight}
-                            placeholder="0.000"
-                            onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
-                            className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
-                          />
-                        </td>
-
-
-                        {/* Unit Price */}
-                        <td className={`px-1 py-2${dimCls}`}>
-                          <input
-                            type="number" min="0" step="0.01"
-                            value={v.unitPrice}
-                            placeholder="0.00"
-                            onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
-                            className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`}
-                          />
-                        </td>
-
-                        {/* Total price */}
-                        <td className={`px-1 py-2 text-right text-xs${dimCls}`}>
-                          {renderTotalPrice(v)}
-                        </td>
-
-                        {/* Actions */}
-                        <td className="px-1 py-2 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <span
-                              title={imgCountD === 0 ? "Aucune image" : `${imgCountD} image${imgCountD > 1 ? "s" : ""}`}
-                              className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold font-body ${
-                                imgCountD === 0
-                                  ? "bg-[#FEE2E2] text-[#DC2626]"
-                                  : "text-text-muted"
-                              }`}
-                            >
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
-                              </svg>
-                              {imgCountD}
-                            </span>
-                              {/* Action dropdown */}
-                              <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
-                                <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
-                                  className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
-                                  Action
+                            {imgCountD}
+                          </span>
+                          <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
+                            <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
+                              className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
+                              Action
+                            </button>
+                            {actionMenuId === v.tempId && (
+                              <div className="absolute right-0 top-full mt-1 bg-bg-primary border border-border rounded-lg shadow-md z-50 min-w-[140px] py-1">
+                                <button type="button" onClick={() => { setActionMenuId(null); toggleVariantDisabled(v.tempId); }}
+                                  className="w-full text-left px-3 py-1.5 text-xs font-body hover:bg-bg-secondary transition-colors">
+                                  {v.disabled ? "Activer" : "Désactiver"}
                                 </button>
-                                {actionMenuId === v.tempId && (
-                                  <div className="absolute right-0 top-full mt-1 bg-bg-primary border border-border rounded-lg shadow-md z-50 min-w-[140px] py-1">
-                                    <button type="button"
-                                      onClick={() => { setActionMenuId(null); toggleVariantDisabled(v.tempId); }}
-                                      className="w-full text-left px-3 py-1.5 text-xs font-body hover:bg-bg-secondary transition-colors">
-                                      {v.disabled ? "Activer" : "Désactiver"}
-                                    </button>
-                                    <button type="button"
-                                      onClick={() => { setActionMenuId(null); removeVariant(v.tempId); }}
-                                      className="w-full text-left px-3 py-1.5 text-xs font-body text-[#EF4444] hover:bg-[#FEF2F2] transition-colors">
-                                      Supprimer
-                                    </button>
-                                  </div>
-                                )}
+                                <button type="button" onClick={() => { setActionMenuId(null); removeVariant(v.tempId); }}
+                                  className="w-full text-left px-3 py-1.5 text-xs font-body text-[#EF4444] hover:bg-[#FEF2F2] transition-colors">
+                                  Supprimer
+                                </button>
                               </div>
+                            )}
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
-          {/* Duplicate warning */}
           {duplicateTempIds.size > 0 && (
             <div className="px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg flex items-center gap-2">
               <svg className="w-4 h-4 text-[#EF4444] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <p className="text-xs text-[#EF4444] font-body">
-                Doublon détecté : même type, même composition couleur et mêmes tailles/quantités.
+                Doublon détecté : même type, même couleur et mêmes tailles/quantités.
               </p>
             </div>
           )}
         </div>
       )}
 
-      {/* ── Action buttons ── */}
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={addVariant}
-            className="flex-1 border-2 border-dashed border-border py-3 text-sm font-body text-text-secondary hover:border-bg-dark hover:bg-bg-secondary transition-colors flex items-center justify-center gap-2 rounded-lg"
-          >
+          <button type="button" onClick={addVariant}
+            className="flex-1 border-2 border-dashed border-border py-3 text-sm font-body text-text-secondary hover:border-bg-dark hover:bg-bg-secondary transition-colors flex items-center justify-center gap-2 rounded-lg">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
             Ajouter une variante
           </button>
-          <button
-            type="button"
-            onClick={() => setShowQuickAdd(true)}
-            className="flex-1 border-2 border-dashed border-border py-3 text-sm font-body text-text-secondary hover:border-bg-dark hover:bg-bg-secondary transition-colors flex items-center justify-center gap-2 rounded-lg"
-          >
+          <button type="button" onClick={() => setShowQuickAdd(true)}
+            className="flex-1 border-2 border-dashed border-border py-3 text-sm font-body text-text-secondary hover:border-bg-dark hover:bg-bg-secondary transition-colors flex items-center justify-center gap-2 rounded-lg">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
             </svg>
             Création rapide
           </button>
         </div>
-
         {variants.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowImageModal(true)}
+          <button type="button" onClick={() => setShowImageModal(true)}
             className={`w-full border-2 border-dashed py-3 text-sm font-body transition-colors flex items-center justify-center gap-2 rounded-lg ${
-              hasAnyMissingImages
-                ? "border-[#EF4444] text-[#EF4444] hover:border-red-400 hover:bg-red-50/50"
-                : "border-border text-text-secondary hover:border-bg-dark hover:bg-bg-secondary"
-            }`}
-          >
+              hasAnyMissingImages ? "border-[#EF4444] text-[#EF4444] hover:border-red-400 hover:bg-red-50/50" : "border-border text-text-secondary hover:border-bg-dark hover:bg-bg-secondary"
+            }`}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
             </svg>
@@ -3047,7 +2292,6 @@ export default function ColorVariantManager({
         )}
       </div>
 
-      {/* ── Image Gallery Modal ── */}
       <ImageGalleryModal
         key={galleryState?.colorName ?? ""}
         open={galleryState !== null}
@@ -3057,7 +2301,6 @@ export default function ColorVariantManager({
         colorHex={galleryState?.colorHex ?? "#9CA3AF"}
       />
 
-      {/* ── Image Manager Modal ── */}
       <ImageManagerModal
         open={showImageModal}
         onClose={() => setShowImageModal(false)}
@@ -3066,10 +2309,8 @@ export default function ColorVariantManager({
         variants={variants}
         availableColors={availableColors}
         onSetPrimary={(variantTempId) => setPrimary(variantTempId)}
-        pfsColorLabels={pfsColorLabels}
       />
 
-      {/* ── Size Modal ── */}
       {sizeModalVariant && (
         <SizeModal
           open={!!sizeModalVariantId}
@@ -3082,7 +2323,37 @@ export default function ColorVariantManager({
         />
       )}
 
-      {/* ── Quick Add Modal ── */}
+      {packCompoVariant && (
+        <PackCompositionModal
+          open={!!packCompoVariantId}
+          onClose={() => setPackCompoVariantId(null)}
+          initialLines={packCompoVariant.packLines.length > 0
+            ? packCompoVariant.packLines
+            : (packCompoVariant.colorId
+                ? [{
+                    tempId: uid(),
+                    colorId: packCompoVariant.colorId,
+                    colorName: packCompoVariant.colorName,
+                    colorHex: packCompoVariant.colorHex,
+                    sizeEntries: packCompoVariant.sizeEntries.map((se) => ({ ...se, tempId: uid() })),
+                  }]
+                : [])}
+          availableSizes={availableSizes}
+          onSave={(lines) => {
+            const total = lines.reduce((s, l) => s + l.sizeEntries.reduce((a, e) => a + (parseInt(e.quantity) || 0), 0), 0);
+            const firstLine = lines[0];
+            updateVariant(packCompoVariant.tempId, {
+              packLines: lines,
+              packQuantity: String(total),
+              sizeEntries: [],
+              colorId: firstLine?.colorId || packCompoVariant.colorId,
+              colorName: firstLine?.colorName || packCompoVariant.colorName,
+              colorHex: firstLine?.colorHex || packCompoVariant.colorHex,
+            });
+          }}
+        />
+      )}
+
       <QuickAddModal
         open={showQuickAdd}
         onClose={() => setShowQuickAdd(false)}

@@ -21,7 +21,6 @@ import { useToast } from "@/components/ui/Toast";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useProductStream } from "@/hooks/useProductStream";
-import MarketplaceExportButton from "@/components/admin/products/MarketplaceExportButton";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
@@ -36,6 +35,38 @@ export function computeShowStockBadges(p: { status: string; isIncomplete: boolea
   if (p.status === "OFFLINE") return false;
   if (p.status === "ARCHIVED") return false;
   return true;
+}
+
+// ─── Marketplace publish badge ─────────────────────────────────────────────────
+
+function MarketplaceBadge({
+  marketplace,
+  published,
+}: {
+  marketplace: "PFS" | "Ankorstore";
+  published: boolean;
+}) {
+  const label = marketplace === "PFS" ? "PFS" : "Ankorstore";
+  if (published) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+        title={`Publié sur ${marketplace === "PFS" ? "Paris Fashion Shop" : "Ankorstore"}`}
+      >
+        <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
+      title={`Non publié sur ${marketplace === "PFS" ? "Paris Fashion Shop" : "Ankorstore"}`}
+    >
+      <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
+      {label}
+    </span>
+  );
 }
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -56,7 +87,6 @@ interface ColorVariant {
   packQuantity: number | null;
   variantSizes?: VariantSizeEntry[];
   color: { name: string; hex: string | null; patternImage?: string | null };
-  subColors?: { color: { name: string; hex: string | null; patternImage?: string | null } }[];
 }
 
 interface ProductTranslation {
@@ -74,6 +104,8 @@ interface AdminProduct {
   createdAt: string;
   lastRefreshedAt: string | null;
   firstImage: string | null;
+  pfsProductId: string | null;
+  ankorsProductId: string | null;
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -145,21 +177,10 @@ function VariantRow({
           <div className="flex items-center gap-2.5">
             {(() => {
               const mainHex = variant.color.hex ?? "#9CA3AF";
-              const subs = variant.subColors?.filter(sc => sc.color.hex || sc.color.patternImage) ?? [];
-              const fullName = subs.length > 0
-                ? [variant.color.name, ...subs.map(sc => sc.color.name)].join("/")
-                : variant.color.name;
-              let swatchStyle: React.CSSProperties;
-              if (variant.color.patternImage) {
-                swatchStyle = { backgroundImage: `url(${variant.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
-              } else if (subs.length > 0) {
-                const allHexes = [mainHex, ...subs.map(sc => sc.color.hex ?? "#9CA3AF")];
-                const seg = 360 / allHexes.length;
-                const stops = allHexes.map((hex, i) => `${hex} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
-                swatchStyle = { background: `conic-gradient(${stops})` };
-              } else {
-                swatchStyle = { backgroundColor: mainHex };
-              }
+              const fullName = variant.color.name;
+              const swatchStyle: React.CSSProperties = variant.color.patternImage
+                ? { backgroundImage: `url(${variant.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+                : { backgroundColor: mainHex };
               return (
                 <>
                   <span
@@ -360,14 +381,10 @@ function ProductRow({
   const { confirm } = useConfirm();
   const { refreshSingle } = useRefreshMarketplaceDialog();
 
-  // Group UNIT variants by colorId + ordered sub-colors (PACK variants excluded — no single color)
+  // Grouper les variantes UNIT par colorId. PACK exclus.
   const uniqueColors = [...new Map(product.colors
     .filter((c) => c.saleType !== "PACK" && c.colorId && c.color)
-    .map((c) => {
-      const subNames = c.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
-      const gk = subNames.length === 0 ? c.colorId! : `${c.colorId!}::${subNames.join(",")}`;
-      return [gk, c] as const;
-    })
+    .map((c) => [c.colorId!, c] as const)
   ).values()];
   const packCount = product.colors.filter((c) => c.saleType === "PACK").length;
   const minPrice = product.colors.length > 0
@@ -457,27 +474,14 @@ function ProductRow({
           <div className="flex items-center gap-1 flex-nowrap">
             {uniqueColors.slice(0, 6).map((c) => {
               const mainHex = c.color.hex ?? "#9CA3AF";
-              const subs = c.subColors?.filter(sc => sc.color.hex) ?? [];
-              const fullName = subs.length > 0
-                ? [c.color.name, ...subs.map(sc => sc.color.name)].join("/")
-                : c.color.name;
-              let swatchStyle: React.CSSProperties;
-              if (c.color.patternImage) {
-                swatchStyle = { backgroundImage: `url(${c.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
-              } else if (subs.length > 0) {
-                const allHexes = [mainHex, ...subs.map(sc => sc.color.hex ?? "#9CA3AF")];
-                const seg = 360 / allHexes.length;
-                const stops = allHexes.map((hex, i) => `${hex} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
-                swatchStyle = { background: `conic-gradient(${stops})` };
-              } else {
-                swatchStyle = { backgroundColor: mainHex };
-              }
+              const fullName = c.color.name;
+              const swatchStyle: React.CSSProperties = c.color.patternImage
+                ? { backgroundImage: `url(${c.color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+                : { backgroundColor: mainHex };
               const isOos = c.stock === 0 && showStockBadges;
-              const subNamesForKey = c.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
-              const colorKey = subNamesForKey.length === 0 ? c.colorId : `${c.colorId}::${subNamesForKey.join(",")}`;
               return (
                 <span
-                  key={colorKey}
+                  key={c.colorId}
                   title={`${fullName}${isOos ? " — Rupture" : ""}`}
                   className="inline-block w-5 h-5 rounded-full relative shrink-0"
                   style={{
@@ -564,6 +568,10 @@ function ProductRow({
                   Suppression...
                 </span>
               )}
+            </div>
+            <div className="flex items-center gap-1.5 flex-nowrap">
+              <MarketplaceBadge marketplace="PFS" published={!!product.pfsProductId} />
+              <MarketplaceBadge marketplace="Ankorstore" published={!!product.ankorsProductId} />
             </div>
           </div>
         </td>
@@ -1554,8 +1562,6 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
             </svg>
             Rafraîchir
           </button>
-          <div className="h-4 w-px bg-bg-primary/20" />
-          <MarketplaceExportButton productIds={Array.from(selectedIds)} disabled={isPending} />
           <div className="h-4 w-px bg-bg-primary/20" />
           <button
             type="button"

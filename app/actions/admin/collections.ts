@@ -137,6 +137,22 @@ export async function addProductToCollection(
 ) {
   await requireAdmin();
 
+  // P3-12 — refuser les produits hors-ligne ou archivés. Les ajouter à une
+  // collection visible publiquement risquerait de pousser un produit invisible.
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { status: true },
+  });
+  if (!product) {
+    return { success: false as const, error: "Produit introuvable." };
+  }
+  if (product.status !== "ONLINE") {
+    return {
+      success: false as const,
+      error: "Seuls les produits en ligne peuvent être ajoutés à une collection.",
+    };
+  }
+
   // Position = max actuel + 1
   const maxPos = await prisma.collectionProduct.aggregate({
     where:   { collectionId },
@@ -152,7 +168,7 @@ export async function addProductToCollection(
 
   revalidatePath(`/admin/collections/${collectionId}/modifier`);
   revalidatePath(`/collections/${collectionId}`);
-  return { success: true };
+  return { success: true as const };
 }
 
 // ─────────────────────────────────────────────
@@ -202,7 +218,9 @@ export async function reorderCollectionProducts(
 ) {
   await requireAdmin();
 
-  await Promise.all(
+  // P3-13 — toutes les positions dans la même transaction. Avant : un échec
+  // sur la moitié laissait la collection avec des positions incohérentes.
+  await prisma.$transaction(
     items.map(({ productId, position }) =>
       prisma.collectionProduct.update({
         where: { collectionId_productId: { collectionId, productId } },

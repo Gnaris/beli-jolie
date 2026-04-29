@@ -1,7 +1,8 @@
 /**
  * SKU generation for ProductColor variants.
- * Format: {reference}_{couleurs}_{UNIT|PACK}_{index}
- * Example: BJ42_DORE-ROUGE-NOIR_UNIT_1
+ * Format: {reference}_{couleur}_{UNIT|PACK}_{index}
+ * UNIT/PACK mono-couleur: BJ42_ROUGE_UNIT_1
+ * PACK multi-couleurs: BJ42_ROUGE-BLEU-NOIR_PACK_1
  */
 
 /**
@@ -11,7 +12,7 @@
  * - Replace spaces/special chars with hyphens
  * - Collapse multiple hyphens
  */
-function normalizeColorName(name: string): string {
+export function normalizeColorName(name: string): string {
   return name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // strip accents
@@ -22,8 +23,20 @@ function normalizeColorName(name: string): string {
 }
 
 /**
+ * Normalize a color name for accent-insensitive matching (e.g. matching
+ * "Doré" against a DB color "Dore"). P3-15.
+ */
+export function normalizeColorNameForMatch(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+/**
  * Build the color part of a SKU from a list of color names.
- * Format: [mainColor, ...subColors] (UNIT and PACK).
+ * UNIT / PACK mono-couleur: 1 nom. PACK multi-couleurs: N noms (lignes du pack).
  */
 export function buildSkuColorPart(colorNames: string[]): string {
   if (colorNames.length === 0) return "SANS-COULEUR";
@@ -34,7 +47,7 @@ export function buildSkuColorPart(colorNames: string[]): string {
  * Generate a full SKU for a variant.
  *
  * @param reference - Product reference (e.g. "BJ42")
- * @param colorNames - Ordered color names (main + sub-colors for UNIT, pack line colors for PACK)
+ * @param colorNames - 1 nom (UNIT / PACK mono) ou N noms (PACK multi-couleurs)
  * @param saleType - "UNIT" or "PACK"
  * @param index - 1-based sequential index across all variants of the product
  */

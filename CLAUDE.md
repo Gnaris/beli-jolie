@@ -54,35 +54,39 @@ Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib
 
 ### Product model
 
-`Product` → `ProductColor[]` (variantes UNIT ou PACK) → images, sizes, sub-colors, pack color lines. Pricing: UNIT = `unitPrice` direct, PACK = calculé via `computeTotalPrice()`. `ProductColor.pfsColorRef` (nullable) = override de couleur PFS pour une variante multi-couleurs (obligatoire pour l'export PFS quand `subColors.length > 0`). Persisté par `updateProductColorPfsRef()` (inline modal) ou par `updateProduct`/`createProduct` (save complet du produit).
+`Product` → `ProductColor[]` (variantes UNIT ou PACK) → images, sizes, pack color lines. **Une variante = une couleur** (plus de sous-couleurs/composition). Pricing: UNIT = `unitPrice` direct, PACK = calculé via `computeTotalPrice()`. Pour les **packs multi-couleurs** (ex: pack tricolore), la composition vit dans `PackColorLine[]` + `PackColorLineSize[]` (1 ligne par couleur du pack avec ses tailles/quantités). Le nom de la couleur dans la bibliothèque (`Color.name`) doit correspondre exactement à ce que PFS attend pour l'export Excel.
 
-### Marketplace publishing via Excel export (`lib/marketplace-excel/`)
+### Marketplace publishing via API live (PFS + Ankorstore)
 
-Create / update on PFS + Ankorstore is handled via **manual Excel upload** (no live API push). Admin sélectionne des produits dans `/admin/produits`, clique **Exporter Marketplaces**. Le serveur construit un bundle ZIP, mais le composant client (`MarketplaceExportButton`) le dézippe et déclenche **un téléchargement séparé par fichier** (Chrome/Firefox affichent un prompt "télécharger plusieurs fichiers" la 1re fois).
+Create / update sur PFS + Ankorstore se fait **en direct via les API**. Plus d'export Excel manuel.
 
-**Strict gate** : le moindre avertissement (famille PFS manquante, desc < 30 chars, taille sans réf PFS, image manquante sur le disque…) **bloque** le téléchargement. Le serveur renvoie HTTP 422 `{ error, warnings[] }`, le bouton affiche une modale listant chaque point à corriger — aucun fichier téléchargé tant que ce n'est pas corrigé.
+**Identifiants stockés** : `Product.pfsProductId` / `Product.ankorsProductId` + `ProductColor.pfsVariantId` / `ProductColor.ankorsVariantId`. Renseignés à l'import PFS et à chaque publish/refresh. `null` = produit pas encore publié → badge gris « Non publié ».
 
-Fichiers téléchargés (en cas de succès, zéro avertissement) :
-- `pfs.xlsx` — 1 ligne par (produit × SaleType), format ANNEXE PFS (27 colonnes)
-- `ankorstore.xlsx` — 1 ligne par variante SKU (45 colonnes, URLs images absolues construites depuis `NEXTAUTH_URL`)
-- `images_pfs.zip` — ZIP contenant les images JPEG au format PFS `reference couleur position.jpg` (sans underscore), converties WebP→JPEG via sharp pour upload manuel PFS
+**Modale au save produit** : à chaque `Enregistrer` dans le formulaire produit (création OU édition), si le produit est complet et qu'au moins une marketplace est configurée, une modale s'ouvre avec cases à cocher PFS / Ankorstore. Si cochées → enqueue dans le widget existant `PfsRefreshWidget` avec `mode: "publish"`.
+
+**Server action** : `app/actions/admin/marketplace-publish.ts` → `publishProductToMarketplaces(productId, { pfs, ankorstore })` :
+- Si `pfsProductId` connu → `pfsRefreshProduct()` (renouvelle = crée nouveau + remplace ID)
+- Sinon → `pfsPublishProduct()` (première création)
+- Idem pour Ankorstore avec fallback automatique sur publish si refresh échoue (`not_found`)
 
 Fichiers clés :
-- `lib/marketplace-excel/pfs-export.ts` — workbook PFS (utilise `PFS_GENDER_LABELS` pour mapper WOMAN→Femme)
-- `lib/marketplace-excel/ankorstore-export.ts` — workbook Ankorstore
-- `lib/marketplace-excel/build-archive.ts` — assemble ZIP + lit les images du disque + convertit WebP→JPEG
-- `lib/marketplace-excel/load-products.ts` — charge produits + markups + TVA depuis DB
-- `lib/marketplace-excel/pfs-taxonomy.ts` — mapping statique Genre/Famille PFS
-- `app/api/admin/marketplace-export/route.ts` — POST `{ productIds, includePfs, includeAnkorstore }` → stream ZIP
-- `components/admin/products/MarketplaceExportButton.tsx` — bouton dans la barre d'actions multi-sélection
+- `lib/pfs-publish.ts` — première publication PFS (sans swap d'ancien produit)
+- `lib/pfs-refresh.ts` — renouvellement (création + soft-delete + remplacement IDs)
+- `lib/ankorstore-publish.ts` — première publication Ankorstore (push + search by ref pour récupérer IDs)
+- `lib/ankorstore-refresh.ts` — refresh Ankorstore (search → push → IDs)
+- `app/actions/admin/marketplace-publish.ts` + `app/actions/admin/marketplace-refresh.ts`
+- `app/api/admin/marketplace-publish/route.ts` + `app/api/admin/marketplace-refresh/route.ts`
+- `components/admin/products/PfsRefreshContext.tsx` — queue partagée publish/refresh, dispatch via `mode: "publish" | "refresh"`
 
-**Delete** est 100 % local : `deleteProduct(id)` et `bulkDeleteProducts(ids)` ne touchent plus aux marketplaces. L'admin retire manuellement le produit sur PFS/Ankorstore si besoin. Aucun ID marketplace n'est stocké en DB.
+**Annexes PFS** : alimentées en LIVE via `lib/pfs-annexes.ts` (cache `unstable_cache` 60min, tag `pfs-annexes`) qui appelle `pfsGetGenders/Families/Categories/Colors/Compositions/Countries/Sizes/Collections`. Plus de parsing du template Excel.
+
+**Delete** est 100 % local : `deleteProduct(id)` et `bulkDeleteProducts(ids)` ne touchent pas aux marketplaces.
 
 **Famille PFS** : stockée dans `Category.pfsFamilyName` (renseignée manuellement dans l'UI catégorie). `pfsCategoryId`/`pfsGender`/`pfsFamilyId` (IDs Salesforce) conservés pour référence.
 
 ### Refresh produit (`lib/pfs-refresh.ts` + `app/actions/admin/marketplace-refresh.ts`)
 
-Bouton "Rafraîchir" dans `/admin/produits` (par ligne + bulk) et sur la page `/modifier`. Ouvre une modale avec cases à cocher : **boutique** (bump `Product.lastRefreshedAt`, jamais `createdAt`) + **PFS** (re-push live via API) + **Ankorstore** (fire-and-forget via catalog operations).
+Bouton "Rafraîchir" dans `/admin/produits` (par ligne + bulk) et sur la page `/modifier`. Ouvre une modale avec cases à cocher : **boutique** (bump `Product.lastRefreshedAt`, jamais `createdAt`) + **PFS** (re-push live via API, remplace `pfsProductId` + `pfsVariantId` après création nouveau) + **Ankorstore** (fire-and-forget, capture IDs après push via search by ref).
 
 Traitement en arrière-plan via `PfsRefreshProvider` (monté dans `app/(admin)/layout.tsx`) + `PfsRefreshWidget` (popup bas-droite, minimisable, fermable uniquement quand tous les produits sont terminés). Items traités séquentiellement, outcomes per-marketplace affichés.
 
@@ -102,7 +106,17 @@ NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. 
 
 ### i18n
 
-next-intl, cookie `bj_locale` (default `fr`). Locales: fr, en, de, es, it, ar (RTL), zh. Messages: `messages/[locale].json`. Auto-translations: DeepL Free (500K chars/month). Auto-translate toggle: `auto_translate_enabled` in SiteConfig.
+**Routing par préfixe d'URL** (next-intl 4.x). Chaque page publique vit sous `app/[locale]/...` et est servie sur `/{locale}/...` (ex: `/fr/produits/123`, `/en/produits/123`). Locales: fr (défaut), en, de, es, it, ar (RTL), zh. Messages: `messages/[locale].json`. Auto-translations: DeepL Free (500K chars/month). Auto-translate toggle: `auto_translate_enabled` in SiteConfig.
+
+- **Config** : `i18n/routing.ts` (`localePrefix: "always"`, `localeDetection: false`), `i18n/navigation.ts` exporte `Link`, `redirect`, `useRouter`, `usePathname` localisés
+- **Request** : `i18n/request.ts` lit la locale depuis `requestLocale` (params URL). Plus de cookie `bj_locale`
+- **Routes hors i18n** : `/admin/*`, `/api/*`, `/maintenance`, `/sitemap.xml`, `/robots.txt`, `/manifest.webmanifest`, `/icon`, `/apple-icon`. Sans préfixe locale
+- **Middleware** : combine next-intl (préfixe + redirection 307 des URLs legacy `/produits` → `/fr/produits`) avec la logique d'auth (admin, client, pending, codes accès, maintenance). Le middleware applique la logique sur le pathname "sans locale" (helper `stripLocale`)
+- **Layouts** : `app/layout.tsx` (root) reste tel quel — `getLocale()` fonctionne via `requestLocale` (fallback `fr` pour les routes admin). `app/[locale]/layout.tsx` appelle `setRequestLocale(locale)` + `notFound()` si locale invalide
+- **Liens admin → public** : hardcoder `/fr/...` (admin n'a pas de locale courante)
+- **Sitemap** : génère 7× chaque URL (1 par locale) avec `alternates.languages` (hreflang)
+- **`buildAlternates(path, locale)` de `lib/seo.ts`** : émet canonical (URL préfixée par locale courante) + hreflang `x-default` (toujours fr) + 1 entrée par locale
+- **Sélecteur de langue** : `LanguageSwitcher` utilise `router.replace(pathname, { locale })` pour basculer sans recharger
 
 ### Styling
 
@@ -184,12 +198,11 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 ### Product & Variant Data
 - **`ProductStatus`** : OFFLINE | ONLINE | ARCHIVED | SYNCING — ne jamais supprimer un ARCHIVED
 - **`Color.patternImage`** prioritaire sur `Color.hex` pour le rendu
-- **groupKey** : toujours `colorId + sub-colors tries` pour identifier couleurs. Jamais `colorId` seul ni `variantTempId`. Helper: `variantGroupKeyFromState()`
-- **Couleurs completes** : toujours afficher TOUTES les couleurs d'une composition, jamais juste la principale
-- **PACK** : même structure qu'UNIT (`colorId` + `subColors` + `VariantSize`). `unitPrice` = `computeTotalPrice(v)` (prix total du pack en BDD, pas unitaire). `packQuantity >= 1`. Une seule composition de couleurs par pack — les lignes multiples ont été supprimées.
+- **Une variante = une couleur** : plus de sous-couleurs ni de combinaisons. `groupKey` = `colorId` (helper : `variantGroupKeyFromState()`).
+- **PACK mono-couleur** : `colorId` + `VariantSize`. `unitPrice` = `computeTotalPrice(v)` (prix total du pack en BDD, pas unitaire). `packQuantity` = somme des qty des tailles.
+- **PACK multi-couleurs** : la composition vit dans `PackColorLine[]` + `PackColorLineSize[]`. Chaque ligne = 1 couleur du pack avec ses tailles/quantités (ex: 1 paquet « Tricolore » = Rouge S×2 M×3, Bleu M×2, Noir L×1 = 8 pièces). `ProductColor.colorId` = 1ère couleur du pack (utilisé pour SKU/index/images). `variantSizes` reste vide quand `packLines.length > 0`. Détection : `isMultiColorPack(v)` côté UI ; `c.packLines.length > 0` côté serveur. Helpers : `computePackLinesTotal`, `packLinesColorList`. Modale d'édition : `components/admin/products/PackCompositionModal.tsx`.
 - **PACK pricing Ankorstore** : markup s'applique au prix unitaire (total ÷ qty), arrondi, puis × qty. Jamais markup sur le total directement
 - **UNIT** : max 1 taille. Tailles = description du contenu, pas selection client
-- **handleMultiColorChange** : un seul `onChange` avec `Set<string>`, jamais `updateVariant` en boucle
 - **PendingSimilar** : verifier a la creation produit
 - **OrderItem.sizesJson** : preferer sur `OrderItem.size` (string legacy)
 
@@ -202,7 +215,11 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 - **PFS image sync** : `DELETE /catalog/products/{id}/image` avec body `{ color, slot }`. Upload = POST multipart (JPEG uniquement, pas WebP). Logs détaillés via `[PFS Images]` prefix
 
 ### SEO
-- **Schema.org JSON-LD** on product pages (`Product` schema) and homepage (`Organization` + `WebSite` schema)
+- **`lib/seo.ts`** — helpers SEO : `buildAlternates(path)` (canonical + hreflang x-default + toutes les locales), `buildOrganizationSchema()`, `buildWebsiteSchema()` (avec SearchAction), `getCachedSeoConfig()` (lit CompanyInfo + clés sociales depuis SiteConfig, tag `company-info` + `site-config`)
+- **JSON-LD** : `Organization` rendu **uniquement** dans `app/layout.tsx` (pas dans la home pour éviter le doublon). `WebSite` avec SearchAction sur la home. `Product` + `BreadcrumbList` sur fiche produit
+- **Clés SiteConfig SEO** (toutes optionnelles, non chiffrées) : `site_logo_url`, `social_facebook_url`, `social_instagram_url`, `social_linkedin_url`, `social_twitter_url`, `social_youtube_url`, `social_tiktok_url`. Renseignées = remontent dans `sameAs` du schema Organization
+- **Favicon dynamique** : `app/icon.tsx` (32×32) + `app/apple-icon.tsx` (180×180) générés via `ImageResponse` à partir de la 1re lettre du `shopName`. `app/manifest.ts` = Web App Manifest
+- **i18n SEO** : routing par cookie `bj_locale` donc hreflang techniquement limité — `buildAlternates` émet les bonnes balises mais toutes pointent vers la même URL. Pour un vrai gain, migrer vers routing `/[locale]/`
 
 ### Encryption (secrets en BDD)
 - **`lib/encryption.ts`** : AES-256-GCM. Clé maître = `ENCRYPTION_KEY` (env var, base64 32 bytes)

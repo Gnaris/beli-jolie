@@ -39,9 +39,11 @@ export const registerSchema = z.object({
   phone: z
     .string()
     .min(1, "Le téléphone est requis.")
+    // P3-07 — accepte les numéros internationaux (1 à 3 chiffres après +)
+    // ou un numéro français commençant par 0. 7 à 13 chiffres après le préfixe.
     .regex(
-      /^(\+33|0)[1-9](\d{8})$/,
-      "Format de téléphone invalide (ex: 0612345678 ou +33612345678)."
+      /^(\+\d{1,3}|0)[1-9]\d{7,12}$/,
+      "Format de téléphone invalide (ex: 0612345678, +33612345678, +49301234567).",
     ),
   siret: z
     .string()

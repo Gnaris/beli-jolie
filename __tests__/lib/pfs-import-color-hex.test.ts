@@ -72,7 +72,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
       hex: "#C4A647",
     });
     expect(mockColorCreate).toHaveBeenCalledWith({
-      data: { name: "Doré", pfsColorRef: "GOLDEN", hex: "#c4a647" },
+      data: { name: "Doré", hex: "#c4a647" },
       select: { id: true, name: true },
     });
   });
@@ -86,7 +86,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
       hex: "000000",
     });
     expect(mockColorCreate).toHaveBeenCalledWith({
-      data: { name: "Noir", pfsColorRef: "BLACK", hex: "#000000" },
+      data: { name: "Noir", hex: "#000000" },
       select: { id: true, name: true },
     });
   });
@@ -100,7 +100,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
       hex: "pas-un-hex",
     });
     expect(mockColorCreate).toHaveBeenCalledWith({
-      data: { name: "Inconnu", pfsColorRef: "UNKNOWN", hex: null },
+      data: { name: "Inconnu", hex: null },
       select: { id: true, name: true },
     });
   });
@@ -113,7 +113,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
       label: "Sans hex",
     });
     expect(mockColorCreate).toHaveBeenCalledWith({
-      data: { name: "Sans hex", pfsColorRef: "NOHEX", hex: null },
+      data: { name: "Sans hex", hex: null },
       select: { id: true, name: true },
     });
   });
@@ -130,7 +130,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
     });
     expect(mockColorUpdate).toHaveBeenCalledWith({
       where: { id: "col-5" },
-      data: { pfsColorRef: "GOLDEN", hex: "#c4a647" },
+      data: { hex: "#c4a647" },
       select: { id: true, name: true },
     });
   });
@@ -147,7 +147,7 @@ describe("createOrLinkMapping — code couleur PFS", () => {
     });
     expect(mockColorUpdate).toHaveBeenCalledWith({
       where: { id: "col-6" },
-      data: { pfsColorRef: "GOLDEN" },
+      data: {},
       select: { id: true, name: true },
     });
   });

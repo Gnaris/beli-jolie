@@ -10,7 +10,6 @@
  *   colorHex?: string           (for create_color, default #9CA3AF)
  *   patternImage?: string       (for create_color — if set, hex is ignored)
  *   parentCategoryId?: string   (for create_subcategory, optional)
- *   pfsColorRef?: string        (for create_color — PFS color reference)
  *   pfsCategoryId?: string      (for create_category — PFS category ID)
  *   pfsGender?: string          (for create_category — PFS gender)
  *   pfsFamilyId?: string        (for create_category — PFS family ID)
@@ -38,7 +37,6 @@ export async function POST(req: NextRequest) {
     patternImage?: string;
     parentCategoryId?: string;
     parentCategoryName?: string;
-    pfsColorRef?: string;
     pfsCategoryId?: string;
     pfsGender?: string;
     pfsFamilyId?: string;
@@ -108,7 +106,6 @@ export async function POST(req: NextRequest) {
           name,
           hex,
           patternImage,
-          ...(body.pfsColorRef ? { pfsColorRef: body.pfsColorRef } : {}),
         },
       });
       revalidateTag("colors", "default");

@@ -41,12 +41,15 @@ export function applyMarketplaceMarkup(
       break;
   }
 
+  // P3-14 — l'intent (cf. comment + tests) est l'arrondi à l'euro entier
+  // pour up/down, et 2 décimales pour "none". L'ancien code arrondissait
+  // à 0.10€, ce qui ne correspondait ni à un cas ni à l'autre.
   switch (config.rounding) {
     case "down":
-      price = Math.floor(price * 10) / 10;
+      price = Math.floor(price);
       break;
     case "up":
-      price = Math.ceil(price * 10) / 10;
+      price = Math.ceil(price);
       break;
     case "none":
     default:

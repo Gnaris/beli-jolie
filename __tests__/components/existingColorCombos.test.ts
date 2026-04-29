@@ -8,7 +8,6 @@ function variant(overrides: Partial<VariantState> = {}): VariantState {
     colorId: "c1",
     colorName: "Rouge",
     colorHex: "#FF0000",
-    subColors: [],
     sizeEntries: [],
     unitPrice: "10",
     weight: "",
@@ -16,7 +15,7 @@ function variant(overrides: Partial<VariantState> = {}): VariantState {
     isPrimary: false,
     saleType: "UNIT",
     packQuantity: "",
-    pfsColorRef: "",
+    packLines: [],
     sku: "",
     disabled: false,
     ...overrides,
@@ -30,7 +29,7 @@ describe("computeExistingColorCombos", () => {
       variant({ tempId: "b" }),
     ]);
     expect(combos).toHaveLength(1);
-    expect(combos[0].colors[0].colorId).toBe("c1");
+    expect(combos[0].color.colorId).toBe("c1");
   });
 
   it("lists different colors separately", () => {
@@ -39,27 +38,15 @@ describe("computeExistingColorCombos", () => {
       variant({ colorId: "c2", colorName: "Bleu", colorHex: "#0000FF" }),
     ]);
     expect(combos).toHaveLength(2);
-    expect(combos.map((c) => c.colors[0].colorId).sort()).toEqual(["c1", "c2"]);
+    expect(combos.map((c) => c.color.colorId).sort()).toEqual(["c1", "c2"]);
   });
 
-  it("treats multi-color and single-color as distinct combos", () => {
+  it("uses colorId as the key", () => {
     const combos = computeExistingColorCombos([
-      variant({
-        colorId: "c1",
-        colorName: "Rouge",
-        colorHex: "#FF0000",
-        subColors: [{ colorId: "c2", colorName: "Bleu", colorHex: "#0000FF" }],
-      }),
       variant({ colorId: "c1", colorName: "Rouge", colorHex: "#FF0000" }),
     ]);
-    expect(combos).toHaveLength(2);
-  });
-
-  it("preserves pfsColorRef on the entry", () => {
-    const combos = computeExistingColorCombos([
-      variant({ colorId: "c1", pfsColorRef: "RED-01" }),
-    ]);
-    expect(combos[0].pfsColorRef).toBe("RED-01");
+    expect(combos[0].key).toBe("c1");
+    expect(combos[0].color).toEqual({ colorId: "c1", colorName: "Rouge", colorHex: "#FF0000" });
   });
 
   it("skips variants without a color", () => {

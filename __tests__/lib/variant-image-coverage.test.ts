@@ -10,29 +10,15 @@ const v = (
   colorId: string | null,
   colorName: string | null,
   imageCount: number,
-  subColors: { colorId: string; colorName?: string | null; position: number }[] = [],
-): VariantForCoverage => ({ id, colorId, colorName, subColors, imageCount });
+): VariantForCoverage => ({ id, colorId, colorName, imageCount });
 
 describe("variantGroupKey", () => {
-  it("renvoie le colorId seul quand il n'y a pas de sous-couleurs", () => {
+  it("renvoie le colorId comme clé de groupe", () => {
     expect(variantGroupKey(v("1", "argent", "Argent", 0))).toBe("argent");
   });
 
-  it("trie les sous-couleurs par position pour un groupKey stable", () => {
-    const a = variantGroupKey(
-      v("1", "argent", "Argent", 0, [
-        { colorId: "dore", position: 1 },
-        { colorId: "noir", position: 0 },
-      ]),
-    );
-    const b = variantGroupKey(
-      v("2", "argent", "Argent", 0, [
-        { colorId: "noir", position: 0 },
-        { colorId: "dore", position: 1 },
-      ]),
-    );
-    expect(a).toBe(b);
-    expect(a).toBe("argent::noir,dore");
+  it("renvoie une chaîne vide si colorId est null", () => {
+    expect(variantGroupKey(v("1", null, null, 0))).toBe("");
   });
 });
 
@@ -65,30 +51,6 @@ describe("findMissingImageCoverage", () => {
     expect(missing).toHaveLength(1);
     expect(missing[0].label).toBe("Doré");
     expect(missing[0].variantIds.sort()).toEqual(["dore-pack", "dore-unit"]);
-  });
-
-  it("regroupe par composition complète (couleur + sous-couleurs)", () => {
-    const missing = findMissingImageCoverage([
-      v("argent-seul", "argent", "Argent", 2),
-      v("argent+dore-1", "argent", "Argent", 0, [
-        { colorId: "dore", colorName: "Doré", position: 0 },
-      ]),
-      v("argent+dore-2", "argent", "Argent", 0, [
-        { colorId: "dore", colorName: "Doré", position: 0 },
-      ]),
-    ]);
-    expect(missing).toHaveLength(1);
-    expect(missing[0].label).toBe("Argent + Doré");
-  });
-
-  it("renvoie un libellé lisible avec sous-couleurs triées par position", () => {
-    const missing = findMissingImageCoverage([
-      v("multi", "argent", "Argent", 0, [
-        { colorId: "dore", colorName: "Doré", position: 1 },
-        { colorId: "noir", colorName: "Noir", position: 0 },
-      ]),
-    ]);
-    expect(missing[0].label).toBe("Argent + Noir + Doré");
   });
 
   it("traite les variantes sans nom de couleur sans planter", () => {

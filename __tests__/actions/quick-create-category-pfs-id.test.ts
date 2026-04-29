@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockCategoryCreate = vi.fn();
+const mockCategoryFindFirst = vi.fn();
+const mockCategoryUpdate = vi.fn();
 const mockCategoryTranslationUpsert = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    category: { create: (...a: unknown[]) => mockCategoryCreate(...a) },
+    category: {
+      create: (...a: unknown[]) => mockCategoryCreate(...a),
+      findFirst: (...a: unknown[]) => mockCategoryFindFirst(...a),
+      update: (...a: unknown[]) => mockCategoryUpdate(...a),
+    },
     categoryTranslation: { upsert: (...a: unknown[]) => mockCategoryTranslationUpsert(...a) },
   },
 }));
@@ -30,6 +36,7 @@ import { createCategoryQuick } from "@/app/actions/admin/quick-create";
 describe("createCategoryQuick — enregistre le pfsCategoryId de l'import", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCategoryFindFirst.mockResolvedValue(null);
     mockCategoryCreate.mockResolvedValue({ id: "cat-local-1", name: "Bagues" });
   });
 

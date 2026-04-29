@@ -9,7 +9,7 @@ import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsT
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
 import { getCachedAdminWarnings, getCachedSiteConfig, getCachedTags } from "@/lib/cached-data";
-import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
+import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { buildAdminProductsWhere } from "@/lib/admin-products-filter";
 
@@ -173,7 +173,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             saleType:      true,
             packQuantity:  true,
             color:         { select: { name: true, hex: true, patternImage: true } },
-            subColors:     { orderBy: { position: "asc" }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
             variantSizes:  { select: { quantity: true, size: { select: { name: true } } } },
           },
         },
@@ -233,6 +232,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     createdAt:       p.createdAt.toISOString(),
     lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
     firstImage:      pickFirstImage(p.colors, colorImagePath),
+    pfsProductId:    p.pfsProductId,
+    ankorsProductId: p.ankorsProductId,
     colors:          p.colors.map((c) => ({
       id:            c.id,
       colorId:       c.colorId ?? "",
@@ -244,7 +245,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       packQuantity:  c.packQuantity,
       variantSizes:  c.variantSizes,
       color:         c.color ?? { name: "—", hex: null, patternImage: null },
-      subColors:     c.subColors,
     })),
     translations:    p.translations,
     };
@@ -424,7 +424,6 @@ async function CouleursContent() {
     name: c.name,
     hex: c.hex,
     patternImage: c.patternImage,
-    pfsColorRef: null,
     productCount: c._count.productColors,
     translations: Object.fromEntries(c.translations.map((t) => [t.locale, t.name])),
   }));

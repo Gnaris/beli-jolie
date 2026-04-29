@@ -37,6 +37,13 @@ import {
   PFS_GENDER_LABELS,
   PFS_SUBCATEGORIES_BY_FAMILY,
 } from "@/lib/marketplace-excel/pfs-taxonomy";
+import {
+  sanitizePfsFamilyName,
+  inferPfsFamilyFromCategoryLabel,
+} from "@/lib/pfs-family-resolve";
+
+// Re-export pour ne pas casser les imports existants de `pfs-import`.
+export { sanitizePfsFamilyName, inferPfsFamilyFromCategoryLabel };
 
 // ─────────────────────────────────────────────
 // Types exportés
@@ -199,6 +206,7 @@ export function validatedPfsCategoryName(
   return known.includes(catLabel) ? catLabel : null;
 }
 
+
 function firstStringImage(img: string | string[] | undefined | null): string | null {
   if (!img) return null;
   if (Array.isArray(img)) return img[0] ?? null;
@@ -209,6 +217,118 @@ function firstStringImage(img: string | string[] | undefined | null): string | n
  * Récupère l'image "DEFAUT" (si présente) d'un produit PFS, sinon la première image trouvée.
  * Pas de cache : l'URL PFS est renvoyée telle quelle pour affichage direct.
  */
+/**
+ * Construit la liste ordonnée des noms à essayer pour matcher une couleur PFS
+ * avec une entrée de la bibliothèque locale (`Color.name`). PFS envoie un code
+ * anglais en majuscules (ex: "DARK_GRAY") + des libellés traduits dans
+ * `labels` (fr, en, de, es, it). Les couleurs locales sont en français, donc
+ * on essaie les libellés avant de retomber sur le code brut.
+ *
+ * Ordre de priorité : labels.fr → labels.en → labels.de → labels.es →
+ * labels.it → reference. Doublons supprimés.
+ */
+export function pfsColorMatchCandidates(c: {
+  reference: string;
+  labels?: Record<string, string> | null;
+}): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (v: string | undefined | null) => {
+    if (!v) return;
+    const trimmed = v.trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    out.push(trimmed);
+  };
+  const labels = c.labels ?? {};
+  for (const lang of ["fr", "en", "de", "es", "it"]) {
+    push(labels[lang]);
+  }
+  push(c.reference);
+  return out;
+}
+
+/**
+ * Fusionne les entrées de tailles qui partagent le même sizeId en additionnant
+ * leurs quantités. Nécessaire pour les packs multi-couleurs PFS où la même
+ * taille peut apparaître via plusieurs lignes de pack (ex: Rouge M + Bleu M).
+ * Sans dédoublonnage, le createMany sur VariantSize échoue sur la contrainte
+ * unique (productColorId, sizeId).
+ */
+export function dedupeSizeEntries(
+  entries: { sizeId: string; quantity: number }[],
+): { sizeId: string; quantity: number }[] {
+  const merged = new Map<string, number>();
+  for (const e of entries) {
+    merged.set(e.sizeId, (merged.get(e.sizeId) ?? 0) + e.quantity);
+  }
+  return Array.from(merged, ([sizeId, quantity]) => ({ sizeId, quantity }));
+}
+
+/**
+ * À partir des lignes de packs PFS déjà résolues (sizeId/colorId trouvés en
+ * BDD), construit la structure adaptée au schéma local :
+ *   - 1 seule couleur distincte → PACK mono-couleur (sizeEntries fusionnés,
+ *     packLines vide).
+ *   - 2+ couleurs distinctes → PACK multi-couleurs (1 PackColorLine par
+ *     couleur, sizeEntries vide). Les lignes de la même couleur sont
+ *     fusionnées (pour les rares cas où PFS répète une couleur dans `packs`).
+ *
+ * Conserve l'ordre d'apparition des couleurs dans la réponse PFS — c'est cet
+ * ordre qui détermine la "couleur principale" du variant local.
+ */
+export function buildPackLinesFromResolved(
+  resolvedPacks: { colorId: string; sizeEntries: { sizeId: string; quantity: number }[] }[],
+): {
+  sizeEntries: { sizeId: string; quantity: number }[];
+  packLines: { colorId: string; sizeEntries: { sizeId: string; quantity: number }[] }[];
+  allColorIds: string[];
+} {
+  if (resolvedPacks.length === 0) {
+    return { sizeEntries: [], packLines: [], allColorIds: [] };
+  }
+
+  type Bucket = {
+    sizeEntries: { sizeId: string; quantity: number }[];
+    firstSeenIndex: number;
+  };
+  const byColor = new Map<string, Bucket>();
+  resolvedPacks.forEach((p, idx) => {
+    const existing = byColor.get(p.colorId);
+    if (existing) {
+      existing.sizeEntries.push(...p.sizeEntries);
+    } else {
+      byColor.set(p.colorId, { sizeEntries: [...p.sizeEntries], firstSeenIndex: idx });
+    }
+  });
+
+  if (byColor.size === 1) {
+    // PACK mono-couleur (éventuellement réparti sur plusieurs `packs[]` PFS) :
+    // on fusionne tout dans sizeEntries, pas de packLines.
+    const onlyColorId = byColor.keys().next().value as string;
+    const onlyBucket = byColor.get(onlyColorId)!;
+    return {
+      sizeEntries: dedupeSizeEntries(onlyBucket.sizeEntries),
+      packLines: [],
+      allColorIds: [onlyColorId],
+    };
+  }
+
+  // PACK multi-couleurs : 1 PackColorLine par couleur, ordre PFS préservé.
+  const sortedEntries = Array.from(byColor.entries()).sort(
+    ([, a], [, b]) => a.firstSeenIndex - b.firstSeenIndex,
+  );
+  const packLines = sortedEntries.map(([colorId, bucket]) => ({
+    colorId,
+    sizeEntries: dedupeSizeEntries(bucket.sizeEntries),
+  }));
+  return {
+    sizeEntries: [],
+    packLines,
+    allColorIds: packLines.map((l) => l.colorId),
+  };
+}
+
 export function pickDefaultImage(images: Record<string, string | string[]> | null | undefined): string | null {
   if (!images) return null;
   const defaut = images["DEFAUT"] ?? images["DEFAULT"] ?? images["default"];
@@ -427,9 +547,17 @@ export async function scanPfsAttributes(options?: {
       // `prod.family` — sinon la modale affiche un code au lieu d'un vrai nom.
       const catLabel = pickBestLabel(refCategory?.labels) ?? pickBestLabel(prod.category.labels);
       const rawFamily = prod.family?.trim() || null;
-      // Résolution famille : le label lisible du référentiel PFS prend
-      // priorité sur l'identifiant brut renvoyé par listProducts.
-      const familyName = (rawFamily ? familyIdToName.get(rawFamily) : null) ?? rawFamily;
+      // Résolution famille en cascade :
+      //   1) Référentiel PFS (label propre, ex: "Bijoux_Fantaisie")
+      //   2) Recherche inverse via la sous-catégorie (ex: "Bagues" → "Bijoux_Fantaisie")
+      //   3) ID brut SEULEMENT s'il correspond déjà à un nom de la taxonomie
+      // On refuse expressément d'écrire un ID Salesforce (ex: a035J00000185J7QAI)
+      // dans le champ `pfsFamilyName` — il s'afficherait tel quel dans l'UI et
+      // en BDD, et ne ferait jamais partie de la taxonomie côté export.
+      const familyName =
+        (rawFamily ? familyIdToName.get(rawFamily) ?? null : null) ??
+        inferPfsFamilyFromCategoryLabel(catLabel) ??
+        sanitizePfsFamilyName(rawFamily);
       // Genre : 1) référentiel PFS (le plus fiable), 2) gender du produit,
       // 3) inférence via la famille (essaie le nom résolu ET l'ID brut).
       const pfsGender =
@@ -446,10 +574,11 @@ export async function scanPfsAttributes(options?: {
       });
     } else if (prod.family) {
       const rawFamily = prod.family.trim();
-      const familyName = familyIdToName.get(rawFamily) ?? rawFamily;
+      const familyName =
+        familyIdToName.get(rawFamily) ?? sanitizePfsFamilyName(rawFamily);
       rawCategories.push({
         pfsRef: prod.family,
-        label: familyName,
+        label: familyName ?? rawFamily,
         pfsGender:
           normalizePfsGenderCode(prod.gender) ??
           inferPfsGenderFromFamily(familyName) ??
@@ -542,8 +671,8 @@ export async function scanPfsAttributes(options?: {
       select: { id: true, name: true, pfsCategoryId: true },
     }),
     prisma.color.findMany({
-      where: { pfsColorRef: { in: colors.map((c) => c.pfsRef) } },
-      select: { id: true, name: true, pfsColorRef: true },
+      where: { name: { in: colors.map((c) => c.pfsRef) } },
+      select: { id: true, name: true },
     }),
     prisma.size.findMany({
       where: { pfsSizeRef: { in: sizes.map((s) => s.pfsRef) } },
@@ -564,7 +693,7 @@ export async function scanPfsAttributes(options?: {
   ]);
 
   const catMap = new Map(localCategories.map((c) => [c.pfsCategoryId!, c]));
-  const colMap = new Map(localColors.map((c) => [c.pfsColorRef!, c]));
+  const colMap = new Map(localColors.map((c) => [c.name, c]));
   const szMap = new Map(localSizes.map((s) => [s.pfsSizeRef!, s]));
   const cpMap = new Map(localCompositions.map((c) => [c.pfsCompositionRef!, c]));
   const ctryMap = new Map(localCountries.map((c) => [c.pfsCountryRef!, c]));
@@ -662,11 +791,15 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
 
   switch (type) {
     case "category": {
+      // Filtre de sécurité : on n'accepte que des familles connues de la
+      // taxonomie locale. Empêche un identifiant Salesforce brut, glissé
+      // depuis le scan, de finir enregistré dans `Category.pfsFamilyName`.
+      const safeFamilyName = sanitizePfsFamilyName(pfsFamilyName);
       const catData = {
         pfsCategoryId: pfsRef,
         pfsCategoryName: pfsCategoryName?.trim() || label,
         ...(pfsGender ? { pfsGender: pfsGender.trim() } : {}),
-        ...(pfsFamilyName ? { pfsFamilyName: pfsFamilyName.trim() } : {}),
+        ...(safeFamilyName ? { pfsFamilyName: safeFamilyName } : {}),
       };
       if (linkToExistingId) {
         const upd = await prisma.category.update({
@@ -730,16 +863,13 @@ export async function createOrLinkMapping(input: CreateMappingInput): Promise<Cr
         });
         const upd = await prisma.color.update({
           where: { id: linkToExistingId },
-          data: {
-            pfsColorRef: pfsRef,
-            ...(normalizedHex && !existing?.hex ? { hex: normalizedHex } : {}),
-          },
+          data: normalizedHex && !existing?.hex ? { hex: normalizedHex } : {},
           select: { id: true, name: true },
         });
         return { id: upd.id, name: upd.name, created: false };
       }
       const created = await prisma.color.create({
-        data: { name: label, pfsColorRef: pfsRef, hex: normalizedHex },
+        data: { name: label, hex: normalizedHex },
         select: { id: true, name: true },
       });
       autoTranslateColor(created.id, created.name);
@@ -882,14 +1012,20 @@ export interface ApprovePfsProductResult {
   warnings: string[];
 }
 
+interface ResolvedPackLine {
+  colorId: string;
+  sizeEntries: { sizeId: string; quantity: number }[];
+}
+
 interface ResolvedVariant {
   colorId: string;
+  /** Identifiant PFS de la variante — stocké en base pour le refresh / publish ultérieur. */
+  pfsVariantId: string;
   unitPrice: number;
   weight: number;
   stock: number;
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
-  pfsColorRef: string | null;
   /** Référence PFS de la couleur principale (toujours renseignée, sert à détecter la couleur par défaut). */
   primaryPfsColorRef: string;
   /** Labels localisés de la première couleur (normalisés). Sert au matching default_color. */
@@ -897,6 +1033,14 @@ interface ResolvedVariant {
   /** is_star renvoyé par PFS : signal additionnel pour la couleur principale. */
   isStar: boolean;
   sizeEntries: { sizeId: string; quantity: number }[];
+  /**
+   * Composition d'un pack multi-couleurs : 1 entrée par couleur, chacune avec
+   * ses propres tailles/quantités. Vide pour UNIT et PACK mono-couleur. Quand
+   * `packLines.length > 0`, `sizeEntries` doit rester vide.
+   */
+  packLines: ResolvedPackLine[];
+  /** Tous les colorId présents dans le variant (utilisé pour le SKU multi). */
+  allColorIds: string[];
   imageUrls: string[];
 }
 
@@ -1158,7 +1302,12 @@ export async function approveAndImportPfsProduct(
   // Dernier point d'arrêt avant création en DB
   throwIfCancelled(isCancelled);
 
-  // Création du produit en statut SYNCING
+  // Création du produit en statut SYNCING. On marque le produit comme
+  // brouillon (`isIncomplete: true`) : un import PFS rapporte rarement toutes
+  // les infos requises pour le catalogue (description courte, libellés non
+  // traduits, images à valider…). Ça force l'admin à passer en revue puis
+  // enregistrer pour basculer le produit en "Hors ligne" propre. Sans ça la
+  // liste affiche "Hors ligne" alors que la fiche modifier dit "Brouillon".
   const createdProduct = await prisma.product.create({
     data: {
       reference,
@@ -1166,8 +1315,10 @@ export async function approveAndImportPfsProduct(
       description,
       categoryId: category.id,
       status: "SYNCING",
+      isIncomplete: true,
       manufacturingCountryId,
       seasonId,
+      pfsProductId: product.id,
       compositions: {
         create: compositionsInput.map((c) => ({ compositionId: c.compositionId, percentage: c.percentage })),
       },
@@ -1180,9 +1331,13 @@ export async function approveAndImportPfsProduct(
   // À partir d'ici, toute erreur (y compris annulation) doit nettoyer le produit
   // partiel pour qu'on n'ait jamais de produit incomplet en BDD.
   try {
-    // Récupère les noms de couleurs pour générer les SKU
+    // Récupère les noms de couleurs pour générer les SKU.
+    // Pour les packs multi-couleurs, on a besoin des noms de TOUTES les
+    // couleurs du pack (allColorIds), pas seulement la couleur principale.
     const colorNameMap = new Map<string, string>();
-    const uniqueColorIds = Array.from(new Set(resolvedVariants.map((rv) => rv.colorId)));
+    const uniqueColorIds = Array.from(
+      new Set(resolvedVariants.flatMap((rv) => rv.allColorIds.length > 0 ? rv.allColorIds : [rv.colorId])),
+    );
     if (uniqueColorIds.length > 0) {
       const dbColors = await prisma.color.findMany({
         where: { id: { in: uniqueColorIds } },
@@ -1210,7 +1365,8 @@ export async function approveAndImportPfsProduct(
     for (let i = 0; i < resolvedVariants.length; i++) {
       throwIfCancelled(isCancelled);
       const rv = resolvedVariants[i];
-      const colorName = colorNameMap.get(rv.colorId) ?? "COLOR";
+      const skuColorIds = rv.allColorIds.length > 0 ? rv.allColorIds : [rv.colorId];
+      const skuColorNames = skuColorIds.map((id) => colorNameMap.get(id) ?? "COLOR");
       const variant = await prisma.productColor.create({
         data: {
           productId: createdProduct.id,
@@ -1221,12 +1377,31 @@ export async function approveAndImportPfsProduct(
           isPrimary: i === primaryIndex,
           saleType: rv.saleType,
           packQuantity: rv.packQuantity,
-          pfsColorRef: rv.pfsColorRef,
-          sku: generateSku(reference, [colorName], rv.saleType, i + 1),
+          sku: generateSku(reference, skuColorNames, rv.saleType, i + 1),
+          pfsVariantId: rv.pfsVariantId,
         },
         select: { id: true, colorId: true },
       });
-      if (rv.sizeEntries.length > 0) {
+      if (rv.packLines.length > 0) {
+        // PACK multi-couleurs : composition dans PackColorLine + PackColorLineSize.
+        // sizeEntries reste vide côté ProductColor pour respecter l'invariant.
+        for (let li = 0; li < rv.packLines.length; li++) {
+          const line = rv.packLines[li];
+          await prisma.packColorLine.create({
+            data: {
+              productColorId: variant.id,
+              colorId: line.colorId,
+              position: li,
+              sizes: {
+                create: line.sizeEntries.map((se) => ({
+                  sizeId: se.sizeId,
+                  quantity: se.quantity,
+                })),
+              },
+            },
+          });
+        }
+      } else if (rv.sizeEntries.length > 0) {
         await prisma.variantSize.createMany({
           data: rv.sizeEntries.map((se) => ({
             productColorId: variant.id,
@@ -1268,6 +1443,35 @@ export async function approveAndImportPfsProduct(
   };
 }
 
+async function resolveColorIdForPfsInfo(c: PfsColorInfo): Promise<string | null> {
+  const candidates = pfsColorMatchCandidates(c);
+  for (const candidate of candidates) {
+    const found = await prisma.color.findFirst({
+      where: { name: candidate },
+      select: { id: true },
+    });
+    if (found) return found.id;
+  }
+  return null;
+}
+
+async function resolveSizeEntries(
+  sizes: { size: string; qty: number }[],
+  warnings: string[],
+  variantId: string,
+): Promise<{ sizeId: string; quantity: number }[]> {
+  const out: { sizeId: string; quantity: number }[] = [];
+  for (const s of sizes) {
+    const size = await prisma.size.findFirst({
+      where: { pfsSizeRef: s.size },
+      select: { id: true },
+    });
+    if (size) out.push({ sizeId: size.id, quantity: s.qty });
+    else warnings.push(`Taille "${s.size}" non mappée (ignorée pour variante ${variantId})`);
+  }
+  return out;
+}
+
 async function resolveVariant(
   v: PfsVariantItem,
   warnings: string[],
@@ -1280,44 +1484,76 @@ async function resolveVariant(
 
   const colorRef = colors[0].reference;
 
-  // On utilise la première couleur comme couleur principale
-  const primaryColor = await prisma.color.findFirst({
-    where: { pfsColorRef: colorRef },
-    select: { id: true },
-  });
-  if (!primaryColor) {
-    throw new Error(`Couleur PFS "${colorRef}" non mappée`);
-  }
+  // PFS envoie un code anglais (ex: "DARK_GRAY") + des libellés traduits
+  // (labels.fr = "Gris Foncé", labels.en = "Dark Gray", ...). Les couleurs en
+  // bibliothèque sont nommées en français → on tente d'abord les libellés
+  // (fr, en, de, es, it) puis on retombe sur le code brut.
 
-  // Résolution des tailles
-  const sizeRefs: { size: string; qty: number }[] = [];
-  if (v.item?.size) {
-    sizeRefs.push({ size: v.item.size, qty: 1 });
-  }
-  for (const pk of v.packs ?? []) {
-    for (const sz of pk.sizes ?? []) {
-      sizeRefs.push({ size: sz.size, qty: sz.qty });
+  let resolvedSizeEntries: { sizeId: string; quantity: number }[];
+  let resolvedPackLines: { colorId: string; sizeEntries: { sizeId: string; quantity: number }[] }[];
+  let resolvedAllColorIds: string[];
+  let primaryColorId: string;
+
+  if (v.item) {
+    // UNIT : une seule couleur, une seule taille.
+    const primary = await resolveColorIdForPfsInfo(v.item.color);
+    if (!primary) {
+      const candidates = pfsColorMatchCandidates(v.item.color);
+      throw new Error(
+        `Couleur "${colorRef}" introuvable dans la bibliothèque (essayé : ${candidates.join(", ")})`,
+      );
     }
+    primaryColorId = primary;
+    resolvedSizeEntries = await resolveSizeEntries(
+      v.item.size ? [{ size: v.item.size, qty: 1 }] : [],
+      warnings,
+      v.id,
+    );
+    resolvedPackLines = [];
+    resolvedAllColorIds = [primary];
+  } else {
+    // PACK : mono ou multi-couleurs. On résout chaque ligne de pack séparément
+    // (couleur + ses tailles), puis on laisse `buildPackLinesFromResolved`
+    // décider de la forme finale (mono vs multi-couleurs).
+    const resolvedPacks: { colorId: string; sizeEntries: { sizeId: string; quantity: number }[] }[] = [];
+    for (const pk of v.packs ?? []) {
+      const colorId = await resolveColorIdForPfsInfo(pk.color);
+      if (!colorId) {
+        const candidates = pfsColorMatchCandidates(pk.color);
+        throw new Error(
+          `Couleur "${pk.color.reference}" introuvable dans la bibliothèque (essayé : ${candidates.join(", ")})`,
+        );
+      }
+      const sizeEntries = await resolveSizeEntries(
+        (pk.sizes ?? []).map((sz) => ({ size: sz.size, qty: sz.qty })),
+        warnings,
+        v.id,
+      );
+      resolvedPacks.push({ colorId, sizeEntries });
+    }
+    const built = buildPackLinesFromResolved(resolvedPacks);
+    resolvedSizeEntries = built.sizeEntries;
+    resolvedPackLines = built.packLines;
+    resolvedAllColorIds = built.allColorIds;
+    primaryColorId =
+      built.allColorIds[0] ?? resolvedPacks[0]?.colorId ?? "";
+    if (!primaryColorId) return null;
   }
 
-  const sizeEntries: { sizeId: string; quantity: number }[] = [];
-  for (const s of sizeRefs) {
-    const size = await prisma.size.findFirst({
-      where: { pfsSizeRef: s.size },
-      select: { id: true },
-    });
-    if (size) sizeEntries.push({ sizeId: size.id, quantity: s.qty });
-    else warnings.push(`Taille "${s.size}" non mappée (ignorée pour variante ${v.id})`);
-  }
-
-  // Images — uniquement celles qui correspondent à cette couleur (ou à l'une
-  // des couleurs du pack). Jamais de fallback "DEFAUT" ni "première image"
-  // sinon toutes les variantes se retrouveraient avec les mêmes photos.
+  // Images — uniquement celles qui correspondent à la **couleur principale**
+  // de cette variante. Pour un pack multi-couleurs, on n'attache PAS les
+  // images des autres couleurs du pack : sinon la variante (qui n'a qu'une
+  // couleur affichée = la principale) hériterait des photos d'autres
+  // couleurs et donnerait l'impression d'images mélangées. La composition
+  // détaillée du pack reste accessible dans le modal "Tailles & quantités du
+  // paquet". Jamais de fallback "DEFAUT" ni "première image" sinon toutes
+  // les variantes se retrouveraient avec les mêmes photos.
+  const imageColorScope: PfsColorInfo[] = [colors[0]];
   const imageUrlsRaw: string[] = [
-    ...collectImagesForColors(v.images, colors),
+    ...collectImagesForColors(v.images, imageColorScope),
   ];
   if (imageUrlsRaw.length === 0) {
-    imageUrlsRaw.push(...collectImagesForColors(productImages, colors));
+    imageUrlsRaw.push(...collectImagesForColors(productImages, imageColorScope));
   }
 
   // Dédoublonne les URLs (même image apparaissant sous plusieurs clés)
@@ -1328,17 +1564,19 @@ async function resolveVariant(
     .map(normalizeKey);
 
   return {
-    colorId: primaryColor.id,
+    colorId: primaryColorId,
+    pfsVariantId: v.id,
     unitPrice: v.price_sale?.total?.value ?? v.price_sale?.unit?.value ?? 0,
     weight: v.weight ?? 0,
     stock: v.stock_qty ?? 0,
     saleType: v.type === "PACK" ? "PACK" : "UNIT",
     packQuantity: v.type === "PACK" ? (v.pieces ?? 1) : null,
-    pfsColorRef: colors.length > 1 ? colorRef : null,
     primaryPfsColorRef: colorRef,
     primaryColorLabels,
     isStar: v.is_star === true,
-    sizeEntries,
+    sizeEntries: resolvedSizeEntries,
+    packLines: resolvedPackLines,
+    allColorIds: resolvedAllColorIds,
     imageUrls,
   };
 }

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import SizesManager from "@/components/admin/tailles/SizesManager";
-import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
+import { getPfsAnnexes } from "@/lib/pfs-annexes";
 
 export const metadata: Metadata = { title: "Gestion des tailles" };
 

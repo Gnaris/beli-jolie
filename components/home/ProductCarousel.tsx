@@ -26,7 +26,6 @@ interface ColorData {
   hex: string | null;
   patternImage?: string | null;
   name: string;
-  subColors?: { name: string; hex: string | null; patternImage?: string | null }[];
   firstImage: string | null;
   unitPrice: number;
   discountedPrice?: number;
@@ -297,7 +296,6 @@ function CarouselCard({
               <ColorSwatch
                 hex={c.hex}
                 patternImage={c.patternImage}
-                subColors={c.subColors?.map((sc) => ({ hex: sc.hex, patternImage: sc.patternImage }))}
                 size={16}
                 border
                 rounded="full"

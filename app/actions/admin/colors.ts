@@ -17,12 +17,18 @@ async function requireAdmin() {
 export async function createColor(formData: FormData) {
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
-  const hex  = (formData.get("hex")  as string)?.trim() || null;
-  const pfsColorRef = (formData.get("pfsColorRef") as string)?.trim() || null;
+  const hex = (formData.get("hex") as string)?.trim() || null;
   if (!name) throw new Error("Le nom est requis.");
-  if (!pfsColorRef) throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
 
-  const color = await prisma.color.create({ data: { name, hex, pfsColorRef } });
+  const existing = await prisma.color.findFirst({
+    where: { name: { equals: name } },
+    select: { name: true },
+  });
+  if (existing) {
+    throw new Error(`La couleur « ${existing.name} » existe déjà dans la bibliothèque.`);
+  }
+
+  const color = await prisma.color.create({ data: { name, hex } });
   autoTranslateColor(color.id, name);
   revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
@@ -32,7 +38,7 @@ export async function createColor(formData: FormData) {
 export async function updateColor(id: string, formData: FormData) {
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
-  const hex  = (formData.get("hex")  as string)?.trim() || null;
+  const hex = (formData.get("hex") as string)?.trim() || null;
   if (!name) throw new Error("Le nom est requis.");
 
   await prisma.color.update({ where: { id }, data: { name, hex } });
@@ -64,7 +70,6 @@ export async function updateColorDirect(
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
 
-  // If patternImage is set, clear hex. If hex is set, clear patternImage.
   const data: { name: string; hex: string | null; patternImage?: string | null } = {
     name: name.trim(),
     hex: patternImage ? null : hex,
@@ -93,42 +98,8 @@ export async function updateColorDirect(
 }
 
 /**
- * Persist the PFS color label selected in the mapping UI (e.g. "Noir", "Doré").
- * Value corresponds to one of the entries in `ANNEXE Couleurs` of the PFS template.
- */
-export async function updateColorPfsRef(id: string, pfsColorRef: string | null) {
-  await requireAdmin();
-  await prisma.color.update({
-    where: { id },
-    data: { pfsColorRef: pfsColorRef?.trim() || null },
-  });
-  revalidateTag("colors", "default");
-}
-
-export async function fetchPfsColorsForMapping(): Promise<{
-  pfsColors: { reference: string; value: string; image: string | null; label: string }[];
-  existingMappings: Record<string, { colorId: string; colorName: string }>;
-}> {
-  await requireAdmin();
-
-  const pfsColors = await getCachedPfsColors();
-
-  const mapped = await prisma.color.findMany({
-    where: { pfsColorRef: { not: null } },
-    select: { id: true, name: true, pfsColorRef: true },
-  });
-  const existingMappings: Record<string, { colorId: string; colorName: string }> = {};
-  for (const c of mapped) {
-    if (c.pfsColorRef) existingMappings[c.pfsColorRef] = { colorId: c.id, colorName: c.name };
-  }
-
-  return { pfsColors, existingMappings };
-}
-
-/**
- * Return the live PFS colour list for client dropdowns (QuickCreate,
- * MarketplaceMappingSection). Wraps the cached fetcher so client code
- * doesn't import server-only modules.
+ * Return the live PFS colour list for client dropdowns. Wraps the cached
+ * fetcher so client code doesn't import server-only modules.
  */
 export async function fetchPfsColorOptions(): Promise<
   { value: string; label: string; hex: string; image: string | null }[]
@@ -141,32 +112,6 @@ export async function fetchPfsColorOptions(): Promise<
     hex: c.value,
     image: c.image,
   }));
-}
-
-export async function updateProductColorPfsRef(productColorId: string, pfsColorRef: string | null) {
-  await requireAdmin();
-  if (!productColorId) throw new Error("productColorId requis.");
-  const cleaned = pfsColorRef?.trim() || null;
-  await prisma.productColor.update({
-    where: { id: productColorId },
-    data: { pfsColorRef: cleaned },
-  });
-  revalidatePath("/admin/produits");
-}
-
-/**
- * Get all colors for linking in PFS comparison modal.
- * Returns colors sorted by name, with their current pfsColorRef.
- */
-export async function getColorsForLinking(): Promise<
-  { id: string; name: string; hex: string | null; patternImage: string | null; pfsColorRef: string | null }[]
-> {
-  await requireAdmin();
-  const rows = await prisma.color.findMany({
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, hex: true, patternImage: true },
-  });
-  return rows.map((c) => ({ ...c, pfsColorRef: null }));
 }
 
 export async function deleteColor(id: string) {

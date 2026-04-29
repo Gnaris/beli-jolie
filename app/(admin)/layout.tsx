@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") redirect("/connexion");
+  if (!session || session.user.role !== "ADMIN") redirect("/fr/connexion");
 
   const initials = session.user.name
     ? session.user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
@@ -68,7 +68,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
         {/* Logo */}
         <div className="px-6 py-5 border-b border-border">
-          <Link href="/" className="font-heading text-lg font-bold text-text-primary tracking-tight">
+          <Link href="/fr" className="font-heading text-lg font-bold text-text-primary tracking-tight">
             {shopName}
           </Link>
           <p className="text-[10px] text-text-muted mt-0.5 font-body uppercase tracking-wider">

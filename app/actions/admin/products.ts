@@ -12,10 +12,17 @@ import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { generateSku } from "@/lib/sku";
 import { deleteFiles, keyFromDbPath } from "@/lib/storage";
 import { getImagePaths } from "@/lib/image-utils";
-import { getPfsAnnexes } from "@/lib/marketplace-excel/pfs-annexes";
+import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
 import { findMissingImageCoverage } from "@/lib/variant-image-coverage";
 import { ANKORSTORE_DESCRIPTION_MIN_CHARS, ankorstoreDescriptionLength } from "@/lib/ankorstore-description";
+import {
+  validateVariants,
+  isMultiColorPackInput,
+  type ColorInput,
+  type PackLineInput,
+  type SizeEntryInput,
+} from "@/lib/product-variant-validation";
 
 // Marketplace sync is fully manual: create/update/delete on PFS and Ankorstore are all
 // handled via Excel export (lib/marketplace-excel). Local product deletion never touches
@@ -30,27 +37,8 @@ async function requireAdmin() {
 // ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
-
-export interface SizeEntryInput {
-  sizeId: string;
-  quantity: number;
-  pricePerUnit?: number; // PACK only — prix par unité pour cette taille
-}
-
-export interface ColorInput {
-  dbId?: string;         // ProductColor.id when editing existing (undefined for new)
-  colorId: string | null; // Couleur principale
-  subColorIds?: string[]; // IDs de sous-couleurs optionnelles (ex: Doré → [Rouge, Noir])
-  unitPrice: number;
-  weight: number;
-  stock: number;
-  isPrimary: boolean;
-  saleType: "UNIT" | "PACK";
-  packQuantity: number | null;
-  sizeEntries: SizeEntryInput[]; // Tailles avec quantités (UNIT ou PACK)
-  disabled?: boolean; // Variante désactivée (masquée côté client)
-  pfsColorRef?: string | null; // Correspondance couleur PFS (override variante multi-couleurs)
-}
+// SizeEntryInput, PackLineInput, ColorInput sont définis dans
+// `lib/product-variant-validation.ts` et ré-exportés en haut de ce fichier.
 
 export interface CompositionInput {
   compositionId: string;
@@ -70,7 +58,7 @@ export interface ProductInput {
   categoryId: string;
   subCategoryIds: string[];
   colors: ColorInput[];
-  imagePaths?: { colorId: string; subColorIds?: string[]; variantDbId?: string; variantIndex?: number; paths: string[]; orders?: number[] }[]; // images grouped per variant
+  imagePaths?: { colorId: string; variantDbId?: string; variantIndex?: number; paths: string[]; orders?: number[] }[]; // images grouped per variant
   compositions: CompositionInput[];
   similarProductIds: string[];
   bundleChildIds: string[];
@@ -90,45 +78,7 @@ export interface ProductInput {
   isIncomplete?: boolean;
 }
 
-// ─────────────────────────────────────────────
-// Server-side variant validation
-// ─────────────────────────────────────────────
-
-/** Build a group key from ColorInput (colorId + ordered sub-color IDs). Order matters. */
-function colorInputGroupKey(c: ColorInput): string {
-  if (!c.colorId) return "";
-  if (!c.subColorIds || c.subColorIds.length === 0) return c.colorId;
-  return `${c.colorId}::${c.subColorIds.join(",")}`;
-}
-
-function validateVariants(colors: ColorInput[]): void {
-  // No two variants with same sale type + color group + size combination
-  const seenGroups = new Map<string, boolean>();
-  for (const c of colors) {
-    if (!c.colorId) throw new Error("Chaque variante doit avoir une couleur.");
-    // Include size IDs in the key so same color+type with different sizes is allowed
-    const sizeKey = c.sizeEntries.map((se) => se.sizeId).sort().join(",");
-    const gk = `${c.saleType}::${colorInputGroupKey(c)}::${sizeKey}`;
-    if (seenGroups.has(gk)) {
-      throw new Error("Deux variantes ne peuvent pas avoir la même composition de couleurs, le même type et la même taille.");
-    }
-    seenGroups.set(gk, true);
-  }
-
-  for (const c of colors) {
-    if (c.saleType === "PACK") {
-      if (c.packQuantity == null || c.packQuantity < 1) {
-        throw new Error("Un paquet doit avoir une quantité d'au moins 1.");
-      }
-      if (!c.sizeEntries || c.sizeEntries.length < 1) {
-        throw new Error("Un paquet doit avoir au moins une taille.");
-      }
-    }
-    if (c.saleType === "UNIT" && c.sizeEntries.length > 1) {
-      throw new Error("Une variante à l'unité ne peut avoir qu'une seule taille.");
-    }
-  }
-}
+// validateVariants + isMultiColorPackInput : voir `lib/product-variant-validation.ts`
 
 // ─────────────────────────────────────────────
 // SKU assignment for all variants of a product
@@ -154,7 +104,7 @@ async function assignVariantSkus(
       saleType: true,
       colorId: true,
       color: { select: { name: true } },
-      subColors: {
+      packLines: {
         orderBy: { position: "asc" },
         select: { color: { select: { name: true } } },
       },
@@ -164,10 +114,9 @@ async function assignVariantSkus(
   const updates: Promise<unknown>[] = [];
   for (let i = 0; i < variants.length; i++) {
     const v = variants[i];
-    const colorNames = [
-      v.color?.name,
-      ...v.subColors.map((sc) => sc.color.name),
-    ].filter(Boolean) as string[];
+    const colorNames: string[] = v.packLines.length > 0
+      ? v.packLines.map((l) => l.color.name)
+      : (v.color?.name ? [v.color.name] : []);
 
     const sku = generateSku(
       reference.trim().toUpperCase(),
@@ -270,14 +219,20 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     },
   });
 
-  // Create variants one by one to guarantee order + inline sub-colors
+  // Create variants one by one to guarantee order
   const createdVariants: { id: string; colorId: string | null }[] = [];
   for (let i = 0; i < input.colors.length; i++) {
     const color = input.colors[i];
+    const isMultiPack = isMultiColorPackInput(color);
+    // Pour un pack multi-couleurs, colorId = 1ère couleur du pack (cohérence SKU/index).
+    // La composition réelle vit dans packLines.
+    const primaryColorId = isMultiPack
+      ? (color.packLines?.[0]?.colorId || color.colorId || null)
+      : (color.colorId || null);
     const variant = await prisma.productColor.create({
       data: {
         productId:     product.id,
-        colorId:       color.colorId || null,
+        colorId:       primaryColorId,
         unitPrice:     color.unitPrice,
         weight:        color.weight,
         stock:         color.stock,
@@ -285,17 +240,28 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         saleType:      color.saleType,
         packQuantity:  color.packQuantity,
         disabled:      color.disabled ?? false,
-        pfsColorRef:   color.pfsColorRef?.trim() || null,
-        subColors: color.subColorIds && color.subColorIds.length > 0
-          ? { create: color.subColorIds.map((scId, pos) => ({ colorId: scId, position: pos })) }
-          : undefined,
       },
       select: { id: true, colorId: true },
     });
     createdVariants.push(variant);
 
-    // Create variant sizes (UNIT and PACK)
-    if (color.sizeEntries && color.sizeEntries.length > 0) {
+    if (isMultiPack && color.packLines) {
+      // Lignes multi-couleurs du pack : couleur + tailles/quantités
+      for (let li = 0; li < color.packLines.length; li++) {
+        const line = color.packLines[li];
+        await prisma.packColorLine.create({
+          data: {
+            productColorId: variant.id,
+            colorId: line.colorId,
+            position: li,
+            sizes: {
+              create: line.sizeEntries.map((se) => ({ sizeId: se.sizeId, quantity: se.quantity })),
+            },
+          },
+        });
+      }
+    } else if (color.sizeEntries && color.sizeEntries.length > 0) {
+      // UNIT ou PACK mono-couleur legacy : tailles classiques
       await prisma.variantSize.createMany({
         data: color.sizeEntries.map((se) => ({
           productColorId: variant.id,
@@ -321,19 +287,14 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       if (group.variantIndex != null && createdVariants[group.variantIndex]) {
         matched = createdVariants[group.variantIndex];
       }
-      // Fallback: match by colorId + ordered subColorIds (UNIT variants)
+      // Fallback: match by colorId
       if (!matched && group.colorId) {
-        const groupSubIds = group.subColorIds ?? [];
         for (let i = 0; i < input.colors.length; i++) {
           const cv = createdVariants[i];
           if (!cv || usedVariantIds.has(cv.id)) continue;
           if (cv.colorId !== group.colorId) continue;
-          const inputSubs = input.colors[i].subColorIds ?? [];
-          if (inputSubs.length !== groupSubIds.length) continue;
-          if (inputSubs.every((s, j) => s === groupSubIds[j])) {
-            matched = cv;
-            break;
-          }
+          matched = cv;
+          break;
         }
       }
       if (!matched) continue;
@@ -361,9 +322,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         id: true,
         colorId: true,
         color: { select: { name: true } },
-        subColors: {
-          select: { colorId: true, position: true, color: { select: { name: true } } },
-        },
         _count: { select: { images: true } },
       },
     });
@@ -372,11 +330,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         id: v.id,
         colorId: v.colorId,
         colorName: v.color?.name ?? null,
-        subColors: v.subColors.map((s) => ({
-          colorId: s.colorId,
-          colorName: s.color?.name ?? null,
-          position: s.position,
-        })),
         imageCount: v._count.images,
       })),
     );
@@ -600,12 +553,16 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     // Update existing variants and create new ones
     const variantIdMap: { colorInput: ColorInput; variantId: string }[] = [];
     for (const colorInput of input.colors) {
+      const isMultiPack = isMultiColorPackInput(colorInput);
+      const primaryColorId = isMultiPack
+        ? (colorInput.packLines?.[0]?.colorId || colorInput.colorId || null)
+        : (colorInput.colorId || null);
       if (colorInput.dbId) {
         // Update existing
         await tx.productColor.update({
           where: { id: colorInput.dbId },
           data: {
-            colorId:       colorInput.colorId || null,
+            colorId:       primaryColorId,
             unitPrice:     colorInput.unitPrice,
             weight:        colorInput.weight,
             stock:         colorInput.stock,
@@ -613,7 +570,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
             disabled:      colorInput.disabled ?? false,
-            pfsColorRef:   colorInput.pfsColorRef?.trim() || null,
           },
         });
         variantIdMap.push({ colorInput, variantId: colorInput.dbId });
@@ -622,7 +578,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         const created = await tx.productColor.create({
           data: {
             productId:     id,
-            colorId:       colorInput.colorId || null,
+            colorId:       primaryColorId,
             unitPrice:     colorInput.unitPrice,
             weight:        colorInput.weight,
             stock:         colorInput.stock,
@@ -630,33 +586,15 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             saleType:      colorInput.saleType,
             packQuantity:  colorInput.packQuantity,
             disabled:      colorInput.disabled ?? false,
-            pfsColorRef:   colorInput.pfsColorRef?.trim() || null,
           },
         });
         variantIdMap.push({ colorInput, variantId: created.id });
       }
     }
 
-    // Sub-colors: full replace for all variants
     const allVariantIds = variantIdMap.map((v) => v.variantId);
-    if (allVariantIds.length > 0) {
-      await tx.productColorSubColor.deleteMany({
-        where: { productColorId: { in: allVariantIds } },
-      });
-    }
-    const subColorData: { productColorId: string; colorId: string; position: number }[] = [];
-    for (const { colorInput, variantId } of variantIdMap) {
-      if (colorInput.subColorIds && colorInput.subColorIds.length > 0) {
-        for (let pos = 0; pos < colorInput.subColorIds.length; pos++) {
-          subColorData.push({ productColorId: variantId, colorId: colorInput.subColorIds[pos], position: pos });
-        }
-      }
-    }
-    if (subColorData.length > 0) {
-      await tx.productColorSubColor.createMany({ data: subColorData, skipDuplicates: true });
-    }
 
-    // ── Variant sizes: full replace for UNIT and PACK ──────────
+    // ── Variant sizes: full replace pour UNIT et PACK mono-couleur ──────────
     if (allVariantIds.length > 0) {
       await tx.variantSize.deleteMany({
         where: { productColorId: { in: allVariantIds } },
@@ -664,6 +602,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
     const variantSizeData: { productColorId: string; sizeId: string; quantity: number; pricePerUnit?: number }[] = [];
     for (const { colorInput, variantId } of variantIdMap) {
+      if (isMultiColorPackInput(colorInput)) continue; // pack multi-couleurs : sizes vivent dans packLines
       if (colorInput.sizeEntries && colorInput.sizeEntries.length > 0) {
         for (const se of colorInput.sizeEntries) {
           variantSizeData.push({
@@ -679,6 +618,29 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       await tx.variantSize.createMany({ data: variantSizeData });
     }
 
+    // ── Pack multi-couleurs : reconstruction complète des lignes (cascade delete via FK) ──
+    if (allVariantIds.length > 0) {
+      await tx.packColorLine.deleteMany({
+        where: { productColorId: { in: allVariantIds } },
+      });
+    }
+    for (const { colorInput, variantId } of variantIdMap) {
+      if (!isMultiColorPackInput(colorInput) || !colorInput.packLines) continue;
+      for (let li = 0; li < colorInput.packLines.length; li++) {
+        const line = colorInput.packLines[li];
+        await tx.packColorLine.create({
+          data: {
+            productColorId: variantId,
+            colorId: line.colorId,
+            position: li,
+            sizes: {
+              create: line.sizeEntries.map((se) => ({ sizeId: se.sizeId, quantity: se.quantity })),
+            },
+          },
+        });
+      }
+    }
+
     // ── Assign/update SKUs for all variants ──────────
     await assignVariantSkus(id, input.reference, tx);
 
@@ -689,47 +651,25 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         where: { productId: id },
       });
 
-      // Fetch current variants + their sub-colors
       const currentVariants = await tx.productColor.findMany({
         where: { productId: id },
         select: { id: true, colorId: true },
       });
-      const currentSubColors = await tx.productColorSubColor.findMany({
-        where: { productColorId: { in: currentVariants.map((v) => v.id) } },
-        select: { productColorId: true, colorId: true },
-        orderBy: { position: "asc" },
-      });
-      const subColorsByVariant = new Map<string, string[]>();
-      for (const sc of currentSubColors) {
-        const arr = subColorsByVariant.get(sc.productColorId) ?? [];
-        arr.push(sc.colorId);
-        subColorsByVariant.set(sc.productColorId, arr);
-      }
 
       const imageData: { productId: string; colorId: string; productColorId: string; path: string; order: number }[] = [];
       const usedVariantIds = new Set<string>();
       for (const group of input.imagePaths) {
         if (group.paths.length === 0) continue;
         let variant: { id: string; colorId: string | null } | undefined;
-        // Try direct match by variantDbId first
         variant = group.variantDbId
           ? currentVariants.find((v) => v.id === group.variantDbId)
           : undefined;
-        // Try match by variantIndex (reliable for PACK and newly created variants)
         if (!variant && group.variantIndex != null && variantIdMap[group.variantIndex]) {
           const mappedId = variantIdMap[group.variantIndex].variantId;
           variant = currentVariants.find((v) => v.id === mappedId);
         }
-        // Fallback: match by colorId + ordered subColorIds (UNIT variants)
         if (!variant && group.colorId) {
-          const groupSubIds = group.subColorIds ?? [];
-          variant = currentVariants.find((v) => {
-            if (usedVariantIds.has(v.id)) return false;
-            if (v.colorId !== group.colorId) return false;
-            const vSubs = subColorsByVariant.get(v.id) ?? [];
-            if (vSubs.length !== groupSubIds.length) return false;
-            return vSubs.every((s, i) => s === groupSubIds[i]);
-          });
+          variant = currentVariants.find((v) => !usedVariantIds.has(v.id) && v.colorId === group.colorId);
         }
         if (!variant) continue;
         usedVariantIds.add(variant.id);
@@ -813,9 +753,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         id: true,
         colorId: true,
         color: { select: { name: true } },
-        subColors: {
-          select: { colorId: true, position: true, color: { select: { name: true } } },
-        },
         _count: { select: { images: true } },
       },
     });
@@ -824,11 +761,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         id: v.id,
         colorId: v.colorId,
         colorName: v.color?.name ?? null,
-        subColors: v.subColors.map((s) => ({
-          colorId: s.colorId,
-          colorName: s.color?.name ?? null,
-          position: s.position,
-        })),
         imageCount: v._count.images,
       })),
     );
@@ -1008,9 +940,6 @@ export async function bulkUpdateProductStatus(
         productId: true,
         colorId: true,
         color: { select: { name: true } },
-        subColors: {
-          select: { colorId: true, position: true, color: { select: { name: true } } },
-        },
         _count: { select: { images: true } },
       },
     });
@@ -1026,11 +955,6 @@ export async function bulkUpdateProductStatus(
           id: v.id,
           colorId: v.colorId,
           colorName: v.color?.name ?? null,
-          subColors: v.subColors.map((s) => ({
-            colorId: s.colorId,
-            colorName: s.color?.name ?? null,
-            position: s.position,
-          })),
           imageCount: v._count.images,
         })),
       );

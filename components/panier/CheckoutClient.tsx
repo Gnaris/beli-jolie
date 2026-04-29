@@ -50,7 +50,6 @@ interface VariantData {
   unitPrice: number;
   weight: number;
   color: { name: string };
-  subColors?: { color: { name: string } }[];
   product: { id: string; name: string; reference: string; discountPercent?: number | null; category: { name: string } };
 }
 
@@ -1330,7 +1329,7 @@ function SummaryPanel({
                     <div className="flex-1 min-w-0">
                       <p className="text-text-primary font-medium line-clamp-1">{item.variant.product.name}</p>
                       <p className="text-text-muted">
-                        {item.variant.subColors?.length ? [item.variant.color.name, ...item.variant.subColors.map(sc => sc.color.name)].join("/") : item.variant.color.name}
+                        {item.variant.color.name}
                         {item.variant.saleType === "PACK" ? ` · ×${item.variant.packQuantity}` : ""}
                         {" "}× {item.quantity}
                       </p>

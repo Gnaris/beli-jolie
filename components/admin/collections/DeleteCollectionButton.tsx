@@ -2,6 +2,7 @@
 
 import { deleteCollection } from "@/app/actions/admin/collections";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
 
 export default function DeleteCollectionButton({
   id,
@@ -11,6 +12,7 @@ export default function DeleteCollectionButton({
   name: string;
 }) {
   const { confirm } = useConfirm();
+  const { success, error } = useToast();
 
   async function handleClick() {
     const ok = await confirm({
@@ -19,7 +21,17 @@ export default function DeleteCollectionButton({
       message: "Cette action est irréversible.",
       confirmLabel: "Supprimer",
     });
-    if (ok) await deleteCollection(id);
+    if (!ok) return;
+
+    // P2-10 : sans try/catch, une erreur serveur fermait silencieusement
+    // la modale et l'admin pensait que ça avait marché.
+    try {
+      await deleteCollection(id);
+      success("Collection supprimée", `« ${name} » a été retirée.`);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "Erreur inconnue";
+      error("Suppression impossible", detail);
+    }
   }
 
   return (

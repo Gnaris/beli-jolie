@@ -5,6 +5,15 @@ import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { reinstateStockForOrder } from "@/lib/stock";
+
+// Erreur typée pour différencier les ruptures de stock des autres erreurs.
+class StockError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StockError";
+  }
+}
 
 // ─────────────────────────────────────────────
 // Annuler une commande (CLIENT — statut PENDING uniquement)
@@ -24,6 +33,21 @@ export async function cancelOrder(orderId: string): Promise<void> {
     where: { id: orderId },
     data:  { status: "CANCELLED" },
   });
+
+  // P2-02 — prévenir le client par email (fire-and-forget). L'import est plus
+  // bas dans le fichier mais reste hoisté au niveau module par TypeScript.
+  notifyOrderStatusChange({ orderId, newStatus: "CANCELLED" }).catch((err) =>
+    logger.error("[cancelOrder] Email client annulation error", {
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
+
+  // Le stock a été déduit à la commande — on le remet en stock.
+  await reinstateStockForOrder(orderId).catch((err) =>
+    logger.error("[cancelOrder] Stock reinstate error", {
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
 
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${orderId}`);
@@ -121,8 +145,14 @@ export async function placeOrder(
               include: {
                 product: { select: { id: true, name: true, reference: true, status: true, discountPercent: true, category: { select: { name: true } } } },
                 color:   { select: { id: true, name: true, hex: true } },
-                subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
                 variantSizes: { include: { size: true } },
+                packLines: {
+                  orderBy: { position: "asc" },
+                  include: {
+                    color: { select: { name: true, hex: true } },
+                    sizes: { include: { size: true } },
+                  },
+                },
               },
             },
           },
@@ -249,6 +279,23 @@ export async function placeOrder(
   const tvaAmount = subtotalAfterDiscount * input.tvaRate;
   const totalTTC  = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
 
+  // ── Vérifier que le montant payé par Stripe correspond bien au total recalculé.
+  //    Tolérance de 1 centime pour absorber les arrondis.
+  const expectedAmountCents = Math.round(totalTTC * 100);
+  const paidAmountCents = paymentIntent.amount;
+  if (Math.abs(paidAmountCents - expectedAmountCents) > 1) {
+    logger.error("[placeOrder] Montant Stripe incohérent", {
+      paid: paidAmountCents,
+      expected: expectedAmountCents,
+      orderUserId: userId,
+    });
+    return {
+      success: false,
+      error:
+        "Le montant payé ne correspond pas au total de votre panier. Le prix d'un article a peut-être changé. Merci de recharger la page et de recommencer.",
+    };
+  }
+
   const totalWeightKg = cart.items.reduce((s, item) => {
     const units = item.variant.saleType === "PACK"
       ? (item.variant.packQuantity ?? 1) * item.quantity
@@ -264,42 +311,73 @@ export async function placeOrder(
     const unitPrice = computeUnitPrice(item.variant);
     const imgKey = `${item.variant.productId}__${item.variant.colorId}`;
 
+    const isMultiPack = item.variant.saleType === "PACK" && item.variant.packLines.length > 0;
+
+    // Pack multi-couleurs : composition détaillée
+    const packDetailsJson = isMultiPack
+      ? JSON.stringify(
+          item.variant.packLines.map((line) => ({
+            colorName: line.color?.name ?? "",
+            colorHex: line.color?.hex ?? null,
+            sizes: line.sizes.map((s) => ({ name: s.size.name, quantity: s.quantity })),
+          })),
+        )
+      : null;
+
+    // colorName : pour multi-couleurs, on liste toutes les couleurs jointes
+    const displayColorName = isMultiPack
+      ? item.variant.packLines.map((l) => l.color?.name ?? "").filter(Boolean).join(" / ")
+      : item.variant.color
+        ? item.variant.color.name
+        : "Pack";
+
+    // sizesJson : pour multi-couleurs, on cumule par taille
+    const aggregatedSizes = isMultiPack
+      ? (() => {
+          const map = new Map<string, { name: string; quantity: number }>();
+          for (const line of item.variant.packLines) {
+            for (const s of line.sizes) {
+              const cur = map.get(s.sizeId);
+              if (cur) cur.quantity += s.quantity;
+              else map.set(s.sizeId, { name: s.size.name, quantity: s.quantity });
+            }
+          }
+          return [...map.values()];
+        })()
+      : item.variant.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({ name: vs.size.name, quantity: vs.quantity }));
+
     // Build variant snapshot for legal traceability (survives variant deletion)
     const variantSnapshot = JSON.stringify({
       productColorId: item.variant.id,
       productName: item.variant.product.name,
       productRef: item.variant.product.reference,
       categoryName: item.variant.product.category?.name ?? null,
-      colorName: item.variant.color?.name ?? null,
+      colorName: displayColorName,
       colorHex: item.variant.color?.hex ?? null,
-      subColors: item.variant.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [],
       saleType: item.variant.saleType,
       packQuantity: item.variant.packQuantity,
       weight: item.variant.weight,
       unitPriceOriginal: Number(item.variant.unitPrice),
       discountPercent: item.variant.product.discountPercent != null ? Number(item.variant.product.discountPercent) : null,
-      sizes: item.variant.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({
-        name: vs.size.name,
-        quantity: vs.quantity,
-      })),
+      sizes: aggregatedSizes,
+      packLines: isMultiPack
+        ? item.variant.packLines.map((line) => ({
+            colorName: line.color?.name ?? "",
+            sizes: line.sizes.map((s) => ({ name: s.size.name, quantity: s.quantity })),
+          }))
+        : null,
     });
 
     return {
       productName:  item.variant.product.name,
       productRef:   item.variant.product.reference,
       categoryName: item.variant.product.category?.name ?? null,
-      colorName:    item.variant.color
-        ? (item.variant.subColors?.length
-            ? [item.variant.color.name, ...item.variant.subColors.map((sc: { color: { name: string } }) => sc.color.name)].join("/")
-            : item.variant.color.name)
-        : "Pack",
+      colorName:    displayColorName,
       saleType:    item.variant.saleType,
       packQty:     item.variant.packQuantity,
       size:        null,
-      sizesJson:   item.variant.variantSizes.length > 0
-        ? JSON.stringify(item.variant.variantSizes.map((vs: { size: { name: string }; quantity: number }) => ({ name: vs.size.name, quantity: vs.quantity })))
-        : null,
-      packDetails: null,
+      sizesJson:   aggregatedSizes.length > 0 ? JSON.stringify(aggregatedSizes) : null,
+      packDetails: packDetailsJson,
       imagePath:   imagesByKey.get(imgKey) ?? null,
       unitPrice,
       quantity:    item.quantity,
@@ -308,11 +386,36 @@ export async function placeOrder(
     };
   });
 
-  const order = await prisma.order.create({
-    data: {
-      orderNumber,
-      userId,
-      status:       "PENDING",
+  // ── Transaction : vérifier + déduire le stock + créer la commande ────────
+  // updateMany conditionnel (where stock >= qty) = atomique au niveau MySQL :
+  // deux commandes simultanées sur le dernier article ne peuvent pas réussir
+  // toutes les deux.
+  let order;
+  try {
+    order = await prisma.$transaction(async (tx) => {
+      // 1. Vérifier + décrémenter le stock pour chaque ligne
+      for (const item of cart.items) {
+        const updated = await tx.productColor.updateMany({
+          where: { id: item.variant.id, stock: { gte: item.quantity } },
+          data:  { stock: { decrement: item.quantity } },
+        });
+        if (updated.count === 0) {
+          const current = await tx.productColor.findUnique({
+            where:  { id: item.variant.id },
+            select: { stock: true },
+          });
+          throw new StockError(
+            `Stock insuffisant pour « ${item.variant.product.name} » : il en reste ${current?.stock ?? 0}, vous en demandez ${item.quantity}.`,
+          );
+        }
+      }
+
+      // 2. Créer la commande (et ses OrderItems)
+      const created = await tx.order.create({
+        data: {
+          orderNumber,
+          userId,
+          status:       "PENDING",
       // Stripe
       stripePaymentIntentId: input.stripePaymentIntentId,
       paymentStatus:         "paid",
@@ -368,6 +471,30 @@ export async function placeOrder(
       },
     },
   });
+
+      // 3. Tracer les mouvements de stock liés à la commande
+      await tx.stockMovement.createMany({
+        data: cart.items.map((item) => ({
+          productColorId: item.variant.id,
+          quantity: -item.quantity,
+          type: "ORDER" as const,
+          orderId: created.id,
+          reason: `Commande ${orderNumber}`,
+        })),
+      });
+
+      return created;
+    });
+  } catch (err) {
+    if (err instanceof StockError) {
+      logger.warn("[placeOrder] Stock insuffisant", { message: err.message });
+      return { success: false, error: err.message };
+    }
+    logger.error("[placeOrder] Transaction error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { success: false, error: "Impossible de finaliser la commande. Merci de réessayer." };
+  }
 
   // ── 4-6. Easy-Express + PDF + Email ────────────────────────────────────
 

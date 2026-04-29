@@ -35,13 +35,18 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
       translations: { select: { locale: true, name: true, description: true } },
       colors: {
         include: {
-          color: { select: { name: true, pfsColorRef: true } },
-          subColors: {
-            include: { color: { select: { name: true, pfsColorRef: true } } },
-            orderBy: { position: "asc" },
-          },
+          color: { select: { name: true } },
           variantSizes: {
             include: { size: { select: { name: true, pfsSizeRef: true } } },
+          },
+          packLines: {
+            orderBy: { position: "asc" },
+            include: {
+              color: { select: { name: true } },
+              sizes: {
+                include: { size: { select: { name: true, pfsSizeRef: true } } },
+              },
+            },
           },
           images: {
             select: { path: true, order: true },
@@ -53,7 +58,6 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
     },
   });
 
-  // Preserve the input order
   const byId = new Map(products.map((p) => [p.id, p]));
   const ordered = productIds.map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p);
 
@@ -64,23 +68,46 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
     }
 
     const variants: ExportVariant[] = p.colors.map((c) => {
+      const isMultiPack = c.saleType === "PACK" && c.packLines.length > 0;
+
       const colorNames: string[] = [];
-      const subColorNames: string[] = [];
-      const pfsName = c.color?.pfsColorRef || c.color?.name;
-      if (pfsName) colorNames.push(pfsName);
-      for (const sc of c.subColors) {
-        const scName = sc.color?.pfsColorRef || sc.color?.name;
-        if (scName) subColorNames.push(scName);
+      if (isMultiPack) {
+        for (const line of c.packLines) {
+          if (line.color?.name) colorNames.push(line.color.name);
+        }
+      } else if (c.color?.name) {
+        colorNames.push(c.color.name);
       }
+
+      const aggregatedSizes = isMultiPack
+        ? (() => {
+            const map = new Map<string, { name: string; quantity: number; pfsSizeRef?: string | null }>();
+            for (const line of c.packLines) {
+              for (const ls of line.sizes) {
+                const k = ls.sizeId;
+                const cur = map.get(k);
+                if (cur) cur.quantity += ls.quantity;
+                else map.set(k, { name: ls.size.name, quantity: ls.quantity, pfsSizeRef: ls.size.pfsSizeRef ?? null });
+              }
+            }
+            return [...map.values()];
+          })()
+        : c.variantSizes.map((vs) => ({ name: vs.size.name, quantity: vs.quantity, pfsSizeRef: vs.size.pfsSizeRef ?? null }));
+
+      const packLines = isMultiPack
+        ? c.packLines.map((line) => ({
+            colorName: line.color?.name || "",
+            sizes: line.sizes.map((ls) => ({ name: ls.size.name, quantity: ls.quantity, pfsSizeRef: ls.size.pfsSizeRef ?? null })),
+          }))
+        : undefined;
 
       return {
         variantId: c.id,
         saleType: c.saleType as SaleTypeKey,
         colorNames,
-        subColorNames,
-        pfsColorOverride: c.pfsColorRef?.trim() || null,
         packQuantity: c.packQuantity,
-        sizes: c.variantSizes.map((vs) => ({ name: vs.size.name, quantity: vs.quantity, pfsSizeRef: vs.size.pfsSizeRef ?? null })),
+        sizes: aggregatedSizes,
+        packLines,
         unitPrice: Number(c.unitPrice),
         weight: c.weight,
         stock: c.stock,

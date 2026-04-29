@@ -45,8 +45,17 @@ export async function updateCatalog(
 // ─────────────────────────────────────────────
 export async function deleteCatalog(id: string) {
   await requireAdmin();
+  // P3-11 — récupérer le token AVANT la suppression pour pouvoir invalider
+  // la page publique /catalogue/{token} (sinon elle reste en cache).
+  const catalog = await prisma.catalog.findUnique({
+    where: { id },
+    select: { token: true },
+  });
   await prisma.catalog.delete({ where: { id } });
   revalidatePath("/admin/catalogues");
+  if (catalog?.token) {
+    revalidatePath(`/catalogue/${catalog.token}`);
+  }
 }
 
 // ─────────────────────────────────────────────

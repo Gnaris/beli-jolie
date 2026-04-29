@@ -12,8 +12,12 @@ import type {
   MarketplaceRefreshOptions,
   MarketplaceRefreshOutcome,
 } from "@/app/actions/admin/marketplace-refresh";
+import type { MarketplacePublishOutcome } from "@/app/actions/admin/marketplace-publish";
 
 export type QueueItemStatus = "queued" | "in_progress" | "done";
+
+/** "refresh" = renouveler un produit déjà publié. "publish" = première mise en ligne. */
+export type QueueItemMode = "refresh" | "publish";
 
 export type TargetOutcome =
   | { ok: true; archived?: boolean; opId?: string; warning?: string }
@@ -26,6 +30,7 @@ export interface PfsRefreshItem {
   productName: string;
   firstImage: string | null;
   options: MarketplaceRefreshOptions;
+  mode: QueueItemMode;
   status: QueueItemStatus;
   localOutcome?: TargetOutcome;
   pfsOutcome?: TargetOutcome;
@@ -38,6 +43,8 @@ export interface PfsRefreshEnqueueInput {
   productName: string;
   firstImage?: string | null;
   options: MarketplaceRefreshOptions;
+  /** Default = "refresh". Use "publish" pour la première mise en ligne. */
+  mode?: QueueItemMode;
 }
 
 interface PfsRefreshContextValue {
@@ -109,6 +116,35 @@ function outcomesFromServer(outcome: MarketplaceRefreshOutcome): {
   return result;
 }
 
+function outcomesFromPublishServer(outcome: MarketplacePublishOutcome): {
+  pfsOutcome?: TargetOutcome;
+  ankorstoreOutcome?: TargetOutcome;
+} {
+  const result: ReturnType<typeof outcomesFromPublishServer> = {};
+
+  if (outcome.pfs) {
+    if (outcome.pfs.status === "ok") {
+      result.pfsOutcome = { ok: true, archived: outcome.pfs.archived };
+    } else {
+      result.pfsOutcome = { ok: false, kind: "error", message: outcome.pfs.message };
+    }
+  }
+
+  if (outcome.ankorstore) {
+    if (outcome.ankorstore.status === "ok") {
+      result.ankorstoreOutcome = {
+        ok: true,
+        opId: outcome.ankorstore.opId,
+        warning: outcome.ankorstore.warning,
+      };
+    } else {
+      result.ankorstoreOutcome = { ok: false, kind: "error", message: outcome.ankorstore.message };
+    }
+  }
+
+  return result;
+}
+
 const CONCURRENCY = 5;
 
 export function PfsRefreshProvider({ children }: { children: React.ReactNode }) {
@@ -126,6 +162,7 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
         productName: input.productName,
         firstImage: input.firstImage ?? null,
         options: input.options,
+        mode: (input.mode ?? "refresh") as QueueItemMode,
         status: "queued" as QueueItemStatus,
       })),
     ]);
@@ -146,7 +183,11 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
 
     (async () => {
       try {
-        const res = await fetch("/api/admin/marketplace-refresh", {
+        const endpoint =
+          item.mode === "publish"
+            ? "/api/admin/marketplace-publish"
+            : "/api/admin/marketplace-refresh";
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ productId: item.productId, options: item.options }),
@@ -155,8 +196,11 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
           const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
           throw new Error(body.error || `HTTP ${res.status}`);
         }
-        const outcome: MarketplaceRefreshOutcome = await res.json();
-        const parsed = outcomesFromServer(outcome);
+        const outcome = await res.json();
+        const parsed =
+          item.mode === "publish"
+            ? outcomesFromPublishServer(outcome as MarketplacePublishOutcome)
+            : outcomesFromServer(outcome as MarketplaceRefreshOutcome);
         setItems((prev) =>
           prev.map((i) => (i.id === item.id ? { ...i, status: "done", ...parsed } : i)),
         );

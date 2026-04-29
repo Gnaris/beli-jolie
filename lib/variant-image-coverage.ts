@@ -1,52 +1,35 @@
 /**
- * Détermine quelles compositions de couleurs n'ont aucune image.
+ * Détermine quelles couleurs n'ont aucune image.
  *
- * Une "composition" = colorId principal + colorIds des sous-couleurs (ordre
- * conservé). Deux variantes (par ex. UNIT et PACK de la même couleur)
- * partagent la même composition et donc le même jeu d'images : si l'une
- * possède au moins une image, l'autre est considérée comme couverte.
- *
- * Cette logique miroite ce que voit l'admin dans le formulaire (un seul jeu
- * d'images par couleur), et l'import PFS lui-même ne télécharge qu'une fois
- * les images par couleur en les rattachant à la première variante rencontrée.
+ * Deux variantes UNIT et PACK de la même couleur partagent le même jeu
+ * d'images : si l'une possède au moins une image, l'autre est considérée
+ * comme couverte.
  */
 
 export interface VariantForCoverage {
   id: string;
   colorId: string | null;
   colorName?: string | null;
-  subColors: { colorId: string; colorName?: string | null; position: number }[];
   imageCount: number;
 }
 
 export interface MissingCoverageEntry {
-  /** Libellé lisible (ex. "Argent + Doré") pour affichage à l'admin. */
   label: string;
-  /** Identifiants des variantes qui partagent cette composition. */
   variantIds: string[];
 }
 
 /** Clé de groupe identique à `variantGroupKeyFromState` côté client. */
 export function variantGroupKey(v: VariantForCoverage): string {
-  if (!v.colorId) return "";
-  if (v.subColors.length === 0) return v.colorId;
-  const ordered = [...v.subColors].sort((a, b) => a.position - b.position).map((s) => s.colorId);
-  return `${v.colorId}::${ordered.join(",")}`;
+  return v.colorId ?? "";
 }
 
 function variantLabel(v: VariantForCoverage): string {
-  const main = v.colorName?.trim() || "variante";
-  const subs = [...v.subColors]
-    .sort((a, b) => a.position - b.position)
-    .map((s) => s.colorName?.trim())
-    .filter((n): n is string => !!n);
-  return subs.length > 0 ? `${main} + ${subs.join(" + ")}` : main;
+  return v.colorName?.trim() || "variante";
 }
 
 /**
- * Renvoie la liste des compositions de couleurs sans aucune image, sous
- * forme prête à afficher à l'admin. Liste vide → toutes les couleurs sont
- * couvertes (au moins une image par composition).
+ * Renvoie la liste des couleurs sans aucune image, prête à afficher à l'admin.
+ * Liste vide → toutes les couleurs sont couvertes.
  */
 export function findMissingImageCoverage(variants: VariantForCoverage[]): MissingCoverageEntry[] {
   type Group = { label: string; variantIds: string[]; imageCount: number };

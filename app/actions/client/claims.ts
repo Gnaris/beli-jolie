@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { generateClaimReference } from "@/lib/claims";
 import { createConversation } from "@/lib/messaging";
 import { notifyAdminNewClaim } from "@/lib/notifications";
+import { logger } from "@/lib/logger";
 import { revalidateTag } from "next/cache";
 
 interface CreateClaimInput {
@@ -84,7 +85,11 @@ export async function createClaim(input: CreateClaimInput) {
       claimType: input.type,
       description: input.description.trim(),
       claimId: claim.id,
-    }).catch(() => {});
+    }).catch((err) =>
+      logger.error("[createClaim] Email admin échoué", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
 
     revalidateTag("claims", "default");
     return { success: true, claimId: claim.id };

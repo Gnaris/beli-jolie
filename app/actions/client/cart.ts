@@ -47,8 +47,14 @@ export async function getCart() {
                 },
               },
               color: { select: { id: true, name: true, hex: true } },
-              subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true } } } },
               variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
+              packLines: {
+                orderBy: { position: "asc" },
+                select: {
+                  color: { select: { name: true, hex: true } },
+                  sizes: { select: { size: { select: { name: true } }, quantity: true } },
+                },
+              },
             },
           },
         },
@@ -92,12 +98,32 @@ export async function getCart() {
   const itemsWithImages = cart.items.map((item) => {
     const key = `${item.variant.productId}__${item.variant.colorId}`;
     const imgs = imagesByKey.get(key) ?? [];
-    const { variantSizes, ...variantRest } = item.variant;
+    const { variantSizes, packLines, ...variantRest } = item.variant;
+    const isMultiPack = item.variant.saleType === "PACK" && packLines.length > 0;
+    // Pour multi-couleurs : sizes = somme par taille (toutes couleurs confondues)
+    const sizes = isMultiPack
+      ? (() => {
+          const map = new Map<string, { name: string; quantity: number }>();
+          for (const line of packLines) {
+            for (const s of line.sizes) {
+              const cur = map.get(s.size.name);
+              if (cur) cur.quantity += s.quantity;
+              else map.set(s.size.name, { name: s.size.name, quantity: s.quantity });
+            }
+          }
+          return [...map.values()];
+        })()
+      : (variantSizes ?? []).map((vs) => ({ name: vs.size.name, quantity: vs.quantity }));
     return {
       ...item,
       variant: {
         ...variantRest,
-        sizes: (variantSizes ?? []).map((vs) => ({ name: vs.size.name, quantity: vs.quantity })),
+        sizes,
+        packLines: packLines.map((l) => ({
+          colorName: l.color?.name ?? "",
+          colorHex: l.color?.hex ?? null,
+          sizes: l.sizes.map((s) => ({ name: s.size.name, quantity: s.quantity })),
+        })),
       },
       variantImages: imgs,
     };

@@ -52,7 +52,6 @@ export async function POST(req: Request) {
         weight: 0.1,
         isPrimary: true,
         packQuantity: null,
-        subColorIds: [],
         sizeEntries: [],
       }],
       imagePaths: [],

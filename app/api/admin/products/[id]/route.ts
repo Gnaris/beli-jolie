@@ -34,7 +34,6 @@ export async function GET(
           saleType: true,
           packQuantity: true,
           color: { select: { name: true, hex: true, patternImage: true } },
-          subColors: { orderBy: { position: "asc" }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
           variantSizes: { select: { quantity: true, size: { select: { name: true } } } },
         },
       },
@@ -74,7 +73,6 @@ export async function GET(
       packQuantity: c.packQuantity,
       variantSizes: c.variantSizes,
       color: c.color ?? { name: "—", hex: null, patternImage: null },
-      subColors: c.subColors,
     })),
     translations: product.translations,
   };

@@ -7,9 +7,6 @@ import { getImageSrc } from "@/lib/image-utils";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import FavoriteToggle from "@/components/client/FavoriteToggle";
 
-interface SubColor {
-  color: { name: string; hex: string | null; patternImage?: string | null };
-}
 interface VariantSize {
   size: { name: string };
   quantity: number;
@@ -23,7 +20,6 @@ interface ColorVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   color: { id: string; name: string; hex: string | null; patternImage?: string | null } | null;
-  subColors: SubColor[];
   variantSizes: VariantSize[];
 }
 interface ColorImage {
@@ -56,19 +52,12 @@ interface ColorGroup {
   name: string;
   hex: string | null;
   patternImage?: string | null;
-  subColors: SubColor[];
   isPrimary: boolean;
   variants: ColorVariant[];
 }
 
 function variantGroupKey(v: ColorVariant): string {
-  const base = v.color?.id ?? "__none__";
-  if (v.subColors.length === 0) return base;
-  const sorted = [...v.subColors]
-    .map((sc) => sc.color.name)
-    .sort()
-    .join("|");
-  return `${base}::${sorted}`;
+  return v.color?.id ?? "__none__";
 }
 
 function groupByColor(variants: ColorVariant[]): ColorGroup[] {
@@ -86,7 +75,6 @@ function groupByColor(variants: ColorVariant[]): ColorGroup[] {
         name: v.color?.name ?? "Standard",
         hex: v.color?.hex ?? null,
         patternImage: v.color?.patternImage,
-        subColors: v.subColors,
         isPrimary: v.isPrimary,
         variants: [v],
       });
@@ -364,10 +352,6 @@ export default function CatalogProductCard({
                     <ColorSwatch
                       hex={g.hex}
                       patternImage={g.patternImage}
-                      subColors={g.subColors.map((sc) => ({
-                        hex: sc.color.hex,
-                        patternImage: sc.color.patternImage,
-                      }))}
                       size={26}
                       border
                       rounded="lg"

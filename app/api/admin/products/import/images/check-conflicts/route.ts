@@ -51,7 +51,6 @@ export async function POST(req: NextRequest) {
         colors: {
           include: {
             color: true,
-            subColors: { include: { color: true } },
             images: { select: { order: true, path: true } },
           },
         },
@@ -66,25 +65,12 @@ export async function POST(req: NextRequest) {
       const product = productMap.get(file.reference.toUpperCase());
       if (!product) continue; // product not found — not a conflict, just an error at import time
 
-      // Match color
-      const fileColorParts = file.color.split(",").map((c) => normalizeColorName(c.trim())).sort();
+      // Match color (single color only)
+      const fileColorName = normalizeColorName(file.color.trim());
 
-      let matchingVariants = product.colors.filter((pc) => {
-        if (!pc.color) return false;
-        const variantColors = [
-          normalizeColorName(pc.color.name),
-          ...pc.subColors.map((sc) => normalizeColorName(sc.color.name)),
-        ].sort();
-        return variantColors.length === fileColorParts.length &&
-          variantColors.every((c, i) => c === fileColorParts[i]);
-      });
-
-      // Fallback: single color
-      if (matchingVariants.length === 0 && fileColorParts.length === 1) {
-        matchingVariants = product.colors.filter(
-          (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorParts[0]
-        );
-      }
+      const matchingVariants = product.colors.filter(
+        (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorName
+      );
 
       if (matchingVariants.length === 0) continue; // color not found — not a conflict
 

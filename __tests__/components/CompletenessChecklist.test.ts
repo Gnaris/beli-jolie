@@ -9,7 +9,6 @@ function makeVariant(overrides: Partial<VariantState> = {}): VariantState {
     colorId: "c1",
     colorName: "Rouge",
     colorHex: "#FF0000",
-    subColors: [],
     sizeEntries: [{ tempId: "s1", sizeId: "sz1", sizeName: "TU", quantity: "1" }],
     unitPrice: "10",
     weight: "0.5",
@@ -17,7 +16,7 @@ function makeVariant(overrides: Partial<VariantState> = {}): VariantState {
     isPrimary: true,
     saleType: "UNIT",
     packQuantity: "",
-    pfsColorRef: "",
+    packLines: [],
     sku: "",
     disabled: false,
     ...overrides,
@@ -177,6 +176,65 @@ describe("computeChecklist", () => {
       sizeEntries: [],
     });
     const items = computeChecklist(makeInput({ variants: [packVariant] }));
+    const s = items.find((i) => i.key === "sizes");
+    expect(s?.done).toBe(false);
+  });
+
+  it("marks PACK multi-couleurs sizes as done quand chaque ligne a au moins une taille", () => {
+    // Pack tricolore : 3 lignes, chacune avec ses tailles. sizeEntries reste
+    // volontairement vide côté variante (les tailles vivent dans packLines).
+    const multiPack = makeVariant({
+      saleType: "PACK",
+      packQuantity: "30",
+      sizeEntries: [],
+      packLines: [
+        {
+          colorId: "c-gris",
+          colorName: "Gris Foncé",
+          colorHex: "#726F70",
+          sizeEntries: [
+            { tempId: "p1s1", sizeId: "sz-56", sizeName: "56", quantity: "1" },
+            { tempId: "p1s2", sizeId: "sz-57", sizeName: "57", quantity: "2" },
+          ],
+        },
+        {
+          colorId: "c-ivoire",
+          colorName: "Ivoire",
+          colorHex: "#F1E8DF",
+          sizeEntries: [
+            { tempId: "p2s1", sizeId: "sz-56", sizeName: "56", quantity: "1" },
+          ],
+        },
+      ],
+    });
+    const items = computeChecklist(makeInput({ variants: [multiPack] }));
+    const s = items.find((i) => i.key === "sizes");
+    expect(s?.done).toBe(true);
+  });
+
+  it("marks PACK multi-couleurs sizes as NOT done si une ligne du pack n'a aucune taille", () => {
+    const multiPack = makeVariant({
+      saleType: "PACK",
+      packQuantity: "10",
+      sizeEntries: [],
+      packLines: [
+        {
+          colorId: "c-gris",
+          colorName: "Gris Foncé",
+          colorHex: "#726F70",
+          sizeEntries: [
+            { tempId: "p1s1", sizeId: "sz-56", sizeName: "56", quantity: "1" },
+          ],
+        },
+        {
+          colorId: "c-ivoire",
+          colorName: "Ivoire",
+          colorHex: "#F1E8DF",
+          sizeEntries: [], // ligne vide → erreur
+        },
+      ],
+    });
+    const items = computeChecklist(makeInput({ variants: [multiPack] }));
     const s = items.find((i) => i.key === "sizes");
     expect(s?.done).toBe(false);
   });

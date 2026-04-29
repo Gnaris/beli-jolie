@@ -25,7 +25,7 @@ interface VariantData {
   weight: number;
   stock: number;
   color: { name: string; hex: string | null } | null;
-  subColors?: { color: { name: string } }[];
+  packLines?: { colorName: string; colorHex: string | null; sizes: { name: string; quantity: number }[] }[];
   product: {
     id: string;
     name: string;
@@ -187,20 +187,32 @@ function CartRow({
 
         {/* Badges variante */}
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {v.color && (
-            <span className="inline-flex items-center gap-1.5 text-xs bg-bg-secondary text-text-secondary px-2.5 py-1 rounded-lg border border-border-light font-body">
-              {v.color.hex && (
-                <span className="w-3 h-3 rounded-full border border-border-light shrink-0" style={{ backgroundColor: v.color.hex }} />
-              )}
-              {tp(v.subColors?.length ? [v.color.name, ...v.subColors.map(sc => sc.color.name)].join(" / ") : v.color.name)}
-            </span>
+          {v.packLines && v.packLines.length > 0 ? (
+            v.packLines.map((line, idx) => (
+              <span key={idx} className="inline-flex items-center gap-1.5 text-xs bg-bg-secondary text-text-secondary px-2.5 py-1 rounded-lg border border-border-light font-body">
+                {line.colorHex && (
+                  <span className="w-3 h-3 rounded-full border border-border-light shrink-0" style={{ backgroundColor: line.colorHex }} />
+                )}
+                <span>{tp(line.colorName)}</span>
+                <span className="text-text-muted">— {line.sizes.map((s) => `${s.name}×${s.quantity}`).join(", ")}</span>
+              </span>
+            ))
+          ) : (
+            v.color && (
+              <span className="inline-flex items-center gap-1.5 text-xs bg-bg-secondary text-text-secondary px-2.5 py-1 rounded-lg border border-border-light font-body">
+                {v.color.hex && (
+                  <span className="w-3 h-3 rounded-full border border-border-light shrink-0" style={{ backgroundColor: v.color.hex }} />
+                )}
+                {tp(v.color.name)}
+              </span>
+            )
           )}
           {v.saleType === "PACK" && (
             <span className="text-xs bg-bg-secondary text-text-primary px-2.5 py-1 rounded-lg border border-border-light font-body font-medium">
               {t("packLabel")} ×{v.packQuantity}
             </span>
           )}
-          {v.sizes?.length > 0 && (
+          {(!v.packLines || v.packLines.length === 0) && v.sizes?.length > 0 && (
             <span className="text-xs bg-bg-secondary text-text-muted px-2.5 py-1 rounded-lg border border-border-light font-body">
               {v.sizes.map((s) => `${s.name} ×${s.quantity}`).join(", ")}
             </span>

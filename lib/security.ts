@@ -80,7 +80,10 @@ export async function recordLoginFailure(email: string, ip: string): Promise<voi
     update: { failureCount: { increment: 1 } },
   });
 
-  const newFailureCount = lockout.failureCount + 1; // upsert retourne l'état AVANT l'update
+  // P2-07 — Prisma upsert retourne la ligne APRÈS l'update/create
+  // (le commentaire précédent était faux). Avec un "+1", on déclenchait
+  // le lockout dès le 2e échec au lieu du 3e.
+  const newFailureCount = lockout.failureCount;
 
   // Pas encore assez d'échecs
   if (newFailureCount < MAX_ATTEMPTS_BEFORE_LOCKOUT) return;

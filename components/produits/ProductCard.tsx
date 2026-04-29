@@ -25,7 +25,6 @@ interface ColorData {
   hex: string | null;
   patternImage?: string | null;
   name: string;
-  subColors?: { name: string; hex: string; patternImage?: string | null }[];
   firstImage: string | null;
   unitPrice: number;
   isPrimary: boolean;
@@ -328,16 +327,11 @@ export default function ProductCard({
           {colors.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
               {colors.map((c) => {
-                const fullName = c.subColors?.length ? [c.name, ...c.subColors.map(sc => sc.name)].join("/") : c.name;
+                const fullName = c.name;
                 const mainHex = c.hex ?? "#9CA3AF";
                 let swatchStyle: React.CSSProperties;
                 if (c.patternImage) {
                   swatchStyle = { backgroundImage: `url(${c.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" };
-                } else if (c.subColors && c.subColors.length > 0) {
-                  const allHexes = [mainHex, ...c.subColors.map(sc => sc.hex)];
-                  const seg = 360 / allHexes.length;
-                  const stops = allHexes.map((hex, i) => `${hex} ${i * seg}deg ${(i + 1) * seg}deg`).join(", ");
-                  swatchStyle = { background: `conic-gradient(${stops})` };
                 } else {
                   swatchStyle = { backgroundColor: mainHex };
                 }

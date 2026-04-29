@@ -5,6 +5,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { addMessage, markAsRead } from "@/lib/messaging";
 import { emitChatEvent } from "@/lib/chat-events";
+import { notifyClientNewReply } from "@/lib/notifications";
+import { logger } from "@/lib/logger";
 import { revalidateTag } from "next/cache";
 
 export async function getAdminConversations(filter?: "all" | "unread" | "open" | "closed") {
@@ -106,6 +108,23 @@ export async function sendAdminReply(
     });
 
     revalidateTag("messages", "default");
+
+    // Email au client (fire-and-forget) — pour qu'il sache qu'on lui a répondu
+    // même s'il n'est pas connecté au site.
+    if (conversation.user?.email) {
+      notifyClientNewReply({
+        clientEmail: conversation.user.email,
+        clientName: conversation.user.firstName || "",
+        subject: conversation.subject || "Votre message",
+        messagePreview: content.trim() || "Une pièce jointe vous a été envoyée.",
+        conversationId: conversation.id,
+      }).catch((err) =>
+        logger.error("[sendAdminReply] Email client échoué", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+
     return { success: true, message };
   } catch {
     return { success: false, error: "Erreur lors de l'envoi du message." };

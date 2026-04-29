@@ -344,15 +344,13 @@ export async function POST(req: NextRequest) {
 
       const variants: PreviewVariant[] = groupRows.map((row) => {
         const errors: string[] = [];
-        // Multi-color support: "Bleu/Rose/Vert" → check each sub-color
-        const subColors = row.color ? row.color.split("/").map((c) => c.trim()).filter(Boolean) : [];
-        const missingColors = subColors.filter((c) => !colorSet.has(normalizeColorName(c)));
-        const colorFound = subColors.length > 0 && missingColors.length === 0;
+        const colorName = row.color ? row.color.trim() : "";
+        const colorFound = colorName.length > 0 && colorSet.has(normalizeColorName(colorName));
 
         if (!row.color) errors.push("Couleur manquante.");
-        else if (missingColors.length > 0) {
-          errors.push(`Couleur(s) introuvable(s) : ${missingColors.join(", ")}`);
-          for (const mc of missingColors) addMissing("color", mc);
+        else if (!colorFound) {
+          errors.push(`Couleur introuvable : ${colorName}`);
+          addMissing("color", colorName);
         }
         if (!row.unitPrice || row.unitPrice <= 0) errors.push("Prix invalide.");
         if (row.stock == null || row.stock < 0) errors.push("Stock invalide.");

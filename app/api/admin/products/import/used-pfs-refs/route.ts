@@ -16,8 +16,7 @@ export async function GET() {
 
   const [colors, categories, compositions, countries, seasons] = await Promise.all([
     prisma.color.findMany({
-      where: { pfsColorRef: { not: null } },
-      select: { name: true, pfsColorRef: true },
+      select: { name: true },
     }),
     prisma.category.findMany({
       where: { pfsCategoryId: { not: null } },
@@ -38,7 +37,7 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
-    color: colors.map((c) => ({ ref: c.pfsColorRef!, name: c.name })),
+    color: colors.map((c) => ({ ref: c.name, name: c.name })),
     category: categories.map((c) => ({ ref: c.pfsCategoryId!, name: c.name })),
     composition: compositions.map((c) => ({ ref: c.pfsCompositionRef!, name: c.name })),
     country: countries.map((c) => ({ ref: c.pfsCountryRef!, name: c.name })),

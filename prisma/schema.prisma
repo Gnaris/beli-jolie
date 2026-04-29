@@ -180,16 +180,15 @@ model SubCategoryTranslation {
 
 // Bibliothèque de couleurs réutilisables entre produits
 model Color {
-  id                  String                 @id @default(cuid())
-  name                String                 @unique
-  hex                 String?
-  patternImage        String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
-  pfsColorRef         String? // Libellé PFS (ex: "Doré", "Noir") — pour export Excel marketplace
-  createdAt           DateTime               @default(now())
-  productColors       ProductColor[]
-  colorImages         ProductColorImage[]
-  translations        ColorTranslation[]
-  subColorUsages      ProductColorSubColor[] // Utilisations en tant que sous-couleur
+  id             String              @id @default(cuid())
+  name           String              @unique
+  hex            String?
+  patternImage   String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
+  createdAt      DateTime            @default(now())
+  productColors  ProductColor[]
+  colorImages    ProductColorImage[]
+  translations   ColorTranslation[]
+  packLineUsages PackColorLine[] // Utilisations dans un PACK multi-couleurs
 }
 
 model ColorTranslation {
@@ -354,6 +353,10 @@ model Product {
   updatedAt              DateTime              @updatedAt
   lastRefreshedAt        DateTime? // Date du dernier "Rafraîchir" (remet en Nouveauté sans toucher createdAt)
 
+  // Identifiants marketplaces — renseignés à la publication live (null = pas publié)
+  pfsProductId    String?
+  ankorsProductId String?
+
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
   @@index([status, updatedAt]) // "new" filter sort
@@ -365,6 +368,8 @@ model Product {
   @@index([reference]) // exact reference search
   @@index([manufacturingCountryId]) // country filter
   @@index([seasonId]) // season filter
+  @@index([pfsProductId])
+  @@index([ankorsProductId])
 }
 
 // Traductions automatiques des produits
@@ -417,55 +422,47 @@ model PendingSimilar {
 }
 
 // Variante d'un produit
-// UNIT: une composition de couleurs + tailles×qty + prix/poids/stock
-// PACK: une composition de couleurs + tailles×qty + packQuantity + prix/poids/stock
+// UNIT: une couleur + tailles×qty + prix/poids/stock
+// PACK: une couleur principale + tailles×qty + packQuantity + prix/poids/stock
+//       (ou packLines pour un PACK multi-couleurs — voir PackColorLine)
 model ProductColor {
-  id                  String                 @id @default(cuid())
+  id                  String              @id @default(cuid())
   productId           String
-  product             Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
-  colorId             String? // Couleur principale (requise en business logic, nullable en DB pour legacy)
-  color               Color?                 @relation(fields: [colorId], references: [id])
-  unitPrice           Decimal                @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
+  product             Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorId             String? // Couleur (requise en business logic, nullable en DB pour legacy)
+  color               Color?              @relation(fields: [colorId], references: [id])
+  unitPrice           Decimal             @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
   weight              Float // Poids en kg
-  stock               Int                    @default(0)
-  isPrimary           Boolean                @default(false)
+  stock               Int                 @default(0)
+  isPrimary           Boolean             @default(false)
   saleType            SaleType // UNIT ou PACK
   packQuantity        Int? // Quantité par paquet (null si UNIT)
-  // Composition de couleurs (colorId = 1ère couleur, subColors = couleurs suivantes)
-  subColors           ProductColorSubColor[]
-  // Tailles avec quantités (UNIT ou PACK)
+  // Tailles avec quantités (UNIT, ou PACK mono-couleur)
   variantSizes        VariantSize[]
+  // Lignes couleur×tailles d'un PACK multi-couleurs.
+  // Si présentes, elles SUPPLANTENT colorId/variantSizes pour la composition du paquet.
+  packLines           PackColorLine[]
   images              ProductColorImage[] // Images (UNIT seulement)
   cartItems           CartItem[]
   collectionOverrides CollectionProduct[]
   restockAlerts       RestockAlert[]
   stockMovements      StockMovement[]
   priceHistory        PriceHistory[]
-  disabled            Boolean                @default(false) // Masquer côté client sans supprimer
-  sku                 String?                @unique // SKU universel: {ref}_{couleurs}_{UNIT|PACK}_{index}
-  pfsColorRef         String? // Correspondance couleur PFS pour variante multi-couleurs (override)
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
+  disabled            Boolean             @default(false) // Masquer côté client sans supprimer
+  sku                 String?             @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
+  // Identifiants variante marketplaces — renseignés à la publication live
+  pfsVariantId        String?
+  ankorsVariantId     String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([productId, colorId])
   @@index([productId, isPrimary])
   @@index([colorId])
   @@index([stock])
   @@index([unitPrice])
-}
-
-// Sous-couleurs optionnelles d'une variante (ex: Doré/Rouge/Noir)
-// Utilise la même bibliothèque Color que la couleur principale
-model ProductColorSubColor {
-  id             String       @id @default(cuid())
-  productColorId String
-  productColor   ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
-  colorId        String
-  color          Color        @relation(fields: [colorId], references: [id])
-  position       Int          @default(0) // Ordre d'affichage
-
-  @@unique([productColorId, colorId])
-  @@index([productColorId])
+  @@index([pfsVariantId])
+  @@index([ankorsVariantId])
 }
 
 // ─────────────────────────────────────────────
@@ -481,6 +478,7 @@ model Size {
   position       Int             @default(0)
   pfsSizeRef     String?
   variantSizes   VariantSize[]
+  packLineSizes  PackColorLineSize[] // Tailles utilisées dans une ligne de PACK multi-couleurs
   stockMovements StockMovement[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -500,6 +498,36 @@ model VariantSize {
 
   @@unique([productColorId, sizeId])
   @@index([productColorId])
+}
+
+// Ligne d'un PACK multi-couleurs : une couleur incluse dans le pack avec ses tailles
+// Ex: Pack tricolore = 1× ligne Rouge (S×2, M×3) + 1× ligne Bleu (M×2) + 1× ligne Noir (L×1)
+model PackColorLine {
+  id             String              @id @default(cuid())
+  productColorId String
+  productColor   ProductColor        @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  colorId        String
+  color          Color               @relation(fields: [colorId], references: [id])
+  position       Int                 @default(0) // ordre d'affichage
+  sizes          PackColorLineSize[]
+  createdAt      DateTime            @default(now())
+
+  @@unique([productColorId, colorId])
+  @@index([productColorId])
+  @@index([colorId])
+}
+
+// Taille × quantité à l'intérieur d'une ligne de PACK
+model PackColorLineSize {
+  id              String        @id @default(cuid())
+  packColorLineId String
+  packColorLine   PackColorLine @relation(fields: [packColorLineId], references: [id], onDelete: Cascade)
+  sizeId          String
+  size            Size          @relation(fields: [sizeId], references: [id])
+  quantity        Int           @default(1)
+
+  @@unique([packColorLineId, sizeId])
+  @@index([packColorLineId])
 }
 
 // Images liées à un variant spécifique (ProductColor)

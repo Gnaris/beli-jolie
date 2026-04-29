@@ -41,7 +41,6 @@ interface VariantOption {
   hex: string;
   patternImage?: string | null;
   colorNames: string; // Comma-separated for filename convention
-  subColors?: { hex: string; patternImage: string | null }[];
 }
 
 function parseFilename(filename: string): { reference: string; color: string; position: number } | null {
@@ -1087,7 +1086,7 @@ export default function ImportImagesTab() {
                           }}
                           className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border bg-bg-primary rounded-lg hover:border-bg-dark transition-colors text-xs"
                         >
-                          <ColorSwatch hex={v.hex} patternImage={v.patternImage} subColors={v.subColors} size={16} rounded="full" />
+                          <ColorSwatch hex={v.hex} patternImage={v.patternImage} size={16} rounded="full" />
                           <span className="font-body text-text-primary">{v.name}</span>
                         </button>
                       ))}

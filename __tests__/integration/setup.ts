@@ -105,7 +105,6 @@ export async function cleanupTestData() {
 
     if (variantIds.length > 0) {
       await prisma.variantSize.deleteMany({ where: { productColorId: { in: variantIds } } });
-      await prisma.productColorSubColor.deleteMany({ where: { productColorId: { in: variantIds } } });
       await prisma.productColor.deleteMany({ where: { id: { in: variantIds } } });
     }
 

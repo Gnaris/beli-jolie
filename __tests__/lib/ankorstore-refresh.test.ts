@@ -54,8 +54,6 @@ function mkExportProduct(overrides: Record<string, unknown> = {}) {
         variantId: "v-1",
         saleType: "UNIT" as const,
         colorNames: ["Noir"],
-        subColorNames: [],
-        pfsColorOverride: null,
         packQuantity: null,
         sizes: [{ name: "TU", quantity: 1, pfsSizeRef: "TU" }],
         unitPrice: 10,
@@ -189,8 +187,6 @@ describe("ankorstoreRefreshProduct", () => {
             variantId: "v-pack",
             saleType: "PACK",
             colorNames: ["Doré"],
-            subColorNames: [],
-            pfsColorOverride: null,
             packQuantity: 5,
             sizes: [],
             unitPrice: 50, // total pack price

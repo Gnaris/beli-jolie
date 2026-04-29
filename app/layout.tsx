@@ -13,6 +13,7 @@ import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
 import AccessCodeTracker from "@/components/layout/AccessCodeTracker";
 import GuestBanner from "@/components/layout/GuestBanner";
 import { getCachedShopName, getCachedBusinessHours, getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedSeoConfig, buildOrganizationSchema, getSiteUrl } from "@/lib/seo";
 import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
@@ -42,7 +43,9 @@ const roboto = Roboto({
 ───────────────────────────────────────────── */
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
+  const siteUrl = getSiteUrl();
   return {
+    metadataBase: new URL(siteUrl),
     title: {
       default: `${shopName} — Grossiste B2B`,
       template: `%s | ${shopName}`,
@@ -71,20 +74,31 @@ export async function generateMetadata(): Promise<Metadata> {
       description: "Catalogue produits pour professionnels. Tarifs grossiste et livraison rapide.",
     },
     robots: { index: true, follow: true },
+    manifest: "/manifest.webmanifest",
   };
 }
 
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const [locale, messages, shopName, businessHours, session, announcementRow] = await Promise.all([
+  const [locale, messages, shopName, businessHours, session, announcementRow, seoConfig] = await Promise.all([
     getLocale(),
     getMessages(),
     getCachedShopName(),
     getCachedBusinessHours(),
     getServerSession(authOptions),
     getCachedSiteConfig("announcement_banner"),
+    getCachedSeoConfig(),
   ]);
+
+  const organizationJsonLd = buildOrganizationSchema({
+    name: shopName,
+    url: getSiteUrl(),
+    description: `${shopName} — plateforme grossiste B2B pour professionnels.`,
+    email: seoConfig.email,
+    phone: seoConfig.phone,
+    address: seoConfig.address,
+  });
 
   let announcement: { messages: string[]; bgColor: string; textColor: string; speed?: number } | null = null;
   if (announcementRow?.value) {
@@ -110,13 +124,7 @@ export default async function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "Organization",
-              name: shopName,
-              description: "Plateforme grossiste B2B pour professionnels.",
-              url: process.env.NEXTAUTH_URL || "https://example.com",
-            }),
+            __html: JSON.stringify(organizationJsonLd),
           }}
         />
         {announcement && (

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { VariantState, ColorImageState } from "./ColorVariantManager";
-import { imageGroupKeyFromVariant } from "./ColorVariantManager";
+import { imageGroupKeyFromVariant, isMultiColorPack } from "./ColorVariantManager";
 import { ANKORSTORE_DESCRIPTION_MIN_CHARS, ankorstoreDescriptionLength } from "@/lib/ankorstore-description";
 
 export interface ChecklistInput {
@@ -120,8 +120,19 @@ function computeChecklist(input: ChecklistInput): CheckItem[] {
       done: allStockOk,
     });
 
-    // 10. All variants have at least 1 size
-    const allSizesOk = input.variants.every((v) => v.sizeEntries.length > 0);
+    // 10. All variants have at least 1 size.
+    //     PACK multi-couleurs : les tailles vivent dans packLines (1 ligne
+    //     par couleur, chacune avec ses propres tailles). On considère la
+    //     variante valide si chaque ligne du pack a au moins 1 taille.
+    const allSizesOk = input.variants.every((v) => {
+      if (isMultiColorPack(v)) {
+        return (
+          v.packLines.length > 0 &&
+          v.packLines.every((line) => line.sizeEntries.length > 0)
+        );
+      }
+      return v.sizeEntries.length > 0;
+    });
     items.push({
       key: "sizes",
       label: "Tailles renseignées",

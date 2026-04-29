@@ -22,40 +22,31 @@ const PRODUCT_INCLUDE = {
       saleType:      true,
       packQuantity:  true,
       color:         { select: { name: true, hex: true, patternImage: true } },
-      subColors:     { orderBy: { position: "asc" as const }, select: { color: { select: { name: true, hex: true, patternImage: true } } } },
       variantSizes:  { orderBy: { size: { position: "asc" } }, include: { size: true } },
     },
   },
 } as const;
 
-function apiVariantGroupKey(colorId: string, subColorNames: string[]): string {
-  if (subColorNames.length === 0) return colorId;
-  return `${colorId}::${subColorNames.join(",")}`;
-}
-
-// Shape products: group variants by color group key (colorId + sub-colors) + attach first image
+// Shape products: group variants by color group key (colorId) + attach first image
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function shapeProducts(products: any[], imageMap: Map<string, Map<string, string>>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return products.map((p: any) => {
     const colorMap = new Map<string, {
-      groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null; subColors?: { name: string; hex: string; patternImage?: string | null }[];
+      groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null;
       firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
       variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; sizes: {name: string, quantity: number}[]; unitPrice: number; stock: number }[];
     }>();
     for (const v of p.colors) {
       if (!v.colorId) continue;
-      const subNames: string[] = v.subColors?.map((sc: { color: { name: string } }) => sc.color.name) ?? [];
-      const gk = apiVariantGroupKey(v.colorId, subNames);
+      const gk = v.colorId;
       if (!colorMap.has(gk)) {
-        const subs = v.subColors?.map((sc: { color: { name: string; hex: string | null; patternImage?: string | null } }) => ({ name: sc.color.name, hex: sc.color.hex ?? "#9CA3AF", patternImage: sc.color.patternImage })) ?? [];
         colorMap.set(gk, {
           groupKey:      gk,
           colorId:       v.colorId,
           name:          v.color?.name,
           hex:           v.color?.hex,
           patternImage:  v.color?.patternImage,
-          subColors:     subs.length > 0 ? subs : undefined,
           firstImage:    imageMap.get(p.id)?.get(v.id) ?? null,
           unitPrice:     Number(v.unitPrice),
           isPrimary:     v.isPrimary,

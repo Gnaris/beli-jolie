@@ -29,6 +29,7 @@ import {
   type PfsProductCreateData,
   type PfsVariantCreateData,
   type PfsVariantUpdateData,
+  type PfsStatus,
 } from "@/lib/pfs-api-write";
 import { applyMarketplaceMarkup, loadMarketplaceMarkupConfigs, type MarkupConfig } from "@/lib/marketplace-pricing";
 import sharp from "sharp";
@@ -69,7 +70,6 @@ async function convertToJpeg(imagePath: string): Promise<Buffer> {
 
 interface FullVariant {
   id: string;
-  pfsColorRef: string | null;
   unitPrice: number | { toString(): string };
   weight: number;
   stock: number;
@@ -77,8 +77,8 @@ interface FullVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   variantSizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
-  color: { pfsColorRef: string | null } | null;
-  subColors: { color: { pfsColorRef: string | null }; position: number }[];
+  color: { name: string } | null;
+  packLines: { color: { name: string }; position: number }[];
   images: { path: string; order: number }[];
 }
 
@@ -112,7 +112,7 @@ const PFS_DEFAULTS = {
 };
 
 function getEffectiveColorRef(variant: FullVariant): string | null {
-  return variant.pfsColorRef || variant.color?.pfsColorRef || null;
+  return variant.color?.name || null;
 }
 
 function getPfsUnitPrice(variant: FullVariant, markup?: MarkupConfig): number {
@@ -121,8 +121,11 @@ function getPfsUnitPrice(variant: FullVariant, markup?: MarkupConfig): number {
   if (variant.saleType !== "PACK") {
     unitPrice = price;
   } else {
-    const totalQty = variant.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0) || variant.packQuantity || 1;
-    unitPrice = Math.round((price / totalQty) * 100) / 100;
+    // packQuantity est la source de vérité (alignement avec
+    // lib/marketplace-excel/pfs-export.ts → pas de divergence entre
+    // le refresh live et l'export Excel).
+    const qty = variant.packQuantity && variant.packQuantity > 0 ? variant.packQuantity : 1;
+    unitPrice = Math.round((price / qty) * 100) / 100;
   }
   return markup ? applyMarketplaceMarkup(unitPrice, markup) : unitPrice;
 }
@@ -148,7 +151,6 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       colors: {
         select: {
           id: true,
-          pfsColorRef: true,
           unitPrice: true,
           weight: true,
           stock: true,
@@ -158,9 +160,9 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           variantSizes: {
             select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
           },
-          color: { select: { pfsColorRef: true } },
-          subColors: {
-            select: { color: { select: { pfsColorRef: true } }, position: true },
+          color: { select: { name: true } },
+          packLines: {
+            select: { color: { select: { name: true } }, position: true },
             orderBy: { position: "asc" as const },
           },
           images: {
@@ -238,6 +240,9 @@ export async function pfsRefreshProduct(
   const existingBrand = existingPfsData.product.brand?.name;
   const existingGender = existingPfsData.product.gender?.reference;
   const existingFamily = existingPfsData.product.family?.id;
+  // P2-11 : capturer le statut original pour pouvoir le restaurer en cas
+  // de rollback. Sans ça, un produit ARCHIVED retombait en READY_FOR_SALE.
+  const originalPfsStatus = existingPfsData.product.status || "READY_FOR_SALE";
 
   let newPfsProductId: string | null = null;
   let oldProductRenamed = false;
@@ -319,14 +324,12 @@ export async function pfsRefreshProduct(
         const packEntries: { color: string; size: string; qty: number }[] = [];
         const packColors: { ref: string }[] = [];
 
-        const overrideRef = variant.pfsColorRef;
-        if (overrideRef) {
-          packColors.push({ ref: overrideRef });
-        } else {
-          if (variant.color?.pfsColorRef) packColors.push({ ref: variant.color.pfsColorRef });
-          for (const sc of variant.subColors) {
-            if (sc.color?.pfsColorRef) packColors.push({ ref: sc.color.pfsColorRef });
+        if (variant.packLines.length > 0) {
+          for (const pl of variant.packLines) {
+            if (pl.color?.name) packColors.push({ ref: pl.color.name });
           }
+        } else if (variant.color?.name) {
+          packColors.push({ ref: variant.color.name });
         }
 
         if (packColors.length === 0) continue;
@@ -412,13 +415,8 @@ export async function pfsRefreshProduct(
 
     for (const variant of product.colors) {
       let colorRef = getEffectiveColorRef(variant);
-      if (!colorRef && variant.saleType === "PACK") {
-        for (const sc of variant.subColors) {
-          if (sc.color?.pfsColorRef) {
-            colorRef = sc.color.pfsColorRef;
-            break;
-          }
-        }
+      if (!colorRef && variant.saleType === "PACK" && variant.packLines.length > 0) {
+        colorRef = variant.packLines[0]?.color?.name ?? null;
       }
       if (!colorRef) continue;
       if (imagesByColor.has(colorRef) && imagesByColor.get(colorRef)!.length > 0) continue;
@@ -489,15 +487,34 @@ export async function pfsRefreshProduct(
       await pfsUpdateStatus([{ id: newPfsProductId, status: "READY_FOR_SALE" }]);
     }
 
-    // ── Step 6: Local DB — set lastRefreshedAt (ne touche pas createdAt) ──
+    // ── Step 6: Local DB — set lastRefreshedAt + nouveaux IDs marketplaces ──
     report("Mise à jour locale...");
-    await prisma.product.update({
-      where: { id: productId },
-      data: {
-        lastRefreshedAt: new Date(),
-        ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
-      },
-    });
+    const variantIdUpdates: { bjVariantId: string; pfsVariantId: string }[] = [];
+    for (let i = 0; i < variantCreateData.length; i++) {
+      const newPfsVariantId = createdVariantIds[i];
+      if (newPfsVariantId) {
+        variantIdUpdates.push({
+          bjVariantId: variantCreateData[i].bjVariant.id,
+          pfsVariantId: newPfsVariantId,
+        });
+      }
+    }
+    await prisma.$transaction([
+      prisma.product.update({
+        where: { id: productId },
+        data: {
+          lastRefreshedAt: new Date(),
+          pfsProductId: newPfsProductId,
+          ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
+        },
+      }),
+      ...variantIdUpdates.map((u) =>
+        prisma.productColor.update({
+          where: { id: u.bjVariantId },
+          data: { pfsVariantId: u.pfsVariantId },
+        }),
+      ),
+    ]);
 
     if (!options?.skipRevalidation) {
       revalidateTag("products", "default");
@@ -517,11 +534,11 @@ export async function pfsRefreshProduct(
     const errorMsg = err instanceof Error ? err.message : String(err);
     logger.error("[PFS Refresh] Error", { reference: product.reference, error: errorMsg });
 
-    // Rollback
+    // Rollback — restaurer la référence ET le statut d'origine du produit
     if (oldProductRenamed) {
       try {
         await pfsUpdateProduct(oldPfsProductId, { reference_code: product.reference });
-        await pfsUpdateStatus([{ id: oldPfsProductId, status: "READY_FOR_SALE" }]);
+        await pfsUpdateStatus([{ id: oldPfsProductId, status: originalPfsStatus as PfsStatus }]);
       } catch (restoreErr) {
         logger.error("[PFS Refresh] Failed to restore old product", {
           error: restoreErr instanceof Error ? restoreErr.message : String(restoreErr),

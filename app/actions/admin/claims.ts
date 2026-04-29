@@ -8,6 +8,7 @@ import { createCredit } from "@/lib/credits";
 import { addMessage } from "@/lib/messaging";
 import { notifyClientClaimUpdate } from "@/lib/notifications";
 import { emitChatEvent } from "@/lib/chat-events";
+import { logger } from "@/lib/logger";
 import { revalidateTag } from "next/cache";
 
 async function requireAdmin() {
@@ -107,7 +108,11 @@ export async function updateClaimStatus(claimId: string, newStatus: string, mess
     newStatus,
     message,
     claimId,
-  }).catch(() => {});
+  }).catch((err) =>
+    logger.error("[admin/claims] Email client réclamation échoué", {
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
 
   emitChatEvent({
     type: "CLAIM_STATUS_CHANGED",

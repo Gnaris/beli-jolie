@@ -938,7 +938,6 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   // PFS correspondance state
   const [pfsAttrs, setPfsAttrs] = useState<PfsAttributes | null>(null);
   const [pfsLoading, setPfsLoading] = useState(false);
-  const [pfsColorRefs, setPfsColorRefs] = useState<Record<string, string>>({});
   const [pfsCategoryIds, setPfsCategoryIds] = useState<Record<string, string>>({});
   const [pfsCompositionRefs, setPfsCompositionRefs] = useState<Record<string, string>>({});
   const [pfsCountryRefs, setPfsCountryRefs] = useState<Record<string, string>>({});
@@ -983,7 +982,6 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   const isRefUsedByOther = (type: string, entityName: string, ref: string): string | null => {
     if (!ref) return null;
     const refsMap: Record<string, Record<string, string>> = {
-      color: pfsColorRefs,
       category: pfsCategoryIds,
       composition: pfsCompositionRefs,
       country: pfsCountryRefs,
@@ -1001,7 +999,6 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   useEffect(() => {
     if (!pfsAttrs || pfsAttrs.pfsDisabled) return;
 
-    const colorSuggestions: Record<string, string> = {};
     const colorHexSuggestions: Record<string, string> = {};
     const categorySuggestions: Record<string, string> = {};
     const compositionSuggestions: Record<string, string> = {};
@@ -1011,7 +1008,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
 
     // Track refs already assigned in this batch to avoid duplicates
     const batchUsed: Record<string, Set<string>> = {
-      color: new Set(), category: new Set(), composition: new Set(), country: new Set(), season: new Set(),
+      category: new Set(), composition: new Set(), country: new Set(), season: new Set(),
     };
 
     const mappableTypes = new Set(["color", "category", "composition", "country", "season"]);
@@ -1029,21 +1026,17 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
       const key = `${entity.type}:${entity.name}`;
       let match = "";
 
-      if (entity.type === "color" && !pfsColorRefs[entity.name]) {
-        match = findBestPfsMatch(
+      if (entity.type === "color") {
+        // Auto-fill hex color from best PFS match (PFS ref no longer stored on Color)
+        const colorMatch = findBestPfsMatch(
           entity.name,
-          filterAvailable(
-            pfsAttrs.colors.map((c) => ({ value: c.reference, labels: c.labels, reference: c.reference })),
-            "color",
-          ),
+          pfsAttrs.colors.map((c) => ({ value: c.reference, labels: c.labels, reference: c.reference })),
         );
-        if (match) {
-          colorSuggestions[entity.name] = match;
-          batchUsed.color.add(match);
-          // Also auto-fill the hex color from PFS
-          const pfsColor = pfsAttrs.colors.find((c) => c.reference === match);
+        if (colorMatch) {
+          const pfsColor = pfsAttrs.colors.find((c) => c.reference === colorMatch);
           if (pfsColor?.value) colorHexSuggestions[entity.name] = pfsColor.value;
         }
+        continue;
       } else if (entity.type === "category" && !pfsCategoryIds[entity.name]) {
         match = findBestPfsMatch(
           entity.name,
@@ -1087,7 +1080,6 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
       if (!match) noMatchKeys.add(key);
     }
 
-    if (Object.keys(colorSuggestions).length) setPfsColorRefs((prev) => ({ ...colorSuggestions, ...prev }));
     if (Object.keys(colorHexSuggestions).length) setColorHexes((prev) => ({ ...colorHexSuggestions, ...prev }));
     if (Object.keys(categorySuggestions).length) setPfsCategoryIds((prev) => ({ ...categorySuggestions, ...prev }));
     if (Object.keys(compositionSuggestions).length) setPfsCompositionRefs((prev) => ({ ...compositionSuggestions, ...prev }));
@@ -1158,9 +1150,6 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   // Build PFS body fields for an entity
   const getPfsFields = (entity: MissingEntity): Record<string, string> => {
     const fields: Record<string, string> = {};
-    if (entity.type === "color" && pfsColorRefs[entity.name]) {
-      fields.pfsColorRef = pfsColorRefs[entity.name];
-    }
     if (entity.type === "category" && pfsCategoryIds[entity.name]) {
       const catId = pfsCategoryIds[entity.name];
       fields.pfsCategoryId = catId;
@@ -1248,8 +1237,7 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
     for (const entity of sorted) {
       // Skip entities with PFS ref conflicts
       const ref =
-        (entity.type === "color" ? pfsColorRefs[entity.name] :
-         entity.type === "category" ? pfsCategoryIds[entity.name] :
+        (entity.type === "category" ? pfsCategoryIds[entity.name] :
          entity.type === "composition" ? pfsCompositionRefs[entity.name] :
          entity.type === "country" ? pfsCountryRefs[entity.name] :
          entity.type === "season" ? pfsSeasonRefs[entity.name] : "") ?? "";
@@ -1265,11 +1253,6 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
   };
 
   // PFS select options builders
-  const pfsColorOptions = pfsAttrs?.colors.map((c) => ({
-    value: c.reference,
-    label: `${c.labels?.fr || c.reference}`,
-  })) ?? [];
-
   const pfsCategoryOptions = pfsAttrs?.categories.map((c) => ({
     value: c.id,
     label: `${c.labels?.fr || c.id} (${c.gender})`,
@@ -1384,14 +1367,13 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                   const patternPath = colorPatterns[entity.name];
                   const isUploading = uploadingPattern.has(entity.name);
                   const showPfsDropdown = pfsEnabled && !isCreated &&
-                    (type === "color" || type === "category" || type === "composition" || type === "country" || type === "season");
+                    (type === "category" || type === "composition" || type === "country" || type === "season");
 
                   // Determine if this entity has no PFS match
                   const isNoMatch = pfsNoMatch.has(key);
                   // Get the currently selected PFS ref for this entity
                   const currentPfsRef =
-                    (type === "color" ? pfsColorRefs[entity.name] :
-                     type === "category" ? pfsCategoryIds[entity.name] :
+                    (type === "category" ? pfsCategoryIds[entity.name] :
                      type === "composition" ? pfsCompositionRefs[entity.name] :
                      type === "country" ? pfsCountryRefs[entity.name] :
                      type === "season" ? pfsSeasonRefs[entity.name] : "") ?? "";
@@ -1552,23 +1534,6 @@ function MissingEntitiesPanel({ entities, onEntitiesCreated }: { entities: Missi
                                   </svg>
                                   <span className="text-[11px] font-medium">Aucune correspondance trouvée — sélectionnez manuellement ou laissez vide</span>
                                 </div>
-                              )}
-                              {type === "color" && (
-                                <CustomSelect
-                                  value={pfsColorRefs[entity.name] ?? ""}
-                                  onChange={(v) => {
-                                    setPfsColorRefs((prev) => ({ ...prev, [entity.name]: v }));
-                                    if (v) {
-                                      setPfsNoMatch((prev) => { const s = new Set(prev); s.delete(key); return s; });
-                                      const pfsColor = pfsAttrs?.colors.find((c) => c.reference === v);
-                                      if (pfsColor?.value) setColorHexes((prev) => ({ ...prev, [entity.name]: pfsColor.value }));
-                                    }
-                                  }}
-                                  options={[{ value: "", label: "— Couleur PFS —" }, ...pfsColorOptions]}
-                                  size="sm"
-                                  searchable
-                                  placeholder="Couleur PFS"
-                                />
                               )}
                               {type === "category" && (
                                 <CustomSelect

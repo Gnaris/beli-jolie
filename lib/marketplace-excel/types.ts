@@ -15,21 +15,25 @@ export interface ExportVariantSize {
   pfsSizeRef?: string | null;
 }
 
+export interface ExportPackLine {
+  /** Resolved color name (Color.name). */
+  colorName: string;
+  sizes: ExportVariantSize[];
+}
+
 export interface ExportVariant {
   variantId: string;
   saleType: SaleTypeKey;
-  // Primary color + optional sub-colors (composition) — UNIT and PACK
+  /** UNIT/PACK mono-couleur : 1 nom. PACK multi-couleurs : N noms (lignes du pack). */
   colorNames: string[];
-  subColorNames: string[];
-  /** Single PFS color chosen by admin for a multi-color combo. Overrides colorNames/subColorNames in PFS export. */
-  pfsColorOverride?: string | null;
   packQuantity: number | null;
   sizes: ExportVariantSize[];
-  unitPrice: number; // from DB — total price for PACK, per-unit for UNIT (HT)
-  weight: number; // kg per unit (UNIT) or per pack (PACK)
+  /** PACK multi-couleurs : si présent, supplante colorNames/sizes pour la composition réelle. */
+  packLines?: ExportPackLine[];
+  unitPrice: number;
+  weight: number;
   stock: number;
   sku: string | null;
-  // Ordered image DB paths (e.g. "/uploads/products/abc.webp")
   imagePaths: string[];
 }
 

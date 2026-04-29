@@ -121,7 +121,7 @@ interface ImageDraftRow {
   errors: string[];
   productId?: string;
   colorId?: string;
-  availableColors?: { id: string; name: string; hex: string; patternImage?: string | null; subColors?: { hex: string; patternImage?: string | null }[] }[];
+  availableColors?: { id: string; name: string; hex: string; patternImage?: string | null }[];
   availableRefs?: string[];
 }
 
@@ -448,38 +448,23 @@ export async function processProductImport(jobId: string, maxProducts?: number):
           continue;
         }
 
-        // Resolve colors — supports multi-color "Bleu/Rose/Vert"
-        // First color = main colorId, remaining = sub-colors (ProductColorSubColor)
+        // Resolve colors — une seule couleur par variante.
         const resolvedColors: {
           row: ProductImportRow;
           mainColor: (typeof dbColors)[0];
-          subColors: (typeof dbColors)[0][];
         }[] = [];
         for (const row of colorRows) {
-          const parts = row.color.split("/").map((c) => c.trim()).filter(Boolean);
-          if (parts.length === 0) {
+          const colorName = row.color.trim();
+          if (!colorName) {
             errorRows.push({ ...row, errors: [`Couleur manquante.`] });
             continue;
           }
-          const missingParts: string[] = [];
-          const resolvedParts: (typeof dbColors)[0][] = [];
-          for (const part of parts) {
-            const dbColor = colorMap.get(normalizeColorName(part));
-            if (!dbColor) {
-              missingParts.push(part);
-            } else {
-              resolvedParts.push(dbColor);
-            }
-          }
-          if (missingParts.length > 0) {
-            errorRows.push({ ...row, errors: [`Couleur(s) introuvable(s) : ${missingParts.join(", ")}`] });
+          const dbColor = colorMap.get(normalizeColorName(colorName));
+          if (!dbColor) {
+            errorRows.push({ ...row, errors: [`Couleur introuvable : ${colorName}`] });
             continue;
           }
-          resolvedColors.push({
-            row,
-            mainColor: resolvedParts[0],
-            subColors: resolvedParts.slice(1),
-          });
+          resolvedColors.push({ row, mainColor: dbColor });
         }
 
         if (resolvedColors.length === 0) { processedCount++; continue; }
@@ -633,7 +618,7 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                 // or default to the first variant if none is explicitly marked
                 create: (() => {
                   const hasExplicitPrimary = resolvedColors.some(({ row }) => row.isPrimary);
-                  return resolvedColors.map(({ row, mainColor, subColors }, ci) => {
+                  return resolvedColors.map(({ row, mainColor }, ci) => {
                     const isPack = row.saleType === "PACK";
                     return {
                       colorId: mainColor.id,
@@ -654,9 +639,6 @@ export async function processProductImport(jobId: string, maxProducts?: number):
                             return totalQty > 0 ? totalQty : (row.packQuantity ?? null);
                           })()
                         : null,
-                      subColors: subColors.length > 0
-                        ? { create: subColors.map((sc, idx) => ({ colorId: sc.id, position: idx })) }
-                        : undefined,
                     };
                   });
                 })(),
@@ -755,10 +737,8 @@ export async function processProductImport(jobId: string, maxProducts?: number):
             reference: ref,
             name: firstRow.name,
             category: firstRow.category,
-            variants: resolvedColors.map(({ row, mainColor, subColors }) => ({
-              color: subColors.length > 0
-                ? [mainColor.name, ...subColors.map((sc) => sc.name)].join("/")
-                : mainColor.name,
+            variants: resolvedColors.map(({ row, mainColor }) => ({
+              color: mainColor.name,
               saleType: row.saleType,
               unitPrice: row.unitPrice,
               stock: row.stock,
@@ -1019,7 +999,7 @@ export async function processImageImport(jobId: string): Promise<void> {
     const fileRefs = [...new Set(validFiles.map((f) => f.reference))];
     const products = await prisma.product.findMany({
       where: { reference: { in: fileRefs } },
-      include: { colors: { include: { color: true, subColors: { include: { color: true } } } } },
+      include: { colors: { include: { color: true } } },
     });
     const productMap = new Map(products.map((p) => [p.reference.toUpperCase(), p]));
 
@@ -1067,53 +1047,20 @@ export async function processImageImport(jobId: string): Promise<void> {
           continue;
         }
 
-        // Match color — compare the ordered list of colors (main + sub-colors)
-        // File: "Doré,Argenté,Or Rose" → main=Doré, sub=[Argenté, Or Rose] in order
-        // Comma separator in filenames (since "/" is forbidden)
-        const fileColorParts = file.color.split(",").map((c) => normalizeColorName(c.trim()));
-
-        // Build the ordered color list for each variant (main color + sub-colors by position)
-        let matchingVariants = product.colors.filter((pc) => {
-          if (!pc.color) return false;
-          const variantColors = [
-            normalizeColorName(pc.color.name),
-            ...pc.subColors.map((sc) => normalizeColorName(sc.color.name)),
-          ];
-          // Exact ordered match (order matters: Doré,Rouge ≠ Rouge,Doré)
-          return variantColors.length === fileColorParts.length &&
-            variantColors.every((c, i) => c === fileColorParts[i]);
-        });
-
-        // Fallback: if no exact ordered match, try matching by main color only (single-color files)
-        if (matchingVariants.length === 0 && fileColorParts.length === 1) {
-          matchingVariants = product.colors.filter(
-            (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorParts[0]
-          );
-        }
+        // Match color — file ne contient qu'une couleur par variante
+        const fileColor = normalizeColorName(file.color.trim());
+        const matchingVariants = product.colors.filter(
+          (pc) => pc.color && normalizeColorName(pc.color.name) === fileColor
+        );
 
         if (matchingVariants.length === 0) {
-          // List all variant combinations (main + sub-colors) for error correction UI
-          const availableColors = product.colors.map((pc) => {
-            const subNames = pc.subColors
-              .sort((a, b) => a.position - b.position)
-              .map((sc) => sc.color.name);
-            const fullName = subNames.length > 0
-              ? [pc.color?.name ?? "", ...subNames].join("/")
-              : pc.color?.name ?? "";
-            return {
-              id: pc.id,              // ProductColor ID (variant), not Color ID
-              name: fullName,
-              hex: pc.color?.hex ?? "#9CA3AF",
-              patternImage: pc.color?.patternImage ?? null,
-              subColors: pc.subColors
-                .sort((a, b) => a.position - b.position)
-                .map((sc) => ({
-                  hex: sc.color.hex ?? "#9CA3AF",
-                  patternImage: sc.color.patternImage ?? null,
-                })),
-              saleType: pc.saleType,
-            };
-          });
+          const availableColors = product.colors.map((pc) => ({
+            id: pc.id,
+            name: pc.color?.name ?? "",
+            hex: pc.color?.hex ?? "#9CA3AF",
+            patternImage: pc.color?.patternImage ?? null,
+            saleType: pc.saleType,
+          }));
 
           errorRows.push({
             filename: file.filename,

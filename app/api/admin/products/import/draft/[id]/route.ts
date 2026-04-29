@@ -288,7 +288,7 @@ async function handleImageRowFix(
       return NextResponse.json({ ok: false, errors: ["La quantité par pack doit être d'au moins 2."] }, { status: 400 });
     }
 
-    const [mainColorId, ...subColorIds] = cv.colorIds;
+    const [mainColorId] = cv.colorIds;
     const newVariant = await prisma.productColor.create({
       data: {
         productId,
@@ -299,12 +299,6 @@ async function handleImageRowFix(
         isPrimary: false,
         saleType,
         packQuantity: saleType === "PACK" && cv.packQuantity ? cv.packQuantity : null,
-        subColors: subColorIds.length > 0 ? {
-          create: subColorIds.map((id, i) => ({
-            colorId: id,
-            position: i,
-          })),
-        } : undefined,
       },
     });
     productColorId = newVariant.id;

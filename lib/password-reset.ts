@@ -43,6 +43,6 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
   });
 
   if (!result.sent && result.reason === "no_config") {
-    logger.warn("[password-reset] Configuration Resend manquante");
+    logger.warn("[password-reset] Configuration SMTP manquante");
   }
 }

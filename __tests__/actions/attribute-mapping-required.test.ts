@@ -11,9 +11,16 @@ const mockColorTranslationUpsert = vi.fn();
 const mockSeasonTranslationUpsert = vi.fn();
 const mockCountryTranslationUpsert = vi.fn();
 
+const mockCategoryFindFirst = vi.fn();
+const mockCategoryUpdate = vi.fn();
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    category: { create: (...a: unknown[]) => mockCategoryCreate(...a) },
+    category: {
+      create: (...a: unknown[]) => mockCategoryCreate(...a),
+      findFirst: (...a: unknown[]) => mockCategoryFindFirst(...a),
+      update: (...a: unknown[]) => mockCategoryUpdate(...a),
+    },
     color: { create: (...a: unknown[]) => mockColorCreate(...a) },
     season: { create: (...a: unknown[]) => mockSeasonCreate(...a) },
     manufacturingCountry: {
@@ -45,12 +52,10 @@ vi.mock("@/lib/auto-translate", () => ({
 }));
 
 import { createCategory } from "@/app/actions/admin/categories";
-import { createColor } from "@/app/actions/admin/colors";
 import { createSeason } from "@/app/actions/admin/seasons";
 import { createManufacturingCountry } from "@/app/actions/admin/manufacturing-countries";
 import {
   createCategoryQuick,
-  createColorQuick,
   createSeasonQuick,
   createManufacturingCountryQuick,
 } from "@/app/actions/admin/quick-create";
@@ -69,6 +74,7 @@ describe("attribute creation — PFS mapping is required", () => {
     mockSeasonCreate.mockResolvedValue({ id: "s1", name: "PE 2026" });
     mockCountryCreate.mockResolvedValue({ id: "co1", name: "Chine" });
     mockCountryFindFirst.mockResolvedValue(null);
+    mockCategoryFindFirst.mockResolvedValue(null);
   });
 
   // ── createCategory (form-based) ──
@@ -100,21 +106,6 @@ describe("attribute creation — PFS mapping is required", () => {
           pfsFamilyName: "Bijoux_Fantaisie",
           pfsCategoryName: "Bagues",
         }),
-      }));
-    });
-  });
-
-  // ── createColor (form-based) ──
-  describe("createColor", () => {
-    it("throws when pfsColorRef is missing", async () => {
-      await expect(createColor(fd({ name: "Noir" }))).rejects.toThrow(/Paris Fashion Shop/);
-      expect(mockColorCreate).not.toHaveBeenCalled();
-    });
-
-    it("creates when pfsColorRef is provided", async () => {
-      await createColor(fd({ name: "Noir", pfsColorRef: "Noir" }));
-      expect(mockColorCreate).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ pfsColorRef: "Noir" }),
       }));
     });
   });
@@ -165,15 +156,6 @@ describe("attribute creation — PFS mapping is required", () => {
           pfsCategoryName: "Bagues",
         }),
       }));
-    });
-
-    it("createColorQuick throws without pfsColorRef", async () => {
-      await expect(createColorQuick({ fr: "Noir" }, "#000", null)).rejects.toThrow(/Paris Fashion Shop/);
-    });
-
-    it("createColorQuick succeeds with pfsColorRef", async () => {
-      await createColorQuick({ fr: "Noir" }, "#000", null, "Noir");
-      expect(mockColorCreate).toHaveBeenCalled();
     });
 
     it("createSeasonQuick throws without pfsRef", async () => {

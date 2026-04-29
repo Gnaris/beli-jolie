@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteColor, updateColorDirect, updateColorPfsRef } from "@/app/actions/admin/colors";
+import { deleteColor, updateColorDirect } from "@/app/actions/admin/colors";
 import { batchUpdateTranslations } from "@/app/actions/admin/batch-translations";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
@@ -13,7 +13,6 @@ interface ColorItem {
   name: string;
   hex: string | null;
   patternImage: string | null;
-  pfsColorRef: string | null;
   productCount: number;
   translations: Record<string, string>;
 }
@@ -60,14 +59,9 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
     translations: Record<string, string>,
     hex?: string,
     patternImage?: string | null,
-    pfs?: { ref?: string },
   ) {
     if (!editTarget) return;
     await updateColorDirect(editTarget.id, name, hex ?? null, translations, patternImage ?? null);
-    const newRef = pfs?.ref || null;
-    if (newRef !== (editTarget.pfsColorRef ?? null)) {
-      await updateColorPfsRef(editTarget.id, newRef);
-    }
     router.refresh();
   }
 
@@ -79,7 +73,6 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
 
   return (
     <>
-      {/* Recherche + Tout traduire */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="relative">
           <input
@@ -124,7 +117,6 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Nom</th>
                   <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Valeur</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Produits</th>
-                  <th className="text-left text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden md:table-cell">Réf Paris Fashion Shop</th>
                   <th className="text-center text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Traduction</th>
                   <th className="text-right text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
                 </tr>
@@ -149,13 +141,6 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className="badge badge-neutral text-[10px]">{color.productCount}</span>
-                    </td>
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      {color.pfsColorRef ? (
-                        <span className="badge badge-purple text-[10px]">PFS: {color.pfsColorRef}</span>
-                      ) : (
-                        <span className="text-text-muted text-xs">—</span>
-                      )}
                     </td>
                     <td className="px-4 py-3 text-center hidden sm:table-cell">
                       {Object.keys(color.translations).length === 0 ? (
@@ -219,7 +204,6 @@ export default function ColorsManager({ initialColors }: { initialColors: ColorI
             translations: editTarget.translations,
             hex: editTarget.hex,
             patternImage: editTarget.patternImage,
-            pfsRef: editTarget.pfsColorRef,
             onSave: handleSave,
           }}
         />

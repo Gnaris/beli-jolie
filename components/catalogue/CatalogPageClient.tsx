@@ -5,9 +5,6 @@ import CatalogProductCard from "./CatalogProductCard";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface SubColor {
-  color: { name: string; hex: string | null; patternImage?: string | null };
-}
 interface VariantSize {
   size: { name: string };
   quantity: number;
@@ -21,7 +18,6 @@ interface ColorVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   color: { id: string; name: string; hex: string | null; patternImage?: string | null } | null;
-  subColors: SubColor[];
   variantSizes: VariantSize[];
 }
 interface ColorImage {

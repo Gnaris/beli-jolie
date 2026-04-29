@@ -11,16 +11,12 @@ import type { ExportProduct } from "./types";
 
 /**
  * Label used for a variant in PFS image filenames.
- * Honors `pfsColorOverride` when the admin has mapped a multi-color combo
- * to a single canonical PFS color name. Falls back to the concatenation
- * of primary color + sub-colors, or a positional placeholder.
+ * Single color for UNIT/PACK mono ; concaténation pour PACK multi-couleurs.
  */
 export function variantColorSlug(product: ExportProduct, idx: number): string {
   const v = product.variants[idx];
   if (!v) return `v${idx + 1}`;
-  const override = v.pfsColorOverride?.trim();
-  if (override) return override;
-  return [...v.colorNames, ...v.subColorNames].join(" ") || `v${idx + 1}`;
+  return v.colorNames.join(" ") || `v${idx + 1}`;
 }
 
 /**

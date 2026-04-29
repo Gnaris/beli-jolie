@@ -128,7 +128,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           colors: {
             include: {
               color: true,
-              subColors: { orderBy: { position: "asc" }, include: { color: true } },
             },
           },
         },
@@ -138,27 +137,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({
         ok: true,
         products: products.map((p) => {
-          // Group by color composition (groupKey) to avoid showing UNIT + PACK duplicates
-          const grouped = new Map<string, { id: string; name: string; hex: string; patternImage: string | null; subColors: { hex: string; patternImage: string | null }[] }>();
+          // Group by colorId to avoid showing UNIT + PACK duplicates
+          const grouped = new Map<string, { id: string; name: string; hex: string; patternImage: string | null }>();
           for (const pc of p.colors) {
             if (!pc.colorId || !pc.color) continue;
-            const subNames = pc.subColors.map((sc) => sc.color.name);
-            const groupKey = subNames.length > 0
-              ? `${pc.colorId}::${subNames.join(",")}`
-              : pc.colorId;
+            const groupKey = pc.colorId;
             if (!grouped.has(groupKey)) {
-              const fullName = subNames.length > 0
-                ? [pc.color.name, ...subNames].join("/")
-                : pc.color.name;
               grouped.set(groupKey, {
                 id: pc.id,
-                name: fullName,
+                name: pc.color.name,
                 hex: pc.color.hex ?? "#9CA3AF",
                 patternImage: pc.color.patternImage ?? null,
-                subColors: pc.subColors.map((sc) => ({
-                  hex: sc.color.hex ?? "#9CA3AF",
-                  patternImage: sc.color.patternImage ?? null,
-                })),
               });
             }
           }

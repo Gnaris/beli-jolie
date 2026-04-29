@@ -39,7 +39,11 @@ vi.mock("next-auth", () => ({
   getServerSession: vi.fn().mockResolvedValue({ user: { role: "ADMIN" } }),
 }));
 vi.mock("@/lib/auth", () => ({ authOptions: {} }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }));
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
+  unstable_cache: <T extends (...args: unknown[]) => unknown>(fn: T) => fn,
+}));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/translate", () => ({ invalidateProductTranslations: vi.fn() }));
@@ -52,13 +56,31 @@ vi.mock("@/lib/storage", () => ({ deleteFiles: vi.fn(), keyFromDbPath: vi.fn((s:
 vi.mock("@/lib/image-utils", () => ({ getImagePaths: vi.fn(() => ({ large: "l", medium: "m", thumb: "t" })) }));
 
 // Spy-mock the marketplace API modules so we can detect any accidental call.
-const pfsCheckReferenceSpy = vi.fn();
-const pfsDeleteProductSpy = vi.fn();
-const ankorstoreSearchSpy = vi.fn();
-const ankorstoreDeleteSpy = vi.fn();
+const {
+  pfsCheckReferenceSpy,
+  pfsDeleteProductSpy,
+  ankorstoreSearchSpy,
+  ankorstoreDeleteSpy,
+} = vi.hoisted(() => ({
+  pfsCheckReferenceSpy: vi.fn(),
+  pfsDeleteProductSpy: vi.fn(),
+  ankorstoreSearchSpy: vi.fn(),
+  ankorstoreDeleteSpy: vi.fn(),
+}));
 
 vi.mock("@/lib/pfs-api", () => ({ pfsCheckReference: pfsCheckReferenceSpy }));
-vi.mock("@/lib/pfs-api-write", () => ({ pfsDeleteProduct: pfsDeleteProductSpy }));
+vi.mock("@/lib/pfs-api-write", () => ({
+  pfsDeleteProduct: pfsDeleteProductSpy,
+  // Stubs for getPfsAnnexes() chain (loaded by products.ts → lib/pfs-annexes).
+  pfsGetGenders: vi.fn().mockResolvedValue([]),
+  pfsGetFamilies: vi.fn().mockResolvedValue([]),
+  pfsGetCategories: vi.fn().mockResolvedValue([]),
+  pfsGetColors: vi.fn().mockResolvedValue([]),
+  pfsGetCompositions: vi.fn().mockResolvedValue([]),
+  pfsGetCountries: vi.fn().mockResolvedValue([]),
+  pfsGetSizes: vi.fn().mockResolvedValue([]),
+  pfsGetCollections: vi.fn().mockResolvedValue([]),
+}));
 vi.mock("@/lib/ankorstore-api", () => ({ ankorstoreSearchProductsByRef: ankorstoreSearchSpy }));
 vi.mock("@/lib/ankorstore-api-write", () => ({ ankorstoreDeleteProduct: ankorstoreDeleteSpy }));
 

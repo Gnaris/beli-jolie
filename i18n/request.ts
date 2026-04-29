@@ -1,18 +1,13 @@
 import { getRequestConfig } from "next-intl/server";
-import { cookies } from "next/headers";
-import { VALID_LOCALES, type Locale } from "./locales";
+import { hasLocale } from "next-intl";
+import { routing } from "./routing";
 
 export { VALID_LOCALES, LOCALE_LABELS, LOCALE_FULL_NAMES, RTL_LOCALES } from "./locales";
 export type { Locale } from "./locales";
 
-function isValidLocale(locale: string): locale is Locale {
-  return VALID_LOCALES.includes(locale as Locale);
-}
-
-export default getRequestConfig(async () => {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("bj_locale")?.value ?? "fr";
-  const locale: Locale = isValidLocale(raw) ? raw : "fr";
+export default getRequestConfig(async ({ requestLocale }) => {
+  const requested = await requestLocale;
+  const locale = hasLocale(routing.locales, requested) ? requested : routing.defaultLocale;
 
   return {
     locale,

@@ -12,6 +12,7 @@
  *    succeeded server-side).
  */
 
+import { prisma } from "@/lib/prisma";
 import { ankorstoreSearchProductsByRef } from "@/lib/ankorstore-api";
 import {
   ankorstorePushProducts,
@@ -47,7 +48,7 @@ function retailTTC(v: ExportVariant, ctx: ExportContext): number {
 }
 
 function variantColorLabel(v: ExportVariant): string {
-  return [...v.colorNames, ...v.subColorNames].join(" / ");
+  return v.colorNames.join(" / ");
 }
 
 function variantSizeLabel(v: ExportVariant): string {
@@ -172,6 +173,46 @@ export async function ankorstoreRefreshProduct(productId: string): Promise<Ankor
       reason: "error",
       error: pushResult.error ?? "Échec du push Ankorstore",
     };
+  }
+
+  // Stocker les IDs Ankorstore (produit + variantes) en base.
+  // L'upsert Ankorstore se fait par external_id = product.reference, donc
+  // l'ID produit est stable. On apparie les variantes par SKU.
+  try {
+    const ankorsProduct = existing[0];
+    const skuToAnkorsVariantId = new Map<string, string>();
+    for (const av of ankorsProduct.variants) {
+      if (av.sku) skuToAnkorsVariantId.set(av.sku, av.id);
+    }
+
+    const variantUpdates: { bjVariantId: string; ankorsVariantId: string }[] = [];
+    for (let idx = 0; idx < product.variants.length; idx++) {
+      const v = product.variants[idx];
+      const expectedSku = pushProduct.variants[idx]?.sku;
+      const matched = expectedSku ? skuToAnkorsVariantId.get(expectedSku) : undefined;
+      if (matched) {
+        variantUpdates.push({ bjVariantId: v.variantId, ankorsVariantId: matched });
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.product.update({
+        where: { id: productId },
+        data: { ankorsProductId: ankorsProduct.id },
+      }),
+      ...variantUpdates.map((u) =>
+        prisma.productColor.update({
+          where: { id: u.bjVariantId },
+          data: { ankorsVariantId: u.ankorsVariantId },
+        }),
+      ),
+    ]);
+  } catch (err) {
+    // Le push a réussi côté Ankorstore — on log mais on ne bloque pas.
+    logger.warn("[Ankorstore Refresh] Failed to persist marketplace IDs", {
+      reference: product.reference,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   logger.info("[Ankorstore Refresh] Push started", {

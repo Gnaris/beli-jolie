@@ -10,20 +10,13 @@ import { addToCart } from "@/app/actions/client/cart";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 
-interface SubColorInfo {
-  name: string;
-  hex: string;
-  patternImage?: string | null;
-}
-
 interface VariantData {
   id: string;
-  groupKey: string;              // Unique key: colorId + ordered sub-color names (order matters)
+  groupKey: string;              // Unique key: colorId
   colorId: string | null;
   colorName: string | undefined;
   colorHex: string | null | undefined;
   patternImage?: string | null;     // Image motif (léopard, camouflage…) — prioritaire sur hex
-  subColors?: SubColorInfo[]; // Sous-couleurs optionnelles (ex: [{name:"Rouge",hex:"#FF0000"}])
   unitPrice: number;
   weight: number;
   stock: number;
@@ -157,7 +150,6 @@ export default function ProductDetail({
         name: v.colorName,
         hex: v.colorHex,
         patternImage: v.patternImage,
-        subColors: v.subColors,
       }])
   ).values()];
 
@@ -206,13 +198,10 @@ export default function ProductDetail({
     ? displayedImgs[0]?.path ?? null
     : selectedImgs[hoveredImageIdx ?? activeImageIdx]?.path ?? null;
 
-  // Build full color label including sub-colors (ex: "Doré/Rouge/Noir")
+  // Build full color label
   const getFullColorName = (groupKey: string) => {
     const c = uniqueColors.find(uc => uc.groupKey === groupKey);
     if (!c) return "";
-    if (c.subColors && c.subColors.length > 0) {
-      return [c.name, ...c.subColors.map(sc => sc.name)].join("/");
-    }
     return c.name;
   };
 
@@ -465,7 +454,6 @@ export default function ProductDetail({
                     <ColorSwatch
                       hex={c.hex}
                       patternImage={c.patternImage}
-                      subColors={c.subColors?.map(sc => ({ hex: sc.hex, patternImage: sc.patternImage }))}
                       size={36}
                       rounded="full"
                       border={false}
@@ -570,9 +558,7 @@ export default function ProductDetail({
                   const effectiveStock = v.stock;
                   const qty          = quantities[v.id] ?? 1;
                   const displayPrice = hasClientDsc ? clientPrice : price;
-                  const fullColorName = v.subColors && v.subColors.length > 0
-                    ? [v.colorName, ...v.subColors.map(sc => sc.name)].filter(Boolean).join(" / ")
-                    : v.colorName ?? "";
+                  const fullColorName = v.colorName ?? "";
                   return (
                     <div key={v.id} className="bg-bg-primary border border-border rounded-xl px-4 py-4 space-y-3 hover:border-border-dark transition-colors">
                       <div className="flex items-start justify-between gap-3">
@@ -580,7 +566,6 @@ export default function ProductDetail({
                           <ColorSwatch
                             hex={v.colorHex ?? "#9CA3AF"}
                             patternImage={v.patternImage}
-                            subColors={v.subColors?.map(sc => ({ hex: sc.hex, patternImage: sc.patternImage }))}
                             size={28}
                             rounded="full"
                             border={true}

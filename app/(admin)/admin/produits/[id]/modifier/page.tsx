@@ -35,13 +35,19 @@ export default async function ModifierProduitPage({
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
           include: {
             color: true,
-            subColors: {
-              orderBy: { position: "asc" },
-              include: { color: true },
-            },
             variantSizes: {
               orderBy: { size: { position: "asc" } },
               include: { size: true },
+            },
+            packLines: {
+              orderBy: { position: "asc" },
+              include: {
+                color: true,
+                sizes: {
+                  orderBy: { size: { position: "asc" } },
+                  include: { size: true },
+                },
+              },
             },
           },
         },
@@ -124,53 +130,58 @@ export default async function ModifierProduitPage({
     if (!relatedImageMap.has(img.productId)) relatedImageMap.set(img.productId, img.path);
   }
 
-  const initialVariants: VariantState[] = product.colors.map((pc) => ({
-    tempId:        uid(),
-    dbId:          pc.id,
-    colorId:       pc.colorId ?? "",
-    colorName:     pc.color?.name ?? "",
-    colorHex:      pc.color?.hex ?? "#9CA3AF",
-    subColors:     pc.subColors.map((sc) => ({
-      colorId:   sc.colorId,
-      colorName: sc.color.name,
-      colorHex:  sc.color.hex ?? "#9CA3AF",
-    })),
-    sizeEntries:   pc.variantSizes.map((vs) => ({
-      tempId:       uid(),
-      sizeId:       vs.sizeId,
-      sizeName:     vs.size.name,
-      quantity:     String(vs.quantity),
-      pricePerUnit: vs.pricePerUnit != null ? String(vs.pricePerUnit) : undefined,
-    })),
-    unitPrice:     (() => {
-      if (pc.saleType === "PACK") {
-        const totalQty = pc.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0);
-        if (totalQty > 0) return String(Math.round(Number(pc.unitPrice) / totalQty * 100) / 100);
-      }
-      return String(pc.unitPrice);
-    })(),
-    weight:        String(pc.weight),
-    stock:         String(pc.stock ?? 0),
-    isPrimary:     pc.isPrimary,
-    saleType:      pc.saleType,
-    packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
-    sku:           pc.sku ?? "",
-    disabled:      pc.disabled ?? false,
-    pfsColorRef:   pc.pfsColorRef ?? "",
-  }));
-
-  function editGroupKey(pc: {
-    id: string; colorId: string | null;
-    subColors: { colorId: string; color: { name: string } }[];
-  }): string {
-    if (!pc.colorId) return "";
-    if (pc.subColors.length === 0) return pc.colorId;
-    return `${pc.colorId}::${pc.subColors.map(sc => sc.colorId).join(",")}`;
-  }
+  const initialVariants: VariantState[] = product.colors.map((pc) => {
+    const hasPackLines = pc.saleType === "PACK" && pc.packLines.length > 0;
+    const packLines = hasPackLines
+      ? pc.packLines.map((line) => ({
+          tempId:    uid(),
+          colorId:   line.colorId,
+          colorName: line.color?.name ?? "",
+          colorHex:  line.color?.hex ?? "#9CA3AF",
+          sizeEntries: line.sizes.map((ls) => ({
+            tempId:   uid(),
+            sizeId:   ls.sizeId,
+            sizeName: ls.size.name,
+            quantity: String(ls.quantity),
+          })),
+        }))
+      : [];
+    const totalPackQty = hasPackLines
+      ? packLines.reduce((s, l) => s + l.sizeEntries.reduce((a, e) => a + (parseInt(e.quantity) || 0), 0), 0)
+      : pc.variantSizes.reduce((sum, vs) => sum + vs.quantity, 0);
+    return {
+      tempId:        uid(),
+      dbId:          pc.id,
+      colorId:       pc.colorId ?? "",
+      colorName:     pc.color?.name ?? "",
+      colorHex:      pc.color?.hex ?? "#9CA3AF",
+      sizeEntries:   pc.variantSizes.map((vs) => ({
+        tempId:       uid(),
+        sizeId:       vs.sizeId,
+        sizeName:     vs.size.name,
+        quantity:     String(vs.quantity),
+        pricePerUnit: vs.pricePerUnit != null ? String(vs.pricePerUnit) : undefined,
+      })),
+      packLines,
+      unitPrice:     (() => {
+        if (pc.saleType === "PACK") {
+          if (totalPackQty > 0) return String(Math.round(Number(pc.unitPrice) / totalPackQty * 100) / 100);
+        }
+        return String(pc.unitPrice);
+      })(),
+      weight:        String(pc.weight),
+      stock:         String(pc.stock ?? 0),
+      isPrimary:     pc.isPrimary,
+      saleType:      pc.saleType,
+      packQuantity:  pc.packQuantity != null ? String(pc.packQuantity) : "",
+      sku:           pc.sku ?? "",
+      disabled:      pc.disabled ?? false,
+    };
+  });
 
   const dbIdToGroupKey = new Map<string, string>();
   for (const pc of product.colors) {
-    dbIdToGroupKey.set(pc.id, editGroupKey(pc));
+    dbIdToGroupKey.set(pc.id, pc.colorId ?? "");
   }
 
   const colorImageMap = new Map<string, ColorImageState>();
@@ -182,14 +193,12 @@ export default async function ModifierProduitPage({
       const colorMeta = img.productColorId
         ? product.colors.find((pc) => pc.id === img.productColorId)
         : product.colors.find((pc) => pc.colorId === img.colorId);
-      const allNames = colorMeta
-        ? [colorMeta.color?.name ?? img.colorId, ...colorMeta.subColors.map((sc) => sc.color.name)]
-        : [img.colorId];
+      const displayName = colorMeta?.color?.name ?? img.colorId;
       const displayHex = colorMeta?.color?.hex ?? "#9CA3AF";
       colorImageMap.set(gk, {
         groupKey:      gk,
         colorId:       img.colorId,
-        colorName:     allNames.join(" / "),
+        colorName:     displayName,
         colorHex:      displayHex,
         imagePreviews: [],
         uploadedPaths: [],
@@ -356,6 +365,29 @@ export default async function ModifierProduitPage({
                     </p>
                   </>
                 )}
+                <span className="hidden sm:block h-4 w-px bg-border" />
+                <span
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                    product.pfsProductId
+                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
+                      : "bg-bg-secondary text-text-muted border-border"
+                  }`}
+                  title={product.pfsProductId ? "Publié sur Paris Fashion Shop" : "Non publié sur Paris Fashion Shop"}
+                >
+                  <span className={`w-1 h-1 rounded-full ${product.pfsProductId ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
+                  PFS
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                    product.ankorsProductId
+                      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
+                      : "bg-bg-secondary text-text-muted border-border"
+                  }`}
+                  title={product.ankorsProductId ? "Publié sur Ankorstore" : "Non publié sur Ankorstore"}
+                >
+                  <span className={`w-1 h-1 rounded-full ${product.ankorsProductId ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
+                  Ankorstore
+                </span>
               </div>
             </div>
             <div className="flex items-center gap-2">

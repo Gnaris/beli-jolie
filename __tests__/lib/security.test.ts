@@ -125,9 +125,10 @@ describe("lib/security", () => {
     });
 
     it("should not trigger lockout before 3 failures", async () => {
+      // Prisma upsert renvoie l'état APRÈS update — failureCount=2 = 2e échec
       mockPrisma.loginAttempt.create.mockResolvedValue({});
       mockPrisma.accountLockout.upsert.mockResolvedValue({
-        failureCount: 0, // before increment = 1 after
+        failureCount: 2,
         lockoutLevel: 0,
       });
 
@@ -135,10 +136,11 @@ describe("lib/security", () => {
       expect(mockPrisma.accountLockout.update).not.toHaveBeenCalled();
     });
 
-    it("should trigger level 1 lockout (1 min) after 3 failures", async () => {
+    it("should trigger level 1 lockout (1 min) after 3 failures (P2-07)", async () => {
+      // failureCount=3 (valeur APRÈS update) → atteint MAX_ATTEMPTS_BEFORE_LOCKOUT
       mockPrisma.loginAttempt.create.mockResolvedValue({});
       mockPrisma.accountLockout.upsert.mockResolvedValue({
-        failureCount: 2, // +1 = 3, which >= MAX_ATTEMPTS_BEFORE_LOCKOUT
+        failureCount: 3,
         lockoutLevel: 0,
       });
       mockPrisma.accountLockout.update.mockResolvedValue({});
@@ -154,10 +156,22 @@ describe("lib/security", () => {
       });
     });
 
+    it("ne se déclenche PAS au 2e échec (P2-07 — anti-régression du double-comptage)", async () => {
+      // Avec l'ancien bug `+1`, ce cas verrouillait à tort.
+      mockPrisma.loginAttempt.create.mockResolvedValue({});
+      mockPrisma.accountLockout.upsert.mockResolvedValue({
+        failureCount: 2, // 2e échec
+        lockoutLevel: 0,
+      });
+
+      await recordLoginFailure("user@test.com", "1.2.3.4");
+      expect(mockPrisma.accountLockout.update).not.toHaveBeenCalled();
+    });
+
     it("should trigger permanent lockout at level 11", async () => {
       mockPrisma.loginAttempt.create.mockResolvedValue({});
       mockPrisma.accountLockout.upsert.mockResolvedValue({
-        failureCount: 2,
+        failureCount: 3,
         lockoutLevel: 10, // next = 11 = permanent
       });
       mockPrisma.accountLockout.update.mockResolvedValue({});

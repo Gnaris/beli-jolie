@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice } from "./ColorVariantManager";
+import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack } from "./ColorVariantManager";
 import CompletenessChecklist from "./CompletenessChecklist";
 import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller, fetchProductFormAttributes } from "@/app/actions/admin/products";
 
@@ -11,6 +11,7 @@ import LocaleTabs from "./LocaleTabs";
 import QuickCreateModal, { QuickCreateType } from "./QuickCreateModal";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { usePfsRefreshQueue } from "./PfsRefreshContext";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
@@ -39,6 +40,22 @@ export interface AvailableProduct {
 interface CompositionItem {
   compositionId: string;
   percentage: string;
+}
+
+/**
+ * Vrai si la variante n'a aucune taille renseignée. Pour un PACK
+ * multi-couleurs, les tailles vivent dans `packLines` (1 ligne par couleur du
+ * paquet, chacune avec ses tailles) — on considère la variante valide si
+ * chaque ligne a au moins 1 taille.
+ */
+function variantHasNoSizes(v: VariantState): boolean {
+  if (isMultiColorPack(v)) {
+    return (
+      v.packLines.length === 0 ||
+      v.packLines.some((line) => line.sizeEntries.length === 0)
+    );
+  }
+  return v.sizeEntries.length === 0;
 }
 
 interface TranslationState {
@@ -96,7 +113,6 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
     colorId:      first?.id   ?? "",
     colorName:    first?.name ?? "",
     colorHex:     first?.hex  ?? "#9CA3AF",
-    subColors:    [],
     sizeEntries:  [],
     unitPrice:    "",
     weight:       "",
@@ -104,7 +120,7 @@ function defaultVariant(availableColors: AvailableColor[]): VariantState {
     isPrimary:    true,
     saleType:     "UNIT",
     packQuantity: "",
-    pfsColorRef: "",
+    packLines:    [],
     sku: "",
     disabled: false,
   };
@@ -489,13 +505,14 @@ export default function ProductForm({
   // ── Unsaved changes guard ─────────────────────────────────────────────
   const router = useRouter();
   const { confirm: confirmDialog } = useConfirm();
+  const { enqueue: enqueuePublish } = usePfsRefreshQueue();
   const initialSnapshot = useRef<string | null>(null);
   const isDirty = useRef(false);
   const snapshotReady = useRef(false);
 
   const buildSnapshot = useCallback(() => JSON.stringify({
     reference, name, description, categoryId, subCategoryIds,
-    variants: variants.map((v) => ({ colorId: v.colorId, subColors: v.subColors, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, pfsColorRef: v.pfsColorRef ?? "", disabled: v.disabled ?? false })),
+    variants: variants.map((v) => ({ colorId: v.colorId, unitPrice: v.unitPrice, weight: v.weight, stock: v.stock, saleType: v.saleType, packQuantity: v.packQuantity, sizeEntries: v.sizeEntries, disabled: v.disabled ?? false })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
@@ -596,8 +613,7 @@ export default function ProductForm({
       if (!v.colorId) continue;
       const gk = variantGroupKeyFromState(v);
       if (!groupMap.has(gk)) {
-        const allNames = [v.colorName, ...v.subColors.map((sc) => sc.colorName)];
-        groupMap.set(gk, { colorId: v.colorId, name: allNames.join(" / "), hex: v.colorHex });
+        groupMap.set(gk, { colorId: v.colorId, name: v.colorName, hex: v.colorHex });
       }
     }
     setColorImages((prev) => {
@@ -774,7 +790,7 @@ export default function ProductForm({
       const w = parseFloat(v.weight);
       if (isNaN(w) || w <= 0) errs.add("weight");
       if (v.stock === "" || v.stock === undefined || v.stock === null) errs.add("stock");
-      if (v.sizeEntries.length === 0) errs.add("sizes");
+      if (variantHasNoSizes(v)) errs.add("sizes");
       if (errs.size > 0) map.set(v.tempId, errs);
     }
     return map;
@@ -951,7 +967,7 @@ export default function ProductForm({
           errors.push(`Variante "${label}" : prix/unité invalide`);
         if (v.stock === "" || v.stock === undefined || v.stock === null)
           errors.push(`Variante "${label}" : stock non renseigné`);
-        if (v.sizeEntries.length === 0)
+        if (variantHasNoSizes(v))
           errors.push(`Variante "${label}" : aucune taille`);
         if (v.saleType === "PACK") {
           const qty = parseInt(v.packQuantity);
@@ -1016,7 +1032,7 @@ export default function ProductForm({
       const price = parseFloat(v.unitPrice);
       const w = parseFloat(v.weight);
       const stockNotSet = v.stock === "" || v.stock === undefined || v.stock === null;
-      const noSizes = v.sizeEntries.length === 0;
+      const noSizes = variantHasNoSizes(v);
       return (isNaN(price) || price <= 0) || (isNaN(w) || w <= 0) || stockNotSet || noSizes;
     });
   }
@@ -1059,24 +1075,39 @@ export default function ProductForm({
       description:   description.trim(),
       categoryId,
       subCategoryIds,
-      colors: draftVariants.map((v) => ({
-          dbId:          v.dbId,
-          colorId:       v.colorId || null,
-          subColorIds:   v.subColors.filter((sc) => validColorIds.has(sc.colorId)).map((sc) => sc.colorId),
-          unitPrice:     v.saleType === "PACK" ? (computeTotalPrice(v) ?? 0) : (parseFloat(v.unitPrice) || 0),
-          weight:        parseFloat(v.weight) || 0,
-          stock:         parseInt(v.stock) || 0,
-          isPrimary:     v.isPrimary,
-          saleType:      v.saleType,
-          packQuantity:  v.saleType === "PACK"
-            ? (v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0) || 1)
-            : null,
-          sizeEntries:   v.sizeEntries
-            .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
-            .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
-          pfsColorRef:   v.pfsColorRef || null,
-          disabled:      v.disabled ?? false,
-        })),
+      colors: draftVariants.map((v) => {
+          const isMultiPack = v.saleType === "PACK" && v.packLines.length > 0;
+          const packLinesPayload = isMultiPack
+            ? v.packLines
+                .filter((line) => line.colorId && validColorIds.has(line.colorId))
+                .map((line) => ({
+                  colorId: line.colorId,
+                  sizeEntries: line.sizeEntries
+                    .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
+                    .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
+                }))
+            : undefined;
+          const totalPackQty = isMultiPack
+            ? (packLinesPayload ?? []).reduce((s, l) => s + l.sizeEntries.reduce((a, e) => a + e.quantity, 0), 0)
+            : v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0);
+          return {
+            dbId:          v.dbId,
+            colorId:       v.colorId || null,
+            unitPrice:     v.saleType === "PACK" ? (computeTotalPrice(v) ?? 0) : (parseFloat(v.unitPrice) || 0),
+            weight:        parseFloat(v.weight) || 0,
+            stock:         parseInt(v.stock) || 0,
+            isPrimary:     v.isPrimary,
+            saleType:      v.saleType,
+            packQuantity:  v.saleType === "PACK" ? (totalPackQty || 1) : null,
+            sizeEntries:   isMultiPack
+              ? []
+              : v.sizeEntries
+                  .filter((se) => se.sizeId && validSizeIds.has(se.sizeId))
+                  .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
+            packLines:     packLinesPayload,
+            disabled:      v.disabled ?? false,
+          };
+        }),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
       imagePaths: colorImages.flatMap((ci) => {
         if (ci.uploadedPaths.length === 0) return [];
@@ -1089,7 +1120,6 @@ export default function ProductForm({
         if (!ci.colorId || !validColorIds.has(ci.colorId)) return [];
         return matching.map(({ vr, idx }) => ({
           colorId: ci.colorId,
-          subColorIds: vr.subColors.filter((sc) => validColorIds.has(sc.colorId)).map((sc) => sc.colorId),
           variantDbId: vr.dbId ?? undefined,
           variantIndex: idx,
           paths: ci.uploadedPaths,
@@ -1245,27 +1275,42 @@ export default function ProductForm({
       description:   description.trim(),
       categoryId,
       subCategoryIds,
-      colors: variants.map((v) => ({
-        dbId:          v.dbId,
-        colorId:       v.colorId || null,
-        subColorIds:   v.subColors.map((sc) => sc.colorId),
-        unitPrice:     v.saleType === "PACK" ? (computeTotalPrice(v) ?? 0) : (parseFloat(v.unitPrice) || 0),
-        weight:        parseFloat(v.weight) || 0,
-        stock:         parseInt(v.stock) || 0,
-        isPrimary:     v.isPrimary,
-        saleType:      v.saleType,
-        packQuantity:  v.saleType === "PACK"
-          ? (v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0) || 1)
-          : null,
-        sizeEntries:   v.sizeEntries
-          .filter((se) => se.sizeId)
-          .map((se) => ({
-            sizeId:       se.sizeId,
-            quantity:     parseInt(se.quantity) || 1,
-          })),
-        pfsColorRef:   v.pfsColorRef || null,
-        disabled:      v.disabled ?? false,
-      })),
+      colors: variants.map((v) => {
+        const isMultiPack = v.saleType === "PACK" && v.packLines.length > 0;
+        const packLinesPayload = isMultiPack
+          ? v.packLines
+              .filter((line) => line.colorId)
+              .map((line) => ({
+                colorId: line.colorId,
+                sizeEntries: line.sizeEntries
+                  .filter((se) => se.sizeId)
+                  .map((se) => ({ sizeId: se.sizeId, quantity: parseInt(se.quantity) || 1 })),
+              }))
+          : undefined;
+        const totalPackQty = isMultiPack
+          ? (packLinesPayload ?? []).reduce((s, l) => s + l.sizeEntries.reduce((a, e) => a + e.quantity, 0), 0)
+          : v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 1), 0);
+        return {
+          dbId:          v.dbId,
+          colorId:       v.colorId || null,
+          unitPrice:     v.saleType === "PACK" ? (computeTotalPrice(v) ?? 0) : (parseFloat(v.unitPrice) || 0),
+          weight:        parseFloat(v.weight) || 0,
+          stock:         parseInt(v.stock) || 0,
+          isPrimary:     v.isPrimary,
+          saleType:      v.saleType,
+          packQuantity:  v.saleType === "PACK" ? (totalPackQty || 1) : null,
+          sizeEntries:   isMultiPack
+            ? []
+            : v.sizeEntries
+                .filter((se) => se.sizeId)
+                .map((se) => ({
+                  sizeId:       se.sizeId,
+                  quantity:     parseInt(se.quantity) || 1,
+                })),
+          packLines:     packLinesPayload,
+          disabled:      v.disabled ?? false,
+        };
+      }),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
       imagePaths: colorImages.flatMap((ci) => {
         if (ci.uploadedPaths.length === 0) return [];
@@ -1275,7 +1320,6 @@ export default function ProductForm({
         if (matching.length === 0) return [];
         return matching.map(({ vr, idx }) => ({
           colorId: ci.colorId,
-          subColorIds: vr.subColors.map((sc) => sc.colorId),
           variantDbId: vr.dbId ?? undefined,
           variantIndex: idx,
           paths: ci.uploadedPaths,
@@ -1304,33 +1348,109 @@ export default function ProductForm({
         .map(([locale, t]) => ({ locale, name: t.name, description: t.description })),
     };
 
-    // Marketplace publishing is no longer triggered from the form — the admin
-    // generates a marketplace Excel archive from /admin/produits after saving.
-
     showLoading();
     startTransition(async () => {
+      let savedProductId: string | null = null;
+      let shouldRedirectAfterSave: string | null = null;
       try {
         if (productId) {
           await updateProduct(productId, payload);
+          savedProductId = productId;
           if (mode === "create") {
             isDirty.current = false;
-            router.push(`/admin/produits/${productId}/modifier`);
-            return;
+            shouldRedirectAfterSave = `/admin/produits/${productId}/modifier`;
           }
         } else {
           const result = await createProduct(payload);
           if (result?.id) {
-            router.push(`/admin/produits/${result.id}/modifier`);
-            return;
+            savedProductId = result.id;
+            shouldRedirectAfterSave = `/admin/produits/${result.id}/modifier`;
           }
         }
-        setProductStatus(finalStatus);
-        initialSnapshot.current = buildSnapshot();
-        isDirty.current = false;
+        if (!shouldRedirectAfterSave) {
+          setProductStatus(finalStatus);
+          initialSnapshot.current = buildSnapshot();
+          isDirty.current = false;
+        }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+        hideLoading();
+        return;
       } finally {
         hideLoading();
+      }
+
+      // ── Proposer la publication sur les marketplaces ──
+      // Uniquement si :
+      //  - le produit est complet (sinon l'API marketplace rejettera)
+      //  - au moins une marketplace est configurée
+      const canPublish =
+        savedProductId &&
+        finalStatus !== "ARCHIVED" &&
+        !isIncomplete &&
+        (hasPfsConfig || hasAnkorstoreConfig);
+
+      if (canPublish && savedProductId) {
+        const checked = { pfs: false, ankorstore: false };
+        const checkboxes: Array<{
+          id: string;
+          label: string;
+          defaultChecked: boolean;
+          onChange?: (v: boolean) => void;
+        }> = [];
+        if (hasPfsConfig) {
+          checkboxes.push({
+            id: "pfs",
+            label: "Paris Fashion Shop",
+            defaultChecked: false,
+            onChange: (v: boolean) => {
+              checked.pfs = v;
+            },
+          });
+        }
+        if (hasAnkorstoreConfig) {
+          checkboxes.push({
+            id: "ankorstore",
+            label: "Ankorstore",
+            defaultChecked: false,
+            onChange: (v: boolean) => {
+              checked.ankorstore = v;
+            },
+          });
+        }
+
+        const ok = await confirmDialog({
+          type: "info",
+          title: "Publier sur les marketplaces ?",
+          message:
+            "Souhaitez-vous publier ce produit en direct sur les marketplaces ? Cochez celles qui vous intéressent. Vous pourrez aussi le faire plus tard.",
+          checkboxes,
+          checkboxesLabel: "Marketplaces",
+          confirmLabel: "Publier",
+          cancelLabel: "Plus tard",
+        });
+
+        if (ok === true && (checked.pfs || checked.ankorstore)) {
+          const firstImagePath = colorImages[0]?.uploadedPaths[0] ?? null;
+          enqueuePublish([
+            {
+              productId: savedProductId,
+              reference: payload.reference,
+              productName: payload.name,
+              firstImage: firstImagePath,
+              options: {
+                local: false,
+                pfs: checked.pfs,
+                ankorstore: checked.ankorstore,
+              },
+              mode: "publish",
+            },
+          ]);
+        }
+      }
+
+      if (shouldRedirectAfterSave) {
+        router.push(shouldRedirectAfterSave);
       }
     });
   }

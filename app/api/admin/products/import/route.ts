@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { parseSizeField } from "@/lib/import-processor";
+import { normalizeColorNameForMatch } from "@/lib/sku";
 
 // ─────────────────────────────────────────────
 // Types
@@ -232,7 +233,9 @@ async function prepareImport(rows: ProductImportRow[]) {
     prisma.product.findMany({ where: { reference: { in: [...grouped.keys()] } }, select: { reference: true } }),
   ]);
 
-  const colorMap = new Map(dbColors.map((c) => [c.name.toLowerCase(), c]));
+  // P3-15 — match insensible aux accents pour aligner avec l'autre route
+  // d'import (draft) qui utilise déjà normalizeColorName().
+  const colorMap = new Map(dbColors.map((c) => [normalizeColorNameForMatch(c.name), c]));
   const categoryMap = new Map(dbCategories.map((c) => [c.name.toLowerCase(), c]));
   const tagMap = new Map(dbTags.map((t) => [t.name.toLowerCase(), t]));
   const compositionMap = new Map(dbCompositions.map((c) => [c.name.toLowerCase(), c]));
@@ -254,7 +257,7 @@ async function prepareImport(rows: ProductImportRow[]) {
     // Check color exists in DB
     const resolvedColors: { row: ProductImportRow; color: (typeof dbColors)[0] }[] = [];
     for (const row of colorRows) {
-      const dbColor = colorMap.get(row.color.toLowerCase());
+      const dbColor = colorMap.get(normalizeColorNameForMatch(row.color));
       if (!dbColor) {
         errorRows.push({ ...row, errors: [`Couleur "${row.color}" introuvable en base. Créez-la d'abord dans Administration > Couleurs.`] });
         continue;
@@ -340,76 +343,83 @@ async function createProductsInBackground(
 
   for (const { ref, firstRow, resolvedColors, categoryId, tagIds, compPairs } of readyProducts) {
     try {
-      const newProduct = await prisma.product.create({
-        data: {
-          reference: ref,
-          name: firstRow.name,
-          description: firstRow.description ?? "",
-          categoryId: categoryId ?? (await prisma.category.findFirst().then((c) => c?.id ?? "")),
-          status: "OFFLINE",
-          isBestSeller: false,
-          discountPercent: firstRow.discountPercent ?? null,
-          tags: tagIds.length > 0 ? { create: tagIds.map((id) => ({ tagId: id })) } : undefined,
-          compositions: compPairs.length > 0 ? { create: compPairs } : undefined,
-          colors: {
-            create: (() => {
-              const firstPrimaryIdx = resolvedColors.findIndex(({ row }) => row.isPrimary);
-              const primaryIdx = firstPrimaryIdx === -1 ? 0 : firstPrimaryIdx;
-              return resolvedColors.map(({ row, color }, i) => {
-                const isPack = row.saleType === "PACK";
-                const sizeEntries = isPack ? parseSizeField(row.size, "PACK") : [];
-                const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
-                return {
-                  colorId: isPack ? null : color.id,
-                  unitPrice: isPack && totalQty > 0
-                    ? Math.round(row.unitPrice * totalQty * 100) / 100
-                    : row.unitPrice,
-                  weight: row.weight ? row.weight / 1000 : 0.1, // g → kg
-                  stock: row.stock,
-                  isPrimary: i === primaryIdx,
-                  saleType: row.saleType,
-                  packQuantity: isPack
-                    ? (totalQty > 0 ? totalQty : (row.packQuantity ?? null))
-                    : null,
-                };
-              });
-            })(),
+      // P3-21 — toute la création (produit + couleurs + tailles) dans une
+      // seule transaction. Avant : un produit pouvait être créé sans tailles
+      // si l'insertion d'une taille échouait à mi-parcours.
+      const newProduct = await prisma.$transaction(async (tx) => {
+        const created = await tx.product.create({
+          data: {
+            reference: ref,
+            name: firstRow.name,
+            description: firstRow.description ?? "",
+            categoryId: categoryId ?? (await tx.category.findFirst().then((c) => c?.id ?? "")),
+            status: "OFFLINE",
+            isBestSeller: false,
+            discountPercent: firstRow.discountPercent ?? null,
+            tags: tagIds.length > 0 ? { create: tagIds.map((id) => ({ tagId: id })) } : undefined,
+            compositions: compPairs.length > 0 ? { create: compPairs } : undefined,
+            colors: {
+              create: (() => {
+                const firstPrimaryIdx = resolvedColors.findIndex(({ row }) => row.isPrimary);
+                const primaryIdx = firstPrimaryIdx === -1 ? 0 : firstPrimaryIdx;
+                return resolvedColors.map(({ row, color }, i) => {
+                  const isPack = row.saleType === "PACK";
+                  const sizeEntries = isPack ? parseSizeField(row.size, "PACK") : [];
+                  const totalQty = sizeEntries.reduce((s, e) => s + e.quantity, 0);
+                  return {
+                    colorId: isPack ? null : color.id,
+                    unitPrice: isPack && totalQty > 0
+                      ? Math.round(row.unitPrice * totalQty * 100) / 100
+                      : row.unitPrice,
+                    weight: row.weight ? row.weight / 1000 : 0.1, // g → kg
+                    stock: row.stock,
+                    isPrimary: i === primaryIdx,
+                    saleType: row.saleType,
+                    packQuantity: isPack
+                      ? (totalQty > 0 ? totalQty : (row.packQuantity ?? null))
+                      : null,
+                  };
+                });
+              })(),
+            },
           },
-        },
-        include: { colors: true },
-      });
+          include: { colors: true },
+        });
 
-      // Create VariantSize records for variants with a size value
-      for (const { row, color } of resolvedColors) {
-        if (row.size) {
-          const sizeEntries = parseSizeField(row.size, row.saleType);
-          if (sizeEntries.length === 0) continue;
+        // Create VariantSize records dans la même transaction
+        for (const { row, color } of resolvedColors) {
+          if (row.size) {
+            const sizeEntries = parseSizeField(row.size, row.saleType);
+            if (sizeEntries.length === 0) continue;
 
-          const isPack = row.saleType === "PACK";
-          const expectedPrice = isPack
-            ? Math.round(row.unitPrice * sizeEntries.reduce((s, e) => s + e.quantity, 0) * 100) / 100
-            : row.unitPrice;
-          const pc = isPack
-            ? newProduct.colors.find((c) => c.saleType === "PACK" && c.colorId === null && c.unitPrice.toString() === expectedPrice.toString())
-            : newProduct.colors.find((c) => c.colorId === color.id && c.saleType === row.saleType);
-          if (!pc) continue;
+            const isPack = row.saleType === "PACK";
+            const expectedPrice = isPack
+              ? Math.round(row.unitPrice * sizeEntries.reduce((s, e) => s + e.quantity, 0) * 100) / 100
+              : row.unitPrice;
+            const pc = isPack
+              ? created.colors.find((c) => c.saleType === "PACK" && c.colorId === null && c.unitPrice.toString() === expectedPrice.toString())
+              : created.colors.find((c) => c.colorId === color.id && c.saleType === row.saleType);
+            if (!pc) continue;
 
-          for (const entry of sizeEntries) {
-            const sizeEntity = await prisma.size.upsert({
-              where: { name: entry.name },
-              create: { name: entry.name },
-              update: {},
-            });
-            await prisma.variantSize.create({
-              data: {
-                productColorId: pc.id,
-                sizeId: sizeEntity.id,
-                quantity: entry.quantity,
-              },
-            });
+            for (const entry of sizeEntries) {
+              const sizeEntity = await tx.size.upsert({
+                where: { name: entry.name },
+                create: { name: entry.name },
+                update: {},
+              });
+              await tx.variantSize.create({
+                data: {
+                  productColorId: pc.id,
+                  sizeId: sizeEntity.id,
+                  quantity: entry.quantity,
+                },
+              });
+            }
           }
         }
-      }
+
+        return created;
+      });
 
       successCount++;
 

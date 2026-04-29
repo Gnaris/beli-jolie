@@ -1,25 +1,32 @@
+import createIntlMiddleware from "next-intl/middleware";
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
+import { routing } from "@/i18n/routing";
 
-/**
- * Middleware de protection des routes
- *
- * Règles :
- * - /admin/*      → réservé aux ADMIN (redirect → /connexion si non admin)
- * - /boutique/*   → réservé aux CLIENT et ADMIN approuvés
- * - /connexion    → redirige vers / si déjà connecté
- * - /inscription  → redirige vers / si déjà connecté
- * - maintenance   → redirige toutes les routes vers /maintenance sauf admin/auth
- */
+const intlMiddleware = createIntlMiddleware(routing);
+
+const LOCALE_PATTERN = new RegExp(`^/(${routing.locales.join("|")})(?=/|$)`);
+
+function stripLocale(pathname: string): { locale: string; rest: string } {
+  const match = pathname.match(LOCALE_PATTERN);
+  if (match) {
+    const locale = match[1];
+    const rest = pathname.slice(match[0].length) || "/";
+    return { locale, rest };
+  }
+  return { locale: routing.defaultLocale, rest: pathname };
+}
+
+function localeUrl(locale: string, path: string, request: NextRequest): URL {
+  const safePath = path.startsWith("/") ? path : `/${path}`;
+  return new URL(`/${locale}${safePath === "/" ? "" : safePath}`, request.url);
+}
 
 // ── Cache maintenance status (module-level, resets every ~60s) ──────────────
-// Higher TTL = fewer internal HTTP calls under 100k visitors
 let maintenanceCache: { value: boolean; timestamp: number } | null = null;
 const CACHE_TTL_MS = 60_000;
 
 async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
-  // Skip maintenance check in development — the self-referential fetch goes
-  // through the dev compiler, adding 500ms-2s per navigation.
   if (process.env.NODE_ENV === "development") return false;
 
   const now = Date.now();
@@ -38,17 +45,41 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
     maintenanceCache = { value: !!data.maintenance, timestamp: now };
     return maintenanceCache.value;
   } catch {
-    // On failure, assume maintenance — if the status endpoint is down,
-    // something is critically wrong (DB down, server error, etc.)
     maintenanceCache = { value: true, timestamp: now };
     return true;
   }
 }
 
+/**
+ * Middleware combiné :
+ * 1. Routes système (admin, api, maintenance, sitemap…) → pas de locale, auth classique
+ * 2. Routes publiques → préfixe locale obligatoire (/fr/, /en/, etc.). next-intl gère la
+ *    redirection des anciennes URLs (sans préfixe) vers la locale par défaut.
+ * 3. Logique d'auth (admin, client, pending, codes accès, maintenance) appliquée
+ *    sur le `rest` (path sans préfixe locale) pour rester lisible.
+ */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Récupération du token JWT (null si non connecté)
+  // ── 1. Routes 100% hors i18n ──────────────────────────────────────────────
+  const isUnlocalized =
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/api") ||
+    pathname === "/maintenance" ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/robots.txt" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/icon" ||
+    pathname === "/apple-icon" ||
+    pathname.startsWith("/_next");
+
+  // ── 2. Si la route DOIT être localisée et ne l'est pas, déléguer à next-intl
+  //      pour qu'il redirige (ex: /produits → /fr/produits)
+  if (!isUnlocalized && !LOCALE_PATTERN.test(pathname)) {
+    return intlMiddleware(request);
+  }
+
+  // ── 3. À ce stade : soit la route est unlocalized (admin/api), soit elle a déjà un préfixe
   const token = await getToken({
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
@@ -60,26 +91,28 @@ export async function middleware(request: NextRequest) {
   const previewMode = request.cookies.get("bj_admin_preview")?.value === "1";
   const hasAccessCode = !!request.cookies.get("bj_access_code")?.value;
 
-  // ── Maintenance mode ────────────────────────────────────────────────
-  // Always bypass: /maintenance itself, /admin/*, /api/site-status, auth pages
+  // Path "sans locale" pour matcher la logique métier (vide = "/")
+  const { locale, rest } = stripLocale(pathname);
+
+  // ── Maintenance ───────────────────────────────────────────────────────────
   const bypassMaintenance =
     pathname === "/maintenance" ||
     pathname.startsWith("/admin") ||
     pathname.startsWith("/api/site-status") ||
-    pathname.startsWith("/connexion") ||
-    pathname.startsWith("/inscription") ||
+    rest.startsWith("/connexion") ||
+    rest.startsWith("/inscription") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/access-code") ||
     pathname.startsWith("/api/internal") ||
     pathname.startsWith("/api/cart") ||
-    pathname.startsWith("/mentions-legales") ||
-    pathname.startsWith("/cgv") ||
-    pathname.startsWith("/cgu") ||
-    pathname.startsWith("/confidentialite") ||
-    pathname.startsWith("/cookies") ||
+    rest.startsWith("/mentions-legales") ||
+    rest.startsWith("/cgv") ||
+    rest.startsWith("/cgu") ||
+    rest.startsWith("/confidentialite") ||
+    rest.startsWith("/cookies") ||
     pathname.startsWith("/api/legal") ||
-    pathname.startsWith("/catalogue");
+    rest.startsWith("/catalogue");
 
   if (!bypassMaintenance) {
     const inMaintenance = await getMaintenanceStatus(request.url);
@@ -88,71 +121,53 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // ── Routes publiques uniquement si NON connecté ────────────────────
-  if (pathname.startsWith("/connexion") || pathname.startsWith("/inscription")) {
+  // ── Routes auth publiques uniquement si NON connecté ──────────────────────
+  if (rest.startsWith("/connexion") || rest.startsWith("/inscription")) {
     if (isAuthenticated) {
-      // Redirige selon le rôle / statut
-      const redirectTo = isAdmin ? "/admin" : isPending ? "/espace-pro" : "/";
-      return NextResponse.redirect(new URL(redirectTo, request.url));
+      const target = isAdmin ? "/admin" : isPending ? "/espace-pro" : "/";
+      const url = isAdmin ? new URL("/admin", request.url) : localeUrl(locale, target, request);
+      return NextResponse.redirect(url);
     }
     return NextResponse.next();
   }
 
-  // ── Comptes PENDING : limités à l'espace perso ─────────────────────
-  // Peuvent se connecter, voir leur compte, modifier leurs infos
-  // mais ne peuvent pas accéder au catalogue / panier / commandes.
+  // ── PENDING : limité à l'espace perso ─────────────────────────────────────
   if (isAuthenticated && isPending && !isAdmin) {
     const pendingAllowed =
-      pathname.startsWith("/espace-pro") ||
+      rest.startsWith("/espace-pro") ||
       pathname.startsWith("/api/auth") ||
       pathname.startsWith("/api/site-status") ||
-      pathname.startsWith("/maintenance") ||
-      pathname.startsWith("/mentions-legales") ||
-      pathname.startsWith("/cgv") ||
-      pathname.startsWith("/cgu") ||
-      pathname.startsWith("/confidentialite") ||
-      pathname.startsWith("/cookies") ||
+      pathname === "/maintenance" ||
+      rest.startsWith("/mentions-legales") ||
+      rest.startsWith("/cgv") ||
+      rest.startsWith("/cgu") ||
+      rest.startsWith("/confidentialite") ||
+      rest.startsWith("/cookies") ||
       pathname.startsWith("/api/legal");
     if (!pendingAllowed) {
-      return NextResponse.redirect(new URL("/espace-pro", request.url));
+      return NextResponse.redirect(localeUrl(locale, "/espace-pro", request));
     }
     return NextResponse.next();
   }
 
-  // ── Routes admin ────────────────────────────────────────────────────
+  // ── Admin ────────────────────────────────────────────────────────────────
   if (pathname.startsWith("/admin")) {
     if (!isAuthenticated) {
-      const loginUrl = new URL("/connexion", request.url);
+      const loginUrl = localeUrl(routing.defaultLocale, "/connexion", request);
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
     if (!isAdmin) {
-      // Connecté mais pas admin → page d'accueil
-      return NextResponse.redirect(new URL("/", request.url));
+      return NextResponse.redirect(localeUrl(routing.defaultLocale, "/", request));
     }
     return NextResponse.next();
   }
 
-  // ── Espace pro client ────────────────────────────────────────────────
-  if (pathname.startsWith("/espace-pro")) {
+  // ── Espace pro / panier / favoris / commandes (auth requis) ───────────────
+  const protectedClient = ["/espace-pro", "/panier", "/favoris", "/commandes"];
+  if (protectedClient.some((p) => rest.startsWith(p))) {
     if (!isAuthenticated) {
-      const loginUrl = new URL("/connexion", request.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-    if (isAdmin && !previewMode) {
-      // Set preview cookie automatically for admin accessing client routes
-      const response = NextResponse.next();
-      response.cookies.set("bj_admin_preview", "1", { path: "/", httpOnly: false, sameSite: "lax", maxAge: 8 * 3600 });
-      return response;
-    }
-    return NextResponse.next();
-  }
-
-  // ── Panier ──────────────────────────────────────────────────────────
-  if (pathname.startsWith("/panier")) {
-    if (!isAuthenticated) {
-      const loginUrl = new URL("/connexion", request.url);
+      const loginUrl = localeUrl(locale, "/connexion", request);
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
@@ -164,58 +179,28 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── Pages légales — accessibles à tous sans authentification ──────
+  // ── Pages légales — public sans auth ──────────────────────────────────────
   if (
-    pathname.startsWith("/mentions-legales") ||
-    pathname.startsWith("/cgv") ||
-    pathname.startsWith("/cgu") ||
-    pathname.startsWith("/confidentialite") ||
-    pathname.startsWith("/cookies")
+    rest.startsWith("/mentions-legales") ||
+    rest.startsWith("/cgv") ||
+    rest.startsWith("/cgu") ||
+    rest.startsWith("/confidentialite") ||
+    rest.startsWith("/cookies")
   ) {
     return NextResponse.next();
   }
 
-  // ── Routes publiques accessibles avec code d'accès invité ──────────
+  // ── Routes publiques avec code d'accès invité ─────────────────────────────
   if (
-    pathname === "/" ||
-    pathname.startsWith("/produits") ||
-    pathname.startsWith("/collections") ||
-    pathname.startsWith("/categories")
+    rest === "/" ||
+    rest.startsWith("/produits") ||
+    rest.startsWith("/collections") ||
+    rest.startsWith("/categories")
   ) {
     if (!isAuthenticated && !hasAccessCode) {
-      const loginUrl = new URL("/connexion", request.url);
+      const loginUrl = localeUrl(locale, "/connexion", request);
       loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
-    }
-    return NextResponse.next();
-  }
-
-  // ── Favoris (protégé, inscription obligatoire) ─────────────────────
-  if (pathname.startsWith("/favoris")) {
-    if (!isAuthenticated) {
-      const loginUrl = new URL("/connexion", request.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-    if (isAdmin && !previewMode) {
-      const response = NextResponse.next();
-      response.cookies.set("bj_admin_preview", "1", { path: "/", httpOnly: false, sameSite: "lax", maxAge: 8 * 3600 });
-      return response;
-    }
-    return NextResponse.next();
-  }
-
-  // ── Routes commandes (protégées, inscription obligatoire) ──────────
-  if (pathname.startsWith("/commandes")) {
-    if (!isAuthenticated) {
-      const loginUrl = new URL("/connexion", request.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-    if (isAdmin && !previewMode) {
-      const response = NextResponse.next();
-      response.cookies.set("bj_admin_preview", "1", { path: "/", httpOnly: false, sameSite: "lax", maxAge: 8 * 3600 });
-      return response;
     }
     return NextResponse.next();
   }
@@ -225,10 +210,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except static files and images.
-     * This allows the maintenance check to run on all pages.
-     */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
   ],
 };

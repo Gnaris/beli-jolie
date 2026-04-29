@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useRef, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
-import { setLocale } from "@/app/actions/client/locale";
+import { usePathname, useRouter } from "@/i18n/navigation";
 
 type Locale = "fr" | "en" | "ar" | "zh" | "de" | "es" | "it";
 
@@ -95,6 +95,8 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
   const [isPending, startTransition] = useTransition();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const pathname = usePathname();
 
   const current = LANGUAGES.find((l) => l.code === currentLocale) ?? LANGUAGES[0];
 
@@ -142,9 +144,10 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
 
   function handleSelect(code: Locale) {
     setOpen(false);
-    startTransition(async () => {
-      await setLocale(code);
-      window.location.reload();
+    if (code === currentLocale) return;
+    startTransition(() => {
+      // Pousse la même URL en changeant uniquement le préfixe locale
+      router.replace(pathname, { locale: code });
     });
   }
 

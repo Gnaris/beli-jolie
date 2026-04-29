@@ -4,8 +4,8 @@ import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { notifyOrderStatusChange } from "@/lib/notifications";
-import { decrementStockForOrder, reinstateStockForOrder } from "@/lib/stock";
+import { notifyOrderStatusChange, notifyClientOrderModified } from "@/lib/notifications";
+import { reinstateStockForOrder } from "@/lib/stock";
 import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
@@ -13,24 +13,50 @@ async function requireAdmin() {
   if (!session || session.user.role !== "ADMIN") throw new Error("Accès non autorisé.");
 }
 
+// Transitions autorisées entre statuts de commande.
+// Garde-fou : on ne peut plus repasser une commande livrée en préparation,
+// ni ressusciter une commande annulée.
+const VALID_ORDER_TRANSITIONS: Record<string, string[]> = {
+  PENDING:    ["PROCESSING", "CANCELLED"],
+  PROCESSING: ["SHIPPED", "CANCELLED"],
+  SHIPPED:    ["DELIVERED"],
+  DELIVERED:  [], // statut final
+  CANCELLED:  [], // statut final
+};
+
 export async function updateOrderStatus(orderId: string, status: string) {
   await requireAdmin();
 
   const validStatuses = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"];
   if (!validStatuses.includes(status)) throw new Error("Statut invalide.");
 
+  // Lire le statut précédent — sert à la fois pour valider la transition
+  // et pour ne pas réinjecter le stock deux fois.
+  const previous = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { status: true },
+  });
+
+  if (!previous) throw new Error("Commande introuvable.");
+
+  // Idempotence : pas de transition si on reste sur le même statut
+  if (previous.status !== status) {
+    const allowed = VALID_ORDER_TRANSITIONS[previous.status] ?? [];
+    if (!allowed.includes(status)) {
+      throw new Error(
+        `Transition impossible : « ${previous.status} » → « ${status} » n'est pas autorisé.`,
+      );
+    }
+  }
+
   await prisma.order.update({
     where: { id: orderId },
     data:  { status: status as never },
   });
 
-  // Stock movements on status transitions
-  if (status === "PROCESSING") {
-    await decrementStockForOrder(orderId).catch((err) =>
-      logger.error("[updateOrderStatus] Stock decrement error", { error: err instanceof Error ? err.message : String(err) })
-    );
-  }
-  if (status === "CANCELLED") {
+  // Stock : il a été déduit à la commande. On ne le remet que si on annule
+  // une commande qui n'était pas déjà annulée.
+  if (status === "CANCELLED" && previous && previous.status !== "CANCELLED") {
     await reinstateStockForOrder(orderId).catch((err) =>
       logger.error("[updateOrderStatus] Stock reinstate error", { error: err instanceof Error ? err.message : String(err) })
     );
@@ -165,6 +191,28 @@ export async function modifyOrderItems(
 
     revalidatePath(`/admin/commandes/${orderId}`);
     revalidatePath("/admin/commandes");
+
+    // P2-08 — prévenir le client par email avec le détail des modifications
+    const modSummary = modifications.map((mod) => {
+      const item = itemMap.get(mod.orderItemId)!;
+      const unitPrice = Number(item.unitPrice);
+      const existingMod = order.itemModifications.find(
+        (m) => m.orderItemId === mod.orderItemId,
+      );
+      const originalQty = existingMod ? existingMod.originalQuantity : item.quantity;
+      return {
+        productName: item.productName,
+        originalQuantity: originalQty,
+        newQuantity: mod.newQuantity,
+        reason: mod.reason,
+        creditAmount: (originalQty - mod.newQuantity) * unitPrice,
+      };
+    });
+    notifyClientOrderModified({ orderId, modifications: modSummary }).catch((err) =>
+      logger.error("[modifyOrderItems] Email client error", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
 
     return { success: true, creditTotal: totalCredit };
   } catch (err) {

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { createConversation, addMessage, markAsRead } from "@/lib/messaging";
 import { notifyAdminNewMessage } from "@/lib/notifications";
 import { emitChatEvent } from "@/lib/chat-events";
+import { logger } from "@/lib/logger";
 import { revalidateTag } from "next/cache";
 
 export async function createSupportConversation(subject: string, message: string) {
@@ -48,7 +49,11 @@ export async function createSupportConversation(subject: string, message: string
       subject: subject.trim(),
       messagePreview: message.trim(),
       conversationId: conversation.id,
-    }).catch(() => {});
+    }).catch((err) =>
+      logger.error("[createSupportConversation] Email admin échoué", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
 
     emitChatEvent({
       type: "NEW_MESSAGE",
@@ -77,7 +82,11 @@ export async function sendClientMessage(
   attachments?: { fileName: string; filePath: string; fileSize: number; mimeType: string }[],
 ) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "CLIENT") {
+  if (
+    !session ||
+    session.user.role !== "CLIENT" ||
+    session.user.status !== "APPROVED"
+  ) {
     return { success: false, error: "Acces non autorise." };
   }
 

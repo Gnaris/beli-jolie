@@ -75,6 +75,64 @@ export async function POST(req: Request) {
       break;
     }
 
+    // P2-04 — Paiement annulé (avant capture). Marque la commande comme
+    // payment_failed. La logique métier d'annulation reste manuelle côté admin.
+    case "payment_intent.canceled": {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      await prisma.order.updateMany({
+        where: { stripePaymentIntentId: pi.id },
+        data: { paymentStatus: "failed" },
+      });
+      logger.warn("[Stripe Webhook] Paiement annulé (canceled)", {
+        paymentIntentId: pi.id,
+      });
+      break;
+    }
+
+    // P2-04 — Remboursement (partiel ou total). On marque la commande comme
+    // remboursée et on log le montant. Cas total = annulation effective.
+    case "charge.refunded": {
+      const charge = event.data.object as Stripe.Charge;
+      const piId = typeof charge.payment_intent === "string" ? charge.payment_intent : null;
+      if (!piId) {
+        logger.warn("[Stripe Webhook] charge.refunded sans payment_intent", {
+          chargeId: charge.id,
+        });
+        break;
+      }
+      const refunded = charge.amount_refunded; // en centimes
+      const total = charge.amount;
+      const isFullRefund = refunded >= total;
+      await prisma.order.updateMany({
+        where: { stripePaymentIntentId: piId },
+        data: {
+          paymentStatus: isFullRefund ? "refunded" : "partially_refunded",
+        },
+      });
+      logger.info("[Stripe Webhook] Remboursement", {
+        paymentIntentId: piId,
+        refundedCents: refunded,
+        totalCents: total,
+        full: isFullRefund,
+      });
+      break;
+    }
+
+    // P2-04 — Litige client (chargeback). Notification admin + log critique.
+    case "charge.dispute.created": {
+      const dispute = event.data.object as Stripe.Dispute;
+      const piId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : null;
+      logger.error("[Stripe Webhook] LITIGE CRÉÉ — action urgente", {
+        disputeId: dispute.id,
+        paymentIntentId: piId,
+        amountCents: dispute.amount,
+        reason: dispute.reason,
+      });
+      // Note : pour l'instant on log seulement. L'admin reçoit l'alerte
+      // depuis le dashboard Stripe (notifications email natives Stripe).
+      break;
+    }
+
     default:
       break;
   }

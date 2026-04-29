@@ -6,7 +6,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { cleanupTestData, seedTestEntities, TEST_PREFIX, prisma } from "./setup";
 import { createProduct, updateProduct, deleteProduct, archiveProduct, unarchiveProduct, toggleBestSeller, bulkUpdateProductStatus } from "@/app/actions/admin/products";
-import type { ProductInput, ColorInput } from "@/app/actions/admin/products";
+import type { ProductInput } from "@/app/actions/admin/products";
+import type { ColorInput } from "@/lib/product-variant-validation";
 
 describe("Product CRUD (real DB)", () => {
   let entities: Awaited<ReturnType<typeof seedTestEntities>>;
@@ -84,7 +85,6 @@ describe("Product CRUD (real DB)", () => {
             include: {
               color: true,
               variantSizes: { include: { size: true } },
-              subColors: true,
             },
           },
         },
@@ -183,14 +183,13 @@ describe("Product CRUD (real DB)", () => {
   describe("Create PACK product", () => {
     let productId: string;
 
-    it("should create a PACK product with pack color lines", async () => {
+    it("should create a PACK product (mono-color legacy) with sizeEntries", async () => {
       const input = unitProductInput({
         reference: `${TEST_PREFIX}PROD-PACK-001`,
         name: "Lot de bagues assorties",
         colors: [
           {
             colorId: entities.color1.id,
-            subColorIds: [entities.color2.id, entities.color3.id],
             unitPrice: 29.99,
             weight: 0.5,
             stock: 20,
@@ -214,7 +213,6 @@ describe("Product CRUD (real DB)", () => {
           colors: {
             include: {
               color: true,
-              subColors: { include: { color: true }, orderBy: { position: "asc" } },
               variantSizes: { include: { size: true }, orderBy: { size: { position: "asc" } } },
             },
           },
@@ -235,11 +233,66 @@ describe("Product CRUD (real DB)", () => {
       expect(variant.variantSizes[0].quantity).toBe(3);
       expect(variant.variantSizes[1].size.name).toBe(`${TEST_PREFIX}M`);
 
-      // Color composition (main + sub-colors)
+      // Main color
       expect(variant.color?.name).toBe(`${TEST_PREFIX}Doré`);
-      expect(variant.subColors).toHaveLength(2);
-      expect(variant.subColors[0].color.name).toBe(`${TEST_PREFIX}Argenté`);
-      expect(variant.subColors[1].color.name).toBe(`${TEST_PREFIX}Rose`);
+    });
+
+    it("should create a multi-color PACK with packLines", async () => {
+      const input = unitProductInput({
+        reference: `${TEST_PREFIX}PROD-PACK-MULTI-001`,
+        name: "Pack tricolore",
+        colors: [
+          {
+            colorId: entities.color1.id,
+            unitPrice: 5,
+            weight: 0.5,
+            stock: 20,
+            isPrimary: true,
+            saleType: "PACK",
+            packQuantity: 6,
+            sizeEntries: [],
+            packLines: [
+              {
+                colorId: entities.color1.id,
+                sizeEntries: [{ sizeId: entities.sizeS.id, quantity: 2 }, { sizeId: entities.sizeM.id, quantity: 1 }],
+              },
+              {
+                colorId: entities.color2.id,
+                sizeEntries: [{ sizeId: entities.sizeM.id, quantity: 2 }],
+              },
+              {
+                colorId: entities.color3.id,
+                sizeEntries: [{ sizeId: entities.sizeM.id, quantity: 1 }],
+              },
+            ],
+          },
+        ],
+      });
+
+      const result = await createProduct(input);
+
+      const product = await prisma.product.findUnique({
+        where: { id: result.id },
+        include: {
+          colors: {
+            include: {
+              color: true,
+              packLines: {
+                include: { color: true, sizes: { include: { size: true } } },
+                orderBy: { position: "asc" },
+              },
+            },
+          },
+        },
+      });
+
+      expect(product!.colors).toHaveLength(1);
+      const variant = product!.colors[0];
+      expect(variant.saleType).toBe("PACK");
+      expect(variant.packLines).toHaveLength(3);
+      expect(variant.packLines[0].color.name).toBe(`${TEST_PREFIX}Doré`);
+      expect(variant.packLines[1].color.name).toBe(`${TEST_PREFIX}Argenté`);
+      expect(variant.packLines[2].color.name).toBe(`${TEST_PREFIX}Rose`);
     });
   });
 
@@ -497,45 +550,6 @@ describe("Product CRUD (real DB)", () => {
       // Variants should also be deleted (cascade)
       const variants = await prisma.productColor.findMany({ where: { productId } });
       expect(variants).toHaveLength(0);
-    });
-  });
-
-  // ─── Sub-colors on UNIT variant ────────────────────────────────
-
-  describe("UNIT variant with sub-colors", () => {
-    let productId: string;
-
-    it("should create variant with sub-colors", async () => {
-      const result = await createProduct(unitProductInput({
-        reference: `${TEST_PREFIX}PROD-SUBCOL-001`,
-        name: "Bague tricolore",
-        colors: [
-          {
-            colorId: entities.color1.id,
-            subColorIds: [entities.color2.id, entities.color3.id],
-            unitPrice: 15,
-            weight: 0.2,
-            stock: 40,
-            isPrimary: true,
-            saleType: "UNIT",
-            packQuantity: null,
-            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-
-          },
-        ],
-      }));
-      productId = result.id;
-
-      const variant = await prisma.productColor.findFirst({
-        where: { productId },
-        include: {
-          subColors: { include: { color: true }, orderBy: { position: "asc" } },
-        },
-      });
-
-      expect(variant!.subColors).toHaveLength(2);
-      expect(variant!.subColors[0].color.name).toBe(`${TEST_PREFIX}Argenté`);
-      expect(variant!.subColors[1].color.name).toBe(`${TEST_PREFIX}Rose`);
     });
   });
 

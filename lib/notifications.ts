@@ -428,7 +428,7 @@ export async function notifyAdminNewMessage(params: {
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
         <h2 style="color:#1A1A1A;">Nouveau message</h2>
-        <p><strong>${escapeHtml(clientName)}</strong> (${escapeHtml(clientCompany)}) vous a envoye un message :</p>
+        <p><strong>${escapeHtml(clientName)}</strong> (${escapeHtml(clientCompany)}) vous a envoyé un message :</p>
         <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
           <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
         </div>
@@ -462,11 +462,11 @@ export async function notifyClientNewReply(params: {
   await sendMail({
     fromName: shopName || "Boutique",
     to: clientEmail,
-    subject: `[${ref}] Reponse a votre message — ${subject}`,
+    subject: `[${ref}] Réponse à votre message — ${subject}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
         <h2 style="color:#1A1A1A;">Bonjour ${escapeHtml(clientName)},</h2>
-        <p>Vous avez recu une reponse a votre message :</p>
+        <p>Vous avez reçu une réponse à votre message :</p>
         <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
           <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
         </div>
@@ -504,21 +504,21 @@ export async function notifyAdminNewClaim(params: {
   await sendMail({
     fromName: shopName || "Boutique",
     to: notifyEmail,
-    subject: `Nouvelle reclamation ${claimReference} — ${clientCompany}`,
+    subject: `Nouvelle réclamation ${claimReference} — ${clientCompany}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-        <h2 style="color:#1A1A1A;">Nouvelle reclamation</h2>
+        <h2 style="color:#1A1A1A;">Nouvelle réclamation</h2>
         <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-          <tr><td style="padding:8px;font-weight:bold;">Reference</td><td style="padding:8px;">${escapeHtml(claimReference)}</td></tr>
+          <tr><td style="padding:8px;font-weight:bold;">Référence</td><td style="padding:8px;">${escapeHtml(claimReference)}</td></tr>
           <tr><td style="padding:8px;font-weight:bold;">Client</td><td style="padding:8px;">${escapeHtml(clientName)} (${escapeHtml(clientCompany)})</td></tr>
-          <tr><td style="padding:8px;font-weight:bold;">Type</td><td style="padding:8px;">${claimType === 'ORDER_CLAIM' ? 'Liee a une commande' : 'Generale'}</td></tr>
+          <tr><td style="padding:8px;font-weight:bold;">Type</td><td style="padding:8px;">${claimType === 'ORDER_CLAIM' ? 'Liée à une commande' : 'Générale'}</td></tr>
         </table>
         <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
           <p style="margin:0;color:#333;">${escapeHtml(description).substring(0, 500)}</p>
         </div>
         <a href="${baseUrl}/admin/reclamations/${claimId}"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
-          Examiner la reclamation
+          Examiner la réclamation
         </a>
       </div>
     `,
@@ -554,15 +554,15 @@ export async function notifyClientClaimUpdate(params: {
   await sendMail({
     fromName: shopName || "Boutique",
     to: clientEmail,
-    subject: `Reclamation ${claimReference} — ${statusLabels[newStatus] || newStatus}`,
+    subject: `Réclamation ${claimReference} — ${statusLabels[newStatus] || newStatus}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
         <h2 style="color:#1A1A1A;">Bonjour ${escapeHtml(clientName)},</h2>
-        <p>Votre reclamation <strong>${escapeHtml(claimReference)}</strong> est maintenant <strong>${statusLabels[newStatus] || newStatus}</strong>.</p>
+        <p>Votre réclamation <strong>${escapeHtml(claimReference)}</strong> est maintenant <strong>${statusLabels[newStatus] || newStatus}</strong>.</p>
         ${message ? `<div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;"><p style="margin:0;">${escapeHtml(message)}</p></div>` : ''}
         <a href="${baseUrl}/espace-pro/reclamations/${claimId}"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
-          Voir la reclamation
+          Voir la réclamation
         </a>
       </div>
     `,
@@ -716,5 +716,251 @@ export async function notifyAdminNewOrder(
     });
   } catch (err) {
     logger.error("[new-order-admin] Erreur envoi email", { detail: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// ─────────────────────────────────────────────
+// Notifications client — validation / refus du compte
+// ─────────────────────────────────────────────
+
+/**
+ * Envoyé au client quand l'admin approuve son inscription.
+ * Fire-and-forget — toute erreur est loguée mais jamais propagée.
+ */
+export async function notifyClientAccountApproved(params: {
+  email: string;
+  firstName: string;
+}): Promise<void> {
+  try {
+    const shopName = await getCachedShopName();
+    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+    await sendMail({
+      fromName: shopName,
+      to: params.email,
+      subject: `Votre compte a été validé — ${shopName}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+          <div style="background:#16A34A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+            <div style="font-size:36px;margin-bottom:8px;">✅</div>
+            <h2 style="margin:0;font-size:20px;">Bienvenue sur ${escapeHtml(shopName)}</h2>
+          </div>
+          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+            <p style="font-size:15px;line-height:1.6;">
+              Bonjour <strong>${escapeHtml(params.firstName)}</strong>,
+            </p>
+            <p style="font-size:15px;line-height:1.6;">
+              Bonne nouvelle : votre compte professionnel a été validé par notre équipe.
+              Vous pouvez maintenant vous connecter, consulter notre catalogue et passer commande.
+            </p>
+            <div style="text-align:center;margin-top:24px;">
+              <a href="${baseUrl}/connexion"
+                 style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+                Accéder à la boutique →
+              </a>
+            </div>
+            <p style="margin-top:24px;font-size:13px;color:#6B6B6B;text-align:center;">
+              À très vite sur ${escapeHtml(shopName)}.
+            </p>
+          </div>
+          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
+          </p>
+        </div>
+      `,
+    });
+    logger.info("[account-approved] Email envoyé", { to: params.email });
+  } catch (err) {
+    logger.error("[account-approved] Erreur envoi email", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Envoyé au client quand l'admin refuse son inscription.
+ * Fire-and-forget.
+ */
+export async function notifyClientAccountRejected(params: {
+  email: string;
+  firstName: string;
+  reason?: string | null;
+}): Promise<void> {
+  try {
+    const shopName = await getCachedShopName();
+    const companyInfo = await getCachedCompanyInfo();
+    const contactEmail = companyInfo?.email || process.env.NOTIFY_EMAIL || null;
+
+    const reasonBlock = params.reason
+      ? `<div style="background:#FEF3F2;border:1px solid #FECACA;border-radius:8px;padding:14px 18px;margin:16px 0;">
+          <strong style="color:#991B1B;">Motif :</strong>
+          <p style="margin:6px 0 0;color:#1A1A1A;white-space:pre-wrap;">${escapeHtml(params.reason)}</p>
+        </div>`
+      : "";
+
+    const contactBlock = contactEmail
+      ? `<p style="margin-top:16px;font-size:13px;color:#6B6B6B;text-align:center;">
+          Si vous pensez qu'il s'agit d'une erreur, contactez-nous à
+          <a href="mailto:${contactEmail}" style="color:#1A1A1A;">${escapeHtml(contactEmail)}</a>.
+        </p>`
+      : "";
+
+    await sendMail({
+      fromName: shopName,
+      to: params.email,
+      subject: `Votre demande de compte — ${shopName}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+          <div style="background:#1A1A1A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+            <h2 style="margin:0;font-size:20px;">Votre demande d'inscription</h2>
+          </div>
+          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+            <p style="font-size:15px;line-height:1.6;">
+              Bonjour <strong>${escapeHtml(params.firstName)}</strong>,
+            </p>
+            <p style="font-size:15px;line-height:1.6;">
+              Après examen, nous ne sommes pas en mesure de valider votre compte
+              professionnel sur ${escapeHtml(shopName)}.
+            </p>
+            ${reasonBlock}
+            ${contactBlock}
+          </div>
+          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
+          </p>
+        </div>
+      `,
+    });
+    logger.info("[account-rejected] Email envoyé", { to: params.email });
+  } catch (err) {
+    logger.error("[account-rejected] Erreur envoi email", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+// ─────────────────────────────────────────────
+// Notification client — modification d'articles de commande (P2-08)
+// ─────────────────────────────────────────────
+
+interface OrderItemModifiedNotice {
+  orderId: string;
+  modifications: Array<{
+    productName: string;
+    originalQuantity: number;
+    newQuantity: number;
+    reason: "OUT_OF_STOCK" | "CLIENT_REQUEST";
+    creditAmount: number; // € HT
+  }>;
+}
+
+/**
+ * Envoyé au client quand l'admin réduit la quantité d'un article (rupture
+ * de stock partielle ou demande client). Liste les changements et le crédit
+ * éventuel. Fire-and-forget.
+ */
+export async function notifyClientOrderModified(
+  data: OrderItemModifiedNotice,
+): Promise<void> {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: data.orderId },
+      select: { orderNumber: true, clientEmail: true, clientCompany: true, id: true },
+    });
+    if (!order) {
+      logger.warn("[order-modified] Commande introuvable", { orderId: data.orderId });
+      return;
+    }
+
+    const shopName = await getCachedShopName();
+    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+    const reasonLabels: Record<string, string> = {
+      OUT_OF_STOCK: "Rupture de stock",
+      CLIENT_REQUEST: "À votre demande",
+    };
+
+    const totalCredit = data.modifications.reduce(
+      (sum, m) => sum + m.creditAmount,
+      0,
+    );
+
+    const rows = data.modifications
+      .map(
+        (m) => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #E5E5E5;">
+          <strong>${escapeHtml(m.productName)}</strong><br/>
+          <small style="color:#6B6B6B;">${escapeHtml(reasonLabels[m.reason] || m.reason)}</small>
+        </td>
+        <td style="padding:8px 12px;text-align:center;border-bottom:1px solid #E5E5E5;">
+          ${m.originalQuantity} → <strong>${m.newQuantity}</strong>
+        </td>
+        <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #E5E5E5;">
+          ${m.creditAmount.toFixed(2)} €
+        </td>
+      </tr>`,
+      )
+      .join("");
+
+    await sendMail({
+      fromName: shopName,
+      to: order.clientEmail,
+      subject: `${shopName} — Modification de votre commande ${order.orderNumber}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+          <div style="background:#F59E0B;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+            <div style="font-size:32px;margin-bottom:8px;">📝</div>
+            <h2 style="margin:0;font-size:20px;">Modification de commande</h2>
+            <p style="margin:8px 0 0;opacity:0.85;font-size:13px;">N° ${escapeHtml(order.orderNumber)}</p>
+          </div>
+          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+            <p style="font-size:15px;line-height:1.6;">
+              Bonjour${order.clientCompany ? ` <strong>${escapeHtml(order.clientCompany)}</strong>` : ""},
+            </p>
+            <p style="font-size:15px;line-height:1.6;">
+              Nous avons dû ajuster certains articles de votre commande
+              <strong>${escapeHtml(order.orderNumber)}</strong> :
+            </p>
+            <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:13px;">
+              <thead>
+                <tr style="background:#F7F7F8;">
+                  <th style="padding:8px 12px;text-align:left;">Article</th>
+                  <th style="padding:8px 12px;text-align:center;">Quantité</th>
+                  <th style="padding:8px 12px;text-align:right;">Avoir HT</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+              <tfoot>
+                <tr style="border-top:2px solid #1A1A1A;">
+                  <td colspan="2" style="padding:8px 12px;font-weight:bold;">Total avoir</td>
+                  <td style="padding:8px 12px;text-align:right;font-weight:bold;">${totalCredit.toFixed(2)} €</td>
+                </tr>
+              </tfoot>
+            </table>
+            <p style="margin-top:20px;font-size:14px;color:#4B5563;">
+              Le montant correspondant vous sera remboursé ou crédité prochainement.
+            </p>
+            <div style="text-align:center;margin-top:24px;">
+              <a href="${baseUrl}/commandes/${order.id}"
+                 style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+                Voir ma commande →
+              </a>
+            </div>
+          </div>
+          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
+          </p>
+        </div>
+      `,
+    });
+    logger.info("[order-modified] Email envoyé", {
+      orderId: data.orderId,
+      modifications: data.modifications.length,
+    });
+  } catch (err) {
+    logger.error("[order-modified] Erreur envoi email", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
   }
 }

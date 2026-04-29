@@ -4,6 +4,9 @@ import {
   collectImagesForColors,
   findPrimaryPfsColorRef,
   findPrimaryPfsColorRefFromImages,
+  dedupeSizeEntries,
+  pfsColorMatchCandidates,
+  buildPackLinesFromResolved,
 } from "@/lib/pfs-import";
 import type { PfsColorInfo } from "@/lib/pfs-api";
 
@@ -233,6 +236,207 @@ describe("pfs-import helpers", () => {
         SILVER: "https://pfs/silver.jpg",
       };
       expect(findPrimaryPfsColorRefFromImages(images)).toBeNull();
+    });
+  });
+
+  describe("dedupeSizeEntries", () => {
+    it("retourne tableau vide pour entrée vide", () => {
+      expect(dedupeSizeEntries([])).toEqual([]);
+    });
+
+    it("conserve les entrées uniques telles quelles", () => {
+      const entries = [
+        { sizeId: "size-S", quantity: 1 },
+        { sizeId: "size-M", quantity: 2 },
+        { sizeId: "size-L", quantity: 3 },
+      ];
+      const result = dedupeSizeEntries(entries);
+      expect(result).toHaveLength(3);
+      expect(result).toEqual(expect.arrayContaining(entries));
+    });
+
+    it("additionne les quantités quand le même sizeId apparaît plusieurs fois", () => {
+      const entries = [
+        { sizeId: "size-M", quantity: 2 },
+        { sizeId: "size-M", quantity: 3 },
+      ];
+      expect(dedupeSizeEntries(entries)).toEqual([{ sizeId: "size-M", quantity: 5 }]);
+    });
+
+    it("gère un mix de doublons et d'uniques (cas pack multi-couleurs)", () => {
+      // Cas réel : pack tricolore PFS avec Rouge M×2 + Bleu M×3 + Noir L×1
+      // Doit produire M=5 et L=1 pour un seul ProductColor.
+      const entries = [
+        { sizeId: "size-M", quantity: 2 },
+        { sizeId: "size-M", quantity: 3 },
+        { sizeId: "size-L", quantity: 1 },
+      ];
+      const result = dedupeSizeEntries(entries);
+      expect(result).toHaveLength(2);
+      const m = result.find((r) => r.sizeId === "size-M");
+      const l = result.find((r) => r.sizeId === "size-L");
+      expect(m?.quantity).toBe(5);
+      expect(l?.quantity).toBe(1);
+    });
+  });
+
+  describe("pfsColorMatchCandidates", () => {
+    it("priorise le libellé français devant le code en majuscules", () => {
+      const c = {
+        reference: "DARK_GRAY",
+        labels: { fr: "Gris Foncé", en: "Dark Gray", de: "Dunkelgrau" },
+      };
+      const candidates = pfsColorMatchCandidates(c);
+      expect(candidates[0]).toBe("Gris Foncé");
+      expect(candidates).toContain("DARK_GRAY");
+      expect(candidates.indexOf("Gris Foncé")).toBeLessThan(
+        candidates.indexOf("DARK_GRAY"),
+      );
+    });
+
+    it("essaie aussi en, de, es, it dans cet ordre quand fr manque", () => {
+      const c = {
+        reference: "BICOLOR",
+        labels: { en: "Bicolor", de: "Zweifarbig" },
+      };
+      const candidates = pfsColorMatchCandidates(c);
+      expect(candidates).toEqual(["Bicolor", "Zweifarbig", "BICOLOR"]);
+    });
+
+    it("retombe sur la reference si labels vide ou absent", () => {
+      expect(pfsColorMatchCandidates({ reference: "ECRU" })).toEqual(["ECRU"]);
+      expect(pfsColorMatchCandidates({ reference: "ECRU", labels: {} })).toEqual([
+        "ECRU",
+      ]);
+      expect(
+        pfsColorMatchCandidates({ reference: "ECRU", labels: null }),
+      ).toEqual(["ECRU"]);
+    });
+
+    it("supprime les doublons exacts entre langues", () => {
+      const c = {
+        reference: "ROSE",
+        labels: { fr: "Rose", en: "Rose", de: "Rose" },
+      };
+      const candidates = pfsColorMatchCandidates(c);
+      // "Rose" déduit une seule fois entre fr/en/de, plus le code "ROSE"
+      // (différent par la casse, gardé pour fallback exact si la BDD le contient)
+      expect(candidates).toEqual(["Rose", "ROSE"]);
+    });
+
+    it("ignore les libellés vides ou whitespace seul", () => {
+      const c = {
+        reference: "X",
+        labels: { fr: "", en: "   ", de: "Schwarz" },
+      };
+      const candidates = pfsColorMatchCandidates(c);
+      expect(candidates).toEqual(["Schwarz", "X"]);
+    });
+  });
+
+  describe("buildPackLinesFromResolved", () => {
+    it("retourne tout vide si aucun pack", () => {
+      expect(buildPackLinesFromResolved([])).toEqual({
+        sizeEntries: [],
+        packLines: [],
+        allColorIds: [],
+      });
+    });
+
+    it("PACK mono-couleur (1 ligne) : sizeEntries fusionné, packLines vide", () => {
+      const result = buildPackLinesFromResolved([
+        {
+          colorId: "color-ecru",
+          sizeEntries: [
+            { sizeId: "size-48", quantity: 13 },
+            { sizeId: "size-49", quantity: 8 },
+          ],
+        },
+      ]);
+      expect(result.packLines).toEqual([]);
+      expect(result.sizeEntries).toEqual([
+        { sizeId: "size-48", quantity: 13 },
+        { sizeId: "size-49", quantity: 8 },
+      ]);
+      expect(result.allColorIds).toEqual(["color-ecru"]);
+    });
+
+    it("PACK mono-couleur réparti sur plusieurs entrées PFS : fusionne par taille", () => {
+      const result = buildPackLinesFromResolved([
+        { colorId: "color-ecru", sizeEntries: [{ sizeId: "size-48", quantity: 5 }] },
+        { colorId: "color-ecru", sizeEntries: [{ sizeId: "size-48", quantity: 3 }, { sizeId: "size-49", quantity: 2 }] },
+      ]);
+      expect(result.packLines).toEqual([]);
+      expect(result.sizeEntries).toHaveLength(2);
+      expect(result.sizeEntries.find((e) => e.sizeId === "size-48")?.quantity).toBe(8);
+      expect(result.sizeEntries.find((e) => e.sizeId === "size-49")?.quantity).toBe(2);
+    });
+
+    it("PACK multi-couleurs : 1 packLine par couleur, sizeEntries vide", () => {
+      // Cas réel TESTGGG : pack tricolore Gris Foncé + Ivoire + Écru, tailles 56-59.
+      const result = buildPackLinesFromResolved([
+        {
+          colorId: "color-gris",
+          sizeEntries: [
+            { sizeId: "size-56", quantity: 1 },
+            { sizeId: "size-57", quantity: 2 },
+            { sizeId: "size-58", quantity: 3 },
+            { sizeId: "size-59", quantity: 4 },
+          ],
+        },
+        {
+          colorId: "color-ivoire",
+          sizeEntries: [
+            { sizeId: "size-56", quantity: 1 },
+            { sizeId: "size-57", quantity: 2 },
+            { sizeId: "size-58", quantity: 3 },
+            { sizeId: "size-59", quantity: 4 },
+          ],
+        },
+        {
+          colorId: "color-ecru",
+          sizeEntries: [
+            { sizeId: "size-56", quantity: 1 },
+            { sizeId: "size-57", quantity: 2 },
+            { sizeId: "size-58", quantity: 3 },
+            { sizeId: "size-59", quantity: 4 },
+          ],
+        },
+      ]);
+      expect(result.sizeEntries).toEqual([]);
+      expect(result.packLines).toHaveLength(3);
+      expect(result.packLines[0].colorId).toBe("color-gris");
+      expect(result.packLines[1].colorId).toBe("color-ivoire");
+      expect(result.packLines[2].colorId).toBe("color-ecru");
+      expect(result.allColorIds).toEqual(["color-gris", "color-ivoire", "color-ecru"]);
+      // Total pièces du pack = 3 couleurs × (1+2+3+4) = 30
+      const totalPieces = result.packLines.reduce(
+        (sum, l) => sum + l.sizeEntries.reduce((s, e) => s + e.quantity, 0),
+        0,
+      );
+      expect(totalPieces).toBe(30);
+    });
+
+    it("préserve l'ordre PFS des couleurs (la première = couleur principale)", () => {
+      const result = buildPackLinesFromResolved([
+        { colorId: "color-rouge", sizeEntries: [{ sizeId: "size-M", quantity: 1 }] },
+        { colorId: "color-bleu", sizeEntries: [{ sizeId: "size-L", quantity: 1 }] },
+        { colorId: "color-noir", sizeEntries: [{ sizeId: "size-S", quantity: 1 }] },
+      ]);
+      expect(result.allColorIds).toEqual(["color-rouge", "color-bleu", "color-noir"]);
+    });
+
+    it("multi-couleurs avec doublons de couleur : fusionne en une seule ligne", () => {
+      const result = buildPackLinesFromResolved([
+        { colorId: "color-rouge", sizeEntries: [{ sizeId: "size-M", quantity: 2 }] },
+        { colorId: "color-bleu", sizeEntries: [{ sizeId: "size-M", quantity: 3 }] },
+        { colorId: "color-rouge", sizeEntries: [{ sizeId: "size-L", quantity: 1 }] },
+      ]);
+      expect(result.packLines).toHaveLength(2);
+      const rouge = result.packLines.find((l) => l.colorId === "color-rouge");
+      expect(rouge?.sizeEntries).toHaveLength(2);
+      expect(rouge?.sizeEntries.find((e) => e.sizeId === "size-M")?.quantity).toBe(2);
+      expect(rouge?.sizeEntries.find((e) => e.sizeId === "size-L")?.quantity).toBe(1);
     });
   });
 });

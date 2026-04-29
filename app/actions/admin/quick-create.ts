@@ -10,6 +10,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath, revalidateTag } from "next/cache";
+import { sanitizePfsFamilyName } from "@/lib/pfs-family-resolve";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -41,7 +42,10 @@ export async function createCategoryQuick(
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
   const gender = pfsGender?.trim() || null;
-  const familyName = pfsFamilyName?.trim() || null;
+  // Filtre de sécurité : la famille doit être un nom connu de la taxonomie
+  // (pas un identifiant Salesforce brut comme "a035J00000185J7QAI"), sinon on
+  // refuse la création — l'admin verrait un mapping incomplet en BDD.
+  const familyName = sanitizePfsFamilyName(pfsFamilyName);
   if (!gender || !familyName) {
     throw new Error("Le genre et la famille Paris Fashion Shop sont obligatoires.");
   }
@@ -127,17 +131,19 @@ export async function createColorQuick(
   translations: Record<string, string>,
   hex: string | null | undefined,
   patternImage: string | null | undefined,
-  pfsColorRef?: string | null,
 ): Promise<{ id: string; name: string; hex: string | null; patternImage: string | null }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
-  const normalizedRef = pfsColorRef?.trim() || null;
-  if (!normalizedRef) {
-    throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
+  const existing = await prisma.color.findFirst({
+    where: { name: { equals: name } },
+    select: { name: true },
+  });
+  if (existing) {
+    throw new Error(`La couleur « ${existing.name} » existe déjà dans la bibliothèque.`);
   }
   const created = await prisma.color.create({
-    data: { name, hex: hex ?? null, patternImage: patternImage ?? null, pfsColorRef: normalizedRef },
+    data: { name, hex: hex ?? null, patternImage: patternImage ?? null },
   });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;

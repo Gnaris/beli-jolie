@@ -33,7 +33,6 @@ type ProductItem = {
     name:          string;
     hex:           string | null;
     patternImage?: string | null;
-    subColors?:    { name: string; hex: string; patternImage?: string | null }[];
     firstImage:    string | null;
     unitPrice:     number;
     isPrimary:     boolean;
@@ -77,6 +76,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
   const [page,        setPage]        = useState(1);
   const [hasMore,     setHasMore]     = useState(initialHasMore);
   const [loading,     setLoading]     = useState(false);
+  const [loadError,   setLoadError]   = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   // Track product IDs that were just updated via SSE (for animation)
   const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
@@ -188,6 +188,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
     try {
       const res  = await fetch(`/api/products?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setProducts((prev) => {
             const existingIds = new Set(prev.map((p) => p.id));
@@ -196,8 +197,10 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
           });
       setPage(nextPage);
       setHasMore(data.hasMore);
+      setLoadError(null);
     } catch {
-      // silently ignore
+      // P3-04 — afficher un message au lieu de masquer silencieusement.
+      setLoadError("Impossible de charger plus de produits. Vérifiez votre connexion et réessayez.");
     } finally {
       setLoading(false);
     }
@@ -278,6 +281,19 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
       {loading && (
         <div className="flex justify-center py-6">
           <div className="w-6 h-6 border-2 border-border border-t-text-primary rounded-full animate-spin" />
+        </div>
+      )}
+
+      {loadError && !loading && (
+        <div className="flex flex-col items-center gap-3 py-6">
+          <p className="text-sm text-red-600 font-body text-center max-w-md">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => loadMoreRef.current()}
+            className="text-xs font-medium text-text-primary border border-border rounded-lg px-4 py-2 hover:bg-bg-secondary transition-colors font-body"
+          >
+            Réessayer
+          </button>
         </div>
       )}
 

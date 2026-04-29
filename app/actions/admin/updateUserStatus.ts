@@ -5,6 +5,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
+import {
+  notifyClientAccountApproved,
+  notifyClientAccountRejected,
+} from "@/lib/notifications";
 import type { UserStatus } from "@prisma/client";
 
 /**
@@ -23,10 +28,11 @@ export async function updateUserStatus(userId: string, status: UserStatus) {
     throw new Error("Accès non autorisé.");
   }
 
-  // Vérification que l'utilisateur existe
+  // Vérification que l'utilisateur existe — on récupère email/firstName pour
+  // pouvoir prévenir le client par email après l'update.
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, role: true },
+    select: { id: true, role: true, email: true, firstName: true, status: true },
   });
 
   if (!user) {
@@ -43,6 +49,30 @@ export async function updateUserStatus(userId: string, status: UserStatus) {
     where: { id: userId },
     data: { status },
   });
+
+  // Notifier le client par email si le statut change vraiment
+  // (fire-and-forget : ne pas bloquer la redirection en cas d'échec SMTP).
+  if (user.status !== status) {
+    if (status === "APPROVED") {
+      notifyClientAccountApproved({
+        email: user.email,
+        firstName: user.firstName,
+      }).catch((err) =>
+        logger.error("[updateUserStatus] Email approbation échoué", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    } else if (status === "REJECTED") {
+      notifyClientAccountRejected({
+        email: user.email,
+        firstName: user.firstName,
+      }).catch((err) =>
+        logger.error("[updateUserStatus] Email refus échoué", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
 
   // Revalidation du cache des pages admin concernées
   revalidatePath("/admin/utilisateurs");

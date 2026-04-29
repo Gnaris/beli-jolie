@@ -32,9 +32,13 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: (...a: unknown[]) => mockProductFindUnique(...a),
       update: (...a: unknown[]) => mockProductUpdate(...a),
     },
+    productColor: {
+      update: vi.fn().mockResolvedValue({}),
+    },
     companyInfo: {
       findFirst: (...a: unknown[]) => mockCompanyInfoFindFirst(...a),
     },
+    $transaction: vi.fn(async (operations: unknown[]) => operations),
   },
 }));
 
@@ -90,7 +94,6 @@ function mkProduct(overrides: Partial<Record<string, unknown>> = {}) {
     colors: [
       {
         id: "v-1",
-        pfsColorRef: null,
         unitPrice: 10,
         weight: 0.1,
         stock: 5,
@@ -98,8 +101,8 @@ function mkProduct(overrides: Partial<Record<string, unknown>> = {}) {
         saleType: "UNIT",
         packQuantity: null,
         variantSizes: [{ size: { name: "M", pfsSizeRef: "M" }, quantity: 1 }],
-        color: { pfsColorRef: "Noir" },
-        subColors: [],
+        color: { name: "Noir" },
+        packLines: [],
         images: [{ path: "/uploads/products/a.webp", order: 0 }],
       },
     ],
@@ -199,7 +202,6 @@ describe("pfsRefreshProduct", () => {
       colors: [
         {
           id: "v-1",
-          pfsColorRef: null,
           unitPrice: 10,
           weight: 0.1,
           stock: 0, // out of stock
@@ -207,8 +209,8 @@ describe("pfsRefreshProduct", () => {
           saleType: "UNIT",
           packQuantity: null,
           variantSizes: [{ size: { name: "M", pfsSizeRef: "M" }, quantity: 1 }],
-          color: { pfsColorRef: "Noir" },
-          subColors: [],
+          color: { name: "Noir" },
+          packLines: [],
           images: [],
         },
       ],
@@ -237,19 +239,76 @@ describe("pfsRefreshProduct", () => {
     expect(updateCall[0].data.lastRefreshedAt).toBeInstanceOf(Date);
   });
 
+  it("PACK : prix unitaire = total / packQuantity, même si la somme des tailles diffère (P1-06)", async () => {
+    // Pack 100€ TTC, packQuantity = 5 (5 unités) → prix unitaire = 20€.
+    // Les tailles totalisent 4 (incohérence), mais on ignore la somme et on
+    // s'aligne sur packQuantity, comme l'export Excel.
+    const product = mkProduct({
+      colors: [
+        {
+          id: "v-pack",
+          unitPrice: 100,
+          weight: 0.5,
+          stock: 10,
+          isPrimary: true,
+          saleType: "PACK",
+          packQuantity: 5,
+          variantSizes: [
+            { size: { name: "S", pfsSizeRef: "S" }, quantity: 2 },
+            { size: { name: "M", pfsSizeRef: "M" }, quantity: 2 },
+          ], // somme = 4 (≠ packQuantity)
+          color: { name: "Noir" },
+          packLines: [],
+          images: [],
+        },
+      ],
+    });
+    mockProductFindUnique.mockResolvedValue(product);
+    pfsCheckReferenceSpy.mockResolvedValue({
+      exists: true,
+      product: {
+        id: "old_pfs_id",
+        brand: { name: "x" },
+        gender: { reference: "WOMAN" },
+        family: { id: "fam_1" },
+      },
+    });
+    pfsCreateProductSpy.mockResolvedValue({ pfsProductId: "new_pfs_id" });
+    pfsCreateVariantsSpy.mockResolvedValue({ variantIds: ["new_var_1"] });
+    pfsUpdateProductSpy.mockResolvedValue(undefined);
+    pfsUpdateStatusSpy.mockResolvedValue(undefined);
+    mockProductUpdate.mockResolvedValue({});
+
+    await pfsRefreshProduct("p-1");
+
+    expect(pfsCreateVariantsSpy).toHaveBeenCalledTimes(1);
+    const variantsArg = pfsCreateVariantsSpy.mock.calls[0][1] as Array<{ price_eur_ex_vat: number }>;
+    // packQuantity=5 → 100/5 = 20 (et NON 100/4 = 25 comme l'ancienne logique)
+    expect(variantsArg[0].price_eur_ex_vat).toBe(20);
+  });
+
   it("rolls back when swap fails — restores old ref and marks new as DELETED", async () => {
     mockProductFindUnique.mockResolvedValue(mkProduct());
     pfsCheckReferenceSpy.mockResolvedValue({
       exists: true,
-      product: { id: "old_pfs_id", brand: { name: "x" }, gender: { reference: "WOMAN" }, family: { id: "fam_1" } },
+      product: {
+        id: "old_pfs_id",
+        brand: { name: "x" },
+        gender: { reference: "WOMAN" },
+        family: { id: "fam_1" },
+        status: "ARCHIVED", // P2-11 — produit archivé avant le refresh
+      },
     });
     pfsCreateProductSpy.mockResolvedValue({ pfsProductId: "new_pfs_id" });
     pfsCreateVariantsSpy.mockResolvedValue({ variantIds: ["new_var_1"] });
     pfsUploadImageSpy.mockResolvedValue({ imagePath: "img_path" });
 
-    // First call renames old to DEL (success). Second call (new → real ref) fails.
+    // 1ère: set default_color sur le nouveau (succeeds, dans try/catch interne)
+    // 2ème: rename old → DEL (succeeds, déclenche oldProductRenamed=true)
+    // 3ème: rename new → real ref (FAILS, déclenche le rollback)
     pfsUpdateProductSpy
-      .mockResolvedValueOnce(undefined) // rename old → DEL
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error("PFS swap failed"));
     pfsUpdateStatusSpy.mockResolvedValue(undefined);
 
@@ -265,5 +324,13 @@ describe("pfsRefreshProduct", () => {
     const updateCalls = pfsUpdateProductSpy.mock.calls.map((c) => c[0]);
     expect(updateCalls).toContain("old_pfs_id"); // restore
     expect(updateCalls).toContain("new_pfs_id"); // rename + DELETED
+
+    // P2-11 — pendant le rollback, on doit restaurer le statut d'origine
+    // (ARCHIVED) sur l'ancien produit. Et JAMAIS le remettre en READY_FOR_SALE.
+    const statusCalls = pfsUpdateStatusSpy.mock.calls.map((c) => c[0]);
+    expect(statusCalls).toContainEqual([{ id: "old_pfs_id", status: "ARCHIVED" }]);
+    expect(statusCalls).not.toContainEqual([
+      { id: "old_pfs_id", status: "READY_FOR_SALE" },
+    ]);
   });
 });

@@ -27,7 +27,6 @@ export interface ImageImportRow {
     name: string;
     hex: string;
     patternImage?: string | null;
-    subColors?: { hex: string; patternImage?: string | null }[];
   }[];
 }
 
@@ -159,7 +158,7 @@ export async function POST(req: NextRequest) {
         where: { reference },
         include: {
           colors: {
-            include: { color: true, subColors: { include: { color: true } } },
+            include: { color: true },
           },
         },
       });
@@ -181,25 +180,12 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Match color — compare full set of colors (main + sub-colors)
-      const fileColorParts = color.split(",").map((c) => normalizeColorName(c.trim())).sort();
+      // Match color (single color only)
+      const fileColorName = normalizeColorName(color.trim());
 
-      let matchingVariants = product.colors.filter((pc) => {
-        if (!pc.color) return false;
-        const variantColors = [
-          normalizeColorName(pc.color.name),
-          ...pc.subColors.map((sc) => normalizeColorName(sc.color.name)),
-        ].sort();
-        return variantColors.length === fileColorParts.length &&
-          variantColors.every((c, i) => c === fileColorParts[i]);
-      });
-
-      // Fallback: single-color file → match by main color only
-      if (matchingVariants.length === 0 && fileColorParts.length === 1) {
-        matchingVariants = product.colors.filter(
-          (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorParts[0]
-        );
-      }
+      const matchingVariants = product.colors.filter(
+        (pc) => pc.color && normalizeColorName(pc.color.name) === fileColorName
+      );
 
       if (matchingVariants.length === 0) {
         const tempPath = `${tempDirPublic}/${file.name}`;
@@ -207,27 +193,17 @@ export async function POST(req: NextRequest) {
         const bytes = await file.arrayBuffer();
         await writeFile(fullPath, Buffer.from(bytes));
 
-        // Group variants by groupKey (colorId + sorted sub-color names) to avoid duplicates
-        const groupedVariants = new Map<string, { id: string; name: string; hex: string; patternImage: string | null; subColors: { hex: string; patternImage: string | null }[] }>();
+        // Group variants by colorId to avoid duplicates
+        const groupedVariants = new Map<string, { id: string; name: string; hex: string; patternImage: string | null }>();
         for (const pc of product.colors) {
           if (!pc.color || !pc.colorId) continue;
-          const subNames = pc.subColors.map((sc) => sc.color.name);
-          const groupKey = subNames.length > 0
-            ? `${pc.colorId}::${subNames.join(",")}`
-            : pc.colorId;
+          const groupKey = pc.colorId;
           if (!groupedVariants.has(groupKey)) {
-            const fullName = subNames.length > 0
-              ? [pc.color.name, ...subNames].join("/")
-              : pc.color.name;
             groupedVariants.set(groupKey, {
               id: pc.id,
-              name: fullName,
+              name: pc.color.name,
               hex: pc.color.hex ?? "#9CA3AF",
               patternImage: pc.color.patternImage ?? null,
-              subColors: pc.subColors.map((sc) => ({
-                hex: sc.color.hex ?? "#9CA3AF",
-                patternImage: sc.color.patternImage ?? null,
-              })),
             });
           }
         }

@@ -29,7 +29,6 @@ export async function GET(req: NextRequest) {
       colors: {
         include: {
           color: true,
-          subColors: { orderBy: { position: "asc" }, include: { color: true } },
         },
       },
     },
@@ -39,32 +38,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Produit introuvable." }, { status: 404 });
   }
 
-  // Group by color composition (groupKey) to avoid UNIT/PACK duplicates
-  const grouped = new Map<string, { id: string; name: string; hex: string; patternImage: string | null; colorNames: string; subColors: { hex: string; patternImage: string | null }[] }>();
+  // Group by colorId to avoid UNIT/PACK duplicates
+  const grouped = new Map<string, { id: string; name: string; hex: string; patternImage: string | null; colorNames: string }>();
   for (const pc of product.colors) {
     if (!pc.color || !pc.colorId) continue;
-    const subNames = pc.subColors.map((sc) => sc.color.name);
-    const groupKey = subNames.length > 0
-      ? `${pc.colorId}::${subNames.join(",")}`
-      : pc.colorId;
+    const groupKey = pc.colorId;
     if (!grouped.has(groupKey)) {
-      const fullName = subNames.length > 0
-        ? [pc.color.name, ...subNames].join("/")
-        : pc.color.name;
-      // colorNames uses comma separator (matching filename convention)
-      const colorNames = subNames.length > 0
-        ? [pc.color.name, ...subNames].join(",")
-        : pc.color.name;
       grouped.set(groupKey, {
         id: pc.id,
-        name: fullName,
+        name: pc.color.name,
         hex: pc.color.hex ?? "#9CA3AF",
         patternImage: pc.color.patternImage ?? null,
-        colorNames,
-        subColors: pc.subColors.map((sc) => ({
-          hex: sc.color.hex ?? "#9CA3AF",
-          patternImage: sc.color.patternImage ?? null,
-        })),
+        colorNames: pc.color.name,
       });
     }
   }
@@ -102,7 +87,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Produit introuvable." }, { status: 404 });
   }
 
-  const [mainColorId, ...subColorIds] = body.colorIds;
+  const [mainColorId] = body.colorIds;
 
   try {
     const variant = await prisma.productColor.create({
@@ -115,40 +100,22 @@ export async function POST(req: NextRequest) {
         isPrimary: false,
         saleType: body.saleType,
         packQuantity: body.saleType === "PACK" ? (body.packQuantity || null) : null,
-        subColors: subColorIds.length > 0 ? {
-          create: subColorIds.map((id, i) => ({
-            colorId: id,
-            position: i,
-          })),
-        } : undefined,
       },
       include: {
         color: true,
-        subColors: { orderBy: { position: "asc" }, include: { color: true } },
       },
     });
 
-    const subNames = variant.subColors.map((sc) => sc.color.name);
     const mainColorName = variant.color?.name ?? "";
-    const fullName = subNames.length > 0
-      ? [mainColorName, ...subNames].join("/")
-      : mainColorName;
-    const colorNames = subNames.length > 0
-      ? [mainColorName, ...subNames].join(",")
-      : mainColorName;
 
     return NextResponse.json({
       ok: true,
       variant: {
         id: variant.id,
-        name: fullName,
+        name: mainColorName,
         hex: variant.color?.hex ?? "#9CA3AF",
         patternImage: variant.color?.patternImage ?? null,
-        colorNames,
-        subColors: variant.subColors.map((sc) => ({
-          hex: sc.color.hex ?? "#9CA3AF",
-          patternImage: sc.color.patternImage ?? null,
-        })),
+        colorNames: mainColorName,
       },
     });
   } catch (err) {

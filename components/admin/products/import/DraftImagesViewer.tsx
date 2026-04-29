@@ -10,10 +10,9 @@ import { useBackdropClose } from "@/hooks/useBackdropClose";
 
 interface AvailableColor {
   id: string;       // ProductColor ID (variant), not Color model ID
-  name: string;     // Full name: "Doré/Noir/Rouge" (main + sub-colors)
+  name: string;
   hex: string;
   patternImage?: string | null;
-  subColors?: { hex: string; patternImage?: string | null }[];
 }
 
 interface ColorOption {
@@ -659,7 +658,6 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                               <ColorSwatch
                                 hex={c.hex}
                                 patternImage={c.patternImage}
-                                subColors={c.subColors}
                                 size={14}
                                 rounded="full"
                               />
@@ -714,7 +712,6 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                           <ColorSwatch
                             hex={c.hex}
                             patternImage={c.patternImage}
-                            subColors={c.subColors}
                             size={20}
                             rounded="full"
                           />
@@ -913,7 +910,6 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                             <ColorSwatch
                               hex={c.hex}
                               patternImage={c.patternImage}
-                              subColors={c.subColors}
                               size={14}
                               rounded="full"
                             />
@@ -968,7 +964,6 @@ export default function DraftImagesViewer({ draftId, initialRows, successCount, 
                         <ColorSwatch
                           hex={c.hex}
                           patternImage={c.patternImage}
-                          subColors={c.subColors}
                           size={20}
                           rounded="full"
                         />
