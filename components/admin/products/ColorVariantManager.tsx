@@ -92,6 +92,20 @@ interface Props {
 }
 
 // ─────────────────────────────────────────────
+// Verrouillage post-création
+// Une fois la variante enregistrée (dbId présent), couleur / type / tailles
+// ne peuvent plus changer côté marketplace (PFS bloque les modifs sur ces
+// champs après publication). On les verrouille donc en UI : pour les changer,
+// l'admin supprime la variante puis en recrée une nouvelle.
+// ─────────────────────────────────────────────
+const LOCKED_VARIANT_TOOLTIP =
+  "Cette variante est déjà enregistrée. Pour changer la couleur, le type ou les tailles, supprimez-la puis recréez-en une nouvelle.";
+
+function isVariantLocked(v: VariantState): boolean {
+  return !!v.dbId;
+}
+
+// ─────────────────────────────────────────────
 // Price helpers
 // ─────────────────────────────────────────────
 
@@ -1875,6 +1889,7 @@ export default function ColorVariantManager({
               const imgGk = imageGroupKeyFromVariant(v);
               const imgEntry = colorImages.find((c) => c.groupKey === imgGk);
               const imgCount = imgEntry?.uploadedPaths.length ?? 0;
+              const locked = isVariantLocked(v);
               return (
                 <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#F0FDF4]" : ""}`}>
                   <div className="flex items-center gap-2">
@@ -1887,9 +1902,18 @@ export default function ColorVariantManager({
                       className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
                     <span title={v.disabled ? "Désactivée" : "Active"}
                       className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`} />
-                    <div className={v.disabled ? "opacity-50" : ""}><CustomSelect
+                    {locked && (
+                      <span title={LOCKED_VARIANT_TOOLTIP} className="inline-flex items-center text-text-muted shrink-0" aria-label="Variante verrouillée">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c-1.105 0-2 .895-2 2v2a2 2 0 104 0v-2c0-1.105-.895-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v12h16V8h-2zM8 7a4 4 0 118 0v1H8V7z" />
+                        </svg>
+                      </span>
+                    )}
+                    <div className={v.disabled ? "opacity-50" : ""} title={locked ? LOCKED_VARIANT_TOOLTIP : undefined}><CustomSelect
+                      disabled={locked}
                       value={v.saleType}
                       onChange={(val) => {
+                        if (locked) return;
                         if (val === "PACK" && v.saleType === "UNIT") {
                           // Conversion UNIT→PACK : la couleur de la variante devient la 1ère ligne du pack
                           // (avec ses tailles éventuelles déjà saisies). L'admin pourra ajouter d'autres couleurs.
@@ -1972,13 +1996,18 @@ export default function ColorVariantManager({
                       ) : null;
                     })()}
 
+                    <div
+                      className={locked ? "pointer-events-none opacity-60" : ""}
+                      title={locked ? LOCKED_VARIANT_TOOLTIP : undefined}
+                      aria-disabled={locked || undefined}
+                    >
                     {v.saleType === "PACK" ? (
                       <MultiColorSelect
                         selected={v.packLines.length > 0
                           ? v.packLines.map((l) => ({ colorId: l.colorId, colorName: l.colorName, colorHex: l.colorHex }))
                           : (v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }] : [])}
                         options={availableColors}
-                        onChange={(colors) => handlePackColorsChange(v.tempId, colors)}
+                        onChange={(colors) => { if (locked) return; handlePackColorsChange(v.tempId, colors); }}
                         onCreateColor={onQuickCreateColor}
                         onColorAdded={onColorAdded}
                       />
@@ -1986,11 +2015,12 @@ export default function ColorVariantManager({
                       <SingleColorSelect
                         selected={v.colorId ? { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex } : null}
                         options={availableColors}
-                        onChange={(c) => handleColorChange(v.tempId, c)}
+                        onChange={(c) => { if (locked) return; handleColorChange(v.tempId, c); }}
                         onCreateColor={onQuickCreateColor}
                         onColorAdded={onColorAdded}
                       />
                     )}
+                    </div>
 
                     <div className="grid grid-cols-3 gap-2">
                       <div>
@@ -2018,11 +2048,22 @@ export default function ColorVariantManager({
                         <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">
                           {v.saleType === "PACK" ? "Composition" : "Tailles"}
                         </p>
-                        <button type="button" onClick={() => v.saleType === "PACK" ? setPackCompoVariantId(v.tempId) : setSizeModalVariantId(v.tempId)}
-                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px]`}>
+                        <button type="button"
+                          disabled={locked}
+                          title={locked ? LOCKED_VARIANT_TOOLTIP : undefined}
+                          onClick={() => {
+                            if (locked) return;
+                            if (v.saleType === "PACK") setPackCompoVariantId(v.tempId);
+                            else setSizeModalVariantId(v.tempId);
+                          }}
+                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[30px] ${locked ? "opacity-60 cursor-not-allowed" : "hover:border-[#9CA3AF]"}`}>
                           {renderSizeSummary(v)}
                           <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            {locked ? (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c-1.105 0-2 .895-2 2v2a2 2 0 104 0v-2c0-1.105-.895-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v12h16V8h-2zM8 7a4 4 0 118 0v1H8V7z" />
+                            ) : (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            )}
                           </svg>
                         </button>
                       </div>
@@ -2118,6 +2159,7 @@ export default function ColorVariantManager({
                   const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
                   const imgCountD = imgEntryD?.uploadedPaths.length ?? 0;
                   const dimCls = v.disabled ? " opacity-50" : "";
+                  const lockedD = isVariantLocked(v);
                   return (
                     <tr key={v.tempId}
                       className={`border-b border-border-light last:border-b-0 transition-colors ${
@@ -2134,13 +2176,24 @@ export default function ColorVariantManager({
                           className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5" />
                       </td>
                       <td className="px-0 py-2 text-center">
-                        <span title={v.disabled ? "Désactivée" : "Active"}
-                          className={`inline-block w-2.5 h-2.5 rounded-full ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`} />
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span title={v.disabled ? "Désactivée" : "Active"}
+                            className={`inline-block w-2.5 h-2.5 rounded-full ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`} />
+                          {lockedD && (
+                            <span title={LOCKED_VARIANT_TOOLTIP} className="inline-flex items-center text-text-muted" aria-label="Variante verrouillée">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c-1.105 0-2 .895-2 2v2a2 2 0 104 0v-2c0-1.105-.895-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v12h16V8h-2zM8 7a4 4 0 118 0v1H8V7z" />
+                              </svg>
+                            </span>
+                          )}
+                        </div>
                       </td>
-                      <td className={`px-2 py-2${dimCls}`}>
+                      <td className={`px-2 py-2${dimCls}`} title={lockedD ? LOCKED_VARIANT_TOOLTIP : undefined}>
                         <CustomSelect
+                          disabled={lockedD}
                           value={v.saleType}
                           onChange={(val) => {
+                            if (lockedD) return;
                             if (val === "PACK" && v.saleType === "UNIT") {
                               const totalQty = v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0);
                               updateVariant(v.tempId, { saleType: "PACK", packQuantity: String(totalQty || 1) });
@@ -2153,13 +2206,18 @@ export default function ColorVariantManager({
                           size="sm" className="w-[72px]" />
                       </td>
                       <td className={`px-2 py-2${dimCls}`}>
+                        <div
+                          className={lockedD ? "pointer-events-none opacity-60" : ""}
+                          title={lockedD ? LOCKED_VARIANT_TOOLTIP : undefined}
+                          aria-disabled={lockedD || undefined}
+                        >
                         {v.saleType === "PACK" ? (
                           <MultiColorSelect
                             selected={v.packLines.length > 0
                               ? v.packLines.map((l) => ({ colorId: l.colorId, colorName: l.colorName, colorHex: l.colorHex }))
                               : (v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }] : [])}
                             options={availableColors}
-                            onChange={(colors) => handlePackColorsChange(v.tempId, colors)}
+                            onChange={(colors) => { if (lockedD) return; handlePackColorsChange(v.tempId, colors); }}
                             onCreateColor={onQuickCreateColor}
                             onColorAdded={onColorAdded}
                           />
@@ -2167,11 +2225,12 @@ export default function ColorVariantManager({
                           <SingleColorSelect
                             selected={v.colorId ? { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex } : null}
                             options={availableColors}
-                            onChange={(c) => handleColorChange(v.tempId, c)}
+                            onChange={(c) => { if (lockedD) return; handleColorChange(v.tempId, c); }}
                             onCreateColor={onQuickCreateColor}
                             onColorAdded={onColorAdded}
                           />
                         )}
+                        </div>
                       </td>
                       <td className={`px-1 py-2${dimCls}`}>
                         {(() => {
@@ -2180,17 +2239,27 @@ export default function ColorVariantManager({
                         })()}
                       </td>
                       <td className={`px-1 py-2${dimCls}`}>
-                        <button type="button" onClick={() => v.saleType === "PACK" ? setPackCompoVariantId(v.tempId) : setSizeModalVariantId(v.tempId)}
-                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md hover:border-[#9CA3AF] transition-colors min-h-[30px]`}
-                          title={v.saleType === "PACK"
+                        <button type="button"
+                          disabled={lockedD}
+                          onClick={() => {
+                            if (lockedD) return;
+                            if (v.saleType === "PACK") setPackCompoVariantId(v.tempId);
+                            else setSizeModalVariantId(v.tempId);
+                          }}
+                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[30px] ${lockedD ? "opacity-60 cursor-not-allowed" : "hover:border-[#9CA3AF]"}`}
+                          title={lockedD ? LOCKED_VARIANT_TOOLTIP : (v.saleType === "PACK"
                             ? (isMultiColorPack(v)
                                 ? v.packLines.map((l) => `${l.colorName}: ${l.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}`).join(" | ")
                                 : "Définir la composition du paquet")
-                            : (v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ") : "Ajouter des tailles")}
+                            : (v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ") : "Ajouter des tailles"))}
                         >
                           {renderSizeSummary(v)}
                           <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            {lockedD ? (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c-1.105 0-2 .895-2 2v2a2 2 0 104 0v-2c0-1.105-.895-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v12h16V8h-2zM8 7a4 4 0 118 0v1H8V7z" />
+                            ) : (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            )}
                           </svg>
                         </button>
                       </td>

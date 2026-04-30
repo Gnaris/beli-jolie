@@ -518,7 +518,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
 
     const existingVariants = await tx.productColor.findMany({
       where: { productId: id },
-      select: { id: true, stock: true, unitPrice: true, saleType: true, packQuantity: true,
+      select: { id: true, colorId: true, stock: true, unitPrice: true, saleType: true, packQuantity: true,
         variantSizes: { select: { quantity: true } } },
     });
     const existingIds = existingVariants.map((v) => v.id);
@@ -530,6 +530,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       packQuantity: v.packQuantity,
       totalPackQty: v.variantSizes?.reduce((s: number, vs: { quantity: number }) => s + vs.quantity, 0) || (v.packQuantity ?? 12),
     }]));
+    // Verrouillage post-création : on garde colorId / saleType / packQuantity
+    // de la base et on ignore ce que le client envoie pour les variantes existantes.
+    // Cf. UI : ColorVariantManager (LOCKED_VARIANT_TOOLTIP).
+    const existingByDbId = new Map(existingVariants.map((v) => [v.id, v]));
 
     // IDs that must be kept (those with dbId provided)
     const submittedDbIds = input.colors
@@ -551,30 +555,41 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     }
 
     // Update existing variants and create new ones
-    const variantIdMap: { colorInput: ColorInput; variantId: string }[] = [];
+    // Pour les variantes existantes (dbId fourni) : on n'autorise QUE les modifs
+    // de prix / poids / stock / isPrimary / disabled. La couleur, le saleType,
+    // packQuantity, sizeEntries et packLines sont figés (cf. ColorVariantManager LOCK).
+    const variantIdMap: { colorInput: ColorInput; variantId: string; isNew: boolean }[] = [];
     for (const colorInput of input.colors) {
-      const isMultiPack = isMultiColorPackInput(colorInput);
-      const primaryColorId = isMultiPack
-        ? (colorInput.packLines?.[0]?.colorId || colorInput.colorId || null)
-        : (colorInput.colorId || null);
       if (colorInput.dbId) {
-        // Update existing
+        // Update existing — ignore les champs verrouillés en lisant la base
+        const existing = existingByDbId.get(colorInput.dbId);
+        if (!existing) {
+          // Cas anormal : un dbId envoyé qui n'existe pas en base. On ignore par sécurité.
+          continue;
+        }
         await tx.productColor.update({
           where: { id: colorInput.dbId },
           data: {
-            colorId:       primaryColorId,
+            // colorId / saleType / packQuantity : valeurs verrouillées, on garde
+            // ce que la base contient et on ignore le client.
+            colorId:       existing.colorId,
+            saleType:      existing.saleType,
+            packQuantity:  existing.packQuantity,
+            // Champs librement modifiables :
             unitPrice:     colorInput.unitPrice,
             weight:        colorInput.weight,
             stock:         colorInput.stock,
             isPrimary:     colorInput.isPrimary,
-            saleType:      colorInput.saleType,
-            packQuantity:  colorInput.packQuantity,
             disabled:      colorInput.disabled ?? false,
           },
         });
-        variantIdMap.push({ colorInput, variantId: colorInput.dbId });
+        variantIdMap.push({ colorInput, variantId: colorInput.dbId, isNew: false });
       } else {
-        // Create new variant
+        // Create new variant — couleur / saleType / sizes / packLines libres
+        const isMultiPack = isMultiColorPackInput(colorInput);
+        const primaryColorId = isMultiPack
+          ? (colorInput.packLines?.[0]?.colorId || colorInput.colorId || null)
+          : (colorInput.colorId || null);
         const created = await tx.productColor.create({
           data: {
             productId:     id,
@@ -588,20 +603,23 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
             disabled:      colorInput.disabled ?? false,
           },
         });
-        variantIdMap.push({ colorInput, variantId: created.id });
+        variantIdMap.push({ colorInput, variantId: created.id, isNew: true });
       }
     }
 
-    const allVariantIds = variantIdMap.map((v) => v.variantId);
+    // ── Variant sizes / packLines : on ne reconstruit QUE pour les variantes
+    // nouvellement créées. Les variantes existantes gardent leurs sizes/packLines
+    // intactes (verrouillage post-création).
+    const newVariantIds = variantIdMap.filter((v) => v.isNew).map((v) => v.variantId);
 
-    // ── Variant sizes: full replace pour UNIT et PACK mono-couleur ──────────
-    if (allVariantIds.length > 0) {
+    if (newVariantIds.length > 0) {
       await tx.variantSize.deleteMany({
-        where: { productColorId: { in: allVariantIds } },
+        where: { productColorId: { in: newVariantIds } },
       });
     }
     const variantSizeData: { productColorId: string; sizeId: string; quantity: number; pricePerUnit?: number }[] = [];
-    for (const { colorInput, variantId } of variantIdMap) {
+    for (const { colorInput, variantId, isNew } of variantIdMap) {
+      if (!isNew) continue; // sizes verrouillées sur variante existante
       if (isMultiColorPackInput(colorInput)) continue; // pack multi-couleurs : sizes vivent dans packLines
       if (colorInput.sizeEntries && colorInput.sizeEntries.length > 0) {
         for (const se of colorInput.sizeEntries) {
@@ -618,13 +636,14 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       await tx.variantSize.createMany({ data: variantSizeData });
     }
 
-    // ── Pack multi-couleurs : reconstruction complète des lignes (cascade delete via FK) ──
-    if (allVariantIds.length > 0) {
+    // ── Pack multi-couleurs : reconstruction uniquement pour les nouvelles variantes
+    if (newVariantIds.length > 0) {
       await tx.packColorLine.deleteMany({
-        where: { productColorId: { in: allVariantIds } },
+        where: { productColorId: { in: newVariantIds } },
       });
     }
-    for (const { colorInput, variantId } of variantIdMap) {
+    for (const { colorInput, variantId, isNew } of variantIdMap) {
+      if (!isNew) continue; // packLines verrouillées sur variante existante
       if (!isMultiColorPackInput(colorInput) || !colorInput.packLines) continue;
       for (let li = 0; li < colorInput.packLines.length; li++) {
         const line = colorInput.packLines[li];

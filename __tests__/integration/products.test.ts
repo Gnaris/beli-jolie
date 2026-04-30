@@ -446,6 +446,210 @@ describe("Product CRUD (real DB)", () => {
     });
   });
 
+  // ─── Verrouillage post-création (couleur / type / tailles) ─────
+  describe("Variant lock after creation", () => {
+    let productId: string;
+    let variantDbId: string;
+    let originalSizeIds: string[];
+
+    beforeAll(async () => {
+      const result = await createProduct(unitProductInput({
+        reference: `${TEST_PREFIX}PROD-LOCK-001`,
+        name: "Produit verrouillage",
+        colors: [
+          {
+            colorId: entities.color1.id,
+            unitPrice: 10,
+            weight: 0.1,
+            stock: 50,
+            isPrimary: true,
+            saleType: "UNIT",
+            packQuantity: null,
+            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+          },
+        ],
+      }));
+      productId = result.id;
+
+      const variants = await prisma.productColor.findMany({
+        where: { productId },
+        include: { variantSizes: true },
+      });
+      variantDbId = variants[0].id;
+      originalSizeIds = variants[0].variantSizes.map((vs) => vs.id);
+    });
+
+    it("ignore tout changement de colorId quand dbId est fourni", async () => {
+      // Tentative client : changer la couleur Doré → Argenté
+      await updateProduct(productId, unitProductInput({
+        reference: `${TEST_PREFIX}PROD-LOCK-001`,
+        name: "Produit verrouillage",
+        colors: [
+          {
+            dbId: variantDbId,
+            colorId: entities.color2.id, // ← tentative de changement
+            unitPrice: 12,
+            weight: 0.1,
+            stock: 50,
+            isPrimary: true,
+            saleType: "UNIT",
+            packQuantity: null,
+            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+          },
+        ],
+      }));
+
+      const variant = await prisma.productColor.findUnique({ where: { id: variantDbId } });
+      expect(variant!.colorId).toBe(entities.color1.id); // ← inchangé
+      expect(Number(variant!.unitPrice)).toBe(12); // prix bien modifié
+    });
+
+    it("ignore tout changement de saleType quand dbId est fourni", async () => {
+      await updateProduct(productId, unitProductInput({
+        reference: `${TEST_PREFIX}PROD-LOCK-001`,
+        name: "Produit verrouillage",
+        colors: [
+          {
+            dbId: variantDbId,
+            colorId: entities.color1.id,
+            unitPrice: 12,
+            weight: 0.1,
+            stock: 50,
+            isPrimary: true,
+            saleType: "PACK", // ← tentative
+            packQuantity: 6, // ← tentative
+            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+          },
+        ],
+      }));
+
+      const variant = await prisma.productColor.findUnique({ where: { id: variantDbId } });
+      expect(variant!.saleType).toBe("UNIT"); // inchangé
+      expect(variant!.packQuantity).toBeNull(); // inchangé
+    });
+
+    it("garde les sizes existantes, n'autorise pas le rebuild", async () => {
+      // On envoie une sizeEntry différente (S au lieu de TU) — elle doit être ignorée
+      await updateProduct(productId, unitProductInput({
+        reference: `${TEST_PREFIX}PROD-LOCK-001`,
+        name: "Produit verrouillage",
+        colors: [
+          {
+            dbId: variantDbId,
+            colorId: entities.color1.id,
+            unitPrice: 13,
+            weight: 0.1,
+            stock: 50,
+            isPrimary: true,
+            saleType: "UNIT",
+            packQuantity: null,
+            sizeEntries: [{ sizeId: entities.sizeS.id, quantity: 9 }], // ← différent
+          },
+        ],
+      }));
+
+      const variant = await prisma.productColor.findUnique({
+        where: { id: variantDbId },
+        include: { variantSizes: { include: { size: true } } },
+      });
+      // Les sizes d'origine sont conservées (mêmes IDs de ligne)
+      const currentIds = variant!.variantSizes.map((vs) => vs.id).sort();
+      expect(currentIds).toEqual([...originalSizeIds].sort());
+      expect(variant!.variantSizes).toHaveLength(1);
+      expect(variant!.variantSizes[0].size.name).toBe(`${TEST_PREFIX}TU`);
+    });
+
+    it("crée correctement les sizes d'une nouvelle variante quand on mélange existante + nouvelle", async () => {
+      // Avant l'update on a 1 variante (verrouillée). On en ajoute une 2e (nouvelle).
+      await updateProduct(productId, unitProductInput({
+        reference: `${TEST_PREFIX}PROD-LOCK-001`,
+        name: "Produit verrouillage",
+        colors: [
+          {
+            dbId: variantDbId,
+            colorId: entities.color1.id,
+            unitPrice: 13,
+            weight: 0.1,
+            stock: 50,
+            isPrimary: true,
+            saleType: "UNIT",
+            packQuantity: null,
+            // tentative de changer les sizes — doit être ignoré
+            sizeEntries: [{ sizeId: entities.sizeS.id, quantity: 99 }],
+          },
+          {
+            // nouvelle variante (sans dbId)
+            colorId: entities.color2.id,
+            unitPrice: 15,
+            weight: 0.2,
+            stock: 30,
+            isPrimary: false,
+            saleType: "UNIT",
+            packQuantity: null,
+            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+          },
+        ],
+      }));
+
+      const variants = await prisma.productColor.findMany({
+        where: { productId },
+        orderBy: { isPrimary: "desc" },
+        include: { variantSizes: { include: { size: true } } },
+      });
+      expect(variants).toHaveLength(2);
+
+      // Variante existante : sizes inchangées (TU)
+      const oldVar = variants.find((v) => v.id === variantDbId)!;
+      expect(oldVar.variantSizes).toHaveLength(1);
+      expect(oldVar.variantSizes[0].size.name).toBe(`${TEST_PREFIX}TU`);
+
+      // Nouvelle variante : sizes correctement créées
+      const newVar = variants.find((v) => v.id !== variantDbId)!;
+      expect(newVar.colorId).toBe(entities.color2.id);
+      expect(newVar.variantSizes).toHaveLength(1);
+      expect(newVar.variantSizes[0].size.name).toBe(`${TEST_PREFIX}TU`);
+    });
+
+    it("autorise toujours la modification de prix / stock / poids / isPrimary / disabled", async () => {
+      await updateProduct(productId, unitProductInput({
+        reference: `${TEST_PREFIX}PROD-LOCK-001`,
+        name: "Produit verrouillage",
+        colors: [
+          {
+            dbId: variantDbId,
+            colorId: entities.color1.id,
+            unitPrice: 25.5,
+            weight: 0.42,
+            stock: 7,
+            isPrimary: true,
+            disabled: true,
+            saleType: "UNIT",
+            packQuantity: null,
+            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+          },
+          {
+            // garde la 2e variante créée au test précédent
+            colorId: entities.color2.id,
+            unitPrice: 15,
+            weight: 0.2,
+            stock: 30,
+            isPrimary: false,
+            saleType: "UNIT",
+            packQuantity: null,
+            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+          },
+        ],
+      }));
+
+      const variant = await prisma.productColor.findUnique({ where: { id: variantDbId } });
+      expect(Number(variant!.unitPrice)).toBe(25.5);
+      expect(variant!.weight).toBeCloseTo(0.42);
+      expect(variant!.stock).toBe(7);
+      expect(variant!.isPrimary).toBe(true);
+      expect(variant!.disabled).toBe(true);
+    });
+  });
+
   // ─── Status transitions ────────────────────────────────────────
 
   describe("Status transitions", () => {

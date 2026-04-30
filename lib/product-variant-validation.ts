@@ -4,6 +4,12 @@
  * Extrait de `app/actions/admin/products.ts` : un fichier "use server" ne peut exporter
  * que des fonctions async, donc cette logique synchrone vit ici. Le module est appelé
  * depuis les server actions et depuis les tests Vitest.
+ *
+ * NB : pour `dbId` fourni (variante existante), `updateProduct()` ignore les champs
+ * `colorId / saleType / packQuantity / sizeEntries / packLines` envoyés par le client
+ * et conserve les valeurs en base. Ces champs sont verrouillés en UI dans
+ * `ColorVariantManager.tsx` (raison : compatibilité avec les marketplaces qui
+ * n'autorisent pas leur modification après publication).
  */
 
 export interface SizeEntryInput {
