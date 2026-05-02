@@ -86,6 +86,10 @@ describe("sizes actions — independent of categories", () => {
   });
 
   describe("setSizePfsMapping", () => {
+    beforeEach(() => {
+      mockSizeFindUnique.mockResolvedValue({ id: "s1", name: "M" });
+    });
+
     it("sets the PFS ref on a size", async () => {
       mockSizeUpdate.mockResolvedValue({ pfsSizeRef: "T36" });
 
@@ -121,10 +125,18 @@ describe("sizes actions — independent of categories", () => {
         data: { pfsSizeRef: null },
       }));
     });
+
+    it("rejects PFS ref change on « Taille unique »", async () => {
+      mockSizeFindUnique.mockResolvedValue({ id: "s-tu", name: "Taille unique" });
+
+      await expect(setSizePfsMapping("s-tu", "OTHER_REF")).rejects.toThrow(/protégée/);
+      expect(mockSizeUpdate).not.toHaveBeenCalled();
+    });
   });
 
   describe("updateSize", () => {
     beforeEach(() => {
+      mockSizeFindUnique.mockResolvedValue({ id: "s1", name: "M" });
       mockSizeFindFirst.mockResolvedValue(null);
       mockSizeUpdate.mockResolvedValue({ id: "s1" });
     });
@@ -151,6 +163,13 @@ describe("sizes actions — independent of categories", () => {
       mockSizeFindFirst.mockResolvedValue({ id: "other" });
 
       await expect(updateSize("s1", "Duplicate")).rejects.toThrow(/existe déjà/);
+    });
+
+    it("rejects update of « Taille unique »", async () => {
+      mockSizeFindUnique.mockResolvedValue({ id: "s-tu", name: "Taille unique" });
+
+      await expect(updateSize("s-tu", "Autre nom")).rejects.toThrow(/protégée/);
+      expect(mockSizeUpdate).not.toHaveBeenCalled();
     });
   });
 

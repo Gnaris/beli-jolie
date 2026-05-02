@@ -55,11 +55,19 @@ export async function createSize(name: string, pfsSizeRef: string) {
   return created;
 }
 
-/** Update name, and optionally pfsSizeRef. */
+/** Update name, and optionally pfsSizeRef. Rejects « Taille unique » (protected). */
 export async function updateSize(id: string, name: string, pfsSizeRef?: string | null) {
   await requireAdmin();
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Le nom est requis.");
+
+  const target = await prisma.size.findUnique({
+    where: { id },
+    select: { name: true },
+  });
+  if (target && isProtectedSizeName(target.name)) {
+    throw new Error("La taille unique est protégée et ne peut pas être modifiée.");
+  }
 
   const conflict = await prisma.size.findFirst({
     where: { name: trimmed, id: { not: id } },
@@ -103,12 +111,20 @@ export async function deleteSize(id: string) {
   revalidateTag("sizes", "default");
 }
 
-/** Set or clear the single PFS size reference for a BJ size (1:1 relation). */
+/** Set or clear the single PFS size reference for a BJ size. Rejects « Taille unique ». */
 export async function setSizePfsMapping(
   sizeId: string,
   pfsSizeRef: string | null
 ): Promise<{ pfsSizeRef: string | null }> {
   await requireAdmin();
+
+  const target = await prisma.size.findUnique({
+    where: { id: sizeId },
+    select: { name: true },
+  });
+  if (target && isProtectedSizeName(target.name)) {
+    throw new Error("La taille unique est protégée et ne peut pas être modifiée.");
+  }
 
   const normalized = normalizePfsRef(pfsSizeRef);
 
