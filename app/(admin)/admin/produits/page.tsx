@@ -12,6 +12,7 @@ import { getCachedAdminWarnings, getCachedSiteConfig, getCachedTags } from "@/li
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { buildAdminProductsWhere } from "@/lib/admin-products-filter";
+import { PROTECTED_SIZE_NAME, PROTECTED_SIZE_PFS_REF } from "@/lib/protected-sizes";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -567,6 +568,12 @@ async function SaisonsContent() {
    TAB: Tailles
    ═══════════════════════════════════════════════════════════════════════════ */
 async function TaillesContent() {
+  await prisma.size.upsert({
+    where: { name: PROTECTED_SIZE_NAME },
+    update: {},
+    create: { name: PROTECTED_SIZE_NAME, pfsSizeRef: PROTECTED_SIZE_PFS_REF, position: 0 },
+  });
+
   const [sizes, annexes] = await Promise.all([
     prisma.size.findMany({
       orderBy: { position: "asc" },
