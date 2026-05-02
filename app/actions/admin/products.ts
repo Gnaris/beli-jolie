@@ -23,6 +23,35 @@ import {
   type PackLineInput,
   type SizeEntryInput,
 } from "@/lib/product-variant-validation";
+import { isProtectedSizeName } from "@/lib/protected-sizes";
+
+/** Collect all sizeIds referenced across UNIT sizeEntries and PACK packLines. */
+function collectSizeIds(colors: ColorInput[]): string[] {
+  const ids = new Set<string>();
+  for (const c of colors) {
+    for (const se of c.sizeEntries) ids.add(se.sizeId);
+    for (const pl of c.packLines ?? []) {
+      for (const se of pl.sizeEntries) ids.add(se.sizeId);
+    }
+  }
+  return [...ids];
+}
+
+/** Throws if a variant uses « Taille unique » but `sizeDetailsTu` is empty. */
+async function assertTailleUniqueDetails(input: ProductInput): Promise<void> {
+  const sizeIds = collectSizeIds(input.colors);
+  if (sizeIds.length === 0) return;
+  const sizes = await prisma.size.findMany({
+    where: { id: { in: sizeIds } },
+    select: { name: true },
+  });
+  const usesTailleUnique = sizes.some((s) => isProtectedSizeName(s.name));
+  if (usesTailleUnique && !input.sizeDetailsTu?.trim()) {
+    throw new Error(
+      "Le champ « Détail taille unique » est obligatoire quand une variante utilise la taille unique."
+    );
+  }
+}
 
 // Marketplace sync is fully manual: create/update/delete on PFS and Ankorstore are all
 // handled via Excel export (lib/marketplace-excel). Local product deletion never touches
@@ -75,6 +104,7 @@ export interface ProductInput {
   seasonId?: string | null;
   translations?: TranslationInput[];
   discountPercent: number | null; // Remise en % (ex: 15 = -15%). null = pas de remise
+  sizeDetailsTu?: string | null; // Détail taille unique (ex: "52-56")
   isIncomplete?: boolean;
 }
 
@@ -153,6 +183,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     if (ankorstoreDescriptionLength(input.description, input.reference) < ANKORSTORE_DESCRIPTION_MIN_CHARS) {
       throw new Error("La description doit faire au moins 30 caractères (requis pour Ankorstore).");
     }
+    await assertTailleUniqueDetails(input);
   }
 
   // Garantir une seule variante primaire avant l'écriture en BDD
@@ -210,6 +241,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       manufacturingCountryId: input.manufacturingCountryId || null,
       seasonId: input.seasonId || null,
       discountPercent: input.discountPercent,
+      sizeDetailsTu: input.sizeDetailsTu?.trim() || null,
       compositions: {
         create: input.compositions.map((c) => ({
           compositionId: c.compositionId,
@@ -397,7 +429,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 // Modifier un produit
 // ─────────────────────────────────────────────
 
-export async function updateProduct(id: string, input: ProductInput): Promise<void> {
+export async function updateProduct(id: string, input: ProductInput): Promise<{ variantDbIds: string[] }> {
   await requireAdmin();
 
   // ── Defensive validation: DB non-nullable constraints ────────
@@ -406,8 +438,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   if (!input.name?.trim()) throw new Error("Le nom est requis.");
   if (!input.categoryId) throw new Error("La catégorie est requise.");
 
-  // Skip strict validation for incomplete products (variants, description, etc.)
-  if (!input.isIncomplete) {
+  // Strict validation only when going ONLINE (not for drafts or OFFLINE saves)
+  if (input.status === "ONLINE") {
     if (!input.description?.trim()) throw new Error("La description est requise.");
     if (ankorstoreDescriptionLength(input.description, input.reference) < ANKORSTORE_DESCRIPTION_MIN_CHARS) {
       throw new Error("La description doit faire au moins 30 caractères (requis pour Ankorstore).");
@@ -416,6 +448,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       throw new Error("Au moins une variante est requise.");
     }
     validateVariants(input.colors);
+    await assertTailleUniqueDetails(input);
   }
 
   // Garantir une seule variante primaire (corrige aussi les produits legacy
@@ -469,7 +502,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
     )
   );
 
-  const { oldStockMap, oldVariantMap } = await prisma.$transaction(async (tx) => {
+  const { oldStockMap, oldVariantMap, variantIdMap } = await prisma.$transaction(async (tx) => {
     // Mise à jour des champs de base
     await tx.product.update({
       where: { id },
@@ -490,6 +523,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
         manufacturingCountryId: input.manufacturingCountryId || null,
         seasonId: input.seasonId || null,
         discountPercent: input.discountPercent,
+        sizeDetailsTu: input.sizeDetailsTu?.trim() || null,
       },
     });
 
@@ -727,7 +761,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
       });
     }
 
-    return { oldStockMap, oldVariantMap };
+    return { oldStockMap, oldVariantMap, variantIdMap };
   }, { timeout: 30000 });
 
   // Traductions : remplacer toutes les traductions existantes
@@ -791,6 +825,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   }
 
   revalidatePath("/admin/produits");
+  revalidatePath(`/admin/produits/${id}/modifier`);
   revalidatePath(`/produits/${id}`);
   revalidateTag("products", "default");
   revalidateTag("tags", "default");
@@ -809,9 +844,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<vo
   }
 
   // Marketplace republication is no longer automatic on edit.
-  // The admin must regenerate the marketplace Excel archive and re-upload manually.
-  // oldVariantMap retained above is unused after this simplification.
   void oldVariantMap;
+
+  // Return variant DB IDs in the same order as input.colors
+  // so the client can update its local state without a page reload.
+  return {
+    variantDbIds: variantIdMap.map((v) => v.variantId),
+  };
 }
 
 // ─────────────────────────────────────────────

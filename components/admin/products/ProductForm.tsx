@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, buildVariantDuplicateKey } from "./ColorVariantManager";
+import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
 import CompletenessChecklist from "./CompletenessChecklist";
 import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller, fetchProductFormAttributes } from "@/app/actions/admin/products";
 
@@ -103,6 +103,7 @@ interface ProductFormProps {
     translations?: { locale: string; name: string; description: string }[];
     status?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
     discountPercent?: string;
+    sizeDetailsTu?: string;
     /** IDs marketplace — présents = déjà publié sur cette marketplace */
     pfsProductId?: string | null;
     ankorsProductId?: string | null;
@@ -432,6 +433,7 @@ export default function ProductForm({
   const [tagNames,          setTagNames]          = useState<string[]>(initialData?.tagNames ?? []);
   const [isBestSeller,      setIsBestSeller]      = useState(initialData?.isBestSeller ?? false);
   const [discountPercent,   setDiscountPercent]   = useState(initialData?.discountPercent ?? "");
+  const [sizeDetailsTu, setSizeDetailsTu] = useState(initialData?.sizeDetailsTu ?? "");
   const [manufacturingCountryId, setManufacturingCountryId] = useState(initialData?.manufacturingCountryId ?? "");
   const [seasonId, setSeasonId] = useState(initialData?.seasonId ?? "");
 
@@ -475,9 +477,11 @@ export default function ProductForm({
   useEffect(() => {
     updateHeader({ productStatus, stockState: headerStockState });
   }, [productStatus, headerStockState, updateHeader]);
+  const wasImported = !!initialData?.pfsProductId || !!initialData?.ankorsProductId;
   useEffect(() => {
-    // Completeness depends on many fields — separate effect
-    updateHeader({ isIncomplete: getCompletenessErrors().length > 0 });
+    // Completeness depends on many fields — separate effect.
+    // Imported products are never shown as drafts.
+    updateHeader({ isIncomplete: wasImported ? false : getCompletenessErrors().length > 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reference, name, description, categoryId, compositions, variants, colorImages]);
 
@@ -519,8 +523,17 @@ export default function ProductForm({
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
-    manufacturingCountryId, seasonId,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId]);
+    manufacturingCountryId, seasonId, sizeDetailsTu,
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu]);
+
+  // Détecte si au moins une variante utilise "Taille Unique" / "TU"
+  const hasTailleUnique = useMemo(() => {
+    const tuNames = ["tu", "taille unique"];
+    return variants.some((v) =>
+      v.sizeEntries.some((se) => tuNames.includes(se.sizeName?.toLowerCase?.() ?? ""))
+      || v.packLines?.some((pl) => pl.sizeEntries.some((se) => tuNames.includes(se.sizeName?.toLowerCase?.() ?? "")))
+    );
+  }, [variants]);
 
   // Capture snapshot after first effects have settled (colorImages sync etc.)
   useEffect(() => {
@@ -606,17 +619,33 @@ export default function ProductForm({
   // ── Sync colorImages when variant colors change ───────────────────────
   // One ColorImageState per color group (colorId + sub-colors) — UNIT and PACK share the same scheme
   const variantColorKey = variants
-    .map((v) => variantColorFingerprint(v))
+    .map((v) => {
+      const base = variantColorFingerprint(v);
+      if (isMultiColorPack(v)) {
+        const plColors = v.packLines.map((l) => l.colorId).filter(Boolean).sort().join(",");
+        return base + ":" + plColors;
+      }
+      return base;
+    })
     .filter(Boolean)
     .sort()
     .join("|");
   useEffect(() => {
     const groupMap = new Map<string, { colorId: string; name: string; hex: string }>();
     for (const v of variants) {
-      if (!v.colorId) continue;
-      const gk = variantGroupKeyFromState(v);
-      if (!groupMap.has(gk)) {
-        groupMap.set(gk, { colorId: v.colorId, name: v.colorName, hex: v.colorHex });
+      if (isMultiColorPack(v)) {
+        // Multi-color pack: add each pack line color as its own image tab
+        for (const color of packLinesColorList(v.packLines)) {
+          if (!groupMap.has(color.colorId)) {
+            groupMap.set(color.colorId, { colorId: color.colorId, name: color.colorName, hex: color.colorHex });
+          }
+        }
+      } else {
+        if (!v.colorId) continue;
+        const gk = variantGroupKeyFromState(v);
+        if (!groupMap.has(gk)) {
+          groupMap.set(gk, { colorId: v.colorId, name: v.colorName, hex: v.colorHex });
+        }
       }
     }
     setColorImages((prev) => {
@@ -1023,6 +1052,15 @@ export default function ProductForm({
   // Erreurs dures qui doivent bloquer l'enregistrement (même en brouillon)
   function getBlockingErrors(): string[] {
     const errors: string[] = [];
+    // Variantes vides (aucune couleur sélectionnée)
+    const emptyCount = variants.filter((v) => !v.colorId).length;
+    if (emptyCount > 0) {
+      errors.push(
+        emptyCount === 1
+          ? "Une variante n'a pas de couleur sélectionnée. Veuillez la compléter ou la supprimer."
+          : `${emptyCount} variantes n'ont pas de couleur sélectionnée. Veuillez les compléter ou les supprimer.`
+      );
+    }
     const seen = new Set<string>();
     for (const v of variants) {
       if (!v.colorId) continue;
@@ -1126,7 +1164,14 @@ export default function ProductForm({
         // Only match against valid draft variants
         const matching = draftVariants
           .map((vr) => ({ vr, idx: variants.indexOf(vr) }))
-          .filter(({ vr }) => imageGroupKeyFromVariant(vr) === ci.groupKey);
+          .filter(({ vr }) => {
+            if (imageGroupKeyFromVariant(vr) === ci.groupKey) return true;
+            // Multi-color pack: match if the image color is one of the pack line colors
+            if (isMultiColorPack(vr)) {
+              return vr.packLines.some((l) => l.colorId === ci.groupKey);
+            }
+            return false;
+          });
         if (matching.length === 0) return [];
         // Ensure the image colorId is valid
         if (!ci.colorId || !validColorIds.has(ci.colorId)) return [];
@@ -1155,6 +1200,7 @@ export default function ProductForm({
       dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
       manufacturingCountryId: manufacturingCountryId || null,
       seasonId: seasonId || null,
+      sizeDetailsTu: sizeDetailsTu.trim() || null,
       translations: Object.entries(translations)
         .filter(([, t]) => t.name.trim() || t.description.trim())
         .map(([locale, t]) => ({ locale, name: t.name, description: t.description })),
@@ -1194,16 +1240,18 @@ export default function ProductForm({
 
     // Compute completeness
     const completenessErrors = getCompletenessErrors();
-    const isIncomplete = completenessErrors.length > 0;
+    // In edit mode, never downgrade to draft — only block going ONLINE.
+    // Draft mode (mode="create") uses isIncomplete to track true draft state.
+    const isIncomplete = mode === "create" ? completenessErrors.length > 0 : false;
     const outOfStock = isOutOfStock();
 
     let downgradeConfirmed = false;
-    if (productStatus === "ONLINE" && isIncomplete) {
+    if (productStatus === "ONLINE" && completenessErrors.length > 0) {
       const okDowngrade = await confirmDialog({
         type: "warning",
-        title: "Passage en brouillon",
-        message: "Ce produit est actuellement en ligne mais certaines informations sont manquantes. Si vous confirmez, le produit sera mis hors ligne et passera en brouillon.",
-        confirmLabel: "Enregistrer en brouillon",
+        title: "Mise hors ligne",
+        message: "Ce produit est actuellement en ligne mais certaines informations sont manquantes. Si vous confirmez, le produit sera mis hors ligne.",
+        confirmLabel: "Enregistrer et mettre hors ligne",
         cancelLabel: "Annuler",
       });
       if (!okDowngrade) return;
@@ -1229,21 +1277,28 @@ export default function ProductForm({
     if (!reference.trim()) return setError("La référence est requise.");
     if (!name.trim()) return setError("Le nom est requis.");
     if (!categoryId) return setError("Veuillez choisir une catégorie.");
+    if (hasTailleUnique && !sizeDetailsTu.trim()) {
+      return setError(
+        "Le champ « Détail taille unique » est obligatoire quand une variante utilise la taille unique."
+      );
+    }
 
     // Images still uploading — always block
     if (colorImages.some((ci) => ci.uploading))
       return setError("Des images sont encore en cours d'upload. Veuillez patienter.");
 
     // ── Integrity check (edit mode): detect corrupted state before sending ──
+    // Removing all variants is allowed when saving as OFFLINE (product without variants).
     if (productId && initialData) {
       const issues: string[] = [];
-      if (initialData.variants.length > 0 && variants.length === 0) {
+      const allVariantsRemoved = initialData.variants.length > 0 && variants.length === 0;
+      if (allVariantsRemoved && finalStatus !== "OFFLINE") {
         issues.push("Toutes les variantes ont disparu");
       }
       if (initialData.categoryId && !categoryId) {
         issues.push("La catégorie a disparu");
       }
-      if (initialData.variants.length > 0 && variants.every((v) => !v.dbId)) {
+      if (!allVariantsRemoved && initialData.variants.length > 0 && variants.every((v) => !v.dbId)) {
         issues.push("Les IDs de variantes existantes ont été perdus");
       }
       if (issues.length > 0) {
@@ -1328,7 +1383,14 @@ export default function ProductForm({
         if (ci.uploadedPaths.length === 0) return [];
         const matching = variants
           .map((vr, idx) => ({ vr, idx }))
-          .filter(({ vr }) => imageGroupKeyFromVariant(vr) === ci.groupKey);
+          .filter(({ vr }) => {
+            if (imageGroupKeyFromVariant(vr) === ci.groupKey) return true;
+            // Multi-color pack: match if the image color is one of the pack line colors
+            if (isMultiColorPack(vr)) {
+              return vr.packLines.some((l) => l.colorId === ci.groupKey);
+            }
+            return false;
+          });
         if (matching.length === 0) return [];
         return matching.map(({ vr, idx }) => ({
           colorId: ci.colorId,
@@ -1355,6 +1417,7 @@ export default function ProductForm({
       dimensionCircumference: dimCircumference ? parseFloat(dimCircumference) : null,
       manufacturingCountryId: manufacturingCountryId || null,
       seasonId: seasonId || null,
+      sizeDetailsTu: sizeDetailsTu.trim() || null,
       translations: Object.entries(translations)
         .filter(([, t]) => t.name.trim() || t.description.trim())
         .map(([locale, t]) => ({ locale, name: t.name, description: t.description })),
@@ -1366,11 +1429,20 @@ export default function ProductForm({
       let shouldRedirectAfterSave: string | null = null;
       try {
         if (productId) {
-          await updateProduct(productId, payload);
+          const result = await updateProduct(productId, payload);
           savedProductId = productId;
           if (mode === "create") {
             isDirty.current = false;
             shouldRedirectAfterSave = `/admin/produits/${productId}/modifier`;
+          } else {
+            // Update local variant state with DB IDs so newly created
+            // variants become locked immediately (no page reload needed).
+            const dbIds = result.variantDbIds;
+            if (dbIds.length === variants.length) {
+              setVariants((prev) =>
+                prev.map((v, i) => v.dbId ? v : { ...v, dbId: dbIds[i] })
+              );
+            }
           }
         } else {
           const result = await createProduct(payload);
@@ -1472,7 +1544,14 @@ export default function ProductForm({
       }
 
       if (shouldRedirectAfterSave) {
-        router.push(shouldRedirectAfterSave);
+        // Draft finalization: we're already on /admin/produits/{id}/modifier
+        // and need the server to re-render (isDraft recalculated from DB).
+        // router.push to the same URL may serve stale cached data, so use refresh.
+        if (productId && mode === "create") {
+          router.refresh();
+        } else {
+          router.push(shouldRedirectAfterSave);
+        }
       }
     });
   }
@@ -1785,6 +1864,16 @@ export default function ProductForm({
                     onChange={(e) => setDimCircumference(e.target.value)} className="field-input text-right" />
                 </Field>
               </div>
+              {hasTailleUnique && (
+                <div className="pt-2 border-t border-border">
+                  <Field label="Détail taille unique *">
+                    <input type="text" value={sizeDetailsTu} placeholder="ex : 52-56"
+                      onChange={(e) => setSizeDetailsTu(e.target.value)}
+                      className={`field-input${!sizeDetailsTu.trim() ? " field-error" : ""}`} required />
+                    <p className="text-xs text-text-muted mt-1">Indication taille minimum – maximum, exemple : 36-42. Obligatoire quand une variante utilise la taille unique.</p>
+                  </Field>
+                </div>
+              )}
             </div>
 
             {/* ── BLOC COMPOSITION ── */}
@@ -1895,6 +1984,7 @@ export default function ProductForm({
             onSizeAdded={handleSizeAdded}
             variantErrors={variantErrors}
             productReference={reference}
+            sizeDetailsTu={sizeDetailsTu}
           />
         </section>
 
