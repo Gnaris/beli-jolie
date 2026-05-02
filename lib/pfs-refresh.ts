@@ -17,13 +17,15 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { pfsCheckReference } from "@/lib/pfs-api";
+import { pfsCheckReference, pfsGetVariants } from "@/lib/pfs-api";
 import {
   pfsCreateProduct,
   pfsUpdateProduct,
   pfsCreateVariants,
   pfsPatchVariants,
   pfsUploadImage,
+  pfsDeleteImage,
+  pfsDeleteVariant,
   pfsUpdateStatus,
   pfsTranslate,
   type PfsProductCreateData,
@@ -80,13 +82,15 @@ interface FullVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   variantSizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
-  color: { name: string; pfsColorRef: string | null } | null;
+  colorId: string | null;
+  color: { id: string; name: string; pfsColorRef: string | null } | null;
   packLines: {
-    color: { name: string; pfsColorRef: string | null };
+    colorId: string;
+    color: { id: string; name: string; pfsColorRef: string | null };
     position: number;
     sizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
   }[];
-  images: { path: string; order: number }[];
+  images: { path: string; order: number; colorId: string }[];
 }
 
 interface FullProduct {
@@ -108,6 +112,7 @@ interface FullProduct {
   }[];
   manufacturingCountry: { isoCode: string | null; pfsCountryRef: string | null } | null;
   season: { pfsRef: string | null } | null;
+  sizeDetailsTu: string | null;
 }
 
 const PFS_DEFAULTS = {
@@ -187,6 +192,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
+      sizeDetailsTu: true,
       category: { select: { id: true, pfsCategoryId: true, pfsGender: true, pfsFamilyId: true, pfsFamilyName: true, pfsCategoryName: true } },
       colors: {
         select: {
@@ -200,10 +206,12 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           variantSizes: {
             select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
           },
-          color: { select: { name: true, pfsColorRef: true } },
+          colorId: true,
+          color: { select: { id: true, name: true, pfsColorRef: true } },
           packLines: {
             select: {
-              color: { select: { name: true, pfsColorRef: true } },
+              colorId: true,
+              color: { select: { id: true, name: true, pfsColorRef: true } },
               position: true,
               sizes: {
                 select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
@@ -213,7 +221,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
             orderBy: { position: "asc" as const },
           },
           images: {
-            select: { path: true, order: true },
+            select: { path: true, order: true, colorId: true },
             orderBy: { order: "asc" as const },
           },
         },
@@ -415,6 +423,7 @@ export async function pfsRefreshProduct(
         product.manufacturingCountry?.pfsCountryRef ??
         product.manufacturingCountry?.isoCode ??
         PFS_DEFAULTS.country_of_manufacture,
+      ...(product.sizeDetailsTu ? { size_details_tu: product.sizeDetailsTu } : {}),
       variants: [],
     };
 
@@ -592,19 +601,30 @@ export async function pfsRefreshProduct(
     report("Upload des images...");
     const imagesByColor = new Map<string, { path: string; order: number }[]>();
 
+    // Build a map from Color.id → PFS color ref (covers both variant colors and pack line colors)
+    const colorIdToPfsRef = new Map<string, string>();
     for (const variant of product.colors) {
-      let colorRef = getEffectiveColorRef(variant, colorRefMap);
-      if (!colorRef && variant.saleType === "PACK" && variant.packLines.length > 0) {
-        const plColor = variant.packLines[0]?.color;
-        colorRef = plColor ? resolvePfsColorRef(plColor, colorRefMap) : null;
+      if (variant.color) {
+        const ref = getEffectiveColorRef(variant, colorRefMap);
+        if (ref) colorIdToPfsRef.set(variant.color.id, ref);
       }
-      if (!colorRef) continue;
-      if (imagesByColor.has(colorRef) && imagesByColor.get(colorRef)!.length > 0) continue;
-      if (variant.images.length > 0) {
-        imagesByColor.set(
-          colorRef,
-          variant.images.map((img) => ({ path: img.path, order: img.order })),
-        );
+      for (const pl of variant.packLines) {
+        if (pl.color) {
+          const ref = resolvePfsColorRef(pl.color, colorRefMap);
+          colorIdToPfsRef.set(pl.color.id, ref);
+        }
+      }
+    }
+
+    // Group images by their actual colorId (not the variant's main color)
+    for (const variant of product.colors) {
+      for (const img of variant.images) {
+        const colorRef = colorIdToPfsRef.get(img.colorId);
+        if (!colorRef) continue;
+        if (!imagesByColor.has(colorRef)) {
+          imagesByColor.set(colorRef, []);
+        }
+        imagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
       }
     }
 
@@ -656,11 +676,93 @@ export async function pfsRefreshProduct(
     await pfsUpdateStatus([{ id: oldPfsProductId, status: "DELETED" }]);
     logger.info("[PFS Refresh] Old product renamed + DELETED", { oldPfsProductId, deleteRef });
 
+    // ── Step 5b: Clean up old product (name, description, images, variants) ──
+    report("Nettoyage de l'ancien produit...");
+
+    // Rename label + description — professional end-of-line message per language
+    try {
+      const unavailableLabel: Record<string, string> = {
+        fr: "Fin de série — Produit retiré de la vente",
+        en: "Discontinued — Product withdrawn from sale",
+        de: "Auslaufmodell — Produkt aus dem Verkauf genommen",
+        es: "Fin de serie — Producto retirado de la venta",
+        it: "Fine serie — Prodotto ritirato dalla vendita",
+      };
+      const unavailableDesc: Record<string, string> = {
+        fr: "Ce produit est en fin de série et n'est plus commercialisé. Il a été remplacé par une nouvelle référence. Merci de votre compréhension.",
+        en: "This product has been discontinued and is no longer available for sale. It has been replaced by a new reference. Thank you for your understanding.",
+        de: "Dieses Produkt ist ein Auslaufmodell und wird nicht mehr verkauft. Es wurde durch eine neue Referenz ersetzt. Vielen Dank für Ihr Verständnis.",
+        es: "Este producto es de fin de serie y ya no está a la venta. Ha sido reemplazado por una nueva referencia. Gracias por su comprensión.",
+        it: "Questo prodotto è a fine serie e non è più in vendita. È stato sostituito da un nuovo riferimento. Grazie per la comprensione.",
+      };
+      await pfsUpdateProduct(oldPfsProductId, {
+        label: unavailableLabel,
+        description: unavailableDesc,
+      });
+      logger.info("[PFS Refresh] Old product label/description cleared", { oldPfsProductId });
+    } catch (err) {
+      logger.warn("[PFS Refresh] Failed to clear old product label/description", {
+        oldPfsProductId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Delete all images
+    if (existingPfsData.product?.images) {
+      const oldImages = existingPfsData.product.images as Record<string, string | string[]>;
+      for (const [colorRef, imageData] of Object.entries(oldImages)) {
+        if (colorRef === "DEFAULT") continue;
+        const urls = Array.isArray(imageData) ? imageData : [imageData];
+        for (let slot = 1; slot <= urls.length; slot++) {
+          try {
+            await pfsDeleteImage(oldPfsProductId, slot, colorRef);
+          } catch (err) {
+            logger.warn("[PFS Refresh] Failed to delete old image", {
+              oldPfsProductId, colorRef, slot,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
+      logger.info("[PFS Refresh] Old product images cleanup done", { oldPfsProductId });
+    }
+
+    // Delete all variants
+    try {
+      const oldVariants = await pfsGetVariants(oldPfsProductId);
+      if (oldVariants.data?.length > 0) {
+        for (const v of oldVariants.data) {
+          try {
+            await pfsDeleteVariant(v.id);
+          } catch (err) {
+            logger.warn("[PFS Refresh] Failed to delete old variant", {
+              oldPfsProductId, variantId: v.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+        logger.info("[PFS Refresh] Old product variants cleanup done", {
+          oldPfsProductId,
+          deletedCount: oldVariants.data.length,
+        });
+      }
+    } catch (err) {
+      logger.warn("[PFS Refresh] Failed to fetch/delete old variants", {
+        oldPfsProductId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     await pfsUpdateProduct(newPfsProductId, { reference_code: product.reference });
     logger.info("[PFS Refresh] New product renamed to real ref", { newPfsProductId, ref: product.reference });
 
-    if (allVariantsOutOfStock) {
-      report("Archivage (toutes les variantes en rupture)...");
+    // Respect local product status: if product is OFFLINE or ARCHIVED locally,
+    // keep it ARCHIVED on PFS instead of forcing READY_FOR_SALE
+    const shouldBeOffline =
+      product.status === "OFFLINE" || product.status === "ARCHIVED" || allVariantsOutOfStock;
+
+    if (shouldBeOffline) {
+      report("Archivage sur PFS (produit hors ligne ou en rupture)...");
       await pfsUpdateStatus([{ id: newPfsProductId, status: "ARCHIVED" }]);
     } else {
       report("Mise en ligne...");

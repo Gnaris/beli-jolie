@@ -30,6 +30,7 @@ export interface PfsProductCreateData {
   material_composition: { id: string; value: string }[];
   lining_composition?: { id: string; value: string }[];
   country_of_manufacture: string;
+  size_details_tu?: string;
   variants?: unknown[];
 }
 
@@ -46,6 +47,7 @@ export interface PfsProductUpdateData {
   gender_label?: string;
   family?: string;
   reference_code?: string;
+  size_details_tu?: string;
 }
 
 export interface PfsVariantCreateData {

@@ -37,6 +37,7 @@ export default function PackCompositionModal({
 }: Props) {
   const backdrop = useBackdropClose(onClose);
   const [lines, setLines] = useState<PackLineState[]>([]);
+  const [bulkQty, setBulkQty] = useState("");
 
   useEffect(() => {
     if (open) {
@@ -118,6 +119,17 @@ export default function PackCompositionModal({
           sizeEntries: l.sizeEntries.map((s) => (s.sizeId === sizeId ? { ...s, quantity: qty } : s)),
         };
       }),
+    );
+  }
+
+  function applyBulkQty() {
+    const qty = parseInt(bulkQty);
+    if (!qty || qty < 1) return;
+    setLines((prev) =>
+      prev.map((l) => ({
+        ...l,
+        sizeEntries: l.sizeEntries.map((s) => ({ ...s, quantity: String(qty) })),
+      })),
     );
   }
 
@@ -206,6 +218,37 @@ export default function PackCompositionModal({
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {lines.length > 0 && lines.some((l) => l.sizeEntries.length > 0) && (
+            <div className="border border-border rounded-2xl bg-bg-secondary/40 p-4 space-y-2">
+              <p className="text-[11px] uppercase tracking-wider text-text-muted font-semibold font-body">
+                Raccourci — appliquer à tout
+              </p>
+              <p className="text-xs text-text-muted font-body">
+                Remplir la même quantité dans toutes les tailles de toutes les couleurs.
+              </p>
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={bulkQty}
+                  onChange={(e) => setBulkQty(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyBulkQty(); } }}
+                  placeholder="Ex : 3"
+                  className="w-20 border border-border bg-bg-primary px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-body"
+                />
+                <button
+                  type="button"
+                  onClick={applyBulkQty}
+                  disabled={!bulkQty || parseInt(bulkQty) < 1}
+                  className="px-3 py-1.5 text-xs font-medium font-body text-text-inverse bg-bg-dark rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Appliquer
+                </button>
+              </div>
             </div>
           )}
 

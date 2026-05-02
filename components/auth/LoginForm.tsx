@@ -7,6 +7,7 @@ import { useRouter } from "@/i18n/navigation";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { loginSchema } from "@/lib/validations/auth";
+import { VALID_LOCALES } from "@/i18n/locales";
 
 type Mode = "password" | "otp";
 type OtpStep = "email" | "code";
@@ -18,7 +19,12 @@ export default function LoginForm() {
   const t = useTranslations("auth.login");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const rawCallbackUrl = searchParams.get("callbackUrl") || "/";
+
+  // Strip locale prefix from callbackUrl — next-intl's router.push() adds it automatically.
+  // Without this, "/fr/" becomes "/fr/fr/" → 404.
+  const localePattern = new RegExp(`^/(${VALID_LOCALES.join("|")})(?=/|$)`);
+  const callbackUrl = rawCallbackUrl.replace(localePattern, "") || "/";
 
   const [mode, setMode] = useState<Mode>("password");
 

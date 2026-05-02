@@ -252,69 +252,6 @@ export async function validatePfsCredentials(config: {
   }
 }
 
-// ─── Ankorstore (Marketplace) Configuration ─────────────────────────────────
-
-export async function updateAnkorstoreCredentials(config: {
-  clientId: string;
-  clientSecret: string;
-}): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    const { clientId, clientSecret } = config;
-
-    const upsertOrDelete = (key: string, value: string) => {
-      const trimmed = value.trim();
-      if (!trimmed) return prisma.siteConfig.deleteMany({ where: { key } });
-      const stored = encryptIfSensitive(key, trimmed);
-      return prisma.siteConfig.upsert({
-        where: { key },
-        update: { value: stored },
-        create: { key, value: stored },
-      });
-    };
-
-    await Promise.all([
-      upsertOrDelete("ankors_client_id", clientId),
-      upsertOrDelete("ankors_client_secret", clientSecret),
-    ]);
-
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
-export async function toggleAnkorstoreEnabled(enabled: boolean): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    await prisma.siteConfig.upsert({
-      where: { key: "ankors_enabled" },
-      update: { value: enabled ? "true" : "false" },
-      create: { key: "ankors_enabled", value: enabled ? "true" : "false" },
-    });
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
-export async function validateAnkorstoreCredentials(config: {
-  clientId: string;
-  clientSecret: string;
-}): Promise<{ valid: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    const { testAnkorstoreCredentials } = await import("@/lib/ankorstore-auth");
-    return await testAnkorstoreCredentials(config.clientId.trim(), config.clientSecret.trim());
-  } catch {
-    return { valid: false, error: "Impossible de contacter Ankorstore." };
-  }
-}
-
 // ─── DeepL Configuration ────────────────────────────────────────────────────
 
 export async function updateDeeplApiKey(
@@ -527,9 +464,6 @@ export async function updateHomepageCarouselsConfig(
 
 export interface MarketplaceMarkupSettings {
   pfs: { type: MarkupType; value: number; rounding: RoundingMode };
-  ankorstoreWholesale: { type: MarkupType; value: number; rounding: RoundingMode };
-  ankorstoreRetail: { type: MarkupType; value: number; rounding: RoundingMode };
-  ankorstoreVatRate: number; // percent (e.g. 20)
 }
 
 export async function updateMarketplaceMarkup(
@@ -542,13 +476,6 @@ export async function updateMarketplaceMarkup(
       { key: "pfs_price_markup_type", value: settings.pfs.type },
       { key: "pfs_price_markup_value", value: String(settings.pfs.value) },
       { key: "pfs_price_markup_rounding", value: settings.pfs.rounding },
-      { key: "ankorstore_wholesale_markup_type", value: settings.ankorstoreWholesale.type },
-      { key: "ankorstore_wholesale_markup_value", value: String(settings.ankorstoreWholesale.value) },
-      { key: "ankorstore_wholesale_markup_rounding", value: settings.ankorstoreWholesale.rounding },
-      { key: "ankorstore_retail_markup_type", value: settings.ankorstoreRetail.type },
-      { key: "ankorstore_retail_markup_value", value: String(settings.ankorstoreRetail.value) },
-      { key: "ankorstore_retail_markup_rounding", value: settings.ankorstoreRetail.rounding },
-      { key: "ankorstore_default_vat_rate", value: String(settings.ankorstoreVatRate) },
     ];
 
     await Promise.all(

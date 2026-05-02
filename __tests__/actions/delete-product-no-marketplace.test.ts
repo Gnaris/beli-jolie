@@ -59,13 +59,9 @@ vi.mock("@/lib/image-utils", () => ({ getImagePaths: vi.fn(() => ({ large: "l", 
 const {
   pfsCheckReferenceSpy,
   pfsDeleteProductSpy,
-  ankorstoreSearchSpy,
-  ankorstoreDeleteSpy,
 } = vi.hoisted(() => ({
   pfsCheckReferenceSpy: vi.fn(),
   pfsDeleteProductSpy: vi.fn(),
-  ankorstoreSearchSpy: vi.fn(),
-  ankorstoreDeleteSpy: vi.fn(),
 }));
 
 vi.mock("@/lib/pfs-api", () => ({ pfsCheckReference: pfsCheckReferenceSpy }));
@@ -81,8 +77,6 @@ vi.mock("@/lib/pfs-api-write", () => ({
   pfsGetSizes: vi.fn().mockResolvedValue([]),
   pfsGetCollections: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("@/lib/ankorstore-api", () => ({ ankorstoreSearchProductsByRef: ankorstoreSearchSpy }));
-vi.mock("@/lib/ankorstore-api-write", () => ({ ankorstoreDeleteProduct: ankorstoreDeleteSpy }));
 
 import { deleteProduct, bulkDeleteProducts, previewProductDeletion } from "@/app/actions/admin/products";
 
@@ -91,7 +85,7 @@ beforeEach(() => {
 });
 
 describe("product deletion does not touch marketplaces", () => {
-  it("deleteProduct() never calls PFS nor Ankorstore", async () => {
+  it("deleteProduct() never calls PFS", async () => {
     mockProductFindUnique.mockResolvedValue({ reference: "REF-1" });
     mockOrderItemCount.mockResolvedValue(0);
     mockProductColorFindMany.mockResolvedValue([]);
@@ -102,12 +96,10 @@ describe("product deletion does not touch marketplaces", () => {
 
     expect(pfsCheckReferenceSpy).not.toHaveBeenCalled();
     expect(pfsDeleteProductSpy).not.toHaveBeenCalled();
-    expect(ankorstoreSearchSpy).not.toHaveBeenCalled();
-    expect(ankorstoreDeleteSpy).not.toHaveBeenCalled();
     expect(mockProductDelete).toHaveBeenCalledWith({ where: { id: "p-1" } });
   });
 
-  it("bulkDeleteProducts() never calls PFS nor Ankorstore", async () => {
+  it("bulkDeleteProducts() never calls PFS", async () => {
     mockProductFindMany.mockResolvedValue([
       { id: "p-1", reference: "REF-1" },
       { id: "p-2", reference: "REF-2" },
@@ -121,8 +113,6 @@ describe("product deletion does not touch marketplaces", () => {
 
     expect(pfsCheckReferenceSpy).not.toHaveBeenCalled();
     expect(pfsDeleteProductSpy).not.toHaveBeenCalled();
-    expect(ankorstoreSearchSpy).not.toHaveBeenCalled();
-    expect(ankorstoreDeleteSpy).not.toHaveBeenCalled();
     expect(result.deleted).toBe(2);
     expect(result.archived).toEqual([]);
   });

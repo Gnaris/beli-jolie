@@ -11,6 +11,10 @@ import {
   PFS_COUNTRIES,
 } from "@/lib/marketplace-excel/pfs-taxonomy";
 import { fetchPfsColorOptions } from "@/app/actions/admin/colors";
+import {
+  fetchPfsMappingOptions,
+  type PfsMappingOptions,
+} from "@/app/actions/admin/pfs-annexes";
 
 export type MappableEntityType =
   | "color"
@@ -70,19 +74,17 @@ export function usePfsAttributes(): PfsAttributesBundle {
   };
 }
 
-/* ── Precomputed options ── */
+/* ── Static fallbacks (used on first render and if PFS API is down) ── */
 
-const GENDER_OPTIONS = Object.entries(PFS_GENDER_LABELS).map(([code, label]) => ({
-  value: code,
-  label,
-}));
-
-/** Fallback used on first render and if the PFS API is unavailable. */
+const STATIC_GENDER_OPTIONS = Object.entries(PFS_GENDER_LABELS).map(
+  ([code, label]) => ({ value: code, label }),
+);
 const STATIC_COLOR_OPTIONS = PFS_COLORS.map((c) => ({ value: c, label: c }));
-const COMPOSITION_OPTIONS = PFS_COMPOSITIONS.map((c) => ({ value: c, label: c }));
-const COUNTRY_OPTIONS = PFS_COUNTRIES.map((c) => ({ value: c, label: c }));
+const STATIC_COMPOSITION_OPTIONS = PFS_COMPOSITIONS.map((c) => ({ value: c, label: c }));
+const STATIC_COUNTRY_OPTIONS = PFS_COUNTRIES.map((c) => ({ value: c, label: c }));
 
-// Process-level cache so every RefMapping instance shares one fetch.
+/* ── Process-level cache so every mapping instance shares one fetch ── */
+
 let liveColorOptionsCache: { value: string; label: string }[] | null = null;
 let liveColorOptionsPromise: Promise<{ value: string; label: string }[]> | null = null;
 
@@ -112,23 +114,41 @@ function useLivePfsColorOptions() {
   return options;
 }
 
-/* ── Season format: PE20XX (Printemps/Été) or AH20XX (Automne/Hiver) ── */
-/**
- * Generate season options covering [currentYear - 1, currentYear + 1] —
- * the past season (leftover stock), the current year, and the next year
- * (collection being prepared). Anything further is out of scope for a
- * fashion catalogue and just clutters the picker.
- */
-export function generateSeasonOptions(): { value: string; label: string }[] {
-  const options: { value: string; label: string }[] = [];
-  const currentYear = new Date().getFullYear();
-  for (let y = currentYear - 1; y <= currentYear + 1; y++) {
-    options.push({ value: `PE${y}`, label: `PE${y} — Printemps/Été ${y}` });
-    options.push({ value: `AH${y}`, label: `AH${y} — Automne/Hiver ${y}` });
-  }
-  return options;
+let liveAnnexesCache: PfsMappingOptions | null = null;
+let liveAnnexesPromise: Promise<PfsMappingOptions> | null = null;
+
+function useLivePfsAnnexes(): PfsMappingOptions | null {
+  const [data, setData] = useState<PfsMappingOptions | null>(liveAnnexesCache);
+  useEffect(() => {
+    if (liveAnnexesCache) return;
+    if (!liveAnnexesPromise) {
+      liveAnnexesPromise = fetchPfsMappingOptions()
+        .then((res) => {
+          liveAnnexesCache = res;
+          return res;
+        })
+        .catch(() => {
+          const fallback: PfsMappingOptions = {
+            genders: STATIC_GENDER_OPTIONS,
+            families: [],
+            categories: [],
+            compositions: STATIC_COMPOSITION_OPTIONS,
+            countries: STATIC_COUNTRY_OPTIONS,
+            seasons: [],
+          };
+          return fallback;
+        });
+    }
+    let cancelled = false;
+    liveAnnexesPromise.then((res) => {
+      if (!cancelled) setData(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return data;
 }
-const SEASON_OPTIONS = generateSeasonOptions();
 
 /* ── Props ── */
 
@@ -163,32 +183,55 @@ export default function MarketplaceMappingSection(props: Props) {
     case "color":
       return <ColorMapping pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} />;
     case "composition":
-      return <RefMapping label="Matière PFS" options={COMPOSITION_OPTIONS} searchable pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} placeholder="Sélectionner une matière" />;
+      return <CompositionMapping pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} />;
     case "country":
-      return <RefMapping label="Pays PFS" options={COUNTRY_OPTIONS} searchable pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} placeholder="Sélectionner un pays" />;
+      return <CountryMapping pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} />;
     case "season":
-      return <RefMapping label="Saison PFS" options={SEASON_OPTIONS} pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} placeholder="Sélectionner une saison" />;
+      return <SeasonMapping pfsRef={props.pfsRef} onPfsRefChange={props.onPfsRefChange} />;
     default:
       return null;
   }
 }
 
-/* ── Category: Genre + Famille cascade ── */
+/* ── Category: Genre + Famille + Catégorie cascade (live PFS) ── */
 
-function CategoryMapping({ pfsGender, pfsFamilyName, pfsCategoryName, onPfsGenderChange, onPfsFamilyNameChange, onPfsCategoryNameChange }: CategoryMappingProps) {
-  const genderLabel = pfsGender ? PFS_GENDER_LABELS[pfsGender] ?? "" : "";
+function CategoryMapping({
+  pfsGender,
+  pfsFamilyName,
+  pfsCategoryName,
+  onPfsGenderChange,
+  onPfsFamilyNameChange,
+  onPfsCategoryNameChange,
+}: CategoryMappingProps) {
+  const annexes = useLivePfsAnnexes();
+
+  const genderOptions = useMemo(() => {
+    if (annexes && annexes.genders.length > 0) return annexes.genders;
+    return STATIC_GENDER_OPTIONS;
+  }, [annexes]);
 
   const familyOptions = useMemo(() => {
-    if (!genderLabel) return [];
+    if (!pfsGender) return [];
+    if (annexes && annexes.families.length > 0) {
+      return annexes.families
+        .filter((f) => f.gender === pfsGender)
+        .map((f) => ({ value: f.family, label: f.family.replace(/_/g, " ") }));
+    }
+    const genderLabel = PFS_GENDER_LABELS[pfsGender] ?? "";
     const families = PFS_FAMILIES_BY_GENDER[genderLabel] ?? [];
     return families.map((f) => ({ value: f, label: f.replace(/_/g, " ") }));
-  }, [genderLabel]);
+  }, [pfsGender, annexes]);
 
   const categoryOptions = useMemo(() => {
     if (!pfsFamilyName) return [];
+    if (annexes && annexes.categories.length > 0) {
+      return annexes.categories
+        .filter((c) => (!pfsGender || c.gender === pfsGender) && c.family === pfsFamilyName)
+        .map((c) => ({ value: c.category, label: c.category }));
+    }
     const subcats = PFS_SUBCATEGORIES_BY_FAMILY[pfsFamilyName] ?? [];
     return subcats.map((c) => ({ value: c, label: c }));
-  }, [pfsFamilyName]);
+  }, [pfsFamilyName, pfsGender, annexes]);
 
   function handleGenderChange(value: string) {
     onPfsGenderChange(value || null);
@@ -210,7 +253,7 @@ function CategoryMapping({ pfsGender, pfsFamilyName, pfsCategoryName, onPfsGende
         <CustomSelect
           value={pfsGender ?? ""}
           onChange={(v) => handleGenderChange(v)}
-          options={GENDER_OPTIONS}
+          options={genderOptions}
           placeholder="Sélectionner un genre"
         />
       </div>
@@ -222,8 +265,9 @@ function CategoryMapping({ pfsGender, pfsFamilyName, pfsCategoryName, onPfsGende
           value={pfsFamilyName ?? ""}
           onChange={(v) => handleFamilyChange(v)}
           options={familyOptions}
-          placeholder={genderLabel ? "Sélectionner une famille" : "Choisir un genre d'abord"}
-          disabled={!genderLabel}
+          placeholder={pfsGender ? "Sélectionner une famille" : "Choisir un genre d'abord"}
+          disabled={!pfsGender}
+          searchable
         />
       </div>
       <div>
@@ -270,7 +314,84 @@ function ColorMapping({
   );
 }
 
-/* ── Single-ref mapping (composition, country, season) ── */
+/* ── Composition mapping: live-fetched from PFS ── */
+
+function CompositionMapping({
+  pfsRef,
+  onPfsRefChange,
+}: {
+  pfsRef?: string | null;
+  onPfsRefChange: (ref: string | null) => void;
+}) {
+  const annexes = useLivePfsAnnexes();
+  const options =
+    annexes && annexes.compositions.length > 0 ? annexes.compositions : STATIC_COMPOSITION_OPTIONS;
+  return (
+    <RefMapping
+      label="Matière PFS"
+      options={options}
+      searchable
+      pfsRef={pfsRef}
+      onPfsRefChange={onPfsRefChange}
+      placeholder="Sélectionner une matière"
+    />
+  );
+}
+
+/* ── Country mapping: live-fetched from PFS ── */
+
+function CountryMapping({
+  pfsRef,
+  onPfsRefChange,
+}: {
+  pfsRef?: string | null;
+  onPfsRefChange: (ref: string | null) => void;
+}) {
+  const annexes = useLivePfsAnnexes();
+  const options =
+    annexes && annexes.countries.length > 0 ? annexes.countries : STATIC_COUNTRY_OPTIONS;
+  return (
+    <RefMapping
+      label="Pays PFS"
+      options={options}
+      searchable
+      pfsRef={pfsRef}
+      onPfsRefChange={onPfsRefChange}
+      placeholder="Sélectionner un pays"
+    />
+  );
+}
+
+/* ── Season mapping: live-fetched from PFS (collections) ── */
+
+function SeasonMapping({
+  pfsRef,
+  onPfsRefChange,
+}: {
+  pfsRef?: string | null;
+  onPfsRefChange: (ref: string | null) => void;
+}) {
+  const annexes = useLivePfsAnnexes();
+  const options = annexes ? annexes.seasons : [];
+  return (
+    <RefMapping
+      label="Saison PFS"
+      options={options}
+      searchable
+      pfsRef={pfsRef}
+      onPfsRefChange={onPfsRefChange}
+      placeholder={
+        annexes === null
+          ? "Chargement des saisons…"
+          : options.length === 0
+            ? "Aucune saison disponible chez PFS"
+            : "Sélectionner une saison"
+      }
+    />
+  );
+}
+
+/* ── Single-ref mapping primitive ── */
 
 function RefMapping({
   label,

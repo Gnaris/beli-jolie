@@ -354,9 +354,10 @@ model Product {
   updatedAt              DateTime              @updatedAt
   lastRefreshedAt        DateTime? // Date du dernier "Rafraîchir" (remet en Nouveauté sans toucher createdAt)
 
-  // Identifiants marketplaces — renseignés à la publication live (null = pas publié)
+  sizeDetailsTu          String?               // Détail taille unique (ex: "52-56"), champ texte libre envoyé à PFS
+
+  // Identifiant marketplace — renseigné à la publication live (null = pas publié)
   pfsProductId    String?
-  ankorsProductId String?
 
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
@@ -370,7 +371,6 @@ model Product {
   @@index([manufacturingCountryId]) // country filter
   @@index([seasonId]) // season filter
   @@index([pfsProductId])
-  @@index([ankorsProductId])
 }
 
 // Traductions automatiques des produits
@@ -451,9 +451,8 @@ model ProductColor {
   priceHistory        PriceHistory[]
   disabled            Boolean             @default(false) // Masquer côté client sans supprimer
   sku                 String?             @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
-  // Identifiants variante marketplaces — renseignés à la publication live
+  // Identifiant variante marketplace — renseigné à la publication live
   pfsVariantId        String?
-  ankorsVariantId     String?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
@@ -463,7 +462,6 @@ model ProductColor {
   @@index([stock])
   @@index([unitPrice])
   @@index([pfsVariantId])
-  @@index([ankorsVariantId])
 }
 
 // ─────────────────────────────────────────────

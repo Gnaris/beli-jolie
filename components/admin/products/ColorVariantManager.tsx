@@ -89,6 +89,7 @@ interface Props {
   onSizeAdded?: (size: AvailableSize) => void;
   variantErrors?: Map<string, Set<string>>;
   productReference?: string;
+  sizeDetailsTu?: string;
 }
 
 // ─────────────────────────────────────────────
@@ -1084,6 +1085,7 @@ function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, o
   const isPack = variant.saleType === "PACK";
   const [draft, setDraft] = useState<SizeEntryState[]>(variant.sizeEntries);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [bulkQty, setBulkQty] = useState("");
 
   useEffect(() => { setDraft(variant.sizeEntries); }, [variant.sizeEntries]);
 
@@ -1120,6 +1122,12 @@ function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, o
     if (isUnit) setDraft([{ tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
     else setDraft([...draft, { tempId: uid(), sizeId: newSize.id, sizeName: newSize.name, quantity: "1" }]);
     setQuickCreateOpen(false);
+  }
+
+  function applyBulkQty() {
+    const qty = parseInt(bulkQty);
+    if (!qty || qty < 1) return;
+    setDraft(draft.map((s) => ({ ...s, quantity: String(qty) })));
   }
 
   const packTotalQty = isPack ? draft.reduce((s, e) => s + (parseInt(e.quantity) || 0), 0) : 0;
@@ -1166,6 +1174,33 @@ function SizeModal({ open, onClose, variant, availableSizes, pfsSizes, onSave, o
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+          {isPack && draft.length >= 2 && (
+            <div className="border border-border rounded-xl bg-bg-secondary/40 p-3 space-y-1.5">
+              <p className="text-[11px] uppercase tracking-wider text-text-muted font-semibold font-body">
+                Raccourci — appliquer à toutes les tailles
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={bulkQty}
+                  onChange={(e) => setBulkQty(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyBulkQty(); } }}
+                  placeholder="Ex : 3"
+                  className="w-20 border border-border bg-bg-primary px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-body"
+                />
+                <button
+                  type="button"
+                  onClick={applyBulkQty}
+                  disabled={!bulkQty || parseInt(bulkQty) < 1}
+                  className="px-3 py-1.5 text-xs font-medium font-body text-text-inverse bg-bg-dark rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Appliquer
+                </button>
+              </div>
             </div>
           )}
           <div className="space-y-2">
@@ -1560,8 +1595,15 @@ function QuickAddModal({
 export default function ColorVariantManager({
   variants, colorImages, availableColors, availableSizes, pfsSizes = [],
   onChange, onChangeImages, onQuickCreateColor, onColorAdded, onSizeAdded,
-  variantErrors, productReference,
+  variantErrors, productReference, sizeDetailsTu,
 }: Props) {
+  /** Formate "Taille Unique"/"TU" → "TU 52-56" si sizeDetailsTu renseigné */
+  const fmtSize = (name: string) => {
+    if (!sizeDetailsTu) return name;
+    const l = name.toLowerCase();
+    return (l === "tu" || l === "taille unique") ? `TU ${sizeDetailsTu}` : name;
+  };
+
   const { confirm: confirmDialog } = useConfirm();
   const [showImageModal, setShowImageModal] = useState(false);
   const [galleryState, setGalleryState] = useState<{ images: string[]; colorName: string; colorHex: string } | null>(null);
@@ -1575,6 +1617,8 @@ export default function ColorVariantManager({
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const actionMenuRef = useRef<HTMLDivElement>(null);
+  const [bulkActionOpen, setBulkActionOpen] = useState(false);
+  const bulkActionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (selectAllRef.current) {
@@ -1594,6 +1638,17 @@ export default function ColorVariantManager({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [actionMenuId]);
+
+  useEffect(() => {
+    if (!bulkActionOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (bulkActionRef.current && !bulkActionRef.current.contains(e.target as Node)) {
+        setBulkActionOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [bulkActionOpen]);
 
   const totalPhotos = colorImages.reduce((s, c) => s + c.imagePreviews.length, 0);
   const hasAnyMissingImages = colorImages.some((c) => c.uploadedPaths.length === 0);
@@ -1636,6 +1691,31 @@ export default function ColorVariantManager({
 
   function toggleVariantDisabled(tempId: string) {
     onChange(variants.map((v) => v.tempId === tempId ? { ...v, disabled: !v.disabled } : v));
+  }
+
+  function bulkToggleDisabled() {
+    const selected = variants.filter((v) => selectedIds.has(v.tempId));
+    const allDisabled = selected.every((v) => v.disabled);
+    onChange(variants.map((v) => selectedIds.has(v.tempId) ? { ...v, disabled: !allDisabled } : v));
+    setBulkActionOpen(false);
+  }
+
+  async function bulkRemove() {
+    const count = selectedIds.size;
+    const ok = await confirmDialog({
+      title: "Supprimer les variantes ?",
+      message: `Voulez-vous supprimer ${count} variante${count > 1 ? "s" : ""} ?`,
+      confirmLabel: "Supprimer",
+      type: "danger",
+    });
+    if (!ok) return;
+    let newVariants = variants.filter((v) => !selectedIds.has(v.tempId));
+    if (newVariants.length > 0 && !newVariants.some((v) => v.isPrimary)) {
+      newVariants = newVariants.map((v, i) => ({ ...v, isPrimary: i === 0 }));
+    }
+    setSelectedIds(new Set());
+    onChange(newVariants);
+    setBulkActionOpen(false);
   }
 
   function handleColorChange(tempId: string, color: { colorId: string; colorName: string; colorHex: string } | null) {
@@ -1766,6 +1846,9 @@ export default function ColorVariantManager({
     return [...unitVars, ...packs];
   }, [variants]);
 
+  const savedVariants = useMemo(() => sortedVariants.filter((v) => !!v.dbId), [sortedVariants]);
+  const newVariants = useMemo(() => sortedVariants.filter((v) => !v.dbId), [sortedVariants]);
+
   const displaySkuByTempId = useMemo(() => {
     const map = new Map<string, string>();
     const ref = (productReference ?? "").trim().toUpperCase();
@@ -1784,7 +1867,7 @@ export default function ColorVariantManager({
   function renderSizeSummary(v: VariantState) {
     if (isMultiColorPack(v)) {
       const summary = v.packLines
-        .map((l) => `${l.colorName}: ${l.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}`)
+        .map((l) => `${l.colorName}: ${l.sizeEntries.map((s) => `${fmtSize(s.sizeName)}×${s.quantity}`).join(", ")}`)
         .join(" | ");
       const aggregated = new Map<string, number>();
       const order: string[] = [];
@@ -1800,7 +1883,7 @@ export default function ColorVariantManager({
         <span className="inline-flex items-center gap-1.5 flex-wrap" title={summary}>
           {order.map((name, i) => (
             <span key={`${name}-${i}`} className="inline-flex flex-col items-center leading-none gap-0.5">
-              <span className="text-[10px] font-semibold text-text-primary">{name}</span>
+              <span className="text-[10px] font-semibold text-text-primary">{fmtSize(name)}</span>
               <span className="text-[9px] text-text-muted">{aggregated.get(name)}</span>
             </span>
           ))}
@@ -1811,12 +1894,12 @@ export default function ColorVariantManager({
     const entries = v.saleType === "UNIT"
       ? [{ sizeName: v.sizeEntries[0]?.sizeName ?? "", quantity: "1" }]
       : v.sizeEntries;
-    const summary = entries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ");
+    const summary = entries.map((s) => `${fmtSize(s.sizeName)}×${s.quantity}`).join(", ");
     return (
       <span className="inline-flex items-center gap-1.5 flex-wrap" title={summary}>
         {entries.map((s, i) => (
           <span key={`${s.sizeName}-${i}`} className="inline-flex flex-col items-center leading-none gap-0.5">
-            <span className="text-[10px] font-semibold text-text-primary">{s.sizeName}</span>
+            <span className="text-[10px] font-semibold text-text-primary">{fmtSize(s.sizeName)}</span>
             <span className="text-[9px] text-text-muted">{s.quantity}</span>
           </span>
         ))}
@@ -1852,7 +1935,8 @@ export default function ColorVariantManager({
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Mobile cards */}
+          {/* Mobile cards — saved variants */}
+          {savedVariants.length > 0 && (
           <div className="block md:hidden border border-border rounded-xl overflow-visible divide-y divide-[#F0F0F0]">
             <div className={`px-3 py-2 flex items-center gap-2 ${showBulkRow ? "bg-[#F0FDF4]" : "bg-[#FAFAFA]"}`}>
               <input type="checkbox"
@@ -1878,11 +1962,29 @@ export default function ColorVariantManager({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                     </svg>
                   </button>
+                  <div className="relative" ref={bulkActionRef}>
+                    <button type="button" onClick={() => setBulkActionOpen(!bulkActionOpen)}
+                      className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
+                      Action
+                    </button>
+                    {bulkActionOpen && (
+                      <div className="absolute right-0 top-full mt-1 bg-bg-primary border border-border rounded-lg shadow-md z-50 min-w-[140px] py-1">
+                        <button type="button" onClick={bulkToggleDisabled}
+                          className="w-full text-left px-3 py-1.5 text-xs font-body hover:bg-bg-secondary transition-colors">
+                          {variants.filter((v) => selectedIds.has(v.tempId)).every((v) => v.disabled) ? "Activer" : "Désactiver"}
+                        </button>
+                        <button type="button" onClick={bulkRemove}
+                          className="w-full text-left px-3 py-1.5 text-xs font-body text-[#EF4444] hover:bg-[#FEF2F2] transition-colors">
+                          Supprimer
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
 
-            {sortedVariants.map((v) => {
+            {savedVariants.map((v) => {
               const isSelected = selectedIds.has(v.tempId);
               const isDuplicate = duplicateTempIds.has(v.tempId);
               const vErrs = variantErrors?.get(v.tempId);
@@ -1909,14 +2011,15 @@ export default function ColorVariantManager({
                         </svg>
                       </span>
                     )}
-                    <div className={v.disabled ? "opacity-50" : ""} title={locked ? LOCKED_VARIANT_TOOLTIP : undefined}><CustomSelect
-                      disabled={locked}
+                    {locked ? (
+                      <span className="inline-flex items-center px-2 py-1.5 text-xs font-body text-text-primary bg-bg-secondary rounded-md">
+                        {v.saleType === "PACK" ? "Pack" : "Unité"}
+                      </span>
+                    ) : (
+                    <div className={v.disabled ? "opacity-50" : ""}><CustomSelect
                       value={v.saleType}
                       onChange={(val) => {
-                        if (locked) return;
                         if (val === "PACK" && v.saleType === "UNIT") {
-                          // Conversion UNIT→PACK : la couleur de la variante devient la 1ère ligne du pack
-                          // (avec ses tailles éventuelles déjà saisies). L'admin pourra ajouter d'autres couleurs.
                           const initialLine: PackLineState | null = v.colorId
                             ? {
                                 tempId: uid(),
@@ -1936,7 +2039,6 @@ export default function ColorVariantManager({
                             packQuantity: String(totalQty || 1),
                           });
                         } else if (val === "UNIT" && v.saleType === "PACK") {
-                          // Conversion PACK→UNIT : on garde la 1ère couleur du pack et sa 1ère taille.
                           if (v.packLines.length > 0) {
                             const [first] = v.packLines;
                             const restoredSizes = first.sizeEntries.slice(0, 1).map((se) => ({ ...se, tempId: uid() }));
@@ -1957,6 +2059,7 @@ export default function ColorVariantManager({
                       }}
                       options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
                       size="sm" className="w-[75px]" /></div>
+                    )}
                     <div className="flex-1" />
                     <span title={imgCount === 0 ? "Aucune image" : `${imgCount} image${imgCount > 1 ? "s" : ""}`}
                       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-body ${
@@ -1996,18 +2099,41 @@ export default function ColorVariantManager({
                       ) : null;
                     })()}
 
-                    <div
-                      className={locked ? "pointer-events-none opacity-60" : ""}
-                      title={locked ? LOCKED_VARIANT_TOOLTIP : undefined}
-                      aria-disabled={locked || undefined}
-                    >
+                    {locked ? (
+                      <div className="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md min-h-[32px]" title={LOCKED_VARIANT_TOOLTIP}>
+                        {v.saleType === "PACK" && v.packLines.length > 0 ? (
+                          <span className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
+                            {v.packLines.slice(0, 4).map((l) => {
+                              const opt = availableColors.find((o) => o.id === l.colorId);
+                              return (
+                                <span key={l.colorId} className="inline-flex items-center gap-1 bg-bg-primary px-1.5 py-0.5 rounded-md text-[10px] border border-border-light">
+                                  <ColorSwatch hex={l.colorHex} patternImage={opt?.patternImage ?? null} size={10} rounded="full" />
+                                  <span className="truncate max-w-[60px]">{l.colorName}</span>
+                                </span>
+                              );
+                            })}
+                            {v.packLines.length > 4 && (
+                              <span className="text-[10px] text-text-muted font-medium">+{v.packLines.length - 4}</span>
+                            )}
+                          </span>
+                        ) : v.colorId ? (
+                          <span className="flex items-center gap-1.5 flex-1 min-w-0">
+                            <ColorSwatch hex={v.colorHex} patternImage={availableColors.find((o) => o.id === v.colorId)?.patternImage ?? null} size={14} rounded="full" />
+                            <span className="truncate text-[11px] text-text-primary font-body">{v.colorName}</span>
+                          </span>
+                        ) : (
+                          <span className="text-text-muted italic text-xs">—</span>
+                        )}
+                      </div>
+                    ) : (
+                    <div>
                     {v.saleType === "PACK" ? (
                       <MultiColorSelect
                         selected={v.packLines.length > 0
                           ? v.packLines.map((l) => ({ colorId: l.colorId, colorName: l.colorName, colorHex: l.colorHex }))
                           : (v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }] : [])}
                         options={availableColors}
-                        onChange={(colors) => { if (locked) return; handlePackColorsChange(v.tempId, colors); }}
+                        onChange={(colors) => { handlePackColorsChange(v.tempId, colors); }}
                         onCreateColor={onQuickCreateColor}
                         onColorAdded={onColorAdded}
                       />
@@ -2015,12 +2141,13 @@ export default function ColorVariantManager({
                       <SingleColorSelect
                         selected={v.colorId ? { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex } : null}
                         options={availableColors}
-                        onChange={(c) => { if (locked) return; handleColorChange(v.tempId, c); }}
+                        onChange={(c) => { handleColorChange(v.tempId, c); }}
                         onCreateColor={onQuickCreateColor}
                         onColorAdded={onColorAdded}
                       />
                     )}
                     </div>
+                    )}
 
                     <div className="grid grid-cols-3 gap-2">
                       <div>
@@ -2048,24 +2175,23 @@ export default function ColorVariantManager({
                         <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">
                           {v.saleType === "PACK" ? "Composition" : "Tailles"}
                         </p>
+                        {locked ? (
+                          <div className="w-full flex items-center gap-1.5 bg-bg-secondary px-2 py-1.5 text-xs text-left rounded-md min-h-[30px]" title={LOCKED_VARIANT_TOOLTIP}>
+                            {renderSizeSummary(v)}
+                          </div>
+                        ) : (
                         <button type="button"
-                          disabled={locked}
-                          title={locked ? LOCKED_VARIANT_TOOLTIP : undefined}
                           onClick={() => {
-                            if (locked) return;
                             if (v.saleType === "PACK") setPackCompoVariantId(v.tempId);
                             else setSizeModalVariantId(v.tempId);
                           }}
-                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[30px] ${locked ? "opacity-60 cursor-not-allowed" : "hover:border-[#9CA3AF]"}`}>
+                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[30px] hover:border-[#9CA3AF]`}>
                           {renderSizeSummary(v)}
                           <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {locked ? (
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c-1.105 0-2 .895-2 2v2a2 2 0 104 0v-2c0-1.105-.895-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v12h16V8h-2zM8 7a4 4 0 118 0v1H8V7z" />
-                            ) : (
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                            )}
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                           </svg>
                         </button>
+                        )}
                       </div>
                       <div className="shrink-0">
                         <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Total</p>
@@ -2077,6 +2203,239 @@ export default function ColorVariantManager({
               );
             })}
           </div>
+          )}
+
+          {/* Mobile — New variants section */}
+          {newVariants.length > 0 && (
+            <div className="block md:hidden border-2 border-dashed border-[#3B82F6]/40 rounded-xl overflow-visible divide-y divide-[#DBEAFE] bg-[#EFF6FF]/40">
+              <div className="px-3 py-2 flex items-center gap-2 bg-[#DBEAFE]/50 rounded-t-xl">
+                <svg className="w-3.5 h-3.5 text-[#3B82F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                <span className="text-[10px] font-semibold font-body text-[#2563EB]">
+                  {newVariants.length === 1 ? "Nouvelle variante" : `${newVariants.length} nouvelles variantes`} — en cours de création
+                </span>
+              </div>
+              {newVariants.map((v) => {
+              const isSelected = selectedIds.has(v.tempId);
+              const isDuplicate = duplicateTempIds.has(v.tempId);
+              const vErrs = variantErrors?.get(v.tempId);
+              const imgGk = imageGroupKeyFromVariant(v);
+              const imgEntry = colorImages.find((c) => c.groupKey === imgGk);
+              const imgCount = imgEntry?.uploadedPaths.length ?? 0;
+              const locked = isVariantLocked(v);
+              return (
+                <div key={v.tempId} className={`p-3 space-y-2.5 ${isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#EFF6FF]" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={isSelected}
+                      onChange={(e) => {
+                        const next = new Set(selectedIds);
+                        if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
+                        setSelectedIds(next);
+                      }}
+                      className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
+                    <span title={v.disabled ? "Désactivée" : "Active"}
+                      className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`} />
+                    {locked && (
+                      <span title={LOCKED_VARIANT_TOOLTIP} className="inline-flex items-center text-text-muted shrink-0" aria-label="Variante verrouillée">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c-1.105 0-2 .895-2 2v2a2 2 0 104 0v-2c0-1.105-.895-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v12h16V8h-2zM8 7a4 4 0 118 0v1H8V7z" />
+                        </svg>
+                      </span>
+                    )}
+                    {locked ? (
+                      <span className="inline-flex items-center px-2 py-1.5 text-xs font-body text-text-primary bg-bg-secondary rounded-md">
+                        {v.saleType === "PACK" ? "Pack" : "Unité"}
+                      </span>
+                    ) : (
+                    <div className={v.disabled ? "opacity-50" : ""}><CustomSelect
+                      value={v.saleType}
+                      onChange={(val) => {
+                        if (val === "PACK" && v.saleType === "UNIT") {
+                          const initialLine: PackLineState | null = v.colorId
+                            ? {
+                                tempId: uid(),
+                                colorId: v.colorId,
+                                colorName: v.colorName,
+                                colorHex: v.colorHex,
+                                sizeEntries: v.sizeEntries.map((se) => ({ ...se, tempId: uid() })),
+                              }
+                            : null;
+                          const totalQty = initialLine
+                            ? initialLine.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0)
+                            : 0;
+                          updateVariant(v.tempId, {
+                            saleType: "PACK",
+                            packLines: initialLine ? [initialLine] : [],
+                            sizeEntries: [],
+                            packQuantity: String(totalQty || 1),
+                          });
+                        } else if (val === "UNIT" && v.saleType === "PACK") {
+                          if (v.packLines.length > 0) {
+                            const [first] = v.packLines;
+                            const restoredSizes = first.sizeEntries.slice(0, 1).map((se) => ({ ...se, tempId: uid() }));
+                            updateVariant(v.tempId, {
+                              saleType: "UNIT",
+                              packQuantity: "",
+                              colorId: first.colorId,
+                              colorName: first.colorName,
+                              colorHex: first.colorHex,
+                              sizeEntries: restoredSizes,
+                              packLines: [],
+                            });
+                          } else {
+                            const restoredSizes = v.sizeEntries.slice(0, 1);
+                            updateVariant(v.tempId, { saleType: "UNIT", packQuantity: "", sizeEntries: restoredSizes });
+                          }
+                        }
+                      }}
+                      options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
+                      size="sm" className="w-[75px]" /></div>
+                    )}
+                    <div className="flex-1" />
+                    <span title={imgCount === 0 ? "Aucune image" : `${imgCount} image${imgCount > 1 ? "s" : ""}`}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-body ${
+                        imgCount === 0 ? "bg-[#FEE2E2] text-[#DC2626]" : "bg-bg-secondary text-text-muted"
+                      }`}
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
+                      </svg>
+                      {imgCount}/5
+                    </span>
+                    <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
+                      <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
+                        className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
+                        Action
+                      </button>
+                      {actionMenuId === v.tempId && (
+                        <div className="absolute right-0 top-full mt-1 bg-bg-primary border border-border rounded-lg shadow-md z-50 min-w-[140px] py-1">
+                          <button type="button" onClick={() => { setActionMenuId(null); toggleVariantDisabled(v.tempId); }}
+                            className="w-full text-left px-3 py-1.5 text-xs font-body hover:bg-bg-secondary transition-colors">
+                            {v.disabled ? "Activer" : "Désactiver"}
+                          </button>
+                          <button type="button" onClick={() => { setActionMenuId(null); removeVariant(v.tempId); }}
+                            className="w-full text-left px-3 py-1.5 text-xs font-body text-[#EF4444] hover:bg-[#FEF2F2] transition-colors">
+                            Supprimer
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={v.disabled ? "opacity-50 space-y-2.5" : "space-y-2.5"}>
+                    {(() => {
+                      const dsku = displaySkuByTempId.get(v.tempId);
+                      return dsku ? (
+                        <div className="text-[10px] text-text-muted font-mono truncate" title={dsku}>SKU: {dsku}</div>
+                      ) : null;
+                    })()}
+
+                    {locked ? (
+                      <div className="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md min-h-[32px]" title={LOCKED_VARIANT_TOOLTIP}>
+                        {v.saleType === "PACK" && v.packLines.length > 0 ? (
+                          <span className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
+                            {v.packLines.slice(0, 4).map((l) => {
+                              const opt = availableColors.find((o) => o.id === l.colorId);
+                              return (
+                                <span key={l.colorId} className="inline-flex items-center gap-1 bg-bg-primary px-1.5 py-0.5 rounded-md text-[10px] border border-border-light">
+                                  <ColorSwatch hex={l.colorHex} patternImage={opt?.patternImage ?? null} size={10} rounded="full" />
+                                  <span className="truncate max-w-[60px]">{l.colorName}</span>
+                                </span>
+                              );
+                            })}
+                            {v.packLines.length > 4 && (
+                              <span className="text-[10px] text-text-muted font-medium">+{v.packLines.length - 4}</span>
+                            )}
+                          </span>
+                        ) : v.colorId ? (
+                          <span className="flex items-center gap-1.5 flex-1 min-w-0">
+                            <ColorSwatch hex={v.colorHex} patternImage={availableColors.find((o) => o.id === v.colorId)?.patternImage ?? null} size={14} rounded="full" />
+                            <span className="truncate text-[11px] text-text-primary font-body">{v.colorName}</span>
+                          </span>
+                        ) : (
+                          <span className="text-text-muted italic text-xs">—</span>
+                        )}
+                      </div>
+                    ) : (
+                    <div>
+                    {v.saleType === "PACK" ? (
+                      <MultiColorSelect
+                        selected={v.packLines.length > 0
+                          ? v.packLines.map((l) => ({ colorId: l.colorId, colorName: l.colorName, colorHex: l.colorHex }))
+                          : (v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }] : [])}
+                        options={availableColors}
+                        onChange={(colors) => { handlePackColorsChange(v.tempId, colors); }}
+                        onCreateColor={onQuickCreateColor}
+                        onColorAdded={onColorAdded}
+                      />
+                    ) : (
+                      <SingleColorSelect
+                        selected={v.colorId ? { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex } : null}
+                        options={availableColors}
+                        onChange={(c) => { handleColorChange(v.tempId, c); }}
+                        onCreateColor={onQuickCreateColor}
+                        onColorAdded={onColorAdded}
+                      />
+                    )}
+                    </div>
+                    )}
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Prix/u</p>
+                        <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
+                          onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                          className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Stock</p>
+                        <input type="number" min="0" step="1" value={v.stock} placeholder="0"
+                          onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
+                          className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Poids</p>
+                        <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.000"
+                          onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
+                          className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-2 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">
+                          {v.saleType === "PACK" ? "Composition" : "Tailles"}
+                        </p>
+                        {locked ? (
+                          <div className="w-full flex items-center gap-1.5 bg-bg-secondary px-2 py-1.5 text-xs text-left rounded-md min-h-[30px]" title={LOCKED_VARIANT_TOOLTIP}>
+                            {renderSizeSummary(v)}
+                          </div>
+                        ) : (
+                        <button type="button"
+                          onClick={() => {
+                            if (v.saleType === "PACK") setPackCompoVariantId(v.tempId);
+                            else setSizeModalVariantId(v.tempId);
+                          }}
+                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[30px] hover:border-[#9CA3AF]`}>
+                          {renderSizeSummary(v)}
+                          <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                        )}
+                      </div>
+                      <div className="shrink-0">
+                        <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold mb-1 font-body">Total</p>
+                        <div className="text-xs pt-1.5">{renderTotalPrice(v)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            </div>
+          )}
 
           {/* Desktop table */}
           <div className="hidden md:block border border-border rounded-xl overflow-visible">
@@ -2140,18 +2499,40 @@ export default function ColorVariantManager({
                   </td>
                   <td className="px-1 py-1.5" />
                   <td className="px-1 py-1.5 text-center">
-                    <button type="button" onClick={applyBulk} disabled={!showBulkRow}
-                      title="Appliquer en masse"
-                      className={`p-1 rounded transition-colors ${showBulkRow ? "text-[#16A34A] hover:bg-[#DCFCE7]" : "text-[#D1D5DB] cursor-not-allowed"}`}>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </button>
+                    <div className="flex items-center justify-center gap-1">
+                      <button type="button" onClick={applyBulk} disabled={!showBulkRow}
+                        title="Appliquer en masse"
+                        className={`p-1 rounded transition-colors ${showBulkRow ? "text-[#16A34A] hover:bg-[#DCFCE7]" : "text-[#D1D5DB] cursor-not-allowed"}`}>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </button>
+                      {showBulkRow && (
+                        <div className="relative" ref={bulkActionRef}>
+                          <button type="button" onClick={() => setBulkActionOpen(!bulkActionOpen)}
+                            className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
+                            Action
+                          </button>
+                          {bulkActionOpen && (
+                            <div className="absolute right-0 top-full mt-1 bg-bg-primary border border-border rounded-lg shadow-md z-50 min-w-[140px] py-1">
+                              <button type="button" onClick={bulkToggleDisabled}
+                                className="w-full text-left px-3 py-1.5 text-xs font-body hover:bg-bg-secondary transition-colors">
+                                {variants.filter((v) => selectedIds.has(v.tempId)).every((v) => v.disabled) ? "Activer" : "Désactiver"}
+                              </button>
+                              <button type="button" onClick={bulkRemove}
+                                className="w-full text-left px-3 py-1.5 text-xs font-body text-[#EF4444] hover:bg-[#FEF2F2] transition-colors">
+                                Supprimer
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </td>
                 </tr>
               </thead>
               <tbody>
-                {sortedVariants.map((v) => {
+                {savedVariants.map((v) => {
                   const isSelected = selectedIds.has(v.tempId);
                   const isDuplicate = duplicateTempIds.has(v.tempId);
                   const vErrs = variantErrors?.get(v.tempId);
@@ -2189,11 +2570,14 @@ export default function ColorVariantManager({
                         </div>
                       </td>
                       <td className={`px-2 py-2${dimCls}`} title={lockedD ? LOCKED_VARIANT_TOOLTIP : undefined}>
+                        {lockedD ? (
+                          <span className="inline-flex items-center px-2 py-1.5 text-xs font-body text-text-primary bg-bg-secondary rounded-md w-[72px]">
+                            {v.saleType === "PACK" ? "Pack" : "Unité"}
+                          </span>
+                        ) : (
                         <CustomSelect
-                          disabled={lockedD}
                           value={v.saleType}
                           onChange={(val) => {
-                            if (lockedD) return;
                             if (val === "PACK" && v.saleType === "UNIT") {
                               const totalQty = v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0);
                               updateVariant(v.tempId, { saleType: "PACK", packQuantity: String(totalQty || 1) });
@@ -2204,20 +2588,44 @@ export default function ColorVariantManager({
                           }}
                           options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
                           size="sm" className="w-[72px]" />
+                        )}
                       </td>
                       <td className={`px-2 py-2${dimCls}`}>
-                        <div
-                          className={lockedD ? "pointer-events-none opacity-60" : ""}
-                          title={lockedD ? LOCKED_VARIANT_TOOLTIP : undefined}
-                          aria-disabled={lockedD || undefined}
-                        >
+                        {lockedD ? (
+                          <div className="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md min-h-[32px]" title={LOCKED_VARIANT_TOOLTIP}>
+                            {v.saleType === "PACK" && v.packLines.length > 0 ? (
+                              <span className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
+                                {v.packLines.slice(0, 4).map((l) => {
+                                  const opt = availableColors.find((o) => o.id === l.colorId);
+                                  return (
+                                    <span key={l.colorId} className="inline-flex items-center gap-1 bg-bg-primary px-1.5 py-0.5 rounded-md text-[10px] border border-border-light">
+                                      <ColorSwatch hex={l.colorHex} patternImage={opt?.patternImage ?? null} size={10} rounded="full" />
+                                      <span className="truncate max-w-[60px]">{l.colorName}</span>
+                                    </span>
+                                  );
+                                })}
+                                {v.packLines.length > 4 && (
+                                  <span className="text-[10px] text-text-muted font-medium">+{v.packLines.length - 4}</span>
+                                )}
+                              </span>
+                            ) : v.colorId ? (
+                              <span className="flex items-center gap-1.5 flex-1 min-w-0">
+                                <ColorSwatch hex={v.colorHex} patternImage={availableColors.find((o) => o.id === v.colorId)?.patternImage ?? null} size={14} rounded="full" />
+                                <span className="truncate text-[11px] text-text-primary font-body">{v.colorName}</span>
+                              </span>
+                            ) : (
+                              <span className="text-text-muted italic text-xs">—</span>
+                            )}
+                          </div>
+                        ) : (
+                        <div>
                         {v.saleType === "PACK" ? (
                           <MultiColorSelect
                             selected={v.packLines.length > 0
                               ? v.packLines.map((l) => ({ colorId: l.colorId, colorName: l.colorName, colorHex: l.colorHex }))
                               : (v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }] : [])}
                             options={availableColors}
-                            onChange={(colors) => { if (lockedD) return; handlePackColorsChange(v.tempId, colors); }}
+                            onChange={(colors) => { handlePackColorsChange(v.tempId, colors); }}
                             onCreateColor={onQuickCreateColor}
                             onColorAdded={onColorAdded}
                           />
@@ -2225,12 +2633,13 @@ export default function ColorVariantManager({
                           <SingleColorSelect
                             selected={v.colorId ? { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex } : null}
                             options={availableColors}
-                            onChange={(c) => { if (lockedD) return; handleColorChange(v.tempId, c); }}
+                            onChange={(c) => { handleColorChange(v.tempId, c); }}
                             onCreateColor={onQuickCreateColor}
                             onColorAdded={onColorAdded}
                           />
                         )}
                         </div>
+                        )}
                       </td>
                       <td className={`px-1 py-2${dimCls}`}>
                         {(() => {
@@ -2239,29 +2648,235 @@ export default function ColorVariantManager({
                         })()}
                       </td>
                       <td className={`px-1 py-2${dimCls}`}>
+                        {lockedD ? (
+                          <div className="w-full flex items-center gap-1.5 bg-bg-secondary px-2 py-1.5 text-xs text-left rounded-md min-h-[30px]" title={LOCKED_VARIANT_TOOLTIP}>
+                            {renderSizeSummary(v)}
+                          </div>
+                        ) : (
                         <button type="button"
-                          disabled={lockedD}
                           onClick={() => {
-                            if (lockedD) return;
                             if (v.saleType === "PACK") setPackCompoVariantId(v.tempId);
                             else setSizeModalVariantId(v.tempId);
                           }}
-                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[30px] ${lockedD ? "opacity-60 cursor-not-allowed" : "hover:border-[#9CA3AF]"}`}
-                          title={lockedD ? LOCKED_VARIANT_TOOLTIP : (v.saleType === "PACK"
+                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[30px] hover:border-[#9CA3AF]`}
+                          title={v.saleType === "PACK"
                             ? (isMultiColorPack(v)
-                                ? v.packLines.map((l) => `${l.colorName}: ${l.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ")}`).join(" | ")
+                                ? v.packLines.map((l) => `${l.colorName}: ${l.sizeEntries.map((s) => `${fmtSize(s.sizeName)}×${s.quantity}`).join(", ")}`).join(" | ")
                                 : "Définir la composition du paquet")
-                            : (v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${s.sizeName}×${s.quantity}`).join(", ") : "Ajouter des tailles"))}
+                            : (v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${fmtSize(s.sizeName)}×${s.quantity}`).join(", ") : "Ajouter des tailles")}
                         >
                           {renderSizeSummary(v)}
                           <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {lockedD ? (
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c-1.105 0-2 .895-2 2v2a2 2 0 104 0v-2c0-1.105-.895-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v12h16V8h-2zM8 7a4 4 0 118 0v1H8V7z" />
-                            ) : (
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                            )}
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                           </svg>
                         </button>
+                        )}
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        <input type="number" min="0" step="1" value={v.stock} placeholder="0"
+                          onChange={(e) => updateVariant(v.tempId, { stock: e.target.value })}
+                          className={`w-full border ${vErrs?.has("stock") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        <input type="number" min="0" step="0.001" value={v.weight} placeholder="0.000"
+                          onChange={(e) => updateVariant(v.tempId, { weight: e.target.value })}
+                          className={`w-full border ${vErrs?.has("weight") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        <input type="number" min="0" step="0.01" value={v.unitPrice} placeholder="0.00"
+                          onChange={(e) => updateVariant(v.tempId, { unitPrice: e.target.value })}
+                          className={`w-full border ${vErrs?.has("price") ? "border-[#EF4444]" : "border-border"} bg-bg-primary px-1.5 py-1.5 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body`} />
+                      </td>
+                      <td className={`px-1 py-2 text-right text-xs${dimCls}`}>{renderTotalPrice(v)}</td>
+                      <td className="px-1 py-2 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <span title={imgCountD === 0 ? "Aucune image" : `${imgCountD} image${imgCountD > 1 ? "s" : ""}`}
+                            className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold font-body ${
+                              imgCountD === 0 ? "bg-[#FEE2E2] text-[#DC2626]" : "text-text-muted"
+                            }`}
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
+                            </svg>
+                            {imgCountD}
+                          </span>
+                          <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
+                            <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
+                              className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
+                              Action
+                            </button>
+                            {actionMenuId === v.tempId && (
+                              <div className="absolute right-0 top-full mt-1 bg-bg-primary border border-border rounded-lg shadow-md z-50 min-w-[140px] py-1">
+                                <button type="button" onClick={() => { setActionMenuId(null); toggleVariantDisabled(v.tempId); }}
+                                  className="w-full text-left px-3 py-1.5 text-xs font-body hover:bg-bg-secondary transition-colors">
+                                  {v.disabled ? "Activer" : "Désactiver"}
+                                </button>
+                                <button type="button" onClick={() => { setActionMenuId(null); removeVariant(v.tempId); }}
+                                  className="w-full text-left px-3 py-1.5 text-xs font-body text-[#EF4444] hover:bg-[#FEF2F2] transition-colors">
+                                  Supprimer
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {/* New variants separator + rows */}
+                {newVariants.length > 0 && (
+                  <tr>
+                    <td colSpan={11} className="px-0 py-0">
+                      <div className="flex items-center gap-2 px-3 py-2 bg-[#DBEAFE]/60 border-y-2 border-dashed border-[#3B82F6]/40">
+                        <svg className="w-3.5 h-3.5 text-[#3B82F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        <span className="text-[10px] font-semibold font-body text-[#2563EB]">
+                          {newVariants.length === 1 ? "Nouvelle variante" : `${newVariants.length} nouvelles variantes`} — en cours de création
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {newVariants.map((v) => {
+                  const isSelected = selectedIds.has(v.tempId);
+                  const isDuplicate = duplicateTempIds.has(v.tempId);
+                  const vErrs = variantErrors?.get(v.tempId);
+                  const imgGkD = imageGroupKeyFromVariant(v);
+                  const imgEntryD = colorImages.find((c) => c.groupKey === imgGkD);
+                  const imgCountD = imgEntryD?.uploadedPaths.length ?? 0;
+                  const dimCls = v.disabled ? " opacity-50" : "";
+                  const lockedD = isVariantLocked(v);
+                  return (
+                    <tr key={v.tempId}
+                      className={`border-b border-border-light last:border-b-0 transition-colors ${
+                        isDuplicate ? "bg-[#FEF2F2]" : isSelected ? "bg-[#EFF6FF]" : "bg-[#EFF6FF]/30 hover:bg-[#EFF6FF]/60"
+                      }`}
+                    >
+                      <td className={`px-2 py-2 text-center${dimCls}`}>
+                        <input type="checkbox" checked={isSelected}
+                          onChange={(e) => {
+                            const next = new Set(selectedIds);
+                            if (e.target.checked) next.add(v.tempId); else next.delete(v.tempId);
+                            setSelectedIds(next);
+                          }}
+                          className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5" />
+                      </td>
+                      <td className="px-0 py-2 text-center">
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span title={v.disabled ? "Désactivée" : "Active"}
+                            className={`inline-block w-2.5 h-2.5 rounded-full ${v.disabled ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E] animate-pulse"}`} />
+                          {lockedD && (
+                            <span title={LOCKED_VARIANT_TOOLTIP} className="inline-flex items-center text-text-muted" aria-label="Variante verrouillée">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c-1.105 0-2 .895-2 2v2a2 2 0 104 0v-2c0-1.105-.895-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v12h16V8h-2zM8 7a4 4 0 118 0v1H8V7z" />
+                              </svg>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className={`px-2 py-2${dimCls}`} title={lockedD ? LOCKED_VARIANT_TOOLTIP : undefined}>
+                        {lockedD ? (
+                          <span className="inline-flex items-center px-2 py-1.5 text-xs font-body text-text-primary bg-bg-secondary rounded-md w-[72px]">
+                            {v.saleType === "PACK" ? "Pack" : "Unité"}
+                          </span>
+                        ) : (
+                        <CustomSelect
+                          value={v.saleType}
+                          onChange={(val) => {
+                            if (val === "PACK" && v.saleType === "UNIT") {
+                              const totalQty = v.sizeEntries.reduce((s, se) => s + (parseInt(se.quantity) || 0), 0);
+                              updateVariant(v.tempId, { saleType: "PACK", packQuantity: String(totalQty || 1) });
+                            } else if (val === "UNIT" && v.saleType === "PACK") {
+                              const restoredSizes = v.sizeEntries.slice(0, 1);
+                              updateVariant(v.tempId, { saleType: "UNIT", packQuantity: "", sizeEntries: restoredSizes });
+                            }
+                          }}
+                          options={[{ value: "UNIT", label: "Unité" }, { value: "PACK", label: "Pack" }]}
+                          size="sm" className="w-[72px]" />
+                        )}
+                      </td>
+                      <td className={`px-2 py-2${dimCls}`}>
+                        {lockedD ? (
+                          <div className="flex items-center gap-1.5 px-2 py-1.5 bg-bg-secondary rounded-md min-h-[32px]" title={LOCKED_VARIANT_TOOLTIP}>
+                            {v.saleType === "PACK" && v.packLines.length > 0 ? (
+                              <span className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
+                                {v.packLines.slice(0, 4).map((l) => {
+                                  const opt = availableColors.find((o) => o.id === l.colorId);
+                                  return (
+                                    <span key={l.colorId} className="inline-flex items-center gap-1 bg-bg-primary px-1.5 py-0.5 rounded-md text-[10px] border border-border-light">
+                                      <ColorSwatch hex={l.colorHex} patternImage={opt?.patternImage ?? null} size={10} rounded="full" />
+                                      <span className="truncate max-w-[60px]">{l.colorName}</span>
+                                    </span>
+                                  );
+                                })}
+                                {v.packLines.length > 4 && (
+                                  <span className="text-[10px] text-text-muted font-medium">+{v.packLines.length - 4}</span>
+                                )}
+                              </span>
+                            ) : v.colorId ? (
+                              <span className="flex items-center gap-1.5 flex-1 min-w-0">
+                                <ColorSwatch hex={v.colorHex} patternImage={availableColors.find((o) => o.id === v.colorId)?.patternImage ?? null} size={14} rounded="full" />
+                                <span className="truncate text-[11px] text-text-primary font-body">{v.colorName}</span>
+                              </span>
+                            ) : (
+                              <span className="text-text-muted italic text-xs">—</span>
+                            )}
+                          </div>
+                        ) : (
+                        <div>
+                        {v.saleType === "PACK" ? (
+                          <MultiColorSelect
+                            selected={v.packLines.length > 0
+                              ? v.packLines.map((l) => ({ colorId: l.colorId, colorName: l.colorName, colorHex: l.colorHex }))
+                              : (v.colorId ? [{ colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex }] : [])}
+                            options={availableColors}
+                            onChange={(colors) => { handlePackColorsChange(v.tempId, colors); }}
+                            onCreateColor={onQuickCreateColor}
+                            onColorAdded={onColorAdded}
+                          />
+                        ) : (
+                          <SingleColorSelect
+                            selected={v.colorId ? { colorId: v.colorId, colorName: v.colorName, colorHex: v.colorHex } : null}
+                            options={availableColors}
+                            onChange={(c) => { handleColorChange(v.tempId, c); }}
+                            onCreateColor={onQuickCreateColor}
+                            onColorAdded={onColorAdded}
+                          />
+                        )}
+                        </div>
+                        )}
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        {(() => {
+                          const dsku = displaySkuByTempId.get(v.tempId) || "—";
+                          return <span className="text-[10px] text-text-muted font-mono truncate block" title={dsku}>{dsku}</span>;
+                        })()}
+                      </td>
+                      <td className={`px-1 py-2${dimCls}`}>
+                        {lockedD ? (
+                          <div className="w-full flex items-center gap-1.5 bg-bg-secondary px-2 py-1.5 text-xs text-left rounded-md min-h-[30px]" title={LOCKED_VARIANT_TOOLTIP}>
+                            {renderSizeSummary(v)}
+                          </div>
+                        ) : (
+                        <button type="button"
+                          onClick={() => {
+                            if (v.saleType === "PACK") setPackCompoVariantId(v.tempId);
+                            else setSizeModalVariantId(v.tempId);
+                          }}
+                          className={`w-full flex items-center gap-1.5 bg-bg-primary border ${vErrs?.has("sizes") ? "border-[#EF4444]" : "border-border"} px-2 py-1.5 text-xs text-left rounded-md transition-colors min-h-[30px] hover:border-[#9CA3AF]`}
+                          title={v.saleType === "PACK"
+                            ? (isMultiColorPack(v)
+                                ? v.packLines.map((l) => `${l.colorName}: ${l.sizeEntries.map((s) => `${fmtSize(s.sizeName)}×${s.quantity}`).join(", ")}`).join(" | ")
+                                : "Définir la composition du paquet")
+                            : (v.sizeEntries.length > 0 ? v.sizeEntries.map((s) => `${fmtSize(s.sizeName)}×${s.quantity}`).join(", ") : "Ajouter des tailles")}
+                        >
+                          {renderSizeSummary(v)}
+                          <svg className="w-3 h-3 text-text-muted shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                        )}
                       </td>
                       <td className={`px-1 py-2${dimCls}`}>
                         <input type="number" min="0" step="1" value={v.stock} placeholder="0"

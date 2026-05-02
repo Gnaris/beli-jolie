@@ -56,7 +56,7 @@ vi.mock("@/lib/pfs-api-write", () => ({
 
 vi.mock("@/lib/marketplace-pricing", () => ({
   applyMarketplaceMarkup: vi.fn((price: number) => price),
-  loadMarketplaceMarkupConfigs: vi.fn().mockResolvedValue({ pfs: undefined, ankorstore: undefined }),
+  loadMarketplaceMarkupConfigs: vi.fn().mockResolvedValue({ pfs: undefined }),
 }));
 
 vi.mock("@/lib/storage", () => ({

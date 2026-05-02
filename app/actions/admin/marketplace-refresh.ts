@@ -5,7 +5,6 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { pfsRefreshProduct } from "@/lib/pfs-refresh";
-import { ankorstoreRefreshProduct } from "@/lib/ankorstore-refresh";
 import { emitProductEvent } from "@/lib/product-events";
 import { logger } from "@/lib/logger";
 
@@ -25,16 +24,11 @@ export interface MarketplaceRefreshOutcome {
     | { status: "ok"; archived: boolean }
     | { status: "not_found"; message: string }
     | { status: "error"; message: string };
-  ankorstore?:
-    | { status: "ok"; opId?: string; warning: string }
-    | { status: "not_found"; message: string }
-    | { status: "error"; message: string };
 }
 
 export interface MarketplaceRefreshOptions {
   local: boolean; // Bump lastRefreshedAt (makes product "Nouveauté" again)
   pfs: boolean; // Re-push to PFS (create new + soft-delete old)
-  ankorstore: boolean; // Re-push to Ankorstore (Phase 2)
 }
 
 async function refreshLocal(productId: string): Promise<void> {
@@ -87,23 +81,6 @@ export async function refreshProductOnMarketplaces(
     }
   }
 
-  if (options.ankorstore) {
-    try {
-      const res = await ankorstoreRefreshProduct(productId);
-      if (res.success) {
-        outcome.ankorstore = { status: "ok", opId: res.opId, warning: res.warning };
-      } else if (res.reason === "not_found") {
-        outcome.ankorstore = { status: "not_found", message: res.error };
-      } else {
-        outcome.ankorstore = { status: "error", message: res.error };
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error("[Marketplace Refresh] Ankorstore unexpected error", { productId, error: message });
-      outcome.ankorstore = { status: "error", message };
-    }
-  }
-
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
   revalidatePath(`/produits/${productId}`);
@@ -143,7 +120,6 @@ export async function refreshProductsOnMarketplaces(
         productName: fallback?.name ?? "Produit introuvable",
         local: { status: "skipped" },
         pfs: options.pfs ? { status: "error", message } : undefined,
-        ankorstore: options.ankorstore ? { status: "error", message } : undefined,
       });
     }
   }

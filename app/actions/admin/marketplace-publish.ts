@@ -6,8 +6,6 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
 import { pfsPublishProduct } from "@/lib/pfs-publish";
-import { ankorstoreRefreshProduct } from "@/lib/ankorstore-refresh";
-import { ankorstorePublishProduct } from "@/lib/ankorstore-publish";
 import { emitProductEvent } from "@/lib/product-events";
 import { logger } from "@/lib/logger";
 
@@ -25,14 +23,10 @@ export interface MarketplacePublishOutcome {
   pfs?:
     | { status: "ok"; mode: "create" | "update"; archived?: boolean }
     | { status: "error"; message: string };
-  ankorstore?:
-    | { status: "ok"; mode: "create" | "update"; opId?: string; warning: string }
-    | { status: "error"; message: string };
 }
 
 export interface MarketplacePublishOptions {
   pfs: boolean;
-  ankorstore: boolean;
 }
 
 export async function publishProductToMarketplaces(
@@ -49,7 +43,6 @@ export async function publishProductToMarketplaces(
       name: true,
       status: true,
       pfsProductId: true,
-      ankorsProductId: true,
     },
   });
 
@@ -66,12 +59,10 @@ export async function publishProductToMarketplaces(
   if (options.pfs) {
     try {
       if (product.pfsProductId) {
-        // Déjà publié sur PFS → mise à jour en place (PATCH)
         const res = await pfsUpdateProductInPlace(productId, undefined, { skipRevalidation: true });
         if (res.success) {
           outcome.pfs = { status: "ok", mode: "update", archived: res.archived };
         } else {
-          // Si l'update échoue (ex: produit supprimé côté PFS), on retombe en publish
           logger.warn("[Marketplace Publish] PFS update failed, falling back to publish", {
             productId,
             error: res.error,
@@ -80,7 +71,6 @@ export async function publishProductToMarketplaces(
             where: { id: productId },
             data: { pfsProductId: null },
           });
-          // Nettoyer les pfsVariantId aussi
           await prisma.productColor.updateMany({
             where: { productId },
             data: { pfsVariantId: null },
@@ -93,7 +83,6 @@ export async function publishProductToMarketplaces(
           }
         }
       } else {
-        // Première publication
         const res = await pfsPublishProduct(productId, undefined, { skipRevalidation: true });
         if (res.success) {
           outcome.pfs = { status: "ok", mode: "create", archived: res.archived };
@@ -105,59 +94,6 @@ export async function publishProductToMarketplaces(
       const message = err instanceof Error ? err.message : String(err);
       logger.error("[Marketplace Publish] PFS unexpected error", { productId, error: message });
       outcome.pfs = { status: "error", message };
-    }
-  }
-
-  if (options.ankorstore) {
-    try {
-      if (product.ankorsProductId) {
-        // Déjà publié → mise à jour (upsert via Ankorstore)
-        const res = await ankorstoreRefreshProduct(productId);
-        if (res.success) {
-          outcome.ankorstore = {
-            status: "ok",
-            mode: "update",
-            opId: res.opId,
-            warning: res.warning,
-          };
-        } else if (res.reason === "not_found") {
-          // ID stale → on retombe en publish
-          await prisma.product.update({
-            where: { id: productId },
-            data: { ankorsProductId: null },
-          });
-          const pubRes = await ankorstorePublishProduct(productId);
-          if (pubRes.success) {
-            outcome.ankorstore = {
-              status: "ok",
-              mode: "create",
-              opId: pubRes.opId,
-              warning: pubRes.warning,
-            };
-          } else {
-            outcome.ankorstore = { status: "error", message: pubRes.error };
-          }
-        } else {
-          outcome.ankorstore = { status: "error", message: res.error };
-        }
-      } else {
-        // Première publication
-        const res = await ankorstorePublishProduct(productId);
-        if (res.success) {
-          outcome.ankorstore = {
-            status: "ok",
-            mode: "create",
-            opId: res.opId,
-            warning: res.warning,
-          };
-        } else {
-          outcome.ankorstore = { status: "error", message: res.error };
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error("[Marketplace Publish] Ankorstore unexpected error", { productId, error: message });
-      outcome.ankorstore = { status: "error", message };
     }
   }
 
@@ -199,7 +135,6 @@ export async function publishProductsToMarketplaces(
         reference: fallback?.reference ?? "?",
         productName: fallback?.name ?? "Produit introuvable",
         pfs: options.pfs ? { status: "error", message } : undefined,
-        ankorstore: options.ankorstore ? { status: "error", message } : undefined,
       });
     }
   }

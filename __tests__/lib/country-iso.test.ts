@@ -57,7 +57,7 @@ describe("country-iso — suggestIso2FromName", () => {
   it("resolves canonical PFS country labels used by the click-to-fill suggestion", () => {
     // These are the exact strings returned by clicking a PFS suggestion chip
     // in the country quick-create modal. They must resolve to the ISO2 code
-    // so the Ankorstore field auto-fills in the same click.
+    // so the ISO field auto-fills in the same click.
     const canonicalSamples: [string, string][] = [
       ["France", "FR"],
       ["Chine", "CN"],
@@ -84,9 +84,8 @@ describe("country-iso — suggestIso2FromName", () => {
 
   it("resolves the vast majority of PFS country labels (bonus ISO match)", () => {
     // When the user clicks a PFS suggestion, the ISO auto-fills "if found".
-    // We don't require 100% — Kosovo etc. have no ISO2 alpha-2 in the
-    // Ankorstore sheet — but we want coverage to stay high so the feature
-    // feels reliable.
+    // We don't require 100% — some countries (Kosovo etc.) have no ISO2
+    // alpha-2 — but we want coverage to stay high so the feature feels reliable.
     const resolved = PFS_COUNTRIES.filter((name) => suggestIso2FromName(name));
     const ratio = resolved.length / PFS_COUNTRIES.length;
     expect(ratio).toBeGreaterThan(0.9);

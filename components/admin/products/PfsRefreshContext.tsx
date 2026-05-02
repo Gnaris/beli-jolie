@@ -34,7 +34,6 @@ export interface PfsRefreshItem {
   status: QueueItemStatus;
   localOutcome?: TargetOutcome;
   pfsOutcome?: TargetOutcome;
-  ankorstoreOutcome?: TargetOutcome;
 }
 
 export interface PfsRefreshEnqueueInput {
@@ -74,14 +73,12 @@ function uid(): string {
 
 export function hasError(item: PfsRefreshItem): boolean {
   if (item.pfsOutcome && !item.pfsOutcome.ok) return true;
-  if (item.ankorstoreOutcome && !item.ankorstoreOutcome.ok) return true;
   return false;
 }
 
 function outcomesFromServer(outcome: MarketplaceRefreshOutcome): {
   localOutcome?: TargetOutcome;
   pfsOutcome?: TargetOutcome;
-  ankorstoreOutcome?: TargetOutcome;
 } {
   const result: ReturnType<typeof outcomesFromServer> = {};
 
@@ -99,26 +96,11 @@ function outcomesFromServer(outcome: MarketplaceRefreshOutcome): {
     }
   }
 
-  if (outcome.ankorstore) {
-    if (outcome.ankorstore.status === "ok") {
-      result.ankorstoreOutcome = {
-        ok: true,
-        opId: outcome.ankorstore.opId,
-        warning: outcome.ankorstore.warning,
-      };
-    } else if (outcome.ankorstore.status === "not_found") {
-      result.ankorstoreOutcome = { ok: false, kind: "not_found", message: outcome.ankorstore.message };
-    } else {
-      result.ankorstoreOutcome = { ok: false, kind: "error", message: outcome.ankorstore.message };
-    }
-  }
-
   return result;
 }
 
 function outcomesFromPublishServer(outcome: MarketplacePublishOutcome): {
   pfsOutcome?: TargetOutcome;
-  ankorstoreOutcome?: TargetOutcome;
 } {
   const result: ReturnType<typeof outcomesFromPublishServer> = {};
 
@@ -127,18 +109,6 @@ function outcomesFromPublishServer(outcome: MarketplacePublishOutcome): {
       result.pfsOutcome = { ok: true, archived: outcome.pfs.archived };
     } else {
       result.pfsOutcome = { ok: false, kind: "error", message: outcome.pfs.message };
-    }
-  }
-
-  if (outcome.ankorstore) {
-    if (outcome.ankorstore.status === "ok") {
-      result.ankorstoreOutcome = {
-        ok: true,
-        opId: outcome.ankorstore.opId,
-        warning: outcome.ankorstore.warning,
-      };
-    } else {
-      result.ankorstoreOutcome = { ok: false, kind: "error", message: outcome.ankorstore.message };
     }
   }
 
@@ -215,9 +185,6 @@ export function PfsRefreshProvider({ children }: { children: React.ReactNode }) 
                   pfsOutcome: item.options.pfs
                     ? { ok: false, kind: "error", message }
                     : i.pfsOutcome,
-                  ankorstoreOutcome: item.options.ankorstore
-                    ? { ok: false, kind: "error", message }
-                    : i.ankorstoreOutcome,
                 }
               : i,
           ),

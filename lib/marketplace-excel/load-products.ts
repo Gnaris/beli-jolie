@@ -7,17 +7,15 @@ import { loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
 import type { ExportProduct, ExportContext, ExportVariant, SaleTypeKey } from "./types";
 
 export async function loadExportContext(): Promise<ExportContext> {
-  const [markups, company, vatRow] = await Promise.all([
+  const [markups, company] = await Promise.all([
     loadMarketplaceMarkupConfigs(),
     prisma.companyInfo.findFirst({ select: { shopName: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "ankorstore_default_vat_rate" } }),
   ]);
 
   const shopName = company?.shopName?.trim() || "";
-  const ankorstoreVatRate = Number(vatRow?.value) || 20;
   const publicBaseUrl = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
 
-  return { shopName, markups, ankorstoreVatRate, publicBaseUrl };
+  return { shopName, markups, publicBaseUrl };
 }
 
 export async function loadExportProducts(productIds: string[]): Promise<ExportProduct[]> {

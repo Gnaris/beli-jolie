@@ -93,7 +93,7 @@ Quick-create: `createColorQuick()`, `createCategoryQuick()`, `createCompositionQ
 
 - **SKU duplicate**: PFS auto-generates `sku_suffix = COLOR_SIZE`. Duplicate = silent reject (HTTP 200, errors:1). Always check `pfsVariantId` before POST; if exists, PATCH.
 - **Accepted sizes**: integers, XS-6XL, T34-T68, bonnets (85A), EU shoes (20-46), TU. **Rejected**: UK format.
-- **`size_details_tu`**: read-only (accepted in POST body but NOT stored).
+- **`size_details_tu`**: champ texte libre (ex: "52-56"), envoyé en POST/PATCH, stocké côté PFS. Champ `Product.sizeDetailsTu` en BDD locale.
 - **Genre/family**: decoupled — PFS accepts mismatched combos without error.
 - **WebP rejected**: convert to JPEG before upload.
 - **Rate limit variants PATCH**: 30/minute.

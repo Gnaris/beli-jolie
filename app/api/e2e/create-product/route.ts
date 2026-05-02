@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     const result = await createProduct({
       name: `E2E Test Product ${reference}`,
       reference: reference,
-      description: "Produit de test E2E pour verification sync Ankorstore. Description suffisamment longue.",
+      description: "Produit de test E2E. Description suffisamment longue pour validation.",
       categoryId: category.id,
       subCategoryIds: [],
       status: "OFFLINE",

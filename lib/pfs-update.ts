@@ -63,13 +63,15 @@ interface FullVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   variantSizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
-  color: { name: string; pfsColorRef: string | null } | null;
+  colorId: string | null;
+  color: { id: string; name: string; pfsColorRef: string | null } | null;
   packLines: {
-    color: { name: string; pfsColorRef: string | null };
+    colorId: string;
+    color: { id: string; name: string; pfsColorRef: string | null };
     position: number;
     sizes: { size: { name: string; pfsSizeRef: string | null }; quantity: number }[];
   }[];
-  images: { path: string; order: number }[];
+  images: { path: string; order: number; colorId: string }[];
 }
 
 interface FullProduct {
@@ -99,6 +101,7 @@ interface FullProduct {
   }[];
   manufacturingCountry: { isoCode: string | null; pfsCountryRef: string | null } | null;
   season: { pfsRef: string | null } | null;
+  sizeDetailsTu: string | null;
 }
 
 async function loadProductFull(productId: string): Promise<FullProduct | null> {
@@ -116,6 +119,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       dimensionHeight: true,
       dimensionDiameter: true,
       dimensionCircumference: true,
+      sizeDetailsTu: true,
       category: {
         select: {
           id: true,
@@ -139,10 +143,12 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           variantSizes: {
             select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
           },
-          color: { select: { name: true, pfsColorRef: true } },
+          colorId: true,
+          color: { select: { id: true, name: true, pfsColorRef: true } },
           packLines: {
             select: {
-              color: { select: { name: true, pfsColorRef: true } },
+              colorId: true,
+              color: { select: { id: true, name: true, pfsColorRef: true } },
               position: true,
               sizes: {
                 select: { size: { select: { name: true, pfsSizeRef: true } }, quantity: true },
@@ -152,7 +158,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
             orderBy: { position: "asc" as const },
           },
           images: {
-            select: { path: true, order: true },
+            select: { path: true, order: true, colorId: true },
             orderBy: { order: "asc" as const },
           },
         },
@@ -430,6 +436,7 @@ export async function pfsUpdateProductInPlace(
     };
     if (product.category.pfsCategoryId) updateData.category = product.category.pfsCategoryId;
     if (product.category.pfsFamilyId) updateData.family = product.category.pfsFamilyId;
+    if (product.sizeDetailsTu) updateData.size_details_tu = product.sizeDetailsTu;
 
     await pfsUpdateProduct(pfsProductId, updateData);
     logger.info("[PFS Update] Product fields updated", { pfsProductId, reference: product.reference });
@@ -567,19 +574,31 @@ export async function pfsUpdateProductInPlace(
 
     // Build map of local images per color ref
     const localImagesByColor = new Map<string, { path: string; order: number }[]>();
+
+    // Build a map from Color.id → PFS color ref (covers both variant colors and pack line colors)
+    const colorIdToPfsRef = new Map<string, string>();
     for (const variant of product.colors) {
-      let colorRef = getEffectiveColorRef(variant, colorRefMap);
-      if (!colorRef && variant.saleType === "PACK" && variant.packLines.length > 0) {
-        const plColor = variant.packLines[0]?.color;
-        colorRef = plColor ? resolvePfsColorRef(plColor, colorRefMap) : null;
+      if (variant.color) {
+        const ref = getEffectiveColorRef(variant, colorRefMap);
+        if (ref) colorIdToPfsRef.set(variant.color.id, ref);
       }
-      if (!colorRef) continue;
-      if (localImagesByColor.has(colorRef) && localImagesByColor.get(colorRef)!.length > 0) continue;
-      if (variant.images.length > 0) {
-        localImagesByColor.set(
-          colorRef,
-          variant.images.map((img) => ({ path: img.path, order: img.order })),
-        );
+      for (const pl of variant.packLines) {
+        if (pl.color) {
+          const ref = resolvePfsColorRef(pl.color, colorRefMap);
+          colorIdToPfsRef.set(pl.color.id, ref);
+        }
+      }
+    }
+
+    // Group images by their actual colorId (not the variant's main color)
+    for (const variant of product.colors) {
+      for (const img of variant.images) {
+        const colorRef = colorIdToPfsRef.get(img.colorId);
+        if (!colorRef) continue;
+        if (!localImagesByColor.has(colorRef)) {
+          localImagesByColor.set(colorRef, []);
+        }
+        localImagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
       }
     }
 
@@ -663,8 +682,13 @@ export async function pfsUpdateProductInPlace(
     }
 
     // ── Step 5 : Update status ──
-    if (allVariantsOutOfStock) {
-      report("Archivage (toutes les variantes en rupture)...");
+    // Respect local product status: if product is OFFLINE or ARCHIVED locally,
+    // keep it ARCHIVED on PFS instead of forcing READY_FOR_SALE
+    const shouldBeOffline =
+      product.status === "OFFLINE" || product.status === "ARCHIVED" || allVariantsOutOfStock;
+
+    if (shouldBeOffline) {
+      report("Archivage sur PFS (produit hors ligne ou en rupture)...");
       await pfsUpdateStatus([{ id: pfsProductId, status: "ARCHIVED" }]);
     } else {
       report("Mise en ligne...");

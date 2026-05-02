@@ -1,5 +1,5 @@
 /**
- * Shared types for marketplace Excel export (PFS + Ankorstore).
+ * Shared types for marketplace Excel export (PFS).
  *
  * An ExportProduct is a denormalized view of a Product in DB, with everything
  * needed to emit rows to the Excel templates (resolved names, markup-applied
@@ -74,14 +74,11 @@ export interface ExportProduct {
 
 export interface MarkupConfigs {
   pfs: import("@/lib/marketplace-pricing").MarkupConfig;
-  ankorstoreWholesale: import("@/lib/marketplace-pricing").MarkupConfig;
-  ankorstoreRetail: import("@/lib/marketplace-pricing").MarkupConfig;
 }
 
 export interface ExportContext {
   shopName: string; // brand name (from CompanyInfo.shopName)
   markups: MarkupConfigs;
-  ankorstoreVatRate: number; // e.g. 20 (percent)
-  /** Public base URL of the site (e.g. "https://beliandjolie.com"). Used to build absolute image URLs for Ankorstore. */
+  /** Public base URL of the site (e.g. "https://beliandjolie.com"). */
   publicBaseUrl: string;
 }

@@ -6,7 +6,7 @@
 
 export type ProductEventType = "PRODUCT_ONLINE" | "PRODUCT_UPDATED" | "PRODUCT_OFFLINE" | "STOCK_CHANGED" | "BESTSELLER_CHANGED" | "PRODUCT_CREATED" | "IMPORT_PROGRESS" | "MARKETPLACE_SYNC";
 
-export type MarketplaceId = "pfs" | "ankorstore";
+export type MarketplaceId = "pfs";
 
 export interface MarketplaceSyncProgress {
   /** Which marketplace */

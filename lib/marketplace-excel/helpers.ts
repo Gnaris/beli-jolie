@@ -3,8 +3,7 @@
  *
  * Kept dependency-free so tests can import it without pulling prisma or storage.
  *
- * PFS-only by design: Ankorstore embeds image URLs directly in its workbook,
- * so the image folder we ship in the ZIP is for PFS's manual upload only.
+ * PFS-only by design — image folder ships in the ZIP for PFS's manual upload.
  */
 
 import type { ExportProduct } from "./types";

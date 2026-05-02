@@ -20,13 +20,16 @@ export default async function CategoriesPage() {
     getTranslations("categoriesPage"),
     getCachedShopName(),
   ]);
-  const categories = await prisma.category.findMany({
+  const allCategories = await prisma.category.findMany({
     orderBy: { name: "asc" },
     include: {
       subCategories: { orderBy: { name: "asc" } },
-      _count:        { select: { products: true } },
+      _count: { select: { products: { where: { status: "ONLINE" } } } },
     },
   });
+
+  // Only keep categories that have at least 1 ONLINE product
+  const categories = allCategories.filter(c => c._count.products > 0);
 
   const serialized = categories.map((cat) => ({
     id: cat.id,

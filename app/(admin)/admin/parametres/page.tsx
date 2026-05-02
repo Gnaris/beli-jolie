@@ -331,17 +331,13 @@ async function LivraisonTab() {
    TAB : Marketplaces — PFS
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MarketplacesTab() {
-  const [pfsConfig, ankorsConfig, markupRows] = await Promise.all([
+  const [pfsConfig, markupRows] = await Promise.all([
     prisma.siteConfig.findUnique({ where: { key: "pfs_email" }, select: { key: true } }),
-    prisma.siteConfig.findUnique({ where: { key: "ankors_client_id" }, select: { key: true } }),
     prisma.siteConfig.findMany({
       where: {
         key: {
           in: [
             "pfs_price_markup_type", "pfs_price_markup_value", "pfs_price_markup_rounding",
-            "ankorstore_wholesale_markup_type", "ankorstore_wholesale_markup_value", "ankorstore_wholesale_markup_rounding",
-            "ankorstore_retail_markup_type", "ankorstore_retail_markup_value", "ankorstore_retail_markup_rounding",
-            "ankorstore_default_vat_rate",
           ],
         },
       },
@@ -354,24 +350,12 @@ async function MarketplacesTab() {
     <div>
       <MarketplaceConfig
         hasPfsConfig={!!pfsConfig}
-        hasAnkorsConfig={!!ankorsConfig}
         markupSettings={{
           pfs: {
             type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
             value: Number(markupMap.get("pfs_price_markup_value")) || 0,
             rounding: (markupMap.get("pfs_price_markup_rounding") as "none" | "down" | "up") || "none",
           },
-          ankorstoreWholesale: {
-            type: (markupMap.get("ankorstore_wholesale_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
-            value: Number(markupMap.get("ankorstore_wholesale_markup_value")) || 0,
-            rounding: (markupMap.get("ankorstore_wholesale_markup_rounding") as "none" | "down" | "up") || "none",
-          },
-          ankorstoreRetail: {
-            type: (markupMap.get("ankorstore_retail_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
-            value: Number(markupMap.get("ankorstore_retail_markup_value")) || 0,
-            rounding: (markupMap.get("ankorstore_retail_markup_rounding") as "none" | "down" | "up") || "none",
-          },
-          ankorstoreVatRate: Number(markupMap.get("ankorstore_default_vat_rate")) || 20,
         }}
       />
     </div>

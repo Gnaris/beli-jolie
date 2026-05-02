@@ -73,6 +73,7 @@ interface ProductDetailProps {
   similarProducts: RelatedProduct[];
   bundleChildren: RelatedProduct[];
   bundleParents: RelatedProduct[];
+  sizeDetailsTu?: string | null;
   discountPercent?: number | null;
   clientDiscount?: ClientDiscountInfo | null;
   isAuthenticated?: boolean;
@@ -132,7 +133,7 @@ function applyClientDiscount(price: number, discount: ClientDiscountInfo | null 
 
 export default function ProductDetail({
   productId, name, reference, description, category, subCategories, tags, variants,
-  colorImages, compositions, dimensions, similarProducts, bundleChildren, bundleParents, discountPercent, clientDiscount, isAuthenticated,
+  colorImages, compositions, dimensions, similarProducts, bundleChildren, bundleParents, sizeDetailsTu, discountPercent, clientDiscount, isAuthenticated,
 }: ProductDetailProps) {
   const router = useRouter();
   const t = useTranslations("product");
@@ -154,6 +155,16 @@ export default function ProductDetail({
   ).values()];
 
   const primaryGroupKey = variants.find(v => v.isPrimary)?.groupKey ?? uniqueColors[0]?.groupKey ?? "";
+
+  /** Enrichit le nom de taille avec le détail TU si applicable (ex: "Taille Unique" → "TU 52-56") */
+  const formatSizeName = useCallback((sizeName: string) => {
+    if (!sizeDetailsTu) return sizeName;
+    const lower = sizeName.toLowerCase();
+    if (lower === "tu" || lower === "taille unique") {
+      return `TU ${sizeDetailsTu}`;
+    }
+    return sizeName;
+  }, [sizeDetailsTu]);
 
   const [selectedGroupKey, setSelectedGroupKey]   = useState<string>(primaryGroupKey);
   const [hoveredGroupKey, setHoveredGroupKey]     = useState<string | null>(null);
@@ -576,7 +587,7 @@ export default function ProductDetail({
                             </p>
                             {v.sizes?.length > 0 && (
                               <p className="text-xs text-text-muted font-body mt-0.5">
-                                {v.sizes[0]?.name}
+                                {formatSizeName(v.sizes[0]?.name)}
                               </p>
                             )}
                             <p className="text-xs text-text-muted mt-0.5 font-body">
@@ -644,7 +655,7 @@ export default function ProductDetail({
                             <div className="mt-1 space-y-0.5">
                               {v.sizes.map((s) => (
                                 <p key={s.name} className="text-xs text-text-muted font-body">
-                                  {s.name} × {s.quantity}
+                                  {formatSizeName(s.name)} × {s.quantity}
                                   {s.pricePerUnit != null && (
                                     <span className="text-text-secondary ml-1">— {Number(s.pricePerUnit).toFixed(2)} €/u</span>
                                   )}

@@ -365,6 +365,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
               bundleChildren={product.bundleChildren.map((b) => toRelated(b.child))}
               bundleParents={product.bundleParents.map((b) => toRelated(b.parent))}
+              sizeDetailsTu={product.sizeDetailsTu}
               discountPercent={product.discountPercent != null ? Number(product.discountPercent) : null}
               clientDiscount={clientDiscount}
               isAuthenticated={!!session?.user?.id}

@@ -40,7 +40,8 @@ Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middl
 
 - **Server actions** (`app/actions/admin/`, `app/actions/client/`) — all mutations. `requireAdmin()` / `requireAuth()` obligatoire.
 - **API routes** (`app/api/`) — webhooks (Stripe, heartbeat), SSE streams, file-serving, marketplace Excel export.
-- **Lib** (`lib/`) — business logic: `marketplace-excel/` (PFS + Ankorstore Excel generators), `pfs-api.ts` / `pfs-api-write.ts` (read + delete), `ankorstore-api.ts` / `ankorstore-api-write.ts` (read + delete), `stripe.ts`, `easy-express.ts`, `email.ts` (SMTP via nodemailer — `sendMail()` unique point d'envoi), `notifications.ts` (emails transactionnels), `cached-data.ts`, `security.ts`, `image-processor.ts`, `storage.ts` (local filesystem image storage under `/public`).
+- **Lib** (`lib/`) — business logic: `marketplace-excel/` (PFS Excel generators), `pfs-api.ts` / `pfs-api-write.ts` (read + delete), `stripe.ts`, `easy-express.ts`, `email.ts` (SMTP via nodemailer — `sendMail()` unique point d'envoi), `notifications.ts` (emails transactionnels), `cached-data.ts`, `security.ts`, `image-processor.ts`, `storage.ts` (local filesystem image storage under `/public`).
+- **Note** : l'intégration Ankorstore a été mise en pause (mai 2026). Tout le code et les paramètres associés ont été retirés. La doc API reste dans `docs/ankorstore-api.md` pour pouvoir réactiver l'intégration plus tard.
 - **Components** — `components/admin/` (backoffice), `components/client/` (espace-pro), `components/ui/` (shared primitives), `components/home/` (landing page).
 
 ### Observability
@@ -56,24 +57,23 @@ Prisma ORM → Server Actions + API routes. Cache via `unstable_cache` dans `lib
 
 `Product` → `ProductColor[]` (variantes UNIT ou PACK) → images, sizes, pack color lines. **Une variante = une couleur** (plus de sous-couleurs/composition). Pricing: UNIT = `unitPrice` direct, PACK = calculé via `computeTotalPrice()`. Pour les **packs multi-couleurs** (ex: pack tricolore), la composition vit dans `PackColorLine[]` + `PackColorLineSize[]` (1 ligne par couleur du pack avec ses tailles/quantités). Le nom de la couleur dans la bibliothèque (`Color.name`) doit correspondre exactement à ce que PFS attend pour l'export Excel.
 
-### Marketplace publishing via API live (PFS + Ankorstore)
+### Marketplace publishing via API live (PFS uniquement)
 
-Create / update sur PFS + Ankorstore se fait **en direct via les API**. Plus d'export Excel manuel.
+Create / update sur PFS se fait **en direct via les API**. Plus d'export Excel manuel.
 
-**Identifiants stockés** : `Product.pfsProductId` / `Product.ankorsProductId` + `ProductColor.pfsVariantId` / `ProductColor.ankorsVariantId`. Renseignés à l'import PFS et à chaque publish/refresh. `null` = produit pas encore publié → badge gris « Non publié ».
+**Identifiants stockés** : `Product.pfsProductId` + `ProductColor.pfsVariantId`. Renseignés à l'import PFS et à chaque publish/refresh. `null` = produit pas encore publié → badge gris « Non publié ».
 
-**Modale au save produit** : à chaque `Enregistrer` dans le formulaire produit (création OU édition), si le produit est complet et qu'au moins une marketplace est configurée, une modale s'ouvre avec cases à cocher PFS / Ankorstore. Si cochées → enqueue dans le widget existant `PfsRefreshWidget` avec `mode: "publish"`.
+**Modale au save produit** : à chaque `Enregistrer` dans le formulaire produit (création OU édition), si le produit est complet et que PFS est configuré, une modale s'ouvre avec une case à cocher PFS. Si cochée → enqueue dans le widget `PfsRefreshWidget` avec `mode: "publish"`.
 
-**Server action** : `app/actions/admin/marketplace-publish.ts` → `publishProductToMarketplaces(productId, { pfs, ankorstore })` :
-- Si `pfsProductId` connu → `pfsRefreshProduct()` (renouvelle = crée nouveau + remplace ID)
+**Server action** : `app/actions/admin/marketplace-publish.ts` → `publishProductToMarketplaces(productId, { pfs })` :
+- Si `pfsProductId` connu → `pfsUpdateProductInPlace()` (mise à jour PATCH)
 - Sinon → `pfsPublishProduct()` (première création)
-- Idem pour Ankorstore avec fallback automatique sur publish si refresh échoue (`not_found`)
+- Fallback : si l'update PFS échoue (ID stale), on retombe sur publish
 
 Fichiers clés :
 - `lib/pfs-publish.ts` — première publication PFS (sans swap d'ancien produit)
 - `lib/pfs-refresh.ts` — renouvellement (création + soft-delete + remplacement IDs)
-- `lib/ankorstore-publish.ts` — première publication Ankorstore (push + search by ref pour récupérer IDs)
-- `lib/ankorstore-refresh.ts` — refresh Ankorstore (search → push → IDs)
+- `lib/pfs-update.ts` — mise à jour PATCH d'un produit déjà publié
 - `app/actions/admin/marketplace-publish.ts` + `app/actions/admin/marketplace-refresh.ts`
 - `app/api/admin/marketplace-publish/route.ts` + `app/api/admin/marketplace-refresh/route.ts`
 - `components/admin/products/PfsRefreshContext.tsx` — queue partagée publish/refresh, dispatch via `mode: "publish" | "refresh"`
@@ -86,19 +86,17 @@ Fichiers clés :
 
 ### Refresh produit (`lib/pfs-refresh.ts` + `app/actions/admin/marketplace-refresh.ts`)
 
-Bouton "Rafraîchir" dans `/admin/produits` (par ligne + bulk) et sur la page `/modifier`. Ouvre une modale avec cases à cocher : **boutique** (bump `Product.lastRefreshedAt`, jamais `createdAt`) + **PFS** (re-push live via API, remplace `pfsProductId` + `pfsVariantId` après création nouveau) + **Ankorstore** (fire-and-forget, capture IDs après push via search by ref).
+Bouton "Rafraîchir" dans `/admin/produits` (par ligne + bulk) et sur la page `/modifier`. Ouvre une modale avec cases à cocher : **boutique** (bump `Product.lastRefreshedAt`, jamais `createdAt`) + **PFS** (re-push live via API, remplace `pfsProductId` + `pfsVariantId` après création nouveau).
 
-Traitement en arrière-plan via `PfsRefreshProvider` (monté dans `app/(admin)/layout.tsx`) + `PfsRefreshWidget` (popup bas-droite, minimisable, fermable uniquement quand tous les produits sont terminés). Items traités séquentiellement, outcomes per-marketplace affichés.
+Traitement en arrière-plan via `PfsRefreshProvider` (monté dans `app/(admin)/layout.tsx`) + `PfsRefreshWidget` (popup bas-droite, minimisable, fermable uniquement quand tous les produits sont terminés). Items traités séquentiellement.
 
 `pfsRefreshProduct()` : `pfsCheckReference(ref)` → si inexistant = erreur "Produit inexistant sur PFS" ; sinon crée nouveau produit avec ref TEMP aléatoire, upload images locales→JPEG, renomme l'ancien en ref aléatoire + statut `DELETED`, renomme le nouveau avec la vraie ref, passe en `READY_FOR_SALE` (ou `ARCHIVED` si stock 0 sur toutes variantes). Rollback automatique en cas d'échec mi-parcours.
-
-`ankorstoreRefreshProduct()` : `ankorstoreSearchProductsByRef(ref)` → si inexistant = erreur "Produit inexistant sur Ankorstore" ; sinon `ankorstorePushProducts([product], "update")` (upsert par external_id = reference). Fire-and-forget : pas de callback webhook, l'admin vérifie sur le dashboard Ankorstore. Un bandeau d'avertissement s'affiche dans le widget dès qu'un push Ankorstore réussit.
 
 "Nouveauté" frontend = `max(createdAt, lastRefreshedAt) > now - 30j` (filter + orderBy compound sur `/produits`, `/api/products`, home carousel, favoris, ProductsInfiniteScroll).
 
 ### Marketplace pricing (`lib/marketplace-pricing.ts`)
 
-Configurable markup per marketplace via SiteConfig keys. Three markup types: `percent` (+X%), `fixed` (+X€), `multiplier` (×X). Three rounding modes: `none`, `up` (ceil to 0.1€), `down` (floor to 0.1€). SiteConfig keys follow the pattern `{marketplace}_markup_{type|value|rounding}` — e.g. `pfs_price_markup_type`, `ankorstore_wholesale_markup_value`, `ankorstore_retail_markup_rounding`. PACK pricing: markup applies to **per-unit price** (unitPrice / packQuantity), then multiply back by pack quantity. Retail markup on Ankorstore applies **on top of wholesale HT**, then VAT applied to produce retail TTC (colonne "Prix de détail/unité" de l'Excel). TVA configurable via `ankorstore_default_vat_rate` (défaut 20).
+Configurable markup per marketplace via SiteConfig keys. Three markup types: `percent` (+X%), `fixed` (+X€), `multiplier` (×X). Three rounding modes: `none`, `up` (ceil to 0.1€), `down` (floor to 0.1€). SiteConfig keys follow the pattern `{marketplace}_markup_{type|value|rounding}` — e.g. `pfs_price_markup_type`, `pfs_price_markup_value`, `pfs_price_markup_rounding`. PACK pricing: markup applies to **per-unit price** (unitPrice / packQuantity), then multiply back by pack quantity.
 
 ### Auth
 
@@ -201,7 +199,7 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 - **Une variante = une couleur** : plus de sous-couleurs ni de combinaisons. `groupKey` = `colorId` (helper : `variantGroupKeyFromState()`).
 - **PACK mono-couleur** : `colorId` + `VariantSize`. `unitPrice` = `computeTotalPrice(v)` (prix total du pack en BDD, pas unitaire). `packQuantity` = somme des qty des tailles.
 - **PACK multi-couleurs** : la composition vit dans `PackColorLine[]` + `PackColorLineSize[]`. Chaque ligne = 1 couleur du pack avec ses tailles/quantités (ex: 1 paquet « Tricolore » = Rouge S×2 M×3, Bleu M×2, Noir L×1 = 8 pièces). `ProductColor.colorId` = 1ère couleur du pack (utilisé pour SKU/index/images). `variantSizes` reste vide quand `packLines.length > 0`. Détection : `isMultiColorPack(v)` côté UI ; `c.packLines.length > 0` côté serveur. Helpers : `computePackLinesTotal`, `packLinesColorList`. Modale d'édition : `components/admin/products/PackCompositionModal.tsx`.
-- **PACK pricing Ankorstore** : markup s'applique au prix unitaire (total ÷ qty), arrondi, puis × qty. Jamais markup sur le total directement
+- **PACK pricing marketplace** : markup s'applique au prix unitaire (total ÷ qty), arrondi, puis × qty. Jamais markup sur le total directement
 - **UNIT** : max 1 taille. Tailles = description du contenu, pas selection client
 - **PendingSimilar** : verifier a la creation produit
 - **OrderItem.sizesJson** : preferer sur `OrderItem.size` (string legacy)

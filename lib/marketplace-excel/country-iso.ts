@@ -1,7 +1,6 @@
 /**
- * ISO 3166-1 alpha-2 mapping, sourced from the official Ankorstore template
- * "Codes pays" sheet. Used to auto-suggest the ISO2 code when a user types a
- * country name in the admin UI.
+ * ISO 3166-1 alpha-2 mapping. Used to auto-suggest the ISO2 code when a user
+ * types a country name in the admin UI.
  *
  * If a country name does not match any entry here (e.g. alternative spelling),
  * the admin can still type the ISO2 code manually — this map is only a helper.
@@ -265,9 +264,9 @@ export const COUNTRY_ISO2_OPTIONS: CountryIsoOption[] = [
 ];
 
 /**
- * Common French alternative spellings → canonical Ankorstore name.
- * Extends matching so that PFS/admin country names missing from the Ankorstore
- * reference still resolve to an ISO2 code.
+ * Common French alternative spellings → canonical name.
+ * Extends matching so that PFS/admin country names with alternative spellings
+ * still resolve to an ISO2 code.
  */
 const NAME_ALIASES: Record<string, string> = {
   "bélarus": "Biélorussie",

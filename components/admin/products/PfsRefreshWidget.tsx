@@ -87,8 +87,6 @@ export function PfsRefreshWidget() {
   const errorsCount = items.filter((i) => i.status === "done" && hasError(i)).length;
   const barPercent = total > 0 ? Math.round((done / total) * 100) : 0;
 
-  const hasAnyAnkorstore = items.some((i) => i.options.ankorstore);
-
   return (
     <div
       className="fixed bottom-4 right-4 z-[9000] animate-fadeIn"
@@ -205,18 +203,6 @@ export function PfsRefreshWidget() {
             />
           </div>
 
-          {/* Ankorstore verification warning — visible once any Ankorstore outcome succeeded */}
-          {hasAnyAnkorstore && items.some((i) => i.ankorstoreOutcome?.ok) && (
-            <div className="flex items-start gap-2 px-4 py-2.5 bg-[#FFFBEB] border-b border-[#FDE68A] text-[11px] font-body text-[#92400E]">
-              <svg className="w-3.5 h-3.5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 3h.01M4.93 19h14.14a2 2 0 001.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16a2 2 0 001.73 3z" />
-              </svg>
-              <span>
-                Ankorstore ne nous confirme pas le résultat. <strong>Vérifiez toujours sur le tableau de bord Ankorstore</strong> que vos produits ont bien été mis à jour.
-              </span>
-            </div>
-          )}
-
           {/* Items list */}
           <ul className="flex-1 overflow-y-auto max-h-[360px] divide-y divide-border-light">
             {items.map((item) => (
@@ -250,9 +236,6 @@ export function PfsRefreshWidget() {
                       {item.options.pfs && (
                         <TargetBadge label="PFS" outcome={item.pfsOutcome} />
                       )}
-                      {item.options.ankorstore && (
-                        <TargetBadge label="Ankorstore" outcome={item.ankorstoreOutcome} />
-                      )}
                     </div>
                   )}
                   {item.status === "done" && item.pfsOutcome?.ok && item.pfsOutcome.archived && (
@@ -263,11 +246,6 @@ export function PfsRefreshWidget() {
                   {item.status === "done" && item.pfsOutcome && !item.pfsOutcome.ok && (
                     <p className="text-[10px] font-body text-red-600 mt-0.5 truncate" title={item.pfsOutcome.message}>
                       PFS · {item.pfsOutcome.message}
-                    </p>
-                  )}
-                  {item.status === "done" && item.ankorstoreOutcome && !item.ankorstoreOutcome.ok && (
-                    <p className="text-[10px] font-body text-red-600 mt-0.5 truncate" title={item.ankorstoreOutcome.message}>
-                      Ankorstore · {item.ankorstoreOutcome.message}
                     </p>
                   )}
                   {item.status === "in_progress" && (

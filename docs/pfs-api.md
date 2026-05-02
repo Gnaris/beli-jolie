@@ -187,7 +187,7 @@ Traduit name/description → fr/en/de/es/it. Utilise automatiquement dans le rev
 
 **SKU doublon** (critique): PFS genere `sku_suffix = COLOR_SIZE`. Doublon = rejet silencieux (HTTP 200, errors:1). Verifier `pfsVariantId` avant POST; si existe, PATCH.
 
-**`size_details_tu`**: accepte en POST mais NON stocke (retourne ""). Read-only.
+**`size_details_tu`**: champ texte libre (ex: "52-56"). Envoyé en POST (create) et PATCH (update). Stocké côté PFS.
 
 ---
 

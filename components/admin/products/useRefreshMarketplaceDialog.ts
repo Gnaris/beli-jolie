@@ -25,7 +25,6 @@ export function useRefreshMarketplaceDialog() {
     async (count: number, firstProductName?: string): Promise<MarketplaceRefreshOptions | null> => {
       const localRef = { current: true };
       const pfsRef = { current: false };
-      const ankorstoreRef = { current: false };
 
       const title = count === 1 ? "Rafraîchir ce produit ?" : `Rafraîchir ${count} produits ?`;
       const message =
@@ -57,14 +56,6 @@ export function useRefreshMarketplaceDialog() {
               pfsRef.current = v;
             },
           },
-          {
-            id: "ankorstore",
-            label: "Rafraîchir sur Ankorstore (envoi en aveugle — à vérifier sur leur dashboard)",
-            defaultChecked: false,
-            onChange: (v) => {
-              ankorstoreRef.current = v;
-            },
-          },
         ],
         confirmLabel: "Rafraîchir",
       });
@@ -73,10 +64,9 @@ export function useRefreshMarketplaceDialog() {
       const options: MarketplaceRefreshOptions = {
         local: localRef.current,
         pfs: pfsRef.current,
-        ankorstore: ankorstoreRef.current,
       };
 
-      if (!options.local && !options.pfs && !options.ankorstore) {
+      if (!options.local && !options.pfs) {
         toast.error("Aucune option sélectionnée.");
         return null;
       }
@@ -90,8 +80,8 @@ export function useRefreshMarketplaceDialog() {
       const options = await askOptions(1, product.productName);
       if (!options) return false;
 
-      // If only local (no PFS/Ankorstore), run directly — it's instant
-      if (options.local && !options.pfs && !options.ankorstore) {
+      // If only local (no PFS), run directly — it's instant
+      if (options.local && !options.pfs) {
         try {
           await refreshProductOnMarketplaces(product.productId, options);
           toast.success("Produit remis en Nouveauté");
@@ -126,7 +116,7 @@ export function useRefreshMarketplaceDialog() {
       const options = await askOptions(products.length, products[0]?.productName);
       if (!options) return false;
 
-      if (options.local && !options.pfs && !options.ankorstore) {
+      if (options.local && !options.pfs) {
         // Run sequentially for local-only — quick operations
         try {
           for (const p of products) {

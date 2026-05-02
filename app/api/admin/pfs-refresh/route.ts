@@ -4,7 +4,7 @@
  *
  * Le widget envoie juste `{ productId }` et attend `{ success, error? }` —
  * c'est un wrapper léger autour de `refreshProductOnMarketplaces` configuré
- * pour ne toucher qu'à PFS (pas de bump local, pas d'Ankorstore).
+ * pour ne toucher qu'à PFS (pas de bump local).
  */
 "use server";
 
@@ -44,7 +44,6 @@ export async function POST(req: NextRequest) {
     const outcome = await refreshProductOnMarketplaces(productId, {
       local: false,
       pfs: true,
-      ankorstore: false,
     });
 
     if (outcome.pfs?.status === "ok") {

@@ -40,32 +40,25 @@ export function computeShowStockBadges(p: { status: string; isIncomplete: boolea
 
 // ─── Marketplace publish badge ─────────────────────────────────────────────────
 
-function MarketplaceBadge({
-  marketplace,
-  published,
-}: {
-  marketplace: "PFS" | "Ankorstore";
-  published: boolean;
-}) {
-  const label = marketplace === "PFS" ? "PFS" : "Ankorstore";
+function MarketplaceBadge({ published }: { published: boolean }) {
   if (published) {
     return (
       <span
         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
-        title={`Publié sur ${marketplace === "PFS" ? "Paris Fashion Shop" : "Ankorstore"}`}
+        title="Publié sur Paris Fashion Shop"
       >
         <span className="w-1 h-1 rounded-full bg-[#22C55E]" />
-        {label}
+        PFS
       </span>
     );
   }
   return (
     <span
       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-bg-secondary text-text-muted border border-border"
-      title={`Non publié sur ${marketplace === "PFS" ? "Paris Fashion Shop" : "Ankorstore"}`}
+      title="Non publié sur Paris Fashion Shop"
     >
       <span className="w-1 h-1 rounded-full bg-[#9CA3AF]" />
-      {label}
+      PFS
     </span>
   );
 }
@@ -106,7 +99,6 @@ interface AdminProduct {
   lastRefreshedAt: string | null;
   firstImage: string | null;
   pfsProductId: string | null;
-  ankorsProductId: string | null;
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -375,13 +367,16 @@ function ActionsDropdown({
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
-  // Position the menu below the anchor button, aligned right
+  // Position the menu below (or above if near bottom) the anchor button, aligned right
   useEffect(() => {
     const anchor = anchorRef.current;
     if (!anchor) return;
     const rect = anchor.getBoundingClientRect();
+    const menuHeight = 220; // estimated menu height
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openAbove = spaceBelow < menuHeight && rect.top > menuHeight;
     setPos({
-      top: rect.bottom + 4,
+      top: openAbove ? rect.top - menuHeight - 4 : rect.bottom + 4,
       left: rect.right - 176, // 176px = w-44
     });
   }, [anchorRef]);
@@ -610,7 +605,7 @@ function ProductRow({
         <td className="px-3 py-3.5 cursor-pointer" onClick={onExpandToggle}>
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5 flex-nowrap">
-              {product.isIncomplete && product.status !== "ONLINE" ? (
+              {product.isIncomplete && product.status !== "ONLINE" && !product.pfsProductId ? (
                 <span
                   className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#F3E8FF] text-[#7C3AED] border border-[#DDD6FE]"
                   title="Brouillon — produit en cours de création"
@@ -669,8 +664,7 @@ function ProductRow({
               )}
             </div>
             <div className="flex items-center gap-1.5 flex-nowrap">
-              <MarketplaceBadge marketplace="PFS" published={!!product.pfsProductId} />
-              <MarketplaceBadge marketplace="Ankorstore" published={!!product.ankorsProductId} />
+              <MarketplaceBadge published={!!product.pfsProductId} />
             </div>
           </div>
         </td>

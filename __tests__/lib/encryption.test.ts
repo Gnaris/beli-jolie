@@ -150,8 +150,6 @@ describe("lib/encryption", () => {
       "pfs_email",
       "pfs_password",
       "stripe_connect_account_id",
-      "ankors_client_id", // P2-03 — désormais chiffré comme le secret
-      "ankors_client_secret",
     ];
     for (const key of expected) {
       expect(SENSITIVE_KEYS.has(key)).toBe(true);

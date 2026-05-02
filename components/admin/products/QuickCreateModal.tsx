@@ -13,10 +13,11 @@ import {
   createSeasonQuick,
 } from "@/app/actions/admin/quick-create";
 import { fetchPfsColorOptions } from "@/app/actions/admin/colors";
+import { fetchPfsMappingOptions, type PfsMappingOptions } from "@/app/actions/admin/pfs-annexes";
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
-import MarketplaceMappingSection, { generateSeasonOptions } from "@/components/admin/MarketplaceMappingSection";
+import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import PfsSuggestions, { type PfsCategoryTriple, type PfsRefOption } from "@/components/admin/pfs/PfsSuggestions";
 import {
   PFS_COLORS,
@@ -128,7 +129,7 @@ export default function QuickCreateModal({
   const [pfsFamilyName, setPfsFamilyName] = useState<string | null>(null);
   const [pfsCategoryName, setPfsCategoryName] = useState<string | null>(null);
 
-  // ISO2 (country-only): required for Ankorstore export
+  // ISO2 (country-only): code pays normalisé pour usage marketplace
   const [isoCode, setIsoCode] = useState<string>("");
   const [isoTouched, setIsoTouched] = useState(false);
 
@@ -136,6 +137,11 @@ export default function QuickCreateModal({
   const [pfsColorOptions, setPfsColorOptions] = useState<
     { value: string; label: string; hex: string }[] | null
   >(null);
+
+  // Live PFS annexes (compositions, countries, seasons, families, categories) —
+  // fetched once when the modal opens to power the suggestion box and the
+  // category cascade with up-to-date data from PFS.
+  const [pfsAnnexes, setPfsAnnexes] = useState<PfsMappingOptions | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -151,8 +157,26 @@ export default function QuickCreateModal({
     return () => { cancelled = true; };
   }, [open, type, pfsColorOptions]);
 
-  // Flatten the category taxonomy once for suggestion matching.
+  useEffect(() => {
+    if (!open || pfsAnnexes) return;
+    if (type !== "category" && type !== "composition" && type !== "country" && type !== "season") return;
+    let cancelled = false;
+    fetchPfsMappingOptions()
+      .then((res) => { if (!cancelled) setPfsAnnexes(res); })
+      .catch(() => { /* fall back to static lists */ });
+    return () => { cancelled = true; };
+  }, [open, type, pfsAnnexes]);
+
+  // Flatten the category taxonomy for suggestion matching. Prefer live PFS
+  // data when available; fall back to the static taxonomy otherwise.
   const pfsCategoryTriples = useMemo<PfsCategoryTriple[]>(() => {
+    if (pfsAnnexes && pfsAnnexes.categories.length > 0) {
+      return pfsAnnexes.categories.map((c) => ({
+        gender: PFS_GENDER_LABELS[c.gender] ?? c.gender,
+        family: c.family,
+        category: c.category,
+      }));
+    }
     const out: PfsCategoryTriple[] = [];
     for (const [gender, families] of Object.entries(PFS_FAMILIES_BY_GENDER)) {
       for (const family of families) {
@@ -163,7 +187,7 @@ export default function QuickCreateModal({
       }
     }
     return out;
-  }, []);
+  }, [pfsAnnexes]);
 
   function applyCategoryTriple(t: PfsCategoryTriple) {
     // Reverse the FR gender label → stored code (WOMAN/MAN/KID/SUPPLIES)
@@ -187,12 +211,19 @@ export default function QuickCreateModal({
         return pfsColorOptions
           ? pfsColorOptions.map((o) => ({ value: o.value, label: o.label }))
           : PFS_COLORS;
-      case "composition": return PFS_COMPOSITIONS;
-      case "country": return PFS_COUNTRIES;
-      case "season": return generateSeasonOptions();
+      case "composition":
+        return pfsAnnexes && pfsAnnexes.compositions.length > 0
+          ? pfsAnnexes.compositions
+          : PFS_COMPOSITIONS;
+      case "country":
+        return pfsAnnexes && pfsAnnexes.countries.length > 0
+          ? pfsAnnexes.countries
+          : PFS_COUNTRIES;
+      case "season":
+        return pfsAnnexes ? pfsAnnexes.seasons : [];
       default: return [];
     }
-  }, [type, pfsColorOptions]);
+  }, [type, pfsColorOptions, pfsAnnexes]);
 
   /** Apply a suggested PFS ref — also auto-fills the hex picker for colors. */
   function applySuggestedRef(ref: string) {
@@ -203,9 +234,9 @@ export default function QuickCreateModal({
     }
     if (type === "country") {
       // PFS_COUNTRIES values are canonical French country names — pre-fill
-      // the FR name, and fill the Ankorstore ISO2 code in the same click
-      // when it can be resolved (empty otherwise, so a stale ISO from a
-      // previous name does not linger).
+      // the FR name, and fill the ISO2 code in the same click when it can
+      // be resolved (empty otherwise, so a stale ISO from a previous name
+      // does not linger).
       setNames((prev) => ({ ...prev, fr: ref }));
       setIsoCode(suggestIso2FromName(ref) ?? "");
       setIsoTouched(false);
@@ -604,7 +635,7 @@ export default function QuickCreateModal({
                 {type === "country" && (
                   <div className="mt-5 pt-5 border-t border-border space-y-2">
                     <label className="block text-xs font-medium text-text-secondary font-body">
-                      Code pays Ankorstore (ISO) <span className="text-[#EF4444]">*</span>
+                      Code pays (ISO 2 lettres) <span className="text-[#EF4444]">*</span>
                     </label>
                     <input
                       type="text"
@@ -635,7 +666,7 @@ export default function QuickCreateModal({
                       </button>
                     )}
                     <p className="text-[11px] text-text-muted font-body">
-                      Utilisé par Ankorstore pour indiquer le pays de fabrication.
+                      Code ISO 2 lettres du pays de fabrication.
                     </p>
                   </div>
                 )}

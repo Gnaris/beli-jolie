@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import ProductForm from "@/components/admin/products/ProductForm";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
-import { getCachedPfsEnabled, getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedPfsEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Dupliquer le produit" };
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export default async function DupliquerProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, existingTranslations, colorImagesDb, hasPfsConfig, ankorsEnabled] = await Promise.all([
+  const [product, existingTranslations, colorImagesDb, hasPfsConfig] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -103,7 +103,6 @@ export default async function DupliquerProduitPage({
       orderBy: { order: "asc" },
     }),
     getCachedPfsEnabled(),
-    getCachedSiteConfig("ankors_enabled"),
   ]);
 
   if (!product) notFound();
@@ -232,7 +231,6 @@ export default async function DupliquerProduitPage({
       <ProductForm
         mode="create"
         hasPfsConfig={hasPfsConfig}
-        hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
         initialData={{
           reference: "",
           name: product.name,

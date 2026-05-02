@@ -9,7 +9,7 @@ import type { ProductFormHeaderState, StockState } from "@/components/admin/prod
 import { DraftPageWrapper, DraftPageToggle } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
 import { MarketplaceStatusButtons } from "@/components/admin/products/MarketplaceStatusButtons";
-import { getCachedPfsEnabled, getCachedSiteConfig } from "@/lib/cached-data";
+import { getCachedPfsEnabled } from "@/lib/cached-data";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ export default async function ModifierProduitPage({
 }) {
   const { id } = await params;
 
-  const [product, existingTranslations, colorImagesDb, hasPfsConfig, ankorsEnabled] = await Promise.all([
+  const [product, existingTranslations, colorImagesDb, hasPfsConfig] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
       include: {
@@ -108,12 +108,24 @@ export default async function ModifierProduitPage({
       orderBy: { order: "asc" },
     }),
     getCachedPfsEnabled(),
-    getCachedSiteConfig("ankors_enabled"),
   ]);
 
   if (!product) notFound();
 
-  const isDraft = product.isIncomplete && product.status === "OFFLINE";
+  // A product is a draft only if it was explicitly created as one (isIncomplete=true)
+  // AND was never imported from PFS. Imported products may have isIncomplete=true
+  // due to a previous save bug — they should always show as normal "Hors ligne",
+  // never as "Brouillon".
+  const wasImported = !!product.pfsProductId;
+  const isDraft = product.isIncomplete && product.status === "OFFLINE" && !wasImported;
+
+  // Self-heal: if imported product got incorrectly marked as incomplete, fix it
+  if (wasImported && product.isIncomplete) {
+    prisma.product.update({
+      where: { id },
+      data: { isIncomplete: false },
+    }).catch(() => {}); // fire-and-forget
+  }
 
   const relatedIds = [
     ...product.similarProducts.map((sp) => sp.similar.id),
@@ -187,15 +199,30 @@ export default async function ModifierProduitPage({
 
   const colorImageMap = new Map<string, ColorImageState>();
   for (const img of colorImagesDb) {
-    const pcId = img.productColorId ?? img.colorId;
-    const gk = dbIdToGroupKey.get(pcId) ?? img.colorId;
+    // Use the image's own colorId as groupKey — this ensures multi-color pack
+    // images (e.g. Écru, Gris Foncé) get their own tab instead of being grouped
+    // under the pack variant's main color (e.g. Noir).
+    const gk = img.colorId;
     if (!gk) continue;
     if (!colorImageMap.has(gk)) {
-      const colorMeta = img.productColorId
-        ? product.colors.find((pc) => pc.id === img.productColorId)
-        : product.colors.find((pc) => pc.colorId === img.colorId);
-      const displayName = colorMeta?.color?.name ?? img.colorId;
-      const displayHex = colorMeta?.color?.hex ?? "#9CA3AF";
+      // Find display info: check variant colors first, then pack line colors
+      let displayName: string = img.colorId;
+      let displayHex: string = "#9CA3AF";
+      const directMatch = product.colors.find((pc) => pc.colorId === img.colorId);
+      if (directMatch?.color) {
+        displayName = directMatch.color.name;
+        displayHex = directMatch.color.hex ?? displayHex;
+      } else {
+        // Check pack line colors (multi-color packs)
+        for (const pc of product.colors) {
+          const plMatch = pc.packLines?.find((pl) => pl.colorId === img.colorId);
+          if (plMatch?.color) {
+            displayName = plMatch.color.name;
+            displayHex = plMatch.color.hex ?? displayHex;
+            break;
+          }
+        }
+      }
       colorImageMap.set(gk, {
         groupKey:      gk,
         colorId:       img.colorId,
@@ -222,10 +249,11 @@ export default async function ModifierProduitPage({
   const initialStockState: StockState =
     variantsWithStock.length > 0 && outOfStockCount === variantsWithStock.length ? "all_out" :
     outOfStockCount > 0 ? "partial_out" : "ok";
-  const initialIsIncomplete =
-    !product.reference?.trim() || !product.name?.trim() ||
-    !product.description?.trim() || !product.categoryId ||
-    product.compositions.length === 0 || product.colors.length === 0;
+  const initialIsIncomplete = wasImported
+    ? false // Imported products are never considered drafts
+    : !product.reference?.trim() || !product.name?.trim() ||
+      !product.description?.trim() || !product.categoryId ||
+      product.compositions.length === 0 || product.colors.length === 0;
   const initialHeaderState: ProductFormHeaderState = {
     productStatus: initialProductStatus,
     isIncomplete: initialIsIncomplete,
@@ -261,7 +289,6 @@ export default async function ModifierProduitPage({
           mode="create"
           productId={product.id}
           hasPfsConfig={hasPfsConfig}
-          hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
           initialData={{
             reference:         product.reference,
             name:              product.name,
@@ -312,8 +339,8 @@ export default async function ModifierProduitPage({
             manufacturingCountryId: product.manufacturingCountryId ?? "",
             seasonId: product.seasonId ?? "",
             discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
+            sizeDetailsTu: product.sizeDetailsTu ?? "",
             pfsProductId: product.pfsProductId,
-            ankorsProductId: product.ankorsProductId,
           }}
         />
       </div>
@@ -375,9 +402,7 @@ export default async function ModifierProduitPage({
                   productName={product.name}
                   firstImage={colorImagesDb[0]?.path ?? null}
                   pfsProductId={product.pfsProductId}
-                  ankorsProductId={product.ankorsProductId}
                   hasPfsConfig={hasPfsConfig}
-                  hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
                 />
               </div>
             </div>
@@ -409,7 +434,6 @@ export default async function ModifierProduitPage({
         mode="edit"
         productId={product.id}
         hasPfsConfig={hasPfsConfig}
-        hasAnkorstoreConfig={ankorsEnabled?.value === "true"}
         initialData={{
           reference:         product.reference,
           name:              product.name,
@@ -460,8 +484,8 @@ export default async function ModifierProduitPage({
           manufacturingCountryId: product.manufacturingCountryId ?? "",
           seasonId: product.seasonId ?? "",
           discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
+          sizeDetailsTu: product.sizeDetailsTu ?? "",
           pfsProductId: product.pfsProductId,
-          ankorsProductId: product.ankorsProductId,
         }}
       />
     </ProductEditWrapper>

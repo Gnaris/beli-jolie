@@ -234,7 +234,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
     firstImage:      pickFirstImage(p.colors, colorImagePath),
     pfsProductId:    p.pfsProductId,
-    ankorsProductId: p.ankorsProductId,
     colors:          p.colors.map((c) => ({
       id:            c.id,
       colorId:       c.colorId ?? "",

@@ -231,18 +231,21 @@ export default async function HomePage() {
     : null;
 
   // ── Fetch collections + counts ─────────────────────────────────────────────
-  const [collections, productCount, categories] = await Promise.all([
+  const [allCollections, productCount, allCategories] = await Promise.all([
     prisma.collection.findMany({
       orderBy: { createdAt: "desc" },
-      take:    4,
-      select:  { id: true, name: true, image: true, _count: { select: { products: true } } },
+      select:  { id: true, name: true, image: true, _count: { select: { products: { where: { product: { status: "ONLINE" } } } } } },
     }),
     prisma.product.count({ where: { status: "ONLINE" } }),
     prisma.category.findMany({
       orderBy: { name: "asc" },
-      select:  { id: true, name: true, _count: { select: { products: true } } },
+      select:  { id: true, name: true, _count: { select: { products: { where: { status: "ONLINE" } } } } },
     }),
   ]);
+
+  // Only keep categories & collections that have at least 1 ONLINE product
+  const categories = allCategories.filter(c => c._count.products > 0);
+  const collections = allCollections.filter(c => c._count.products > 0).slice(0, 4);
 
   // ── Build carousel data from config ───────────────────────────────────────
   const visibleCarousels = displayConfig.homepageCarousels.filter(c => c.visible);

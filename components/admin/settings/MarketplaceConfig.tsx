@@ -5,9 +5,6 @@ import {
   updatePfsCredentials,
   validatePfsCredentials,
 
-  updateAnkorstoreCredentials,
-  validateAnkorstoreCredentials,
-
   updateMarketplaceMarkup,
 } from "@/app/actions/admin/site-config";
 import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
@@ -22,12 +19,8 @@ interface MarkupState {
 
 interface Props {
   hasPfsConfig: boolean;
-  hasAnkorsConfig: boolean;
   markupSettings: {
     pfs: MarkupState;
-    ankorstoreWholesale: MarkupState;
-    ankorstoreRetail: MarkupState;
-    ankorstoreVatRate: number;
   };
 }
 
@@ -96,7 +89,6 @@ function IconLoader({ className }: { className?: string }) {
   );
 }
 
-// ─── Status badge ───────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: "none" | "valid" | "invalid" | "checking" }) {
   if (status === "valid") {
     return (
@@ -130,7 +122,6 @@ function StatusBadge({ status }: { status: "none" | "valid" | "invalid" | "check
   );
 }
 
-// ─── Markup row ─────────────────────────────────────────────────────────────
 function MarkupRow({
   label,
   state,
@@ -157,7 +148,6 @@ function MarkupRow({
       <p className="font-body text-sm font-medium text-text-primary">{label}</p>
 
       <div className="flex flex-col sm:flex-row gap-3">
-        {/* Value input */}
         <div className="flex-shrink-0">
           <label className="font-body text-[11px] text-text-muted mb-1 block">Valeur</label>
           <input
@@ -170,7 +160,6 @@ function MarkupRow({
           />
         </div>
 
-        {/* Type selector */}
         <div className="flex-1 min-w-0">
           <label className="font-body text-[11px] text-text-muted mb-1 block">Type</label>
           <div className="flex rounded-lg border border-border overflow-hidden">
@@ -192,7 +181,6 @@ function MarkupRow({
           </div>
         </div>
 
-        {/* Rounding selector */}
         <div className="flex-1 min-w-0">
           <label className="font-body text-[11px] text-text-muted mb-1 block">Arrondi</label>
           <div className="flex rounded-lg border border-border overflow-hidden">
@@ -218,13 +206,10 @@ function MarkupRow({
   );
 }
 
-// ─── Main component ─────────────────────────────────────────────────────────
 export default function MarketplaceConfig({
   hasPfsConfig,
-  hasAnkorsConfig,
   markupSettings,
 }: Props) {
-  // PFS state
   const [pfsEmail, setPfsEmail] = useState("");
   const [pfsPassword, setPfsPassword] = useState("");
   const [pfsStatus, setPfsStatus] = useState<"none" | "valid" | "invalid" | "checking">(
@@ -235,33 +220,14 @@ export default function MarketplaceConfig({
   const [isSavingPfs, startSavingPfs] = useTransition();
   const [isValidatingPfs, startValidatingPfs] = useTransition();
 
-
-  // Ankorstore state
-  const [ankorsClientId, setAnkorsClientId] = useState("");
-  const [ankorsClientSecret, setAnkorsClientSecret] = useState("");
-  const [ankorsStatus, setAnkorsStatus] = useState<"none" | "valid" | "invalid" | "checking">(
-    hasAnkorsConfig ? "valid" : "none"
-  );
-
-  const [ankorsEditing, setAnkorsEditing] = useState(!hasAnkorsConfig);
-  const [isSavingAnkors, startSavingAnkors] = useTransition();
-  const [isValidatingAnkors, startValidatingAnkors] = useTransition();
-
-
-  // Markup state
   const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
-  const [ankorsWholesaleMarkup, setAnkorsWholesaleMarkup] = useState<MarkupState>(markupSettings.ankorstoreWholesale);
-  const [ankorsRetailMarkup, setAnkorsRetailMarkup] = useState<MarkupState>(markupSettings.ankorstoreRetail);
-  const [ankorstoreVatRate, setAnkorstoreVatRate] = useState<number>(markupSettings.ankorstoreVatRate);
   const [isSavingMarkup, startSavingMarkup] = useTransition();
 
   const toast = useToast();
   const { showLoading, hideLoading } = useLoadingOverlay();
 
   const isPendingPfs = isSavingPfs || isValidatingPfs;
-  const isPendingAnkors = isSavingAnkors || isValidatingAnkors;
 
-  // ─── PFS handlers ───────────────────────────────────────────────────────
   function handlePfsValidate() {
     if (!pfsEmail.trim() || !pfsPassword.trim()) return;
     showLoading();
@@ -307,62 +273,12 @@ export default function MarketplaceConfig({
     });
   }
 
-  // ─── Ankorstore handlers ────────────────────────────────────────────────
-  function handleAnkorsValidate() {
-    if (!ankorsClientId.trim() || !ankorsClientSecret.trim()) return;
-    showLoading();
-    startValidatingAnkors(async () => {
-      try {
-        setAnkorsStatus("checking");
-        const result = await validateAnkorstoreCredentials({
-          clientId: ankorsClientId.trim(),
-          clientSecret: ankorsClientSecret.trim(),
-        });
-        if (result.valid) {
-          setAnkorsStatus("valid");
-          toast.success("Connexion réussie", "Identifiants Ankorstore valides.");
-        } else {
-          setAnkorsStatus("invalid");
-          toast.error("Connexion échouée", result.error ?? "Identifiants invalides.");
-        }
-      } finally {
-        hideLoading();
-      }
-    });
-  }
-
-  function handleAnkorsSave() {
-    showLoading();
-    startSavingAnkors(async () => {
-      try {
-        const result = await updateAnkorstoreCredentials({
-          clientId: ankorsClientId.trim(),
-          clientSecret: ankorsClientSecret.trim(),
-        });
-        if (result.success) {
-          toast.success("Enregistré", "Identifiants Ankorstore sauvegardés.");
-          setAnkorsEditing(false);
-          setAnkorsClientId("");
-          setAnkorsClientSecret("");
-        } else {
-          toast.error("Erreur", result.error ?? "Une erreur est survenue.");
-        }
-      } finally {
-        hideLoading();
-      }
-    });
-  }
-
-  // ─── Markup handler ─────────────────────────────────────────────────────
   function handleSaveMarkup() {
     showLoading();
     startSavingMarkup(async () => {
       try {
         const result = await updateMarketplaceMarkup({
           pfs: pfsMarkup,
-          ankorstoreWholesale: ankorsWholesaleMarkup,
-          ankorstoreRetail: ankorsRetailMarkup,
-          ankorstoreVatRate,
         });
         if (result.success) {
           toast.success("Enregistré", "Majorations marketplace sauvegardées.");
@@ -377,12 +293,8 @@ export default function MarketplaceConfig({
 
   return (
     <div className="space-y-5">
-      {/* ─── Cards grid ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-        {/* ═══ PFS Card ═══ */}
         <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
-          {/* Card header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
@@ -399,7 +311,6 @@ export default function MarketplaceConfig({
             </div>
           </div>
 
-          {/* Credentials section */}
           <div className="px-5 py-4">
             <div className="flex items-center gap-2 mb-3">
               <IconKey className="w-4 h-4 text-text-muted" />
@@ -491,7 +402,6 @@ export default function MarketplaceConfig({
             )}
           </div>
 
-          {/* Markup section */}
           <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto">
             <div className="flex items-center gap-2 mb-4">
               <IconTag className="w-4 h-4 text-text-muted" />
@@ -502,158 +412,8 @@ export default function MarketplaceConfig({
             <MarkupRow label="Prix HT" state={pfsMarkup} onChange={setPfsMarkup} />
           </div>
         </div>
-
-        {/* ═══ Ankorstore Card ═══ */}
-        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden">
-          {/* Card header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-secondary/50">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-bg-dark/5 flex items-center justify-center">
-                <span className="font-heading text-sm font-bold text-text-primary">A</span>
-              </div>
-              <div>
-                <h3 className="font-heading text-sm font-semibold text-text-primary leading-tight">
-                  Ankorstore
-                </h3>
-                <div className="mt-0.5">
-                  <StatusBadge status={ankorsStatus} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Credentials section */}
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <IconKey className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Connexion
-              </p>
-            </div>
-
-            {!ankorsEditing && hasAnkorsConfig ? (
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-secondary/60">
-                <div className="flex-1 font-body text-sm text-text-secondary tracking-widest">
-                  ••••••••••••••••
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setAnkorsEditing(true)}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-body font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-                >
-                  <IconPencil className="w-3.5 h-3.5" />
-                  Modifier
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Client ID</label>
-                  <input
-                    type="text"
-                    value={ankorsClientId}
-                    onChange={(e) => {
-                      setAnkorsClientId(e.target.value);
-                      if (ankorsStatus === "valid" || ankorsStatus === "invalid") setAnkorsStatus("none");
-                    }}
-                    placeholder="Votre Client ID Ankorstore"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                    disabled={isPendingAnkors}
-                    autoComplete="off"
-                  />
-                </div>
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Client Secret</label>
-                  <input
-                    type="password"
-                    value={ankorsClientSecret}
-                    onChange={(e) => {
-                      setAnkorsClientSecret(e.target.value);
-                      if (ankorsStatus === "valid" || ankorsStatus === "invalid") setAnkorsStatus("none");
-                    }}
-                    placeholder="••••••••"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-sm font-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                    disabled={isPendingAnkors}
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleAnkorsValidate}
-                    disabled={isPendingAnkors || !ankorsClientId.trim() || !ankorsClientSecret.trim()}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-xs font-body font-medium text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-50"
-                  >
-                    {isValidatingAnkors ? (
-                      <><IconLoader className="w-3.5 h-3.5" /> Vérification…</>
-                    ) : (
-                      <><IconCheck className="w-3.5 h-3.5" /> Tester la connexion</>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleAnkorsSave}
-                    disabled={isPendingAnkors || !ankorsClientId.trim() || !ankorsClientSecret.trim() || ankorsStatus !== "valid"}
-                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
-                  >
-                    {isSavingAnkors ? "Enregistrement…" : "Sauvegarder"}
-                  </button>
-                  {hasAnkorsConfig && (
-                    <button
-                      type="button"
-                      onClick={() => { setAnkorsEditing(false); setAnkorsClientId(""); setAnkorsClientSecret(""); setAnkorsStatus("valid"); }}
-                      disabled={isPendingAnkors}
-                      className="inline-flex items-center gap-1 h-9 px-3 text-xs font-body text-text-muted hover:text-text-primary transition-colors"
-                    >
-                      <IconX className="w-3.5 h-3.5" />
-                      Annuler
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Markup section */}
-          <div className="px-5 py-4 border-t border-border bg-bg-secondary/30 mt-auto space-y-5">
-            <div className="flex items-center gap-2 mb-1">
-              <IconTag className="w-4 h-4 text-text-muted" />
-              <p className="font-body text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                Majorations des prix
-              </p>
-            </div>
-
-            <MarkupRow label="Prix de gros (wholesale)" state={ankorsWholesaleMarkup} onChange={setAnkorsWholesaleMarkup} />
-
-            <div className="border-t border-border/60 pt-4">
-              <MarkupRow label="Prix de détail (retail)" state={ankorsRetailMarkup} onChange={setAnkorsRetailMarkup} />
-            </div>
-
-            <div className="border-t border-border/60 pt-4">
-              <p className="font-body text-sm font-medium text-text-primary mb-2">TVA</p>
-              <div className="flex items-center gap-3">
-                <div>
-                  <label className="font-body text-[11px] text-text-muted mb-1 block">Taux (%)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.1}
-                    value={ankorstoreVatRate}
-                    onChange={(e) => setAnkorstoreVatRate(Number(e.target.value))}
-                    className="h-9 w-24 px-3 rounded-lg border border-border bg-bg-primary text-sm font-body focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/20 transition-shadow"
-                  />
-                </div>
-                <p className="font-body text-[11px] text-text-muted leading-snug mt-4">
-                  Appliqué au prix de détail TTC dans l&apos;export Excel
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
-      {/* ─── Save button ──────────────────────────────────────────────── */}
       <div className="flex justify-end">
         <button
           type="button"

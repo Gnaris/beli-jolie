@@ -15,7 +15,6 @@ import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
 import { findMissingImageCoverage } from "@/lib/variant-image-coverage";
-import { ANKORSTORE_DESCRIPTION_MIN_CHARS, ankorstoreDescriptionLength } from "@/lib/ankorstore-description";
 import {
   validateVariants,
   isMultiColorPackInput,
@@ -53,9 +52,9 @@ async function assertTailleUniqueDetails(input: ProductInput): Promise<void> {
   }
 }
 
-// Marketplace sync is fully manual: create/update/delete on PFS and Ankorstore are all
-// handled via Excel export (lib/marketplace-excel). Local product deletion never touches
-// the remote marketplaces — the admin removes the product there manually if needed.
+// Marketplace sync (PFS) is handled live via API in publishProductToMarketplaces /
+// refreshProductOnMarketplaces. Local product deletion never touches the remote
+// marketplace — the admin removes the product there manually if needed.
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") {
@@ -180,9 +179,6 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   // Skip strict variant validation for incomplete products
   if (!input.isIncomplete) {
     validateVariants(input.colors);
-    if (ankorstoreDescriptionLength(input.description, input.reference) < ANKORSTORE_DESCRIPTION_MIN_CHARS) {
-      throw new Error("La description doit faire au moins 30 caractères (requis pour Ankorstore).");
-    }
     await assertTailleUniqueDetails(input);
   }
 
@@ -419,8 +415,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
 
-  // Marketplace publishing is no longer automatic — the admin generates an Excel
-  // archive from /admin/produits and uploads it to PFS / Ankorstore manually.
+  // Marketplace publishing (PFS) is triggered from the save dialog, not here.
 
   return { id: product.id };
 }
@@ -441,9 +436,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   // Strict validation only when going ONLINE (not for drafts or OFFLINE saves)
   if (input.status === "ONLINE") {
     if (!input.description?.trim()) throw new Error("La description est requise.");
-    if (ankorstoreDescriptionLength(input.description, input.reference) < ANKORSTORE_DESCRIPTION_MIN_CHARS) {
-      throw new Error("La description doit faire au moins 30 caractères (requis pour Ankorstore).");
-    }
     if (!input.colors || input.colors.length === 0) {
       throw new Error("Au moins une variante est requise.");
     }

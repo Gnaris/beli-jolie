@@ -34,7 +34,7 @@ Tous les composants publics utilisent maintenant les helpers localisés (`Link`,
 
 ### Phase 8 — Liens emails ✅
 
-Toutes les URLs dans `lib/notifications.ts` pointent déjà vers `/fr/...` pour les pages publiques. Les URLs admin (`/admin/...`) restent sans préfixe. Rien à modifier dans `lib/ankorstore-api-write.ts` (pas d'URL publique).
+Toutes les URLs dans `lib/notifications.ts` pointent déjà vers `/fr/...` pour les pages publiques. Les URLs admin (`/admin/...`) restent sans préfixe.
 
 ### Vérifications finales ✅
 

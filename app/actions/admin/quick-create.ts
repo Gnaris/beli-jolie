@@ -2,8 +2,7 @@
 
 /**
  * Quick-create server actions — create categories, subcategories, colors, etc.
- * on the fly from the admin UI. The PFS/Ankorstore mapping parameters are now
- * accepted but ignored, since marketplaces are populated via manual Excel upload.
+ * on the fly from the admin UI.
  */
 
 import { getServerSession } from "next-auth";

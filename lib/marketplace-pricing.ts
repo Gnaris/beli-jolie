@@ -11,8 +11,6 @@ export interface MarkupConfig {
 
 export interface AllMarkupConfigs {
   pfs: MarkupConfig;
-  ankorstoreWholesale: MarkupConfig;
-  ankorstoreRetail: MarkupConfig;
 }
 
 /**
@@ -69,12 +67,6 @@ export async function loadMarketplaceMarkupConfigs(): Promise<AllMarkupConfigs> 
     "pfs_price_markup_type",
     "pfs_price_markup_value",
     "pfs_price_markup_rounding",
-    "ankorstore_wholesale_markup_type",
-    "ankorstore_wholesale_markup_value",
-    "ankorstore_wholesale_markup_rounding",
-    "ankorstore_retail_markup_type",
-    "ankorstore_retail_markup_value",
-    "ankorstore_retail_markup_rounding",
   ];
 
   const rows = await prisma.siteConfig.findMany({
@@ -92,7 +84,5 @@ export async function loadMarketplaceMarkupConfigs(): Promise<AllMarkupConfigs> 
 
   return {
     pfs: parseConfig("pfs_price_markup"),
-    ankorstoreWholesale: parseConfig("ankorstore_wholesale_markup"),
-    ankorstoreRetail: parseConfig("ankorstore_retail_markup"),
   };
 }

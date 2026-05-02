@@ -1302,12 +1302,9 @@ export async function approveAndImportPfsProduct(
   // Dernier point d'arrêt avant création en DB
   throwIfCancelled(isCancelled);
 
-  // Création du produit en statut SYNCING. On marque le produit comme
-  // brouillon (`isIncomplete: true`) : un import PFS rapporte rarement toutes
-  // les infos requises pour le catalogue (description courte, libellés non
-  // traduits, images à valider…). Ça force l'admin à passer en revue puis
-  // enregistrer pour basculer le produit en "Hors ligne" propre. Sans ça la
-  // liste affiche "Hors ligne" alors que la fiche modifier dit "Brouillon".
+  // Création du produit en statut SYNCING → passera en OFFLINE une fois les
+  // images téléchargées. Le produit n'est pas marqué brouillon : il arrive
+  // directement "Hors ligne" dans la liste admin.
   const createdProduct = await prisma.product.create({
     data: {
       reference,
@@ -1315,7 +1312,7 @@ export async function approveAndImportPfsProduct(
       description,
       categoryId: category.id,
       status: "SYNCING",
-      isIncomplete: true,
+      isIncomplete: false,
       manufacturingCountryId,
       seasonId,
       pfsProductId: product.id,

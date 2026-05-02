@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import type { VariantState, ColorImageState } from "./ColorVariantManager";
 import { imageGroupKeyFromVariant, isMultiColorPack } from "./ColorVariantManager";
-import { ANKORSTORE_DESCRIPTION_MIN_CHARS, ankorstoreDescriptionLength } from "@/lib/ankorstore-description";
+
+const DESCRIPTION_MIN_CHARS = 30;
 
 export interface ChecklistInput {
   reference: string;
@@ -39,18 +40,16 @@ function computeChecklist(input: ChecklistInput): CheckItem[] {
     done: !!input.name.trim(),
   });
 
-  // 3. Description (30 chars min for Ankorstore — counted with the "Référence : <ref>"
-  //    suffix that we append automatically at export time)
+  // 3. Description (30 chars min)
   const rawDescLen = input.description.trim().length;
-  const effectiveDescLen = ankorstoreDescriptionLength(input.description, input.reference);
   items.push({
     key: "description",
-    label: `Description (FR, ${ANKORSTORE_DESCRIPTION_MIN_CHARS} car. min)`,
-    done: effectiveDescLen >= ANKORSTORE_DESCRIPTION_MIN_CHARS,
+    label: `Description (FR, ${DESCRIPTION_MIN_CHARS} car. min)`,
+    done: rawDescLen >= DESCRIPTION_MIN_CHARS,
     detail: rawDescLen === 0
       ? "vide"
-      : effectiveDescLen < ANKORSTORE_DESCRIPTION_MIN_CHARS
-        ? `${effectiveDescLen} / ${ANKORSTORE_DESCRIPTION_MIN_CHARS} car.`
+      : rawDescLen < DESCRIPTION_MIN_CHARS
+        ? `${rawDescLen} / ${DESCRIPTION_MIN_CHARS} car.`
         : undefined,
   });
 
@@ -139,15 +138,25 @@ function computeChecklist(input: ChecklistInput): CheckItem[] {
       done: allSizesOk,
     });
 
-    // 11. All variant groups have images
+    // 11. All variant groups have images (including multi-color pack line colors)
     const checkedGroupKeys = new Set<string>();
     let missingImageCount = 0;
     for (const v of input.variants) {
-      const gk = imageGroupKeyFromVariant(v);
-      if (checkedGroupKeys.has(gk)) continue;
-      checkedGroupKeys.add(gk);
-      const ci = input.colorImages.find((c) => c.groupKey === gk);
-      if (!ci || ci.uploadedPaths.length === 0) missingImageCount++;
+      if (isMultiColorPack(v)) {
+        // Check each pack line color individually
+        for (const line of v.packLines) {
+          if (!line.colorId || checkedGroupKeys.has(line.colorId)) continue;
+          checkedGroupKeys.add(line.colorId);
+          const ci = input.colorImages.find((c) => c.groupKey === line.colorId);
+          if (!ci || ci.uploadedPaths.length === 0) missingImageCount++;
+        }
+      } else {
+        const gk = imageGroupKeyFromVariant(v);
+        if (checkedGroupKeys.has(gk)) continue;
+        checkedGroupKeys.add(gk);
+        const ci = input.colorImages.find((c) => c.groupKey === gk);
+        if (!ci || ci.uploadedPaths.length === 0) missingImageCount++;
+      }
     }
     items.push({
       key: "images",

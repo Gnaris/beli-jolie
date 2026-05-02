@@ -19,8 +19,6 @@ export const SENSITIVE_KEYS = new Set([
   "pfs_email",
   "pfs_password",
   "stripe_connect_account_id",
-  "ankors_client_id",
-  "ankors_client_secret",
 ]);
 
 function getEncryptionKey(): Buffer {
