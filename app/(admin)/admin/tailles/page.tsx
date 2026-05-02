@@ -2,10 +2,21 @@ import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import SizesManager from "@/components/admin/tailles/SizesManager";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
+import { PROTECTED_SIZE_NAME, PROTECTED_SIZE_PFS_REF } from "@/lib/protected-sizes";
 
 export const metadata: Metadata = { title: "Gestion des tailles" };
 
+async function ensureProtectedSize() {
+  await prisma.size.upsert({
+    where: { name: PROTECTED_SIZE_NAME },
+    update: {},
+    create: { name: PROTECTED_SIZE_NAME, pfsSizeRef: PROTECTED_SIZE_PFS_REF, position: 0 },
+  });
+}
+
 export default async function TaillesPage() {
+  await ensureProtectedSize();
+
   const [sizes, annexes] = await Promise.all([
     prisma.size.findMany({
       orderBy: { position: "asc" },
