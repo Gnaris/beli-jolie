@@ -3,7 +3,8 @@
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
-import CompletenessChecklist from "./CompletenessChecklist";
+import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist";
+import ProductFormNav from "./ProductFormNav";
 import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller, fetchProductFormAttributes } from "@/app/actions/admin/products";
 
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
@@ -1533,18 +1534,32 @@ export default function ProductForm({
     });
   }
 
+  const isProductComplete = useMemo(
+    () => computeChecklist(checklistInput).every((it) => it.done),
+    [checklistInput]
+  );
+
   return (
     <>
-      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-8">
+      <div className="xl:grid xl:grid-cols-[240px_minmax(0,1fr)] xl:gap-6 xl:items-start">
+        <ProductFormNav
+          checklistInput={checklistInput}
+          productStatus={productStatus}
+          hasUnsavedChanges={hasUnsavedChanges}
+          mode={mode}
+        />
+      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-8 min-w-0">
 
         {/* ── Indicateur de complétude ── */}
-        <CompletenessChecklist input={checklistInput} />
+        <div id="section-overview" className="scroll-mt-24">
+          <CompletenessChecklist input={checklistInput} />
+        </div>
 
         {/* ── Informations du produit ── */}
         <div className="space-y-4">
 
           {/* Row 1 : Bloc principal (left) + Bloc mots clés (right) */}
-          <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
+          <div id="section-info" className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4 scroll-mt-24">
 
             {/* ── BLOC PRINCIPAL ── */}
             <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
@@ -1563,6 +1578,9 @@ export default function ProductForm({
                     filledLocales={filledLocales}
                     missingDbLocales={missingDbLocales}
                   />
+                  <span className="text-[11px] text-text-muted font-body whitespace-nowrap">
+                    {filledLocales.size} / {VALID_LOCALES.length} langue{filledLocales.size > 1 ? "s" : ""} remplie{filledLocales.size > 1 ? "s" : ""}
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -1592,6 +1610,12 @@ export default function ProductForm({
                   {translateSuccess}
                 </p>
               )}
+
+              {/* Mini légende : ce qui se traduit ou non — toujours visible */}
+              <p className="text-[11px] text-text-muted font-body bg-bg-secondary/60 border border-border-light rounded-md px-2.5 py-1.5">
+                Seuls le <strong>nom</strong> et la <strong>description</strong> changent selon la langue.
+                Les autres champs (catégorie, mots-clés, composition, couleurs…) restent en français.
+              </p>
 
               {/* Référence (always FR, not locale-dependent) */}
               <Field label="Référence produit *" hint="Ex: BJ-COL-001">
@@ -1808,7 +1832,7 @@ export default function ProductForm({
           </div>
 
           {/* Row 2 : Bloc dimensions (left) + Bloc composition (right) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div id="section-details" className="grid grid-cols-1 lg:grid-cols-2 gap-4 scroll-mt-24">
 
             {/* ── BLOC DIMENSIONS ── */}
             <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
@@ -1938,7 +1962,7 @@ export default function ProductForm({
         </div>
 
         {/* ── Variantes couleur ── */}
-        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
+        <section id="section-variants" className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card scroll-mt-24">
           <div className="flex items-center justify-between border-b border-border pb-4">
             <h2 className="font-heading text-xl font-bold text-text-primary">
               Variantes
@@ -1947,6 +1971,33 @@ export default function ProductForm({
               {variants.length} variante{variants.length > 1 ? "s" : ""}
             </span>
           </div>
+
+          {/* Aide rapide : différence entre vente à l'unité et vente en paquet */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="flex items-start gap-3 bg-[#F0F9FF] border border-[#BAE6FD] rounded-xl p-3">
+              <svg className="w-5 h-5 text-[#0369A1] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+              </svg>
+              <div>
+                <p className="text-xs font-semibold text-[#0C4A6E] font-heading">Vente à l&apos;unité</p>
+                <p className="text-[11px] text-[#075985] font-body mt-0.5">
+                  Le client achète <strong>1 article à la fois</strong>. Une couleur, des tailles disponibles, un prix par pièce.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 bg-[#FAF5FF] border border-[#E9D5FF] rounded-xl p-3">
+              <svg className="w-5 h-5 text-[#6B21A8] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M20 7L12 3 4 7m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+              <div>
+                <p className="text-xs font-semibold text-[#581C87] font-heading">Vente en paquet</p>
+                <p className="text-[11px] text-[#6B21A8] font-body mt-0.5">
+                  Le client achète <strong>un lot complet</strong>. Vous indiquez combien de pièces composent le paquet et le prix du lot. Pour un <em>paquet multicolore</em>, sélectionnez plusieurs couleurs : chacune aura ses propres tailles.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <ColorVariantManager
             variants={variants}
             colorImages={colorImages}
@@ -1964,6 +2015,7 @@ export default function ProductForm({
           />
         </section>
 
+        <div id="section-links" className="space-y-8 scroll-mt-24">
         {/* ── Produits similaires ── */}
         <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
           <div className="border-b border-border pb-4">
@@ -2006,6 +2058,7 @@ export default function ProductForm({
         {initialData?.bundleParents && initialData.bundleParents.length > 0 && (
           <BundleParentsReadonly products={initialData.bundleParents} />
         )}
+        </div>
 
         <div className="sticky bottom-0 z-10 flex justify-center py-4">
           <div className="bg-bg-primary rounded-2xl px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-border space-y-3 w-fit max-w-full">
@@ -2048,15 +2101,47 @@ export default function ProductForm({
             {/* ── Boutons d'action ── */}
             <div className="flex items-center justify-center flex-wrap gap-3">
               {/* Enregistrer (en edit: uniquement si modifications) */}
-              {(mode !== "edit" || hasUnsavedChanges) && (
-                <button type="submit" disabled={isPending || isSyncLocked}
-                  className="btn-primary min-w-[260px] px-6 py-3.5 text-base disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {isPending
-                    ? mode === "edit" ? "Enregistrement…" : productId ? "Enregistrement…" : "Création en cours…"
-                    : mode === "edit" ? "Enregistrer les modifications" : productId ? "Finaliser le produit" : "Créer le produit"}
-                </button>
-              )}
+              {(mode !== "edit" || hasUnsavedChanges) && (() => {
+                const mainLabel = isPending
+                  ? mode === "edit"
+                    ? "Enregistrement…"
+                    : productId
+                      ? "Enregistrement…"
+                      : "Création en cours…"
+                  : mode === "edit"
+                    ? "Enregistrer les modifications"
+                    : productId
+                      ? "Finaliser le produit"
+                      : "Créer le produit";
+
+                let hintLabel = "";
+                if (!isPending) {
+                  if (!isProductComplete) {
+                    hintLabel = "Sera enregistré en brouillon";
+                  } else if (productStatus === "ONLINE") {
+                    hintLabel = "Visible par les clients";
+                  } else if (productStatus === "OFFLINE") {
+                    hintLabel = "Reste hors ligne";
+                  } else if (productStatus === "ARCHIVED") {
+                    hintLabel = "Reste archivé";
+                  }
+                }
+
+                return (
+                  <button
+                    type="submit"
+                    disabled={isPending || isSyncLocked}
+                    className="btn-primary h-14 min-w-[260px] px-6 py-0 text-base disabled:opacity-60 disabled:cursor-not-allowed flex flex-col items-center justify-center gap-0.5 leading-tight"
+                  >
+                    <span>{mainLabel}</span>
+                    {hintLabel && (
+                      <span className="text-[11px] opacity-80 font-normal font-body">
+                        {hintLabel}
+                      </span>
+                    )}
+                  </button>
+                );
+              })()}
 
               {/* Enregistrer en brouillon (create mode only) */}
               {mode === "create" && (
@@ -2064,7 +2149,7 @@ export default function ProductForm({
                   type="button"
                   disabled={isPending || isSyncLocked}
                   onClick={() => handleSaveDraft()}
-                  className="flex items-center justify-center gap-2 min-w-[260px] px-6 py-3.5 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
+                  className="flex items-center justify-center gap-2 h-14 min-w-[260px] px-6 py-0 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
@@ -2073,7 +2158,7 @@ export default function ProductForm({
                 </button>
               )}
 
-              {hasUnsavedChanges && (
+              {mode === "edit" && hasUnsavedChanges && (
                 <button
                   type="button"
                   onClick={async () => {
@@ -2089,7 +2174,7 @@ export default function ProductForm({
                       window.location.reload();
                     }
                   }}
-                  className="btn-secondary px-7 py-3.5 text-sm"
+                  className="btn-secondary h-14 px-7 py-0 text-sm"
                 >
                   Annuler les modifications
                 </button>
@@ -2098,6 +2183,7 @@ export default function ProductForm({
           </div>
         </div>
       </form>
+      </div>
 
       {/* ── Quick-create modal ── */}
       <QuickCreateModal

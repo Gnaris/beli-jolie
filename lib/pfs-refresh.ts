@@ -17,6 +17,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { pfsCheckReference, pfsGetVariants } from "@/lib/pfs-api";
 import {
   pfsCreateProduct,
@@ -787,6 +788,8 @@ export async function pfsRefreshProduct(
         data: {
           lastRefreshedAt: new Date(),
           pfsProductId: newPfsProductId,
+          // L'ancien snapshot devient obsolète puisqu'on a remplacé le produit PFS.
+          pfsLastSyncSnapshot: Prisma.DbNull,
           ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),

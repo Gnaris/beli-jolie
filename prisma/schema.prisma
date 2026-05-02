@@ -359,6 +359,11 @@ model Product {
   // Identifiant marketplace — renseigné à la publication live (null = pas publié)
   pfsProductId    String?
 
+  // Instantané JSON du dernier état envoyé à PFS — sert à diffuser uniquement
+  // les changements lors du prochain "Enregistrer" (skip pfsTranslate/update,
+  // patch variantes seulement si modifiées, upload image seulement si changée).
+  pfsLastSyncSnapshot Json?
+
   // Performance indexes for 78k+ products
   @@index([status, createdAt]) // catalog listing (default sort)
   @@index([status, updatedAt]) // "new" filter sort

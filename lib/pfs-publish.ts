@@ -11,6 +11,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import {
   pfsCreateProduct,
   pfsUpdateProduct,
@@ -661,6 +662,9 @@ export async function pfsPublishProduct(
         where: { id: productId },
         data: {
           pfsProductId: createdPfsProductId,
+          // Reset du snapshot — la prochaine sauvegarde déclenchera un sync
+          // complet qui calculera le snapshot initial.
+          pfsLastSyncSnapshot: Prisma.DbNull,
           ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),

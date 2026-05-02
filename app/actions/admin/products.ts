@@ -22,7 +22,14 @@ import {
   type PackLineInput,
   type SizeEntryInput,
 } from "@/lib/product-variant-validation";
-import { isProtectedSizeName } from "@/lib/protected-sizes";
+import {
+  isProtectedSizeName,
+  isProtectedSizeVirtualId,
+  PROTECTED_SIZE_NAME,
+  PROTECTED_SIZE_PFS_REF,
+  PROTECTED_SIZE_VIRTUAL_ID,
+  withProtectedSize,
+} from "@/lib/protected-sizes";
 
 /** Collect all sizeIds referenced across UNIT sizeEntries and PACK packLines. */
 function collectSizeIds(colors: ColorInput[]): string[] {
@@ -50,6 +57,41 @@ async function assertTailleUniqueDetails(input: ProductInput): Promise<void> {
       "Le champ « Détail taille unique » est obligatoire quand une variante utilise la taille unique."
     );
   }
+}
+
+/**
+ * Replaces the virtual « Taille unique » id with the real Size row cuid.
+ * The Size row is created lazily on first save — single point where the
+ * protected size is persisted, so it never appears in the database until
+ * it is actually attached to a product.
+ */
+async function resolveProtectedSizeId(input: ProductInput): Promise<ProductInput> {
+  const usesVirtual = input.colors.some(
+    (c) =>
+      c.sizeEntries.some((se) => isProtectedSizeVirtualId(se.sizeId)) ||
+      (c.packLines ?? []).some((pl) =>
+        pl.sizeEntries.some((se) => isProtectedSizeVirtualId(se.sizeId)),
+      ),
+  );
+  if (!usesVirtual) return input;
+  const row = await prisma.size.upsert({
+    where: { name: PROTECTED_SIZE_NAME },
+    update: {},
+    create: { name: PROTECTED_SIZE_NAME, pfsSizeRef: PROTECTED_SIZE_PFS_REF, position: 0 },
+    select: { id: true },
+  });
+  const swap = (sizeId: string): string => (isProtectedSizeVirtualId(sizeId) ? row.id : sizeId);
+  return {
+    ...input,
+    colors: input.colors.map((c) => ({
+      ...c,
+      sizeEntries: c.sizeEntries.map((se) => ({ ...se, sizeId: swap(se.sizeId) })),
+      packLines: c.packLines?.map((pl) => ({
+        ...pl,
+        sizeEntries: pl.sizeEntries.map((se) => ({ ...se, sizeId: swap(se.sizeId) })),
+      })),
+    })),
+  };
 }
 
 // Marketplace sync (PFS) is handled live via API in publishProductToMarketplaces /
@@ -175,6 +217,7 @@ async function assignVariantSkus(
 
 export async function createProduct(input: ProductInput): Promise<{ id: string }> {
   await requireAdmin();
+  input = await resolveProtectedSizeId(input);
 
   // Skip strict variant validation for incomplete products
   if (!input.isIncomplete) {
@@ -426,6 +469,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
 
 export async function updateProduct(id: string, input: ProductInput): Promise<{ variantDbIds: string[] }> {
   await requireAdmin();
+  input = await resolveProtectedSizeId(input);
 
   // ── Defensive validation: DB non-nullable constraints ────────
   if (!input.reference?.trim()) throw new Error("La référence est requise.");
@@ -1492,7 +1536,7 @@ export async function fetchProductFormAttributes() {
     tags,
     manufacturingCountries,
     seasons,
-    sizes: sizes.map((s) => ({ id: s.id, name: s.name })),
+    sizes: withProtectedSize(sizes.map((s) => ({ id: s.id, name: s.name }))),
     pfsSizes,
   };
 }

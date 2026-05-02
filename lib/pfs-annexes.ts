@@ -18,6 +18,7 @@ import {
   pfsGetSizes,
   pfsGetCollections,
 } from "@/lib/pfs-api-write";
+import { PFS_FAMILIES_BY_GENDER } from "@/lib/marketplace-excel/pfs-taxonomy";
 import { logger } from "@/lib/logger";
 
 export type PfsGender = "Femme" | "Homme" | "Enfant" | "Lifestyle_et_Plus";
@@ -108,13 +109,30 @@ async function loadFresh(): Promise<PfsAnnexes> {
       }),
     ]);
 
+  // Set plat de toutes les familles connues de la taxonomie locale, pour
+  // pouvoir aligner les noms PFS dessus (la taxonomie utilise des underscores
+  // — "Bijoux_Fantaisie" — alors que l'API PFS renvoie "Bijoux Fantaisie").
+  const knownFamilyNames = new Set<string>();
+  for (const fams of Object.values(PFS_FAMILIES_BY_GENDER)) {
+    for (const f of fams) knownFamilyNames.add(f);
+  }
+
   // Construit un index id→label pour les familles (les catégories n'ont qu'un
   // string ou un objet { id } selon les retours, donc on a besoin de retrouver
   // le label par ID).
+  //
+  // Le label PFS peut contenir des espaces ("Bijoux Fantaisie") alors que la
+  // taxonomie locale utilise des underscores ("Bijoux_Fantaisie"). On préfère
+  // la forme underscorée quand elle correspond à une famille connue : c'est
+  // la valeur que `sanitizePfsFamilyName()` accepte côté serveur quand l'admin
+  // valide le formulaire (sinon la création échoue avec « Le genre et la
+  // famille Paris Fashion Shop sont obligatoires »).
   const familyIdToLabel = new Map<string, string>();
   const familyIdToGender = new Map<string, PfsGender>();
   for (const f of families) {
-    const label = pickFr(f.labels, f.id);
+    const rawLabel = pickFr(f.labels, f.id);
+    const underscored = rawLabel.replace(/\s+/g, "_");
+    const label = knownFamilyNames.has(underscored) ? underscored : rawLabel;
     const fr = GENDER_REF_TO_FR[f.gender] ?? null;
     if (fr) {
       familyIdToLabel.set(f.id, label);
@@ -181,7 +199,10 @@ async function loadFresh(): Promise<PfsAnnexes> {
   };
 }
 
-const cachedAnnexes = unstable_cache(loadFresh, ["pfs-annexes-v1"], {
+// v2 : aligne le nom de famille sur la taxonomie locale (underscores). Bump
+// de la clé pour invalider le cache existant qui contient encore les libellés
+// PFS bruts ("Bijoux Fantaisie") et bloquait la création de catégorie.
+const cachedAnnexes = unstable_cache(loadFresh, ["pfs-annexes-v2"], {
   revalidate: 3600, // 1h
   tags: ["pfs-annexes"],
 });

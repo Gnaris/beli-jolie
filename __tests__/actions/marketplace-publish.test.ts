@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 
 const {
   mockProductFindUnique,
@@ -119,7 +120,7 @@ describe("publishProductToMarketplaces", () => {
     expect(pfsPublishSpy).toHaveBeenCalledOnce();
     expect(mockProductUpdate).toHaveBeenCalledWith({
       where: { id: "p-1" },
-      data: { pfsProductId: null },
+      data: { pfsProductId: null, pfsLastSyncSnapshot: Prisma.DbNull },
     });
     expect(out.pfs).toEqual({ status: "ok", mode: "create", archived: false });
   });

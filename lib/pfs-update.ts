@@ -37,6 +37,15 @@ import sharp from "sharp";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
+import {
+  diffSnapshots,
+  diffIsEmpty,
+  PFS_SNAPSHOT_VERSION,
+  type PfsSyncSnapshot,
+  type PfsProductFieldsSnapshot,
+  type PfsImagesSnapshot,
+  type PfsVariantSnapshot,
+} from "@/lib/pfs-sync-diff";
 
 export type PfsUpdateResult =
   | { success: true; archived: boolean }
@@ -81,6 +90,7 @@ interface FullProduct {
   description: string;
   status: string;
   pfsProductId: string | null;
+  pfsLastSyncSnapshot: unknown;
   dimensionLength: number | null;
   dimensionWidth: number | null;
   dimensionHeight: number | null;
@@ -114,6 +124,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       description: true,
       status: true,
       pfsProductId: true,
+      pfsLastSyncSnapshot: true,
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
@@ -370,6 +381,83 @@ function buildVariantCreateData(
   return null;
 }
 
+// ── Snapshot helpers (used to diff against pfsLastSyncSnapshot) ──
+
+function buildProductFieldsSnapshot(
+  product: FullProduct,
+  brandName: string,
+): PfsProductFieldsSnapshot {
+  const composition = product.compositions
+    .filter((c) => c.composition.pfsCompositionRef)
+    .map((c) => ({ id: c.composition.pfsCompositionRef!, value: Number(c.percentage) }));
+  if (composition.length === 0) {
+    composition.push({ id: "ACIERINOXYDABLE", value: 100 });
+  }
+  return {
+    nameSource: product.name,
+    descSource: product.description,
+    dimensions: buildDimensionsSuffix(product),
+    composition,
+    country:
+      product.manufacturingCountry?.pfsCountryRef ??
+      product.manufacturingCountry?.isoCode ??
+      "CN",
+    season: product.season?.pfsRef ?? "PE2026",
+    brand: brandName,
+    gender: product.category.pfsGender || "WOMAN",
+    category: product.category.pfsCategoryId ?? null,
+    family: product.category.pfsFamilyId ?? null,
+    sizeDetailsTu: product.sizeDetailsTu,
+  };
+}
+
+function buildVariantSnapshot(
+  variant: FullVariant,
+  pfsMarkup?: MarkupConfig,
+): PfsVariantSnapshot {
+  const stock = variant.stock ?? 0;
+  return {
+    price: getPfsUnitPrice(variant, pfsMarkup),
+    stock,
+    weight: variant.weight,
+    isActive: stock > 0,
+  };
+}
+
+function buildImagesSnapshot(
+  product: FullProduct,
+  colorIdToPfsRef: Map<string, string>,
+): PfsImagesSnapshot {
+  const out: PfsImagesSnapshot = {};
+  // Pour chaque couleur (au sens couleur PFS), trier les images par order
+  // et leur attribuer un slot 1-indexé.
+  const byColor = new Map<string, { path: string; order: number }[]>();
+  for (const variant of product.colors) {
+    for (const img of variant.images) {
+      const colorRef = colorIdToPfsRef.get(img.colorId);
+      if (!colorRef) continue;
+      if (!byColor.has(colorRef)) byColor.set(colorRef, []);
+      byColor.get(colorRef)!.push({ path: img.path, order: img.order });
+    }
+  }
+  for (const [colorRef, list] of byColor) {
+    const sorted = [...list].sort((a, b) => a.order - b.order);
+    out[colorRef] = {};
+    sorted.forEach((img, i) => {
+      out[colorRef][String(i + 1)] = img.path;
+    });
+  }
+  return out;
+}
+
+function readPreviousSnapshot(raw: unknown): PfsSyncSnapshot | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Partial<PfsSyncSnapshot>;
+  if (obj.schemaVersion !== PFS_SNAPSHOT_VERSION) return null;
+  if (!obj.product || !obj.variants || !obj.images) return null;
+  return obj as PfsSyncSnapshot;
+}
+
 // ── Main update function ──
 
 export async function pfsUpdateProductInPlace(
@@ -399,20 +487,7 @@ export async function pfsUpdateProductInPlace(
   const colorRefMap = await buildColorLabelToRefMap();
 
   try {
-    // ── Step 1 : Update product fields ──
-    report("Mise à jour des informations produit...");
-
-    const descriptionWithDims = product.description + buildDimensionsSuffix(product);
-    const translated = await pfsTranslate(product.name, descriptionWithDims);
-
-    const compositionArray = product.compositions
-      .filter((c) => c.composition.pfsCompositionRef)
-      .map((c) => ({ id: c.composition.pfsCompositionRef!, value: Number(c.percentage) }));
-    if (compositionArray.length === 0) {
-      compositionArray.push({ id: "ACIERINOXYDABLE", value: 100 });
-    }
-
-    // Auto-resolve missing PFS IDs
+    // Auto-resolve missing PFS IDs avant de construire le snapshot
     if (!product.category.pfsCategoryId || !product.category.pfsFamilyId) {
       const resolved = await resolvePfsCategoryIds(product.category);
       if (resolved.pfsCategoryId) product.category.pfsCategoryId = resolved.pfsCategoryId;
@@ -422,24 +497,111 @@ export async function pfsUpdateProductInPlace(
     const shopNameInfo = await prisma.companyInfo.findFirst({ select: { shopName: true } });
     const brandName = shopNameInfo?.shopName || "Ma Boutique";
 
-    const updateData: PfsProductUpdateData = {
-      label: translated.productName,
-      description: translated.productDescription,
-      material_composition: compositionArray,
-      country_of_manufacture:
-        product.manufacturingCountry?.pfsCountryRef ??
-        product.manufacturingCountry?.isoCode ??
-        "CN",
-      season_name: product.season?.pfsRef ?? "PE2026",
-      brand_name: brandName,
-      gender_label: product.category.pfsGender || "WOMAN",
-    };
-    if (product.category.pfsCategoryId) updateData.category = product.category.pfsCategoryId;
-    if (product.category.pfsFamilyId) updateData.family = product.category.pfsFamilyId;
-    if (product.sizeDetailsTu) updateData.size_details_tu = product.sizeDetailsTu;
+    // Map Color.id → PFS color ref (utile pour images + default_color)
+    const colorIdToPfsRef = new Map<string, string>();
+    for (const variant of product.colors) {
+      if (variant.color) {
+        const ref = getEffectiveColorRef(variant, colorRefMap);
+        if (ref) colorIdToPfsRef.set(variant.color.id, ref);
+      }
+      for (const pl of variant.packLines) {
+        if (pl.color) {
+          const ref = resolvePfsColorRef(pl.color, colorRefMap);
+          colorIdToPfsRef.set(pl.color.id, ref);
+        }
+      }
+    }
 
-    await pfsUpdateProduct(pfsProductId, updateData);
-    logger.info("[PFS Update] Product fields updated", { pfsProductId, reference: product.reference });
+    const allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
+    const shouldBeOffline =
+      product.status === "OFFLINE" || product.status === "ARCHIVED" || allVariantsOutOfStock;
+    const targetStatus = shouldBeOffline ? "ARCHIVED" : "READY_FOR_SALE";
+
+    const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
+    const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant, colorRefMap) : null;
+
+    // ── Construction du snapshot cible (ce qu'on veut que PFS reflète) ──
+    const nextProductSnap = buildProductFieldsSnapshot(product, brandName);
+    const nextVariantsSnap: Record<string, PfsVariantSnapshot> = {};
+    for (const variant of product.colors) {
+      if (variant.pfsVariantId) {
+        nextVariantsSnap[variant.pfsVariantId] = buildVariantSnapshot(variant, pfsMarkup);
+      }
+    }
+    const nextImagesSnap = buildImagesSnapshot(product, colorIdToPfsRef);
+
+    const nextSnapshot: PfsSyncSnapshot = {
+      schemaVersion: PFS_SNAPSHOT_VERSION,
+      product: nextProductSnap,
+      defaultColor: primaryColorRef ?? null,
+      variants: nextVariantsSnap,
+      images: nextImagesSnap,
+      status: targetStatus,
+    };
+
+    // ── Diff vs snapshot précédent ──
+    const prevSnapshot = readPreviousSnapshot(product.pfsLastSyncSnapshot);
+    const diff = diffSnapshots(prevSnapshot, nextSnapshot);
+
+    // committedSnapshot accumule ce qui a réussi côté PFS — initialisé sur prev
+    // pour préserver l'état connu en cas de crash partiel sur les sections que
+    // l'on n'a pas re-synchronisées.
+    const committedSnapshot: PfsSyncSnapshot = prevSnapshot
+      ? { ...prevSnapshot }
+      : {
+          schemaVersion: PFS_SNAPSHOT_VERSION,
+          product: nextProductSnap,
+          defaultColor: null,
+          variants: {},
+          images: {},
+          status: targetStatus,
+        };
+
+    // Si rien n'a changé ET pas de variantes nouvelles à créer, on peut tout sauter
+    const hasVariantsToCreate = product.colors.some((v) => !v.pfsVariantId);
+    if (diffIsEmpty(diff) && !hasVariantsToCreate) {
+      logger.info("[PFS Update] Aucun changement détecté, sync sautée", {
+        pfsProductId,
+        reference: product.reference,
+      });
+      report("Aucun changement à synchroniser");
+      progress.status = "success";
+      progress.step = "Aucun changement";
+      onProgress?.(progress);
+      if (!options?.skipRevalidation) {
+        revalidateTag("products", "default");
+      }
+      return { success: true, archived: allVariantsOutOfStock };
+    }
+
+    // ── Step 1 : Update product fields (skippé si inchangé) ──
+    if (diff.productChanged) {
+      report("Mise à jour des informations produit...");
+
+      const descriptionWithDims = product.description + buildDimensionsSuffix(product);
+      const translated = await pfsTranslate(product.name, descriptionWithDims);
+
+      const compositionArray = nextProductSnap.composition;
+
+      const updateData: PfsProductUpdateData = {
+        label: translated.productName,
+        description: translated.productDescription,
+        material_composition: compositionArray,
+        country_of_manufacture: nextProductSnap.country,
+        season_name: nextProductSnap.season,
+        brand_name: nextProductSnap.brand,
+        gender_label: nextProductSnap.gender,
+      };
+      if (nextProductSnap.category) updateData.category = nextProductSnap.category;
+      if (nextProductSnap.family) updateData.family = nextProductSnap.family;
+      if (nextProductSnap.sizeDetailsTu) updateData.size_details_tu = nextProductSnap.sizeDetailsTu;
+
+      await pfsUpdateProduct(pfsProductId, updateData);
+      committedSnapshot.product = nextProductSnap;
+      logger.info("[PFS Update] Product fields updated", { pfsProductId, reference: product.reference });
+    } else {
+      logger.info("[PFS Update] Product fields unchanged → skip", { pfsProductId });
+    }
 
     // ── Step 2 : Sync variants ──
     report("Synchronisation des variantes...");
@@ -479,9 +641,14 @@ export async function pfsUpdateProductInPlace(
     // Find PFS variants that no longer exist locally → delete
     const variantsToDelete = existingPfsVariants.filter((v) => !localPfsVariantIds.has(v.id));
 
-    // 2a. Patch existing variants
-    if (variantsToUpdate.length > 0) {
-      const patches: PfsVariantUpdateData[] = variantsToUpdate.map(({ bjVariant, pfsVariantId }) => ({
+    // 2a. Patch existing variants — uniquement celles signalées dans le diff
+    const changedSet = new Set(diff.variantsChanged);
+    const variantsToPatch = variantsToUpdate.filter(({ pfsVariantId: vid }) =>
+      changedSet.has(vid),
+    );
+
+    if (variantsToPatch.length > 0) {
+      const patches: PfsVariantUpdateData[] = variantsToPatch.map(({ bjVariant, pfsVariantId }) => ({
         variant_id: pfsVariantId,
         price_eur_ex_vat: getPfsUnitPrice(bjVariant, pfsMarkup),
         stock_qty: bjVariant.stock ?? 0,
@@ -491,17 +658,26 @@ export async function pfsUpdateProductInPlace(
 
       try {
         await pfsPatchVariants(patches);
-        logger.info("[PFS Update] Patched variants", { count: patches.length });
+        // Marque ces variantes comme committées dans le snapshot
+        for (const { pfsVariantId: vid } of variantsToPatch) {
+          if (nextVariantsSnap[vid]) committedSnapshot.variants[vid] = nextVariantsSnap[vid];
+        }
+        logger.info("[PFS Update] Patched variants", {
+          count: patches.length,
+          skipped: variantsToUpdate.length - variantsToPatch.length,
+        });
       } catch (err) {
         logger.error("[PFS Update] Failed to patch variants", {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    } else if (variantsToUpdate.length > 0) {
+      logger.info("[PFS Update] All existing variants unchanged → skip patch", {
+        count: variantsToUpdate.length,
+      });
     }
 
     // 2b. Create new variants
-    let allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
-
     if (variantsToCreate.length > 0) {
       report(`Création de ${variantsToCreate.length} nouvelle(s) variante(s)...`);
       try {
@@ -531,6 +707,17 @@ export async function pfsUpdateProductInPlace(
               }),
             ),
           );
+
+          // Ajoute ces nouvelles variantes au snapshot committé
+          for (const u of newIdUpdates) {
+            const variant = variantsToCreate.find((v) => v.bjVariant.id === u.bjVariantId);
+            if (variant) {
+              committedSnapshot.variants[u.pfsVariantId] = buildVariantSnapshot(
+                variant.bjVariant,
+                pfsMarkup,
+              );
+            }
+          }
         }
 
         // Patch zero-stock new variants to set is_active=false
@@ -539,6 +726,13 @@ export async function pfsUpdateProductInPlace(
           const vid = variantIds[i];
           if (variantsToCreate[i].pfsData.stock_qty === 0 && vid) {
             zeroStockPatches.push({ variant_id: vid, stock_qty: 0, is_active: false });
+            // Reflète is_active=false dans le snapshot committé
+            if (committedSnapshot.variants[vid]) {
+              committedSnapshot.variants[vid] = {
+                ...committedSnapshot.variants[vid],
+                isActive: false,
+              };
+            }
           }
         }
         if (zeroStockPatches.length > 0) {
@@ -559,6 +753,8 @@ export async function pfsUpdateProductInPlace(
       for (const v of variantsToDelete) {
         try {
           await pfsDeleteVariant(v.id);
+          // Plus dans la cible, retire-la aussi du snapshot committé
+          delete committedSnapshot.variants[v.id];
           logger.info("[PFS Update] Deleted variant from PFS", { pfsVariantId: v.id });
         } catch (err) {
           logger.warn("[PFS Update] Failed to delete variant", {
@@ -569,64 +765,28 @@ export async function pfsUpdateProductInPlace(
       }
     }
 
-    // ── Step 3 : Sync images ──
-    report("Synchronisation des images...");
+    // ── Step 3 : Sync images (diff-based) ──
+    if (diff.imagesToUpload.length > 0 || diff.imagesToDelete.length > 0) {
+      report("Synchronisation des images...");
 
-    // Build map of local images per color ref
-    const localImagesByColor = new Map<string, { path: string; order: number }[]>();
+      // S'assure que la racine du snapshot images existe pour chaque colorRef
+      const ensureColor = (colorRef: string) => {
+        if (!committedSnapshot.images[colorRef]) committedSnapshot.images[colorRef] = {};
+      };
 
-    // Build a map from Color.id → PFS color ref (covers both variant colors and pack line colors)
-    const colorIdToPfsRef = new Map<string, string>();
-    for (const variant of product.colors) {
-      if (variant.color) {
-        const ref = getEffectiveColorRef(variant, colorRefMap);
-        if (ref) colorIdToPfsRef.set(variant.color.id, ref);
-      }
-      for (const pl of variant.packLines) {
-        if (pl.color) {
-          const ref = resolvePfsColorRef(pl.color, colorRefMap);
-          colorIdToPfsRef.set(pl.color.id, ref);
-        }
-      }
-    }
+      let totalUploaded = 0;
+      let totalDeleted = 0;
 
-    // Group images by their actual colorId (not the variant's main color)
-    for (const variant of product.colors) {
-      for (const img of variant.images) {
-        const colorRef = colorIdToPfsRef.get(img.colorId);
-        if (!colorRef) continue;
-        if (!localImagesByColor.has(colorRef)) {
-          localImagesByColor.set(colorRef, []);
-        }
-        localImagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
-      }
-    }
-
-    // Get existing images from PFS (from checkReference response)
-    let existingImages: Record<string, string | string[]> = {};
-    try {
-      const { pfsCheckReference } = await import("@/lib/pfs-api");
-      const checkResp = await pfsCheckReference(product.reference);
-      if (checkResp.exists && checkResp.product?.images) {
-        existingImages = checkResp.product.images;
-      }
-    } catch {
-      // If we can't get existing images, we'll just re-upload everything
-    }
-
-    // For each color, compare and sync
-    let totalUploaded = 0;
-    let totalDeleted = 0;
-
-    for (const [colorRef, localImages] of localImagesByColor) {
-      const sorted = localImages.sort((a, b) => a.order - b.order);
-      const existingForColor = existingImages[colorRef];
-      const existingSlotCount = Array.isArray(existingForColor) ? existingForColor.length : existingForColor ? 1 : 0;
-
-      // Delete extra slots that no longer exist locally
-      for (let slot = sorted.length + 1; slot <= existingSlotCount; slot++) {
+      // 3a. Suppressions ciblées (slots qui ont disparu)
+      for (const { colorRef, slot } of diff.imagesToDelete) {
         try {
           await pfsDeleteImage(pfsProductId, slot, colorRef);
+          if (committedSnapshot.images[colorRef]) {
+            delete committedSnapshot.images[colorRef][String(slot)];
+            if (Object.keys(committedSnapshot.images[colorRef]).length === 0) {
+              delete committedSnapshot.images[colorRef];
+            }
+          }
           totalDeleted++;
         } catch (err) {
           logger.warn("[PFS Update] Failed to delete image", {
@@ -636,12 +796,13 @@ export async function pfsUpdateProductInPlace(
         }
       }
 
-      // Upload all local images (re-upload to ensure they're current)
-      for (let i = 0; i < sorted.length; i++) {
-        const slot = i + 1;
+      // 3b. Uploads ciblés (slots nouveaux ou modifiés)
+      for (const { colorRef, slot, path } of diff.imagesToUpload) {
         try {
-          const jpegBuffer = await convertToJpeg(sorted[i].path);
+          const jpegBuffer = await convertToJpeg(path);
           await pfsUploadImage(pfsProductId, jpegBuffer, slot, colorRef, `image_${slot}.jpg`);
+          ensureColor(colorRef);
+          committedSnapshot.images[colorRef][String(slot)] = path;
           totalUploaded++;
         } catch (err) {
           logger.warn("[PFS Update] Image upload failed", {
@@ -650,30 +811,22 @@ export async function pfsUpdateProductInPlace(
           });
         }
       }
+
+      logger.info("[PFS Update] Images synced (diff)", {
+        uploaded: totalUploaded,
+        deleted: totalDeleted,
+        plannedUploads: diff.imagesToUpload.length,
+        plannedDeletes: diff.imagesToDelete.length,
+      });
+    } else {
+      logger.info("[PFS Update] Images unchanged → skip", { pfsProductId });
     }
 
-    // Delete images for colors that no longer exist locally
-    for (const pfsColorRef of Object.keys(existingImages)) {
-      if (!localImagesByColor.has(pfsColorRef)) {
-        const existing = existingImages[pfsColorRef];
-        const count = Array.isArray(existing) ? existing.length : existing ? 1 : 0;
-        for (let slot = 1; slot <= count; slot++) {
-          try {
-            await pfsDeleteImage(pfsProductId, slot, pfsColorRef);
-            totalDeleted++;
-          } catch { /* ignore */ }
-        }
-      }
-    }
-
-    logger.info("[PFS Update] Images synced", { uploaded: totalUploaded, deleted: totalDeleted });
-
-    // ── Step 4 : Set default color ──
-    const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
-    const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant, colorRefMap) : null;
-    if (primaryColorRef) {
+    // ── Step 4 : Set default color (skippé si inchangé) ──
+    if (diff.defaultColorChanged && primaryColorRef) {
       try {
         await pfsUpdateProduct(pfsProductId, { default_color: primaryColorRef });
+        committedSnapshot.defaultColor = primaryColorRef;
       } catch (err) {
         logger.warn("[PFS Update] Failed to set default_color", {
           error: err instanceof Error ? err.message : String(err),
@@ -681,28 +834,33 @@ export async function pfsUpdateProductInPlace(
       }
     }
 
-    // ── Step 5 : Update status ──
-    // Respect local product status: if product is OFFLINE or ARCHIVED locally,
-    // keep it ARCHIVED on PFS instead of forcing READY_FOR_SALE
-    const shouldBeOffline =
-      product.status === "OFFLINE" || product.status === "ARCHIVED" || allVariantsOutOfStock;
-
-    if (shouldBeOffline) {
-      report("Archivage sur PFS (produit hors ligne ou en rupture)...");
-      await pfsUpdateStatus([{ id: pfsProductId, status: "ARCHIVED" }]);
-    } else {
-      report("Mise en ligne...");
-      await pfsUpdateStatus([{ id: pfsProductId, status: "READY_FOR_SALE" }]);
+    // ── Step 5 : Update status (skippé si inchangé) ──
+    if (diff.statusChanged) {
+      if (shouldBeOffline) {
+        report("Archivage sur PFS (produit hors ligne ou en rupture)...");
+      } else {
+        report("Mise en ligne...");
+      }
+      try {
+        await pfsUpdateStatus([{ id: pfsProductId, status: targetStatus }]);
+        committedSnapshot.status = targetStatus;
+      } catch (err) {
+        logger.warn("[PFS Update] Failed to update status", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
-    // ── Step 6 : Local DB update ──
+    // ── Step 6 : Local DB update + sauvegarde du snapshot ──
     report("Mise à jour locale...");
+    const dbUpdate: Record<string, unknown> = { pfsLastSyncSnapshot: committedSnapshot };
     if (allVariantsOutOfStock && product.status === "ONLINE") {
-      await prisma.product.update({
-        where: { id: productId },
-        data: { status: "OFFLINE" },
-      });
+      dbUpdate.status = "OFFLINE";
     }
+    await prisma.product.update({
+      where: { id: productId },
+      data: dbUpdate,
+    });
 
     if (!options?.skipRevalidation) {
       revalidateTag("products", "default");

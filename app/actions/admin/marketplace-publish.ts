@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
 import { pfsPublishProduct } from "@/lib/pfs-publish";
 import { emitProductEvent } from "@/lib/product-events";
@@ -69,7 +70,7 @@ export async function publishProductToMarketplaces(
           });
           await prisma.product.update({
             where: { id: productId },
-            data: { pfsProductId: null },
+            data: { pfsProductId: null, pfsLastSyncSnapshot: Prisma.DbNull },
           });
           await prisma.productColor.updateMany({
             where: { productId },

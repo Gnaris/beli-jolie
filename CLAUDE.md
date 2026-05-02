@@ -73,7 +73,10 @@ Create / update sur PFS se fait **en direct via les API**. Plus d'export Excel m
 Fichiers clés :
 - `lib/pfs-publish.ts` — première publication PFS (sans swap d'ancien produit)
 - `lib/pfs-refresh.ts` — renouvellement (création + soft-delete + remplacement IDs)
-- `lib/pfs-update.ts` — mise à jour PATCH d'un produit déjà publié
+- `lib/pfs-update.ts` — mise à jour PATCH d'un produit déjà publié (utilise le diff de snapshot, voir ci-dessous)
+- `lib/pfs-sync-diff.ts` — types + `diffSnapshots()` qui compare l'instantané précédent à l'état cible
+
+**Diff de sync (optimisation update)** : `Product.pfsLastSyncSnapshot` (Json?) stocke l'état envoyé à la dernière sync réussie : product fields, defaultColor, variants (price/stock/weight/isActive par pfsVariantId), images (path par colorRef/slot), status. À chaque appel de `pfsUpdateProductInPlace`, on construit le snapshot cible, on diff vs `pfsLastSyncSnapshot`, et on n'envoie à PFS que ce qui a changé : skip `pfsTranslate`+`pfsUpdateProduct` si product fields identiques, patch seulement les variantes modifiées, upload seulement les slots d'image dont le path a changé, skip `pfsUpdateStatus` si statut inchangé. Le snapshot est sauvé en fin de sync (sections réussies seulement). Reset à `Prisma.DbNull` quand `pfsProductId` change (publish, refresh, fallback). Si `pfsLastSyncSnapshot` est null → sync complète (comme avant), puis snapshot initial sauvé.
 - `app/actions/admin/marketplace-publish.ts` + `app/actions/admin/marketplace-refresh.ts`
 - `app/api/admin/marketplace-publish/route.ts` + `app/api/admin/marketplace-refresh/route.ts`
 - `components/admin/products/PfsRefreshContext.tsx` — queue partagée publish/refresh, dispatch via `mode: "publish" | "refresh"`
