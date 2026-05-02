@@ -5,8 +5,10 @@ const mockSizeFindUnique = vi.fn();
 const mockSizeFindFirst = vi.fn();
 const mockSizeCreate = vi.fn();
 const mockSizeUpdate = vi.fn();
+const mockSizeDelete = vi.fn();
 const mockSizeAggregate = vi.fn();
 const mockSizeFindMany = vi.fn();
+const mockVariantSizeCount = vi.fn();
 const mockTransaction = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
@@ -16,8 +18,12 @@ vi.mock("@/lib/prisma", () => ({
       findFirst: (...a: unknown[]) => mockSizeFindFirst(...a),
       create: (...a: unknown[]) => mockSizeCreate(...a),
       update: (...a: unknown[]) => mockSizeUpdate(...a),
+      delete: (...a: unknown[]) => mockSizeDelete(...a),
       aggregate: (...a: unknown[]) => mockSizeAggregate(...a),
       findMany: (...a: unknown[]) => mockSizeFindMany(...a),
+    },
+    variantSize: {
+      count: (...a: unknown[]) => mockVariantSizeCount(...a),
     },
     $transaction: (...a: unknown[]) => mockTransaction(...a),
   },
@@ -32,7 +38,7 @@ vi.mock("next/cache", () => ({
   revalidateTag: vi.fn(),
 }));
 
-import { createSize, setSizePfsMapping, updateSize } from "@/app/actions/admin/sizes";
+import { createSize, deleteSize, setSizePfsMapping, updateSize } from "@/app/actions/admin/sizes";
 
 describe("sizes actions — independent of categories", () => {
   beforeEach(() => {
@@ -145,6 +151,28 @@ describe("sizes actions — independent of categories", () => {
       mockSizeFindFirst.mockResolvedValue({ id: "other" });
 
       await expect(updateSize("s1", "Duplicate")).rejects.toThrow(/existe déjà/);
+    });
+  });
+
+  describe("deleteSize — protected name", () => {
+    beforeEach(() => {
+      mockVariantSizeCount.mockResolvedValue(0);
+    });
+
+    it("rejects deletion of « Taille unique »", async () => {
+      mockSizeFindUnique.mockResolvedValue({ id: "s-tu", name: "Taille unique" });
+
+      await expect(deleteSize("s-tu")).rejects.toThrow(/protégée/);
+      expect(mockSizeDelete).not.toHaveBeenCalled();
+    });
+
+    it("allows deletion of any other size", async () => {
+      mockSizeFindUnique.mockResolvedValue({ id: "s1", name: "M" });
+      mockSizeDelete.mockResolvedValue({});
+
+      await deleteSize("s1");
+
+      expect(mockSizeDelete).toHaveBeenCalledWith({ where: { id: "s1" } });
     });
   });
 });

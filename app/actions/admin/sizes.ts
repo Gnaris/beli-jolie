@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { isProtectedSizeName } from "@/lib/protected-sizes";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -77,9 +78,17 @@ export async function updateSize(id: string, name: string, pfsSizeRef?: string |
   revalidateTag("sizes", "default");
 }
 
-/** Delete a size (fails if used in variants) */
+/** Delete a size (fails if used in variants or if it's the protected « Taille unique ») */
 export async function deleteSize(id: string) {
   await requireAdmin();
+
+  const size = await prisma.size.findUnique({
+    where: { id },
+    select: { name: true },
+  });
+  if (size && isProtectedSizeName(size.name)) {
+    throw new Error("La taille unique est protégée et ne peut pas être supprimée.");
+  }
 
   const usageCount = await prisma.variantSize.count({ where: { sizeId: id } });
   if (usageCount > 0) {
