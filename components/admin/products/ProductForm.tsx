@@ -1051,6 +1051,13 @@ export default function ProductForm({
   // Erreurs dures qui doivent bloquer l'enregistrement (même en brouillon)
   function getBlockingErrors(): string[] {
     const errors: string[] = [];
+    // En mode création : pays de fabrication, saison et au moins une variante
+    // sont obligatoires pour pouvoir enregistrer (même en brouillon).
+    if (mode === "create") {
+      if (!manufacturingCountryId) errors.push("Le pays de fabrication est obligatoire");
+      if (!seasonId) errors.push("La saison est obligatoire");
+      if (variants.length === 0) errors.push("Au moins une variante de couleur est obligatoire");
+    }
     // Variantes vides (aucune couleur sélectionnée)
     const emptyCount = variants.filter((v) => !v.colorId).length;
     if (emptyCount > 0) {
@@ -1464,19 +1471,18 @@ export default function ProductForm({
       }
 
       // ── Proposer la publication / mise à jour sur Paris Fashion Shop ──
-      // Deux cas :
-      //  A) Déjà publié sur PFS → proposer "Mettre à jour" (même si OFFLINE)
-      //  B) Pas encore publié + ONLINE + complet → proposer "Publier"
-      //  C) Pas encore publié + OFFLINE → ne rien proposer
+      // - Déjà publié sur PFS → proposer "Mettre à jour"
+      // - Pas encore publié + ONLINE + complet → proposer "Publier (en ligne sur PFS)"
+      // - Pas encore publié + OFFLINE + complet → proposer "Publier (en brouillon sur PFS)"
       const alreadyOnPfs = !!initialData?.pfsProductId;
       const isUpdate = alreadyOnPfs;
+      const willBeDraftOnPfs = !alreadyOnPfs && finalStatus === "OFFLINE";
 
       const canPublish =
         savedProductId &&
         finalStatus !== "ARCHIVED" &&
         !isIncomplete &&
-        hasPfsConfig &&
-        (alreadyOnPfs || finalStatus !== "OFFLINE");
+        hasPfsConfig;
 
       if (canPublish && savedProductId) {
         const checked = { pfs: false };
@@ -1484,10 +1490,14 @@ export default function ProductForm({
           type: "info",
           title: isUpdate
             ? "Mettre à jour sur Paris Fashion Shop ?"
-            : "Publier sur Paris Fashion Shop ?",
+            : willBeDraftOnPfs
+              ? "Publier en brouillon sur Paris Fashion Shop ?"
+              : "Publier sur Paris Fashion Shop ?",
           message: isUpdate
             ? "Souhaitez-vous mettre à jour ce produit sur Paris Fashion Shop ? Les modifications seront appliquées directement."
-            : "Souhaitez-vous publier ce produit en direct sur Paris Fashion Shop ? Vous pourrez aussi le faire plus tard.",
+            : willBeDraftOnPfs
+              ? "Ce produit est hors ligne sur votre boutique. Il sera envoyé sur Paris Fashion Shop en brouillon (non visible aux acheteurs). Pour le mettre en ligne plus tard, repassez-le en ligne ici puis enregistrez."
+              : "Souhaitez-vous publier ce produit en direct sur Paris Fashion Shop ? Vous pourrez aussi le faire plus tard.",
           checkboxes: [
             {
               id: "pfs",
@@ -1737,7 +1747,9 @@ export default function ProductForm({
                 {/* Pays de fabrication */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-body font-semibold text-text-secondary">Pays de fabrication</label>
+                    <label className="block text-sm font-body font-semibold text-text-secondary">
+                      Pays de fabrication{mode === "create" ? " *" : ""}
+                    </label>
                     <button type="button"
                       onClick={() => setModalType("country")}
                       className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
@@ -1753,13 +1765,16 @@ export default function ProductForm({
                     placeholder="— Aucun —"
                     loading={!attributesLoaded}
                     emptyMessage="Aucun pays n'est créé"
+                    className={mode === "create" && !manufacturingCountryId ? "field-error" : ""}
                   />
                 </div>
 
                 {/* Saison */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-body font-semibold text-text-secondary">Saison</label>
+                    <label className="block text-sm font-body font-semibold text-text-secondary">
+                      Saison{mode === "create" ? " *" : ""}
+                    </label>
                     <button type="button"
                       onClick={() => setModalType("season")}
                       className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
@@ -1775,6 +1790,7 @@ export default function ProductForm({
                     placeholder="— Aucune —"
                     loading={!attributesLoaded}
                     emptyMessage="Aucune saison n'est créée"
+                    className={mode === "create" && !seasonId ? "field-error" : ""}
                   />
                 </div>
               </div>
@@ -1803,7 +1819,7 @@ export default function ProductForm({
                   onBlur={() => { if (activeLocale === "fr") markTouched("description"); }}
                   rows={4}
                   placeholder={activeLocale === "fr" ? "Description commerciale du produit (30 caractères minimum)…" : `Description en ${LOCALE_LABELS[activeLocale]}…`}
-                  className={`field-input resize-none${activeLocale === "fr" && touchedFields.has("description") && (!description.trim() || description.trim().length < DESCRIPTION_MIN_CHARS) ? " field-error" : ""}`}
+                  className={`field-input resize-none${activeLocale === "fr" && (!description.trim() || description.trim().length < DESCRIPTION_MIN_CHARS) ? " field-error" : ""}`}
                   required={activeLocale === "fr"}
                 />
                 {activeLocale === "fr" && touchedFields.has("description") && !description.trim() && (
@@ -1962,15 +1978,20 @@ export default function ProductForm({
         </div>
 
         {/* ── Variantes couleur ── */}
-        <section id="section-variants" className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card scroll-mt-24">
+        <section id="section-variants" className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card scroll-mt-24`}>
           <div className="flex items-center justify-between border-b border-border pb-4">
             <h2 className="font-heading text-xl font-bold text-text-primary">
-              Variantes
+              Variantes{mode === "create" ? " *" : ""}
             </h2>
-            <span className="text-sm text-text-muted font-body">
+            <span className={`text-sm font-body ${mode === "create" && variants.length === 0 ? "text-[#EF4444] font-semibold" : "text-text-muted"}`}>
               {variants.length} variante{variants.length > 1 ? "s" : ""}
             </span>
           </div>
+          {mode === "create" && variants.length === 0 && (
+            <p className="text-[12px] text-[#EF4444] font-body">
+              Au moins une variante de couleur est obligatoire pour créer le produit.
+            </p>
+          )}
 
           {/* Aide rapide : différence entre vente à l'unité et vente en paquet */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

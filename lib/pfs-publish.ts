@@ -632,18 +632,27 @@ export async function pfsPublishProduct(
     }
 
     // ── Step 5 : Status ──
-    // Respect local product status: if product is OFFLINE or ARCHIVED locally,
-    // keep it ARCHIVED on PFS instead of forcing READY_FOR_SALE
-    const shouldBeOffline =
-      product.status === "OFFLINE" || product.status === "ARCHIVED" || allVariantsOutOfStock;
+    // Mapping local → PFS :
+    //   ONLINE  → READY_FOR_SALE (en vente)
+    //   sinon   → DRAFT          (brouillon — jamais ARCHIVED, qui sortirait
+    //                             le produit de la liste de travail PFS)
+    const targetPfsStatus: "READY_FOR_SALE" | "DRAFT" =
+      product.status === "ONLINE" && !allVariantsOutOfStock
+        ? "READY_FOR_SALE"
+        : "DRAFT";
 
-    if (shouldBeOffline) {
-      report("Archivage sur PFS (produit hors ligne ou en rupture)...");
-      await pfsUpdateStatus([{ id: createdPfsProductId, status: "ARCHIVED" }]);
-    } else {
+    if (targetPfsStatus === "READY_FOR_SALE") {
       report("Mise en ligne...");
-      await pfsUpdateStatus([{ id: createdPfsProductId, status: "READY_FOR_SALE" }]);
+    } else {
+      report("Mise en brouillon sur PFS...");
     }
+    logger.info("[PFS Publish] Updating status", {
+      pfsProductId: createdPfsProductId,
+      targetStatus: targetPfsStatus,
+      localStatus: product.status,
+      allVariantsOutOfStock,
+    });
+    await pfsUpdateStatus([{ id: createdPfsProductId, status: targetPfsStatus }]);
 
     // ── Step 6 : Local DB ──
     report("Mise à jour locale...");

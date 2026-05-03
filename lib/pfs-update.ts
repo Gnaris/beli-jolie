@@ -513,9 +513,14 @@ export async function pfsUpdateProductInPlace(
     }
 
     const allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
-    const shouldBeOffline =
-      product.status === "OFFLINE" || product.status === "ARCHIVED" || allVariantsOutOfStock;
-    const targetStatus = shouldBeOffline ? "ARCHIVED" : "READY_FOR_SALE";
+    // Mapping local → PFS :
+    //   ONLINE  → READY_FOR_SALE (en vente)
+    //   sinon   → DRAFT          (brouillon — jamais ARCHIVED, qui sortirait
+    //                             le produit de la liste de travail PFS)
+    const targetStatus: "READY_FOR_SALE" | "DRAFT" =
+      product.status === "ONLINE" && !allVariantsOutOfStock
+        ? "READY_FOR_SALE"
+        : "DRAFT";
 
     const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
     const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant, colorRefMap) : null;
@@ -836,11 +841,17 @@ export async function pfsUpdateProductInPlace(
 
     // ── Step 5 : Update status (skippé si inchangé) ──
     if (diff.statusChanged) {
-      if (shouldBeOffline) {
-        report("Archivage sur PFS (produit hors ligne ou en rupture)...");
-      } else {
+      if (targetStatus === "READY_FOR_SALE") {
         report("Mise en ligne...");
+      } else {
+        report("Mise en brouillon sur PFS...");
       }
+      logger.info("[PFS Update] Updating status", {
+        pfsProductId,
+        targetStatus,
+        localStatus: product.status,
+        allVariantsOutOfStock,
+      });
       try {
         await pfsUpdateStatus([{ id: pfsProductId, status: targetStatus }]);
         committedSnapshot.status = targetStatus;
