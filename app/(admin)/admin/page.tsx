@@ -5,7 +5,6 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedDashboardStats, getCachedLowStockCount } from "@/lib/cached-data";
-import DashboardParticlesLoader from "@/components/admin/dashboard/DashboardParticlesLoader";
 import DashboardChartsLoader from "@/components/admin/dashboard/DashboardChartsLoader";
 import type { MonthlyPoint, StatusPoint, TopProduct } from "@/components/admin/dashboard/DashboardCharts";
 
@@ -44,7 +43,7 @@ export default async function AdminDashboardPage() {
 
   const {
     totalClients, approvedCount, totalOrders, totalRevenue,
-    totalProducts, totalCollections, ordersThisMonth, revenueThisMonth,
+    totalProducts, totalCollections, pendingOrders, revenueToday,
     recentOrders, orderStatusRaw, topProductsRaw,
   } = stats;
 
@@ -91,129 +90,162 @@ export default async function AdminDashboardPage() {
   });
   const todayFormatted = todayLabel.charAt(0).toUpperCase() + todayLabel.slice(1);
 
+  const fmtEur = (n: number) =>
+    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
 
-      {/* ── HERO BANNER ── */}
-      <div className="relative overflow-hidden rounded-2xl h-44"
-        style={{ background: "linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%)" }}>
-        <DashboardParticlesLoader />
-        <div className="relative z-10 h-full flex flex-col justify-center px-8">
-          <div className="inline-flex items-center gap-2 bg-[rgba(255,255,255,0.2)] text-[rgba(255,255,255,0.8)] text-xs font-body px-3 py-1 rounded-full mb-3 w-fit">
-            {todayFormatted}
+      {/* ── HERO ── */}
+      <div className="bg-bg-primary border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div>
+            <p className="text-xs font-body text-text-muted uppercase tracking-wider mb-2">
+              {todayFormatted}
+            </p>
+            <h1 className="font-heading text-2xl md:text-3xl font-bold text-text-primary leading-tight">
+              Bonjour, {session.user.name?.split(" ")[0] ?? "Admin"}
+            </h1>
+            <p className="font-body text-text-secondary text-sm mt-1">
+              Voici un aperçu de votre activité
+            </p>
           </div>
-          <h1 className="font-heading text-2xl md:text-3xl font-bold text-[#FFFFFF] leading-tight">
-            Bonjour, {session.user.name?.split(" ")[0] ?? "Admin"} 👋
-          </h1>
-          <p className="font-body text-[rgba(255,255,255,0.6)] text-sm mt-1">
-            Tableau de bord — Administration
-          </p>
+
+          {(pendingCount > 0 || lowStockCount > 0) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {pendingCount > 0 && (
+                <Link
+                  href="/admin/utilisateurs?status=PENDING"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-[#FEF3C7] text-[#92400E] text-xs font-body font-medium hover:bg-[#FDE68A] transition-colors"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
+                  {pendingCount} demande{pendingCount > 1 ? "s" : ""} à examiner
+                </Link>
+              )}
+              {lowStockCount > 0 && (
+                <Link
+                  href="/admin/produits?stock=low"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-[#FEF2F2] text-[#991B1B] text-xs font-body font-medium hover:bg-[#FECACA] transition-colors"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444]" />
+                  {lowStockCount} produit{lowStockCount > 1 ? "s" : ""} en stock bas
+                </Link>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── STAT CARDS ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-4">
-        {/* Revenu total */}
-        <div className="stat-card flex flex-col gap-1">
-          <div className="w-9 h-9 rounded-xl bg-bg-secondary flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#6B7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75" />
-            </svg>
+      {/* ── STATS DU JOUR (priorité) ── */}
+      <section>
+        <h2 className="font-body text-xs uppercase tracking-wider text-text-muted mb-4">
+          Aujourd&apos;hui
+        </h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Revenu du jour */}
+          <div className="bg-bg-primary border border-border rounded-2xl p-5 shadow-sm">
+            <div className="w-10 h-10 rounded-xl bg-[#F0FDF4] flex items-center justify-center mb-4">
+              <svg className="w-5 h-5 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75" />
+              </svg>
+            </div>
+            <p className="font-heading text-3xl font-bold text-text-primary">{fmtEur(revenueToday)}</p>
+            <p className="text-sm font-body text-text-secondary mt-1">Revenu</p>
           </div>
-          <p className="font-heading text-2xl font-bold text-text-primary">
-            {new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(totalRevenue)}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">Revenu total</p>
-        </div>
 
-        {/* Revenu ce mois */}
-        <div className="stat-card flex flex-col gap-1">
-          <div className="w-9 h-9 rounded-xl bg-[#F0FDF4] flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75" />
-            </svg>
-          </div>
-          <p className="font-heading text-2xl font-bold text-text-primary">
-            {new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(revenueThisMonth)}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">Revenu ce mois</p>
-        </div>
+          {/* Commandes à traiter (PENDING) */}
+          <Link
+            href="/admin/commandes?status=PENDING"
+            className={`bg-bg-primary border rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all ${pendingOrders > 0 ? "border-[#3B82F6]/40" : "border-border"}`}
+          >
+            <div className="w-10 h-10 rounded-xl bg-[#EFF6FF] flex items-center justify-center mb-4">
+              <svg className="w-5 h-5 text-[#3B82F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
+              </svg>
+            </div>
+            <p className={`font-heading text-3xl font-bold ${pendingOrders > 0 ? "text-[#3B82F6]" : "text-text-primary"}`}>
+              {pendingOrders}
+            </p>
+            <p className="text-sm font-body text-text-secondary mt-1">Commandes à traiter</p>
+          </Link>
 
-        {/* Commandes total */}
-        <div className="stat-card flex flex-col gap-1">
-          <div className="w-9 h-9 rounded-xl bg-bg-secondary flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#6B7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
-            </svg>
-          </div>
-          <p className="font-heading text-2xl font-bold text-text-primary">
-            {totalOrders}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">Commandes</p>
-        </div>
+          {/* En attente */}
+          <Link
+            href="/admin/utilisateurs?status=PENDING"
+            className={`bg-bg-primary border rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all ${pendingCount > 0 ? "border-[#F59E0B]/40" : "border-border"}`}
+          >
+            <div className="w-10 h-10 rounded-xl bg-[#FEF3C7] flex items-center justify-center mb-4">
+              <svg className="w-5 h-5 text-[#F59E0B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <p className={`font-heading text-3xl font-bold ${pendingCount > 0 ? "text-[#F59E0B]" : "text-text-primary"}`}>
+              {pendingCount}
+            </p>
+            <p className="text-sm font-body text-text-secondary mt-1">À examiner</p>
+          </Link>
 
-        {/* Commandes ce mois */}
-        <div className="stat-card flex flex-col gap-1">
-          <div className="w-9 h-9 rounded-xl bg-bg-tertiary flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#4B5563]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-            </svg>
-          </div>
-          <p className="font-heading text-2xl font-bold text-text-primary">
-            {ordersThisMonth}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">Cmd ce mois</p>
+          {/* Stock bas */}
+          <Link
+            href="/admin/produits?stock=low"
+            className={`bg-bg-primary border rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all ${lowStockCount > 0 ? "border-[#EF4444]/40" : "border-border"}`}
+          >
+            <div className="w-10 h-10 rounded-xl bg-[#FEF2F2] flex items-center justify-center mb-4">
+              <svg className="w-5 h-5 text-[#EF4444]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+              </svg>
+            </div>
+            <p className={`font-heading text-3xl font-bold ${lowStockCount > 0 ? "text-[#EF4444]" : "text-text-primary"}`}>
+              {lowStockCount}
+            </p>
+            <p className="text-sm font-body text-text-secondary mt-1">Stock bas</p>
+          </Link>
         </div>
+      </section>
 
-        {/* Clients actifs */}
-        <div className="stat-card flex flex-col gap-1">
-          <div className="w-9 h-9 rounded-xl bg-bg-secondary flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#6B7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-            </svg>
+      {/* ── VUE D'ENSEMBLE (totaux secondaires) ── */}
+      <section>
+        <h2 className="font-body text-xs uppercase tracking-wider text-text-muted mb-4">
+          Vue d&apos;ensemble
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-bg-primary border border-border rounded-xl p-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-bg-secondary flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="font-heading text-lg font-bold text-text-primary truncate">{fmtEur(totalRevenue)}</p>
+              <p className="text-xs font-body text-text-muted">Revenu total</p>
+            </div>
           </div>
-          <p className="font-heading text-2xl font-bold text-text-primary">
-            {approvedCount}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">Clients actifs</p>
+
+          <div className="bg-bg-primary border border-border rounded-xl p-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-bg-secondary flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="font-heading text-lg font-bold text-text-primary">{totalOrders}</p>
+              <p className="text-xs font-body text-text-muted">Commandes au total</p>
+            </div>
+          </div>
+
+          <div className="bg-bg-primary border border-border rounded-xl p-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-bg-secondary flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="font-heading text-lg font-bold text-text-primary">{approvedCount}</p>
+              <p className="text-xs font-body text-text-muted">Clients actifs</p>
+            </div>
+          </div>
         </div>
-
-        {/* En attente */}
-        <div className={`stat-card flex flex-col gap-1 ${pendingCount > 0 ? "ring-2 ring-warning/30" : ""}`}>
-          <div className="w-9 h-9 rounded-xl bg-[#FEF3C7] flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#F59E0B]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <p className="font-heading text-2xl font-bold text-[#F59E0B]">
-            {pendingCount}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">En attente</p>
-          {pendingCount > 0 && (
-            <span className="text-xs text-[#F59E0B] font-medium font-body">
-              Action requise
-            </span>
-          )}
-        </div>
-
-        {/* Stock bas */}
-        <Link href="/admin/produits?stock=low" className={`stat-card flex flex-col gap-1 ${lowStockCount > 0 ? "ring-2 ring-[#EF4444]/30" : ""}`}>
-          <div className="w-9 h-9 rounded-xl bg-[#FEF2F2] flex items-center justify-center mb-1">
-            <svg className="w-4 h-4 text-[#EF4444]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-            </svg>
-          </div>
-          <p className={`font-heading text-2xl font-bold ${lowStockCount > 0 ? "text-[#EF4444]" : "text-text-primary"}`}>
-            {lowStockCount}
-          </p>
-          <p className="text-xs font-body text-[#6B7280]">Stock bas</p>
-          {lowStockCount > 0 && (
-            <span className="text-xs text-[#EF4444] font-medium font-body">
-              A surveiller
-            </span>
-          )}
-        </Link>
-      </div>
+      </section>
 
       {/* ── CHARTS ── */}
       <DashboardChartsLoader
@@ -319,7 +351,11 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* ── LIENS RAPIDES ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <section>
+        <h2 className="font-body text-xs uppercase tracking-wider text-text-muted mb-4">
+          Accès rapides
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {[
           {
             label: "Gérer les clients",
@@ -391,7 +427,8 @@ export default async function AdminDashboardPage() {
             </div>
           </Link>
         ))}
-      </div>
+        </div>
+      </section>
     </div>
   );
 }

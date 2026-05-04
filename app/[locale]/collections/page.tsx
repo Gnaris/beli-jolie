@@ -25,7 +25,13 @@ export default async function CollectionsPage() {
   ]);
   const collections = await prisma.collection.findMany({
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { products: true } } },
+    include: {
+      _count: {
+        select: {
+          products: { where: { product: { status: "ONLINE" } } },
+        },
+      },
+    },
   });
 
   return (

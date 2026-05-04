@@ -43,19 +43,21 @@ export default function TrustBand() {
   const sectionRef = useScrollReveal();
 
   return (
-    <section ref={sectionRef} className="scroll-fade-up bg-bg-primary border-y border-border py-10 lg:py-12">
+    <section ref={sectionRef} className="scroll-fade-up bg-bg-primary border-y border-border py-12 lg:py-16">
       <div className="container-site" style={{ maxWidth: "1200px" }}>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-0">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-4">
           {TRUST_ITEMS.map((item, i) => (
             <div
               key={item.key}
-              className={`flex flex-col items-center text-center ${
-                i < TRUST_ITEMS.length - 1 ? "lg:border-r lg:border-border" : ""
+              className={`flex flex-col items-center text-center px-4 ${
+                i < TRUST_ITEMS.length - 1 ? "lg:border-r lg:border-border-light" : ""
               }`}
             >
-              <div className="text-accent mb-2">{item.icon}</div>
+              <div className="w-12 h-12 rounded-full bg-bg-secondary flex items-center justify-center text-accent mb-3 transition-colors">
+                {item.icon}
+              </div>
               <p className="font-heading font-semibold text-sm text-text-primary">{t(item.key)}</p>
-              <p className="font-body text-xs text-text-muted mt-0.5">{t(`${item.key}Desc`)}</p>
+              <p className="font-body text-xs text-text-muted mt-1 leading-relaxed">{t(`${item.key}Desc`)}</p>
             </div>
           ))}
         </div>

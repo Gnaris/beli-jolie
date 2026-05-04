@@ -319,7 +319,7 @@ export const getCachedAdminWarnings = unstable_cache(
 export const getCachedDashboardStats = unstable_cache(
   async () => {
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOf6MonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
     const [
@@ -329,8 +329,8 @@ export const getCachedDashboardStats = unstable_cache(
       totalRevenueAgg,
       totalProducts,
       totalCollections,
-      ordersThisMonth,
-      revenueThisMonthAgg,
+      pendingOrders,
+      revenueTodayAgg,
       recentOrders,
       orderStatusRaw,
       topProductsRaw,
@@ -344,10 +344,10 @@ export const getCachedDashboardStats = unstable_cache(
       }),
       prisma.product.count(),
       prisma.collection.count(),
-      prisma.order.count({ where: { createdAt: { gte: startOfMonth } } }),
+      prisma.order.count({ where: { status: "PENDING" } }),
       prisma.order.aggregate({
         _sum: { totalTTC: true },
-        where: { createdAt: { gte: startOfMonth }, status: { not: "CANCELLED" } },
+        where: { createdAt: { gte: startOfDay }, status: { not: "CANCELLED" } },
       }),
       prisma.order.findMany({
         where: { createdAt: { gte: startOf6MonthsAgo }, status: { not: "CANCELLED" } },
@@ -370,8 +370,8 @@ export const getCachedDashboardStats = unstable_cache(
       totalRevenue: Number(totalRevenueAgg._sum.totalTTC ?? 0),
       totalProducts,
       totalCollections,
-      ordersThisMonth,
-      revenueThisMonth: Number(revenueThisMonthAgg._sum.totalTTC ?? 0),
+      pendingOrders,
+      revenueToday: Number(revenueTodayAgg._sum.totalTTC ?? 0),
       recentOrders: recentOrders.map((o) => ({
         createdAt: o.createdAt.toISOString(),
         totalTTC: Number(o.totalTTC ?? 0),
