@@ -101,6 +101,7 @@ interface FullProduct {
   name: string;
   description: string;
   status: string;
+  isBestSeller: boolean;
   primaryColorId: string | null;
   dimensionLength: number | null;
   dimensionWidth: number | null;
@@ -191,6 +192,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       status: true,
+      isBestSeller: true,
       primaryColorId: true,
       dimensionLength: true,
       dimensionWidth: true,
@@ -707,11 +709,11 @@ export async function pfsRefreshProduct(
         it: "Fine serie — Prodotto ritirato dalla vendita",
       };
       const unavailableDesc: Record<string, string> = {
-        fr: "Ce produit est en fin de série et n'est plus commercialisé. Il a été remplacé par une nouvelle référence. Merci de votre compréhension.",
-        en: "This product has been discontinued and is no longer available for sale. It has been replaced by a new reference. Thank you for your understanding.",
-        de: "Dieses Produkt ist ein Auslaufmodell und wird nicht mehr verkauft. Es wurde durch eine neue Referenz ersetzt. Vielen Dank für Ihr Verständnis.",
-        es: "Este producto es de fin de serie y ya no está a la venta. Ha sido reemplazado por una nueva referencia. Gracias por su comprensión.",
-        it: "Questo prodotto è a fine serie e non è più in vendita. È stato sostituito da un nuovo riferimento. Grazie per la comprensione.",
+        fr: "Ce produit est en fin de série et n'est plus commercialisé.",
+        en: "This product has been discontinued and is no longer available for sale.",
+        de: "Dieses Produkt ist ein Auslaufmodell und wird nicht mehr verkauft.",
+        es: "Este producto es de fin de serie y ya no está a la venta.",
+        it: "Questo prodotto è a fine serie e non è più in vendita.",
       };
       await pfsUpdateProduct(oldPfsProductId, {
         label: unavailableLabel,
@@ -775,16 +777,20 @@ export async function pfsRefreshProduct(
     logger.info("[PFS Refresh] New product renamed to real ref", { newPfsProductId, ref: product.reference });
 
     // Mapping local → PFS :
-    //   ONLINE  → READY_FOR_SALE (en vente)
-    //   sinon   → DRAFT          (brouillon — jamais ARCHIVED, qui sortirait
-    //                             le produit de la liste de travail PFS)
-    const targetPfsStatus: "READY_FOR_SALE" | "DRAFT" =
-      product.status === "ONLINE" && !allVariantsOutOfStock
-        ? "READY_FOR_SALE"
-        : "DRAFT";
+    //   ONLINE (avec stock) → READY_FOR_SALE
+    //   ARCHIVED            → ARCHIVED
+    //   OFFLINE / pas stock → DRAFT
+    const targetPfsStatus: "READY_FOR_SALE" | "DRAFT" | "ARCHIVED" =
+      product.status === "ARCHIVED"
+        ? "ARCHIVED"
+        : product.status === "ONLINE" && !allVariantsOutOfStock
+          ? "READY_FOR_SALE"
+          : "DRAFT";
 
     if (targetPfsStatus === "READY_FOR_SALE") {
       report("Mise en ligne...");
+    } else if (targetPfsStatus === "ARCHIVED") {
+      report("Archivage sur PFS...");
     } else {
       report("Mise en brouillon sur PFS...");
     }
@@ -795,6 +801,19 @@ export async function pfsRefreshProduct(
       allVariantsOutOfStock,
     });
     await pfsUpdateStatus([{ id: newPfsProductId, status: targetPfsStatus }]);
+
+    // Si la case best-seller est cochée, poser l'étoile sur le nouveau produit PFS
+    if (product.isBestSeller && targetPfsStatus !== "ARCHIVED") {
+      report("Mise en avant sur PFS...");
+      try {
+        await pfsUpdateStatus([{ id: newPfsProductId, status: "STAR" }]);
+        logger.info("[PFS Refresh] Best-seller star applied", { newPfsProductId });
+      } catch (err) {
+        logger.warn("[PFS Refresh] Failed to STAR product (non-critical)", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     // ── Step 6: Local DB — set lastRefreshedAt + nouveaux IDs marketplaces ──
     report("Mise à jour locale...");
