@@ -19,6 +19,7 @@ import {
   pfsUploadImage,
   pfsDeleteImage,
   pfsUpdateStatus,
+  pfsRemoveStar,
   pfsTranslate,
   pfsGetCategories,
   pfsGetFamilies,
@@ -93,6 +94,7 @@ interface FullProduct {
   primaryColorId: string | null;
   pfsProductId: string | null;
   pfsLastSyncSnapshot: unknown;
+  isBestSeller: boolean;
   dimensionLength: number | null;
   dimensionWidth: number | null;
   dimensionHeight: number | null;
@@ -129,6 +131,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       primaryColorId: true,
       pfsProductId: true,
       pfsLastSyncSnapshot: true,
+      isBestSeller: true,
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
@@ -526,13 +529,15 @@ export async function pfsUpdateProductInPlace(
 
     const allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
     // Mapping local → PFS :
-    //   ONLINE  → READY_FOR_SALE (en vente)
-    //   sinon   → DRAFT          (brouillon — jamais ARCHIVED, qui sortirait
-    //                             le produit de la liste de travail PFS)
-    const targetStatus: "READY_FOR_SALE" | "DRAFT" =
-      product.status === "ONLINE" && !allVariantsOutOfStock
-        ? "READY_FOR_SALE"
-        : "DRAFT";
+    //   ONLINE (avec stock) → READY_FOR_SALE
+    //   ARCHIVED            → ARCHIVED
+    //   OFFLINE / pas stock → DRAFT
+    const targetStatus: "READY_FOR_SALE" | "DRAFT" | "ARCHIVED" =
+      product.status === "ARCHIVED"
+        ? "ARCHIVED"
+        : product.status === "ONLINE" && !allVariantsOutOfStock
+          ? "READY_FOR_SALE"
+          : "DRAFT";
 
     // Couleur principale = Product.primaryColorId (avec fallback isPrimary pour les produits non migrés).
     const primaryColorIdResolved = getProductPrimaryColorId({
@@ -564,6 +569,7 @@ export async function pfsUpdateProductInPlace(
       variants: nextVariantsSnap,
       images: nextImagesSnap,
       status: targetStatus,
+      isBestSeller: product.isBestSeller,
     };
 
     // ── Diff vs snapshot précédent ──
@@ -582,6 +588,7 @@ export async function pfsUpdateProductInPlace(
           variants: {},
           images: {},
           status: targetStatus,
+          isBestSeller: false,
         };
 
     // Si rien n'a changé ET pas de variantes nouvelles à créer, on peut tout sauter
@@ -866,6 +873,8 @@ export async function pfsUpdateProductInPlace(
     if (diff.statusChanged) {
       if (targetStatus === "READY_FOR_SALE") {
         report("Mise en ligne...");
+      } else if (targetStatus === "ARCHIVED") {
+        report("Archivage sur PFS...");
       } else {
         report("Mise en brouillon sur PFS...");
       }
@@ -882,6 +891,33 @@ export async function pfsUpdateProductInPlace(
         logger.warn("[PFS Update] Failed to update status", {
           error: err instanceof Error ? err.message : String(err),
         });
+      }
+    }
+
+    // ── Step 5b : Best-Seller (skippé si inchangé) ──
+    if (diff.bestSellerChanged) {
+      if (product.isBestSeller) {
+        report("Mise en avant sur PFS...");
+        logger.info("[PFS Update] Setting best-seller (STAR)", { pfsProductId });
+        try {
+          await pfsUpdateStatus([{ id: pfsProductId, status: "STAR" }]);
+          committedSnapshot.isBestSeller = true;
+        } catch (err) {
+          logger.warn("[PFS Update] Failed to STAR product", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      } else {
+        report("Retrait de la mise en avant sur PFS...");
+        logger.info("[PFS Update] Removing best-seller (REMOVE_STAR)", { pfsProductId });
+        try {
+          await pfsRemoveStar(pfsProductId);
+          committedSnapshot.isBestSeller = false;
+        } catch (err) {
+          logger.warn("[PFS Update] Failed to REMOVE_STAR product", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
     }
 
