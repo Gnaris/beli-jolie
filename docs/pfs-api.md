@@ -96,6 +96,18 @@ Champs partiels OK. Changement categorie possible a tout moment (meme cross-genr
 | `READY_FOR_SALE` | ONLINE | min 1 variant + 1 image/couleur |
 | `DRAFT` | OFFLINE | aucun |
 | `ARCHIVED` | ARCHIVED | aucun |
+| `DELETED` | (soft-delete) | utilisé pour le swap refresh |
+| `STAR` | `Product.isBestSeller=true` | aucun (orthogonal au statut courant) |
+
+**`STAR`** met l'étoile « best-seller » sur le produit (peut être posé en lot via le batch ci-dessus).
+
+**`REMOVE_STAR`** retire l'étoile et a son propre endpoint single, **sans body** :
+
+```
+PATCH /catalog/products/{pfsProductId}/updateStatus/REMOVE_STAR
+```
+
+Wrappers BJ : `pfsUpdateStatus([{ id, status: "STAR" }])` et `pfsRemoveStar(pfsProductId)` (`lib/pfs-api-write.ts`).
 
 ---
 
