@@ -114,7 +114,7 @@ export default function QuickCreateSizeModal({
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div
-        className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-lg flex flex-col"
+        className="relative bg-bg-primary rounded-none shadow-2xl w-full max-w-lg flex flex-col"
         style={{ maxHeight: "min(90vh, 560px)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -131,7 +131,7 @@ export default function QuickCreateSizeModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 hover:bg-bg-secondary rounded-xl transition-colors"
+            className="p-2 hover:bg-bg-secondary rounded-none transition-colors"
             aria-label="Fermer"
           >
             <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -164,7 +164,7 @@ export default function QuickCreateSizeModal({
               Référence Paris Fashion Shop <span className="text-[#EF4444]">*</span>
             </label>
             {lockPfsRef ? (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-muted border border-border text-sm font-body text-text-primary">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-none bg-bg-muted border border-border text-sm font-body text-text-primary">
                 <svg className="w-3.5 h-3.5 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
                 </svg>
@@ -181,7 +181,7 @@ export default function QuickCreateSizeModal({
                 className={pfsEmpty ? "border-[#EF4444]" : ""}
               />
             ) : (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-xs text-[#7F1D1D] font-body">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-none bg-[#FEF2F2] border border-[#FECACA] text-xs text-[#7F1D1D] font-body">
                 <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                 </svg>
@@ -213,11 +213,11 @@ export default function QuickCreateSizeModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2.5 px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
+        <div className="flex items-center justify-end gap-2.5 px-6 py-3.5 border-t border-border bg-bg-primary rounded-none shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-xl hover:bg-bg-secondary transition-colors"
+            className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-none hover:bg-bg-secondary transition-colors"
           >
             Annuler
           </button>
@@ -226,7 +226,7 @@ export default function QuickCreateSizeModal({
             onClick={handleSubmit}
             disabled={!canSubmit || !pfsAvailable}
             title={!canSubmit ? "Renseignez le nom et la référence PFS." : undefined}
-            className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-none hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? "Création…" : "Créer la taille"}
           </button>

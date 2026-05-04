@@ -178,7 +178,7 @@ export default function ProductFormNav({
     <nav
       aria-label="Sections du formulaire produit"
       data-testid="product-form-nav"
-      className="hidden xl:block xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto bg-bg-primary border border-border rounded-2xl p-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
+      className="hidden xl:block xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto bg-bg-primary border border-border rounded-none p-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-text-muted font-heading mb-3 px-1">
         Sections du produit
@@ -195,7 +195,7 @@ export default function ProductFormNav({
                 onClick={() => handleClick(sec.anchor, sec.key)}
                 aria-current={isActive ? "true" : undefined}
                 data-testid={`nav-${sec.key}`}
-                className={`group relative w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-start gap-2.5 ${
+                className={`group relative w-full text-left px-3 py-2.5 rounded-none transition-colors flex items-start gap-2.5 ${
                   isActive
                     ? "bg-bg-dark text-text-inverse"
                     : "hover:bg-bg-secondary text-text-primary"

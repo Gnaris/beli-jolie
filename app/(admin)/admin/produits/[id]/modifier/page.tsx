@@ -365,7 +365,7 @@ export default async function ModifierProduitPage({
             <div>
               <h1 className="page-title">Modifier le produit</h1>
               <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] bg-bg-tertiary px-2.5 py-1 rounded-md text-text-secondary border border-border-light font-semibold">
+                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] bg-bg-tertiary px-2.5 py-1 rounded-none text-text-secondary border border-border-light font-semibold">
                   {product.reference}
                 </span>
                 <span className="hidden sm:block h-4 w-px bg-border" />
@@ -417,7 +417,7 @@ export default async function ModifierProduitPage({
               <Link
                 href={`/produits/${product.id}`}
                 target="_blank"
-                className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-text-secondary bg-bg-primary border border-border rounded-xl hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm"
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-text-secondary bg-bg-primary border border-border rounded-none hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm"
                 title="Voir côté client"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

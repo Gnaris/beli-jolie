@@ -50,7 +50,7 @@ export function MarketplaceStatusButtons({
           if (pfsProductId) return;
           setConfirmOpen(true);
         }}
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold font-body border transition-all ${
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-semibold font-body border transition-all ${
           pfsProductId
             ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] cursor-default"
             : "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA] hover:bg-[#FEE2E2] cursor-pointer"
@@ -80,7 +80,7 @@ export function MarketplaceStatusButtons({
 
       {confirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
+          <div className="bg-white rounded-none shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-[#FEF2F2] flex items-center justify-center">
                 <svg className="w-5 h-5 text-[#DC2626]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -104,14 +104,14 @@ export function MarketplaceStatusButtons({
               <button
                 type="button"
                 onClick={() => setConfirmOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-xl hover:bg-bg-tertiary transition-colors font-body"
+                className="px-4 py-2 text-sm font-medium text-text-secondary bg-bg-secondary border border-border rounded-none hover:bg-bg-tertiary transition-colors font-body"
               >
                 Annuler
               </button>
               <button
                 type="button"
                 onClick={handlePublish}
-                className="px-4 py-2 text-sm font-medium text-white bg-[#DC2626] rounded-xl hover:bg-[#B91C1C] transition-colors font-body"
+                className="px-4 py-2 text-sm font-medium text-white bg-[#DC2626] rounded-none hover:bg-[#B91C1C] transition-colors font-body"
               >
                 Oui, publier
               </button>

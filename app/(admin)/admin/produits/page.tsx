@@ -8,7 +8,7 @@ import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedSiteConfig, getCachedTags } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { buildAdminProductsWhere } from "@/lib/admin-products-filter";
@@ -153,7 +153,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     stockBelow,
   });
 
-  const [products, totalCount, categories, tags, sectionCounts] = await Promise.all([
+  const [products, totalCount, categories, tags, sectionCounts, hasPfsConfig] = await Promise.all([
     prisma.product.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -198,6 +198,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       prisma.product.count({ where: { status: "OFFLINE", isIncomplete: true } }),
       prisma.product.count({ where: { status: "ARCHIVED" } }),
     ]).then(([all, online, offline, draft, archived]) => ({ all, online, offline, draft, archived })),
+    getCachedPfsEnabled(),
   ]);
 
   const totalPages = Math.ceil(totalCount / perPage);
@@ -335,7 +336,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       </div>
 
       {/* Tableau */}
-      <AdminProductsTable products={serializedProducts} totalCount={totalCount} />
+      <AdminProductsTable products={serializedProducts} totalCount={totalCount} hasPfsConfig={hasPfsConfig} />
 
       {/* Pagination */}
       {totalPages > 1 && (

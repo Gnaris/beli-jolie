@@ -30,7 +30,7 @@ export function ProductEditRefreshButton({
         }
       }}
       disabled={pending}
-      className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-text-secondary bg-bg-primary border border-border rounded-xl hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm disabled:opacity-50 disabled:cursor-wait"
+      className="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-text-secondary bg-bg-primary border border-border rounded-none hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm disabled:opacity-50 disabled:cursor-wait"
       title="Rafraîchir (boutique + marketplaces)"
     >
       <svg

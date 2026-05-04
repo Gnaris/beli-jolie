@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition, useCallback, useRef, useEffect } from "react";
+import React, { useState, useTransition, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -11,18 +11,13 @@ import {
   updateVariantQuick,
   bulkUpdateVariants,
 } from "@/app/actions/admin/products";
-import {
-  refreshProductOnMarketplaces,
-  refreshProductsOnMarketplaces,
-  type MarketplaceRefreshOutcome,
-  type MarketplaceRefreshOptions,
-} from "@/app/actions/admin/marketplace-refresh";
+import { deleteProductsOnPfs } from "@/app/actions/admin/marketplace-delete";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
-import CustomSelect from "@/components/ui/CustomSelect";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useProductStream } from "@/hooks/useProductStream";
 import { useRefreshMarketplaceDialog } from "@/components/admin/products/useRefreshMarketplaceDialog";
+import { usePfsRefreshQueue } from "@/components/admin/products/PfsRefreshContext";
 
 // ─── Rule helpers ──────────────────────────────────────────────────────────────
 
@@ -106,19 +101,22 @@ interface AdminProduct {
 interface Props {
   products: AdminProduct[];
   totalCount: number;
+  hasPfsConfig: boolean;
 }
 
 // ─── Variant Editor Row ────────────────────────────────────────────────────────
 
 function VariantRow({
   variant,
-  productName,
+  product,
+  hasPfsConfig,
   checked,
   onCheck,
   onSaved,
 }: {
   variant: ColorVariant;
-  productName: string;
+  product: AdminProduct;
+  hasPfsConfig: boolean;
   checked: boolean;
   onCheck: () => void;
   onSaved: () => void;
@@ -127,10 +125,11 @@ function VariantRow({
   const [price, setPrice] = useState(String(variant.unitPrice));
   const [stock, setStock] = useState(String(variant.stock));
   const [weight, setWeight] = useState(String(variant.weight));
-  const [saleType, setSaleType] = useState(variant.saleType);
   const [packQuantity, setPackQuantity] = useState(String(variant.packQuantity ?? ""));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const { confirm } = useConfirm();
+  const { enqueue } = usePfsRefreshQueue();
 
   const handleSave = async () => {
     setSaving(true);
@@ -140,11 +139,33 @@ function VariantRow({
         unitPrice: parseFloat(price) || 0,
         stock: parseInt(stock) || 0,
         weight: parseFloat(weight) || 0,
-        saleType,
-        packQuantity: saleType === "PACK" ? (parseInt(packQuantity) || null) : null,
+        packQuantity: variant.saleType === "PACK" ? (parseInt(packQuantity) || null) : null,
       });
       setEditing(false);
       onSaved();
+
+      // Propose la mise à jour PFS si le produit y est déjà publié
+      if (hasPfsConfig && product.pfsProductId) {
+        const ok = await confirm({
+          type: "info",
+          title: "Mettre à jour sur Paris Fashion Shop ?",
+          message: `Souhaitez-vous appliquer cette modification de variante (${variant.color.name}) sur Paris Fashion Shop ?`,
+          confirmLabel: "Mettre à jour",
+          cancelLabel: "Plus tard",
+        });
+        if (ok === true) {
+          enqueue([
+            {
+              productId: product.id,
+              reference: product.reference,
+              productName: product.name,
+              firstImage: product.firstImage,
+              options: { local: false, pfs: true },
+              mode: "publish",
+            },
+          ]);
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -163,7 +184,7 @@ function VariantRow({
             checked={checked}
             onChange={onCheck}
             className="checkbox-custom checkbox-sm"
-            title={`Sélectionner ${variant.color.name} — ${productName}`}
+            title={`Sélectionner ${variant.color.name} — ${product.name}`}
           />
         </td>
         <td className="px-3 py-2.5">
@@ -270,18 +291,11 @@ function VariantRow({
         </td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-1.5">
-            <CustomSelect
-              value={saleType}
-              onChange={(v) => setSaleType(v as "UNIT" | "PACK")}
-              options={[
-                { value: "UNIT", label: "Unité" },
-                { value: "PACK", label: "Pack" },
-              ]}
-              size="sm"
-              className="w-[90px]"
-            />
-            {saleType === "PACK" && (
-              <input type="number" min={2} value={packQuantity} onChange={(e) => setPackQuantity(e.target.value)} placeholder="Qté" className={`${inputClass} !w-14`} />
+            <span className={`badge text-[10px] ${variant.saleType === "UNIT" ? "badge-info" : "badge-purple"}`}>
+              {variant.saleType === "UNIT" ? "Unité" : "Pack"}
+            </span>
+            {variant.saleType === "PACK" && (
+              <input type="number" min={2} value={packQuantity} onChange={(e) => setPackQuantity(e.target.value)} placeholder="Qté" className={`${inputClass} !w-14`} title="Quantité par paquet" />
             )}
             {variant.variantSizes && variant.variantSizes.length > 0 && (
               <span className="badge badge-neutral text-[10px]">
@@ -448,6 +462,7 @@ function ActionsDropdown({
 
 function ProductRow({
   product,
+  hasPfsConfig,
   selected,
   onToggle,
   expanded,
@@ -459,6 +474,7 @@ function ProductRow({
   isDeleting = false,
 }: {
   product: AdminProduct;
+  hasPfsConfig: boolean;
   selected: boolean;
   onToggle: () => void;
   expanded: boolean;
@@ -800,7 +816,8 @@ function ProductRow({
                     <VariantRow
                       key={variant.id}
                       variant={variant}
-                      productName={product.name}
+                      product={product}
+                      hasPfsConfig={hasPfsConfig}
                       checked={selectedVariantIds.has(variant.id)}
                       onCheck={() => onToggleVariant(variant.id)}
                       onSaved={() => {}}
@@ -1118,9 +1135,10 @@ function BulkVariantBar({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, newProductIds, deletingIds,
+  products, hasPfsConfig, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, selectedVariantIds, toggleVariant, toggleAllVariants, newProductIds, deletingIds,
 }: {
   products: AdminProduct[];
+  hasPfsConfig: boolean;
   selectedIds: Set<string>;
   allSelected: boolean;
   toggleSelectAll: () => void;
@@ -1222,6 +1240,7 @@ function TableWithTopScroll({
               <ProductRow
                 key={product.id}
                 product={product}
+                hasPfsConfig={hasPfsConfig}
                 selected={selectedIds.has(product.id)}
                 onToggle={() => toggleSelect(product.id)}
                 expanded={expandedIds.has(product.id)}
@@ -1242,7 +1261,7 @@ function TableWithTopScroll({
 
 // ─── Main Table ────────────────────────────────────────────────────────────────
 
-export default function AdminProductsTable({ products, totalCount: _totalCount }: Props) {
+export default function AdminProductsTable({ products, totalCount: _totalCount, hasPfsConfig }: Props) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -1251,6 +1270,8 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
   const { showLoading, hideLoading } = useLoadingOverlay();
   const { confirm } = useConfirm();
   const { refreshBulk } = useRefreshMarketplaceDialog();
+  const { enqueue: enqueuePfs } = usePfsRefreshQueue();
+  const toast = useToast();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
@@ -1318,7 +1339,10 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
   }, [router]));
 
   // Merge live products (prepended) with server products
-  const allProducts = [...liveProducts, ...products.filter((p) => !liveProducts.some((lp) => lp.id === p.id))];
+  const allProducts = useMemo(
+    () => [...liveProducts, ...products.filter((p) => !liveProducts.some((lp) => lp.id === p.id))],
+    [liveProducts, products],
+  );
 
   const allPageIds = allProducts.map((p) => p.id);
   const allSelected = allPageIds.length > 0 && allPageIds.every((id) => selectedIds.has(id));
@@ -1400,30 +1424,63 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
 
     setBulkMessage(null);
     showLoading();
-    startTransition(async () => {
-      try {
-        const result = await bulkUpdateProductStatus(ids, status);
+    let successIds: string[] = [];
+    await new Promise<void>((resolve) => {
+      startTransition(async () => {
+        try {
+          const result = await bulkUpdateProductStatus(ids, status);
+          successIds = result.success;
 
-        const msgs: string[] = [];
-        if (result.success.length > 0) {
-          msgs.push(`${result.success.length} produit${result.success.length > 1 ? "s" : ""} ${label.verb}`);
+          const msgs: string[] = [];
+          if (result.success.length > 0) {
+            msgs.push(`${result.success.length} produit${result.success.length > 1 ? "s" : ""} ${label.verb}`);
+          }
+          if (result.errors.length > 0) {
+            const refs = result.errors.map((e) => `${e.reference} (${e.reason})`).join(", ");
+            msgs.push(`Erreurs : ${refs}`);
+          }
+          setBulkMessage({
+            type: result.errors.length > 0 ? "error" : "success",
+            text: msgs.join(" — "),
+          });
+          setSelectedIds(new Set());
+        } catch (e) {
+          setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
+        } finally {
+          hideLoading();
+          resolve();
         }
-        if (result.errors.length > 0) {
-          const refs = result.errors.map((e) => `${e.reference} (${e.reason})`).join(", ");
-          msgs.push(`Erreurs : ${refs}`);
-        }
-        setBulkMessage({
-          type: result.errors.length > 0 ? "error" : "success",
-          text: msgs.join(" — "),
-        });
-        setSelectedIds(new Set());
-      } catch (e) {
-        setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
-      } finally {
-        hideLoading();
-      }
+      });
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm]);
+
+    // Propose la mise à jour PFS pour les produits déjà publiés sur PFS
+    if (hasPfsConfig && successIds.length > 0) {
+      const pfsCandidates = allProducts.filter(
+        (p) => successIds.includes(p.id) && p.pfsProductId,
+      );
+      if (pfsCandidates.length > 0) {
+        const ok = await confirm({
+          type: "info",
+          title: `Mettre à jour ${pfsCandidates.length} produit${pfsCandidates.length > 1 ? "s" : ""} sur Paris Fashion Shop ?`,
+          message: `Le statut sera également appliqué sur Paris Fashion Shop pour les produits déjà publiés (${pfsCandidates.length} sur ${successIds.length}).`,
+          confirmLabel: "Mettre à jour",
+          cancelLabel: "Plus tard",
+        });
+        if (ok === true) {
+          enqueuePfs(
+            pfsCandidates.map((p) => ({
+              productId: p.id,
+              reference: p.reference,
+              productName: p.name,
+              firstImage: p.firstImage,
+              options: { local: false, pfs: true },
+              mode: "publish" as const,
+            })),
+          );
+        }
+      }
+    }
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, enqueuePfs, hasPfsConfig]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
@@ -1481,6 +1538,25 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
     });
     if (!confirmed) return;
 
+    // Capture les pfsProductId AVANT suppression locale (sinon perdus en BDD)
+    const pfsCandidates = hasPfsConfig
+      ? allProducts
+          .filter((p) => ids.includes(p.id) && p.pfsProductId)
+          .map((p) => ({ pfsProductId: p.pfsProductId as string, reference: p.reference }))
+      : [];
+
+    let confirmPfsDelete = false;
+    if (pfsCandidates.length > 0) {
+      const ok = await confirm({
+        type: "warning",
+        title: `Retirer aussi de Paris Fashion Shop ?`,
+        message: `${pfsCandidates.length} produit${pfsCandidates.length > 1 ? "s" : ""} sont publiés sur Paris Fashion Shop. Souhaitez-vous les y retirer également (statut « Supprimé ») ?`,
+        confirmLabel: "Oui, retirer aussi",
+        cancelLabel: "Non, garder sur PFS",
+      });
+      confirmPfsDelete = ok === true;
+    }
+
     setBulkMessage(null);
     setDeletingIds(new Set(ids));
     showLoading();
@@ -1499,6 +1575,26 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
           text: msgs.join(" — ") || "Aucun produit traité",
         });
         setSelectedIds(new Set());
+
+        // Suppression PFS en arrière-plan si l'admin a confirmé
+        if (confirmPfsDelete && pfsCandidates.length > 0) {
+          try {
+            const pfsResults = await deleteProductsOnPfs(pfsCandidates);
+            const okCount = pfsResults.filter((r) => r.status === "ok").length;
+            const errCount = pfsResults.length - okCount;
+            if (errCount === 0) {
+              toast.success(`${okCount} produit${okCount > 1 ? "s" : ""} retiré${okCount > 1 ? "s" : ""} de Paris Fashion Shop`);
+            } else {
+              const errRefs = pfsResults.filter((r) => r.status === "error").map((r) => r.reference).join(", ");
+              toast.error(
+                "Suppression PFS partielle",
+                `${okCount} OK · ${errCount} échec${errCount > 1 ? "s" : ""} (${errRefs})`,
+              );
+            }
+          } catch (err) {
+            toast.error("Échec suppression PFS", err instanceof Error ? err.message : String(err));
+          }
+        }
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
       } finally {
@@ -1506,7 +1602,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
         setDeletingIds(new Set());
       }
     });
-  }, [selectedIds, startTransition, showLoading, hideLoading, confirm]);
+  }, [selectedIds, startTransition, showLoading, hideLoading, confirm, allProducts, hasPfsConfig, toast]);
 
   // ─── Bulk variant actions ──
   const handleBulkVariantUpdate = useCallback(async (data: Record<string, unknown>) => {
@@ -1674,7 +1770,7 @@ export default function AdminProductsTable({ products, totalCount: _totalCount }
       )}
 
       {/* Tableau avec double scrollbar (haut + bas) */}
-      <TableWithTopScroll products={allProducts} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} newProductIds={newProductIds} deletingIds={deletingIds} />
+      <TableWithTopScroll products={allProducts} hasPfsConfig={hasPfsConfig} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} selectedVariantIds={selectedVariantIds} toggleVariant={toggleVariant} toggleAllVariants={toggleAllVariants} newProductIds={newProductIds} deletingIds={deletingIds} />
 
       {/* Barre flottante d'édition en masse des variantes */}
       {variantCount > 0 && (

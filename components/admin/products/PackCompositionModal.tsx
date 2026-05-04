@@ -152,7 +152,7 @@ export default function PackCompositionModal({
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div
-        className="relative bg-bg-primary rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col"
+        className="relative bg-bg-primary rounded-none shadow-2xl w-full max-w-2xl flex flex-col"
         style={{ maxHeight: "min(90vh, 760px)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -168,7 +168,7 @@ export default function PackCompositionModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 hover:bg-bg-secondary rounded-xl transition-colors"
+            className="p-2 hover:bg-bg-secondary rounded-none transition-colors"
             aria-label="Fermer"
           >
             <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -186,7 +186,7 @@ export default function PackCompositionModal({
           )}
 
           {lines.length > 0 && (
-            <div className="border border-border rounded-2xl bg-bg-secondary/40 p-4 space-y-2">
+            <div className="border border-border rounded-none bg-bg-secondary/40 p-4 space-y-2">
               <p className="text-[11px] uppercase tracking-wider text-text-muted font-semibold font-body">
                 Tailles du paquet
               </p>
@@ -194,7 +194,7 @@ export default function PackCompositionModal({
                 Chaque taille choisie est ajoutée pour toutes les couleurs du paquet.
               </p>
               {availableSizes.length === 0 ? (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 font-body">
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-none px-3 py-2 font-body">
                   Aucune taille dans la bibliothèque. Créez-en une dans les variantes.
                 </p>
               ) : (
@@ -206,7 +206,7 @@ export default function PackCompositionModal({
                         key={size.id}
                         type="button"
                         onClick={() => toggleCommonSize(size)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors font-body ${
+                        className={`px-3 py-1.5 text-xs font-medium rounded-none border transition-colors font-body ${
                           isSelected
                             ? "bg-bg-dark text-text-inverse border-[#1A1A1A]"
                             : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
@@ -222,7 +222,7 @@ export default function PackCompositionModal({
           )}
 
           {lines.length > 0 && lines.some((l) => l.sizeEntries.length > 0) && (
-            <div className="border border-border rounded-2xl bg-bg-secondary/40 p-4 space-y-2">
+            <div className="border border-border rounded-none bg-bg-secondary/40 p-4 space-y-2">
               <p className="text-[11px] uppercase tracking-wider text-text-muted font-semibold font-body">
                 Raccourci — appliquer à tout
               </p>
@@ -238,13 +238,13 @@ export default function PackCompositionModal({
                   onChange={(e) => setBulkQty(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyBulkQty(); } }}
                   placeholder="Ex : 3"
-                  className="w-20 border border-border bg-bg-primary px-2 py-1.5 text-xs rounded-md focus:outline-none focus:border-[#1A1A1A] font-body"
+                  className="w-20 border border-border bg-bg-primary px-2 py-1.5 text-xs rounded-none focus:outline-none focus:border-[#1A1A1A] font-body"
                 />
                 <button
                   type="button"
                   onClick={applyBulkQty}
                   disabled={!bulkQty || parseInt(bulkQty) < 1}
-                  className="px-3 py-1.5 text-xs font-medium font-body text-text-inverse bg-bg-dark rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-3 py-1.5 text-xs font-medium font-body text-text-inverse bg-bg-dark rounded-none hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Appliquer
                 </button>
@@ -255,10 +255,10 @@ export default function PackCompositionModal({
           {lines.map((line) => (
             <div
               key={line.tempId}
-              className="border border-border rounded-2xl bg-bg-secondary/40 p-4 space-y-3"
+              className="border border-border rounded-none bg-bg-secondary/40 p-4 space-y-3"
             >
               <div className="flex items-center gap-2.5">
-                <ColorSwatch hex={line.colorHex} size={22} rounded="full" border />
+                <ColorSwatch hex={line.colorHex} size={22} rounded-none="full" border />
                 <span className="text-sm font-semibold text-text-primary font-body">
                   {line.colorName || "Couleur sans nom"}
                 </span>
@@ -273,7 +273,7 @@ export default function PackCompositionModal({
                     Choisissez d&rsquo;abord les tailles du paquet ci-dessus.
                   </p>
                 ) : (
-                  <div className="rounded-xl bg-bg-primary border border-border p-3 space-y-1.5">
+                  <div className="rounded-none bg-bg-primary border border-border p-3 space-y-1.5">
                     {line.sizeEntries.map((se) => (
                       <div key={se.tempId} className="flex items-center gap-2">
                         <span className="text-xs text-text-primary font-medium flex-1 font-body">
@@ -285,7 +285,7 @@ export default function PackCompositionModal({
                           step="1"
                           value={se.quantity}
                           onChange={(e) => updateLineSizeQty(line.tempId, se.sizeId, e.target.value)}
-                          className="w-16 border border-border bg-bg-primary px-2 py-1 text-xs text-right rounded-md focus:outline-none focus:border-[#1A1A1A] font-body"
+                          className="w-16 border border-border bg-bg-primary px-2 py-1 text-xs text-right rounded-none focus:outline-none focus:border-[#1A1A1A] font-body"
                         />
                         <span className="text-[10px] text-text-muted font-body w-10">pièces</span>
                       </div>
@@ -297,7 +297,7 @@ export default function PackCompositionModal({
           ))}
         </div>
 
-        <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-bg-primary rounded-b-2xl shrink-0">
+        <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-bg-primary rounded-none shrink-0">
           <span className="text-sm text-text-secondary font-body">
             {totalQty > 0
               ? `Total : ${totalQty} pièce${totalQty > 1 ? "s" : ""} dans ${lines.length} couleur${lines.length > 1 ? "s" : ""}`
@@ -307,7 +307,7 @@ export default function PackCompositionModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-xl hover:bg-bg-secondary transition-colors"
+              className="px-5 py-2 text-sm font-medium font-body text-text-secondary bg-bg-primary border border-border rounded-none hover:bg-bg-secondary transition-colors"
             >
               Annuler
             </button>
@@ -315,7 +315,7 @@ export default function PackCompositionModal({
               type="button"
               onClick={handleConfirm}
               disabled={!canConfirm}
-              className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-5 py-2 text-sm font-medium font-body text-text-inverse bg-bg-dark rounded-none hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Valider
             </button>

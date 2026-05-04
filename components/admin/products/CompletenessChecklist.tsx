@@ -190,7 +190,7 @@ export default function CompletenessChecklist({
 
   return (
     <div
-      className={`bg-bg-primary border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden transition-colors ${
+      className={`bg-bg-primary border rounded-none shadow-[0_1px_4px_rgba(0,0,0,0.06)] overflow-hidden transition-colors ${
         isComplete ? "border-[#22C55E]" : "border-border"
       }`}
     >

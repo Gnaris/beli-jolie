@@ -448,7 +448,7 @@ export default function QuickCreateModal({
       onMouseUp={backdrop.onMouseUp}
     >
       <div
-        className={`bg-bg-primary rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.3)] flex flex-col max-h-[90vh] ${hasMappableType ? "w-full max-w-[780px]" : "w-full max-w-lg"}`}
+        className={`bg-bg-primary rounded-none shadow-[0_20px_60px_rgba(0,0,0,0.3)] flex flex-col max-h-[90vh] ${hasMappableType ? "w-full max-w-[780px]" : "w-full max-w-lg"}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ── */}
@@ -456,7 +456,7 @@ export default function QuickCreateModal({
           <h3 className="font-heading text-base font-semibold text-text-primary">
             {isEdit ? EDIT_TITLES[type] : TITLES[type]}
           </h3>
-          <button type="button" onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors rounded-lg p-1">
+          <button type="button" onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors rounded-none p-1">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -476,7 +476,7 @@ export default function QuickCreateModal({
                   Nom & traductions
                 </p>
                 {autoTranslateEnabled && !isEdit ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium font-body text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium font-body text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-none px-2 py-1">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
@@ -535,7 +535,7 @@ export default function QuickCreateModal({
                 <p className="text-[11px] text-text-muted font-body uppercase tracking-wide">
                   Apparence
                 </p>
-                <div className="flex rounded-lg border border-border overflow-hidden">
+                <div className="flex rounded-none border border-border overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setColorMode("hex")}
@@ -562,7 +562,7 @@ export default function QuickCreateModal({
                       type="color"
                       value={hex}
                       onChange={(e) => setHex(e.target.value)}
-                      className="w-10 h-10 rounded-lg border border-border cursor-pointer p-0.5 shrink-0"
+                      className="w-10 h-10 rounded-none border border-border cursor-pointer p-0.5 shrink-0"
                     />
                     <input
                       type="text"
@@ -571,10 +571,10 @@ export default function QuickCreateModal({
                       placeholder="#9CA3AF"
                       className="field-input w-28 font-mono text-sm"
                     />
-                    <div className="flex-1 h-10 rounded-lg border border-border" style={{ backgroundColor: hex }} />
+                    <div className="flex-1 h-10 rounded-none border border-border" style={{ backgroundColor: hex }} />
                   </div>
                 ) : (
-                  <label className="flex flex-col items-center justify-center h-28 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-bg-dark transition-colors overflow-hidden relative">
+                  <label className="flex flex-col items-center justify-center h-28 border-2 border-dashed border-border rounded-none cursor-pointer hover:border-bg-dark transition-colors overflow-hidden relative">
                     {patternPreview ? (
                       <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${patternPreview})` }}>
                         <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
@@ -712,7 +712,7 @@ export default function QuickCreateModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2 border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary text-sm font-medium rounded-lg transition-colors font-body"
+              className="px-5 py-2 border border-border text-text-secondary hover:border-bg-dark hover:text-text-primary text-sm font-medium rounded-none transition-colors font-body"
             >
               Annuler
             </button>
@@ -729,7 +729,7 @@ export default function QuickCreateModal({
                       ? "Complétez la correspondance Paris Fashion Shop."
                       : undefined
               }
-              className="px-5 py-2 bg-bg-dark hover:bg-black text-text-inverse text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
+              className="px-5 py-2 bg-bg-dark hover:bg-black text-text-inverse text-sm font-medium rounded-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
             >
               {loading ? (isEdit ? "Enregistrement…" : "Création…") : (isEdit ? "Enregistrer" : "Créer")}
             </button>
@@ -779,7 +779,7 @@ function LockedPfsMapping({
           <label className="block text-xs font-medium text-text-secondary mb-1.5 font-body">
             {r.label}
           </label>
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-muted border border-border text-sm font-body text-text-primary">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-none bg-bg-muted border border-border text-sm font-body text-text-primary">
             <svg className="w-3.5 h-3.5 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
             </svg>

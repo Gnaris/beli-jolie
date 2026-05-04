@@ -137,6 +137,8 @@ NextAuth v4, Credentials + JWT (30d). New users = `PENDING` → admin approves. 
 - **Parallelisation** : lancer des sous-agents en parallele quand les sous-taches sont independantes.
 - **Resume** : fournir un resume des changements + guide de test a la fin de chaque tache.
 - **Récap demande** : à la toute fin de chaque réponse, ajouter une petite section **« Ce que vous m'avez demandé »** qui résume en 1-3 phrases simples la demande initiale. Ça permet de garder une trace claire de ce qui a été fait et pourquoi.
+- **Impact croisé** : avant d'exécuter une tâche, vérifier si elle peut impacter d'autres fonctionnalités, données, pages ou comportements existants. Si oui, prévenir l'utilisatrice **avant** de toucher au code et lister les zones concernées en français simple, pour qu'elle puisse confirmer ou ajuster la demande.
+- **Suggestions d'amélioration** : quand une tâche est demandée et que tu vois une idée, recommandation ou variante qui pourrait l'améliorer (UX, robustesse, simplicité, perf, cohérence avec le reste du site), proposer cette idée à l'utilisatrice en plus de la demande initiale, en français simple. Elle décide ensuite si elle veut intégrer ta proposition.
 
 ## Commandes
 

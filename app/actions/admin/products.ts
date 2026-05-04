@@ -32,6 +32,21 @@ import {
   withProtectedSize,
 } from "@/lib/protected-sizes";
 
+/**
+ * Compte les images du produit groupées par colorId.
+ * Lit le modèle au niveau produit (productId + colorId), pas la relation legacy productColorId.
+ */
+async function countImagesByColorForProduct(productId: string): Promise<Map<string, number>> {
+  const rows = await prisma.productColorImage.groupBy({
+    by: ["colorId"],
+    where: { productId },
+    _count: { _all: true },
+  });
+  const map = new Map<string, number>();
+  for (const r of rows) map.set(r.colorId, r._count._all);
+  return map;
+}
+
 /** Collect all sizeIds referenced across UNIT sizeEntries and PACK packLines. */
 function collectSizeIds(colors: ColorInput[]): string[] {
   const ids = new Set<string>();
@@ -401,15 +416,15 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
         id: true,
         colorId: true,
         color: { select: { name: true } },
-        _count: { select: { images: true } },
       },
     });
+    const imageCountByColor = await countImagesByColorForProduct(product.id);
     const missing = findMissingImageCoverage(
       variantsWithDetails.map((v) => ({
         id: v.id,
         colorId: v.colorId,
         colorName: v.color?.name ?? null,
-        imageCount: v._count.images,
+        imageCount: v.colorId ? (imageCountByColor.get(v.colorId) ?? 0) : 0,
       })),
     );
     if (missing.length > 0) {
@@ -855,15 +870,15 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         id: true,
         colorId: true,
         color: { select: { name: true } },
-        _count: { select: { images: true } },
       },
     });
+    const imageCountByColor = await countImagesByColorForProduct(id);
     const missing = findMissingImageCoverage(
       allVariants.map((v) => ({
         id: v.id,
         colorId: v.colorId,
         colorName: v.color?.name ?? null,
-        imageCount: v._count.images,
+        imageCount: v.colorId ? (imageCountByColor.get(v.colorId) ?? 0) : 0,
       })),
     );
     const noVariants = allVariants.length === 0;
@@ -1047,9 +1062,17 @@ export async function bulkUpdateProductStatus(
         productId: true,
         colorId: true,
         color: { select: { name: true } },
-        _count: { select: { images: true } },
       },
     });
+    const allImages = await prisma.productColorImage.groupBy({
+      by: ["productId", "colorId"],
+      where: { productId: { in: productIds } },
+      _count: { _all: true },
+    });
+    const imageCountByPidColor = new Map<string, number>();
+    for (const row of allImages) {
+      imageCountByPidColor.set(`${row.productId}::${row.colorId}`, row._count._all);
+    }
     const byProduct = new Map<string, typeof allColors>();
     for (const c of allColors) {
       const arr = byProduct.get(c.productId) ?? [];
@@ -1062,7 +1085,9 @@ export async function bulkUpdateProductStatus(
           id: v.id,
           colorId: v.colorId,
           colorName: v.color?.name ?? null,
-          imageCount: v._count.images,
+          imageCount: v.colorId
+            ? (imageCountByPidColor.get(`${productId}::${v.colorId}`) ?? 0)
+            : 0,
         })),
       );
       if (missing.length > 0) {
