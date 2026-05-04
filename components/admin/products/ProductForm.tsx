@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
 import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist";
 import ProductFormNav from "./ProductFormNav";
-import { createProduct, updateProduct, saveProductTranslations, toggleBestSeller, fetchProductFormAttributes } from "@/app/actions/admin/products";
+import { createProduct, updateProduct, saveProductTranslations, fetchProductFormAttributes } from "@/app/actions/admin/products";
 
 import { VALID_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
@@ -326,13 +326,7 @@ function TagsDropdown({
       {/* Best Seller */}
       <div className="pt-3 border-t border-border-light">
         <label className="flex items-center gap-3 cursor-pointer group">
-          <input type="checkbox" checked={isBestSeller} onChange={async (e) => {
-            const val = e.target.checked;
-            setIsBestSeller(val);
-            if (mode === "edit" && productId) {
-              toggleBestSeller(productId, val).catch(() => setIsBestSeller(!val));
-            }
-          }}
+          <input type="checkbox" checked={isBestSeller} onChange={(e) => setIsBestSeller(e.target.checked)}
             className="w-4 h-4 border-border accent-[#1A1A1A]" />
           <div>
             <span className="text-sm font-body font-semibold text-text-secondary">Best Seller</span>
@@ -1721,13 +1715,13 @@ export default function ProductForm({
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">La référence est requise.</p>
                 )}
                 {pfsRefStatus === "checking" && (
-                  <p className="text-[11px] text-text-muted mt-1 font-body">Vérification sur PFS…</p>
+                  <p className="text-[11px] text-text-muted mt-1 font-body">Vérification sur Paris Fashion Shop…</p>
                 )}
                 {pfsRefStatus === "exists" && pfsRefMessage && (
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">{pfsRefMessage}</p>
                 )}
                 {pfsRefStatus === "ok" && reference.trim() && (
-                  <p className="text-[11px] text-[#15803D] mt-1 font-body">✓ Référence disponible sur PFS</p>
+                  <p className="text-[11px] text-[#15803D] mt-1 font-body">✓ Référence disponible sur Paris Fashion Shop</p>
                 )}
                 {pfsRefStatus === "error" && pfsRefMessage && (
                   <p className="text-[11px] text-text-muted mt-1 font-body">{pfsRefMessage}</p>
