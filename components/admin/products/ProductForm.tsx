@@ -22,6 +22,8 @@ const DESCRIPTION_MIN_CHARS = 30;
 import type { MarketplaceId } from "@/lib/product-events";
 import { subscribeSSE } from "@/lib/shared-sse";
 
+type PfsRefStatus = "idle" | "checking" | "ok" | "exists" | "not_configured" | "error";
+
 interface Category {
   id: string;
   name: string;
@@ -215,7 +217,7 @@ function TagsDropdown({
   }
 
   return (
-    <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+    <div className="bg-bg-primary border border-border rounded-none p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-text-primary font-heading">Mots clés & Tags</p>
         <button type="button" onClick={onCreateClick}
@@ -248,7 +250,7 @@ function TagsDropdown({
           aria-expanded={open}
           aria-haspopup="listbox"
           aria-label="Sélectionner des mots-clés"
-          className={`w-full flex items-center justify-between px-3 py-2.5 border rounded-lg text-sm font-body transition-colors ${
+          className={`w-full flex items-center justify-between px-3 py-2.5 border rounded-none text-sm font-body transition-colors ${
             open ? "border-[#1A1A1A] ring-1 ring-[#1A1A1A]" : "border-border hover:border-[#CBCBCB]"
           }`}
         >
@@ -263,7 +265,7 @@ function TagsDropdown({
         </button>
 
         {open && (
-          <div className="absolute z-30 mt-1 w-full bg-bg-primary border border-border rounded-xl shadow-lg overflow-hidden">
+          <div className="absolute z-30 mt-1 w-full bg-bg-primary border border-border rounded-none shadow-lg overflow-hidden">
             {/* Search input */}
             <div className="p-2 border-b border-border-light">
               <input
@@ -272,7 +274,7 @@ function TagsDropdown({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Rechercher un mot-clé…"
-                className="w-full px-2.5 py-2 text-sm border border-border rounded-md font-body focus:outline-none focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]"
+                className="w-full px-2.5 py-2 text-sm border border-border rounded-none font-body focus:outline-none focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]"
               />
             </div>
 
@@ -297,7 +299,7 @@ function TagsDropdown({
                       selected ? "text-text-primary font-medium" : "text-text-secondary"
                     }`}
                   >
-                    <span className={`flex items-center justify-center w-4 h-4 rounded border text-[10px] ${
+                    <span className={`flex items-center justify-center w-4 h-4 rounded-none border text-[10px] ${
                       selected
                         ? "bg-bg-dark border-[#1A1A1A] text-text-inverse"
                         : "border-[#D1D5DB] bg-bg-primary"
@@ -418,6 +420,11 @@ export default function ProductForm({
 
   // ── Form fields ──────────────────────────────────────────────────────
   const [reference,       setReference]       = useState(initialData?.reference       ?? "");
+  const [pfsRefStatus, setPfsRefStatus] = useState<PfsRefStatus>("idle");
+  const [pfsRefMessage, setPfsRefMessage] = useState<string | null>(null);
+  const pfsRefCheckedValueRef = useRef<string | null>(null);
+  const pfsRefRequestIdRef = useRef(0);
+  const pfsRefAbortRef = useRef<AbortController | null>(null);
   const [name,            setName]            = useState(initialData?.name            ?? "");
   const [description,     setDescription]     = useState(initialData?.description     ?? "");
   const [categoryId,      setCategoryId]      = useState(initialData?.categoryId      ?? "");
@@ -468,6 +475,66 @@ export default function ProductForm({
       next.add(field);
       return next;
     });
+  }, []);
+
+  const runPfsRefCheck = useCallback(async (
+    rawValue: string,
+    options: { force?: boolean } = {},
+  ): Promise<PfsRefStatus> => {
+    const value = rawValue.trim().replace(/\s/g, "").toUpperCase();
+    if (!value) {
+      setPfsRefStatus("idle");
+      setPfsRefMessage(null);
+      return "idle";
+    }
+    if (!options.force && pfsRefCheckedValueRef.current === value) {
+      return "idle";
+    }
+
+    // Abort la requête en vol précédente (ex: blur rapide enchaîné)
+    pfsRefAbortRef.current?.abort();
+    const controller = new AbortController();
+    pfsRefAbortRef.current = controller;
+
+    const requestId = ++pfsRefRequestIdRef.current;
+    setPfsRefStatus("checking");
+    setPfsRefMessage(null);
+
+    try {
+      const res = await fetch("/api/admin/products/check-reference-pfs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          reference: value,
+          currentProductId: productId ?? undefined,
+        }),
+        signal: controller.signal,
+      });
+      if (requestId !== pfsRefRequestIdRef.current) return "idle";
+      const json = (await res.json()) as
+        | { status: "ok" }
+        | { status: "exists"; message: string }
+        | { status: "not_configured" }
+        | { status: "error"; message: string };
+
+      pfsRefCheckedValueRef.current = value;
+      setPfsRefStatus(json.status);
+      setPfsRefMessage("message" in json ? json.message : null);
+      return json.status;
+    } catch (err) {
+      if ((err as { name?: string })?.name === "AbortError") return "idle";
+      if (requestId !== pfsRefRequestIdRef.current) return "idle";
+      setPfsRefStatus("error");
+      setPfsRefMessage("Vérification PFS impossible pour le moment.");
+      return "error";
+    }
+  }, [productId]);
+
+  // Cleanup : annule toute requête PFS en vol au démontage du composant
+  useEffect(() => {
+    return () => {
+      pfsRefAbortRef.current?.abort();
+    };
   }, []);
 
   // ── Sync header badges via context ────────────────────────────────────
@@ -1487,7 +1554,6 @@ export default function ProductForm({
         hasPfsConfig;
 
       if (canPublish && savedProductId) {
-        const checked = { pfs: false };
         const ok = await confirmDialog({
           type: "info",
           title: isUpdate
@@ -1500,22 +1566,11 @@ export default function ProductForm({
             : willBeDraftOnPfs
               ? "Ce produit est hors ligne sur votre boutique. Il sera envoyé sur Paris Fashion Shop en brouillon (non visible aux acheteurs). Pour le mettre en ligne plus tard, repassez-le en ligne ici puis enregistrez."
               : "Souhaitez-vous publier ce produit en direct sur Paris Fashion Shop ? Vous pourrez aussi le faire plus tard.",
-          checkboxes: [
-            {
-              id: "pfs",
-              label: "Paris Fashion Shop",
-              defaultChecked: false,
-              onChange: (v: boolean) => {
-                checked.pfs = v;
-              },
-            },
-          ],
-          checkboxesLabel: "Marketplace",
           confirmLabel: isUpdate ? "Mettre à jour" : "Publier",
           cancelLabel: "Plus tard",
         });
 
-        if (ok === true && checked.pfs) {
+        if (ok === true) {
           const firstImagePath = colorImages[0]?.uploadedPaths[0] ?? null;
           enqueuePublish([
             {
@@ -1574,7 +1629,7 @@ export default function ProductForm({
           <div id="section-info" className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4 scroll-mt-24">
 
             {/* ── BLOC PRINCIPAL ── */}
-            <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+            <div className="bg-bg-primary border border-border rounded-none p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
 
               {/* Header: titre + langue tabs + bouton IA */}
               <div className="flex flex-wrap items-center gap-3">
@@ -1598,7 +1653,7 @@ export default function ProductForm({
                   type="button"
                   onClick={handleTranslateAll}
                   disabled={translateLoading || (!name.trim() && !description.trim())}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-[#E5E5E5] text-text-primary border border-border text-xs font-medium rounded-lg transition-colors disabled:opacity-50 font-body shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-[#E5E5E5] text-text-primary border border-border text-xs font-medium rounded-none transition-colors disabled:opacity-50 font-body shrink-0"
                 >
                   {translateLoading ? (
                     <span className="w-3.5 h-3.5 border-2 border-[#1A1A1A]/30 border-t-[#1A1A1A] rounded-full animate-spin" />
@@ -1613,42 +1668,73 @@ export default function ProductForm({
               </div>
 
               {translateError && (
-                <p className="text-xs text-[#DC2626] font-body bg-[#FEF2F2] px-3 py-2 rounded-lg">
+                <p className="text-xs text-[#DC2626] font-body bg-[#FEF2F2] px-3 py-2 rounded-none">
                   {translateError}
                 </p>
               )}
               {translateSuccess && (
-                <p className="text-xs text-[#15803D] font-body bg-[#F0FDF4] px-3 py-2 rounded-lg">
+                <p className="text-xs text-[#15803D] font-body bg-[#F0FDF4] px-3 py-2 rounded-none">
                   {translateSuccess}
                 </p>
               )}
 
               {/* Mini légende : ce qui se traduit ou non — toujours visible */}
-              <p className="text-[11px] text-text-muted font-body bg-bg-secondary/60 border border-border-light rounded-md px-2.5 py-1.5">
+              <p className="text-[11px] text-text-muted font-body bg-bg-secondary/60 border border-border-light rounded-none px-2.5 py-1.5">
                 Seuls le <strong>nom</strong> et la <strong>description</strong> changent selon la langue.
                 Les autres champs (catégorie, mots-clés, composition, couleurs…) restent en français.
               </p>
 
               {/* Référence (always FR, not locale-dependent) */}
               <Field label="Référence produit *" hint="Ex: BJ-COL-001">
-                <input type="text" value={reference}
-                  onChange={(e) => setReference(e.target.value.replace(/\s/g, "").toUpperCase())}
-                  onBlur={() => markTouched("reference")}
-                  placeholder="BJ-COL-001" className={`field-input${touchedFields.has("reference") && !reference.trim() ? " field-error" : ""}`} required />
+                <input
+                  type="text"
+                  value={reference}
+                  onChange={(e) => {
+                    const next = e.target.value.replace(/\s/g, "").toUpperCase();
+                    setReference(next);
+                    if (pfsRefCheckedValueRef.current !== next) {
+                      setPfsRefStatus("idle");
+                      setPfsRefMessage(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    markTouched("reference");
+                    void runPfsRefCheck(reference);
+                  }}
+                  placeholder="BJ-COL-001"
+                  className={`field-input${
+                    (touchedFields.has("reference") && !reference.trim()) || pfsRefStatus === "exists"
+                      ? " field-error"
+                      : ""
+                  }`}
+                  required
+                />
                 {touchedFields.has("reference") && !reference.trim() && (
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">La référence est requise.</p>
+                )}
+                {pfsRefStatus === "checking" && (
+                  <p className="text-[11px] text-text-muted mt-1 font-body">Vérification sur PFS…</p>
+                )}
+                {pfsRefStatus === "exists" && pfsRefMessage && (
+                  <p className="text-[11px] text-[#EF4444] mt-1 font-body">{pfsRefMessage}</p>
+                )}
+                {pfsRefStatus === "ok" && reference.trim() && (
+                  <p className="text-[11px] text-[#15803D] mt-1 font-body">✓ Référence disponible sur PFS</p>
+                )}
+                {pfsRefStatus === "error" && pfsRefMessage && (
+                  <p className="text-[11px] text-text-muted mt-1 font-body">{pfsRefMessage}</p>
                 )}
               </Field>
 
               {/* Non-FR hint + missing translation warning */}
               {activeLocale !== "fr" && (
                 <div className="space-y-2">
-                  <div className="bg-bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-text-secondary font-body">
+                  <div className="bg-bg-secondary border border-border rounded-none px-3 py-2 text-xs text-text-secondary font-body">
                     Langue active : <strong>{LOCALE_LABELS[activeLocale]}</strong> — le nom et la description seront sauvegardés en tant que traduction.
                     Les champs Catégorie, Sous-catégories, Tags, Composition et Couleurs restent en français.
                   </div>
                   {missingDbLocales?.has(activeLocale) && (
-                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-body">
+                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-none px-3 py-2 text-xs text-amber-800 font-body">
                       <span className="text-base leading-none mt-0.5">⚠️</span>
                       <span>
                         <strong>Traduction manquante</strong> — Aucune traduction enregistrée en <strong>{LOCALE_LABELS[activeLocale]}</strong>.
@@ -1692,7 +1778,7 @@ export default function ProductForm({
                       className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
                     >+ Créer</button>
                   </div>
-                  <div className={!categoryId ? "rounded-lg ring-1 ring-[#EF4444]" : ""}>
+                  <div className={!categoryId ? "rounded-none ring-1 ring-[#EF4444]" : ""}>
                     <CustomSelect
                       value={categoryId}
                       onChange={(v) => { setCategoryId(v); setSubCategoryIds([]); }}
@@ -1733,7 +1819,7 @@ export default function ProductForm({
                         const selected = subCategoryIds.includes(sub.id);
                         return (
                           <button key={sub.id} type="button" onClick={() => toggleSubCategory(sub.id)}
-                            className={`px-3 py-1.5 text-sm border rounded-lg transition-colors font-body ${
+                            className={`px-3 py-1.5 text-sm border rounded-none transition-colors font-body ${
                               selected ? "bg-bg-dark text-text-inverse border-[#1A1A1A]" : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
                             }`}
                           >{sub.name}</button>
@@ -1853,7 +1939,7 @@ export default function ProductForm({
           <div id="section-details" className="grid grid-cols-1 lg:grid-cols-2 gap-4 scroll-mt-24">
 
             {/* ── BLOC DIMENSIONS ── */}
-            <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+            <div className="bg-bg-primary border border-border rounded-none p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
               <div>
                 <p className="text-sm font-semibold text-text-primary font-heading">Dimensions</p>
                 <p className="text-xs text-text-muted font-body mt-0.5">
@@ -1895,7 +1981,7 @@ export default function ProductForm({
             </div>
 
             {/* ── BLOC COMPOSITION ── */}
-            <div className={`bg-bg-primary border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
+            <div className={`bg-bg-primary border rounded-none p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
               compositions.length === 0 || Math.abs(totalPct - 100) > 0.5 ? "border-[#EF4444]" : "border-border"
             }`}>
               <div className="flex items-center justify-between">
@@ -1928,7 +2014,7 @@ export default function ProductForm({
                   />
                 </div>
                 <button type="button" onClick={addComposition} disabled={!newCompId}
-                  className="px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-medium rounded-lg hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-body"
+                  className="px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-medium rounded-none hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-body"
                 >Ajouter</button>
               </div>
 
@@ -1952,7 +2038,7 @@ export default function ProductForm({
                       Total : {totalPct.toFixed(1)} %{Math.abs(totalPct - 100) <= 0.5 ? " ✓" : " ≠ 100%"}
                     </span>
                   </div>
-                  <ul className="divide-y divide-[#E5E5E5] border border-border rounded-xl overflow-hidden">
+                  <ul className="divide-y divide-[#E5E5E5] border border-border rounded-none overflow-hidden">
                     {compositions.map((item) => {
                       const comp = localCompositions.find((c) => c.id === item.compositionId);
                       return (
@@ -1980,7 +2066,7 @@ export default function ProductForm({
         </div>
 
         {/* ── Variantes couleur ── */}
-        <section id="section-variants" className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card scroll-mt-24`}>
+        <section id="section-variants" className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-none p-8 space-y-5 shadow-card scroll-mt-24`}>
           <div className="flex items-center justify-between border-b border-border pb-4">
             <h2 className="font-heading text-xl font-bold text-text-primary">
               Variantes{mode === "create" ? " *" : ""}
@@ -1994,32 +2080,6 @@ export default function ProductForm({
               Au moins une variante de couleur est obligatoire pour créer le produit.
             </p>
           )}
-
-          {/* Aide rapide : différence entre vente à l'unité et vente en paquet */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex items-start gap-3 bg-[#F0F9FF] border border-[#BAE6FD] rounded-xl p-3">
-              <svg className="w-5 h-5 text-[#0369A1] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-              </svg>
-              <div>
-                <p className="text-xs font-semibold text-[#0C4A6E] font-heading">Vente à l&apos;unité</p>
-                <p className="text-[11px] text-[#075985] font-body mt-0.5">
-                  Le client achète <strong>1 article à la fois</strong>. Une couleur, des tailles disponibles, un prix par pièce.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 bg-[#FAF5FF] border border-[#E9D5FF] rounded-xl p-3">
-              <svg className="w-5 h-5 text-[#6B21A8] shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M20 7L12 3 4 7m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-              <div>
-                <p className="text-xs font-semibold text-[#581C87] font-heading">Vente en paquet</p>
-                <p className="text-[11px] text-[#6B21A8] font-body mt-0.5">
-                  Le client achète <strong>un lot complet</strong>. Vous indiquez combien de pièces composent le paquet et le prix du lot. Pour un <em>paquet multicolore</em>, sélectionnez plusieurs couleurs : chacune aura ses propres tailles.
-                </p>
-              </div>
-            </div>
-          </div>
 
           <ColorVariantManager
             variants={variants}
@@ -2042,7 +2102,7 @@ export default function ProductForm({
 
         <div id="section-links" className="space-y-8 scroll-mt-24">
         {/* ── Produits similaires ── */}
-        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
+        <section className="bg-bg-primary border border-border rounded-none p-8 space-y-5 shadow-card">
           <div className="border-b border-border pb-4">
             <h2 className="font-heading text-xl font-bold text-text-primary">
               Produits similaires
@@ -2061,7 +2121,7 @@ export default function ProductForm({
         </section>
 
         {/* ── Composition (ensemble → sous-produits) ── */}
-        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
+        <section className="bg-bg-primary border border-border rounded-none p-8 space-y-5 shadow-card">
           <div className="border-b border-border pb-4">
             <h2 className="font-heading text-xl font-bold text-text-primary">
               Contenu de l&apos;ensemble
@@ -2085,17 +2145,18 @@ export default function ProductForm({
         )}
         </div>
 
+        {(error || onlineErrors.length > 0 || isSyncLocked || mode !== "edit" || hasUnsavedChanges) && (
         <div className="sticky bottom-0 z-10 flex justify-center py-4">
-          <div className="bg-bg-primary rounded-2xl px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-border space-y-3 w-fit max-w-full">
+          <div className="bg-bg-primary rounded-none px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-border space-y-3 w-fit max-w-full">
             {/* ── Erreurs ── */}
             {error && (
-              <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-xl">
+              <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-none">
                 {error}
               </div>
             )}
 
             {onlineErrors.length > 0 && (
-              <div className="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-xl space-y-2">
+              <div className="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-none space-y-2">
                 <p className="font-semibold font-heading">
                   Ce produit ne peut pas être mis en ligne :
                 </p>
@@ -2114,7 +2175,7 @@ export default function ProductForm({
 
             {/* ── Sync lock indicator ── */}
             {isSyncLocked && (
-              <div className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#FFF7ED] border border-[#FED7AA] rounded-xl text-[#C2410C] text-sm font-medium font-body">
+              <div className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#FFF7ED] border border-[#FED7AA] rounded-none text-[#C2410C] text-sm font-medium font-body">
                 <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -2174,7 +2235,7 @@ export default function ProductForm({
                   type="button"
                   disabled={isPending || isSyncLocked}
                   onClick={() => handleSaveDraft()}
-                  className="flex items-center justify-center gap-2 h-14 min-w-[260px] px-6 py-0 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
+                  className="flex items-center justify-center gap-2 h-14 min-w-[260px] px-6 py-0 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-none border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
@@ -2207,6 +2268,7 @@ export default function ProductForm({
             </div>
           </div>
         </div>
+        )}
       </form>
       </div>
 
@@ -2328,7 +2390,7 @@ function SimilarProductPicker({
       </div>
 
       {search.trim().length >= 1 && (
-        <div className="border border-border rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+        <div className="border border-border rounded-none overflow-hidden max-h-80 overflow-y-auto">
           {filteredResults.length === 0 ? (
             <p className="px-4 py-3 text-sm text-text-muted font-body">
               {loading ? "Recherche…" : "Aucun résultat."}
@@ -2343,9 +2405,9 @@ function SimilarProductPicker({
               >
                 {product.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={getImageSrc(product.image, "thumb")} alt="" className="w-10 h-10 object-cover rounded-lg border border-border" />
+                  <img src={getImageSrc(product.image, "thumb")} alt="" className="w-10 h-10 object-cover rounded-none border border-border" />
                 ) : (
-                  <div className="w-10 h-10 rounded-lg bg-[#F0F0F0] flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-none bg-[#F0F0F0] flex items-center justify-center shrink-0">
                     <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
                     </svg>
@@ -2400,7 +2462,7 @@ function SimilarProductPicker({
               {selectedProducts.map((p) => (
                 <div
                   key={p.id}
-                  className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-xl overflow-hidden group/card hover:border-bg-dark transition-colors"
+                  className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-none overflow-hidden group/card hover:border-bg-dark transition-colors"
                 >
                   <button
                     type="button"
@@ -2472,7 +2534,7 @@ function BundleParentsReadonly({ products }: { products: SearchProduct[] }) {
   }
 
   return (
-    <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
+    <section className="bg-bg-primary border border-border rounded-none p-8 space-y-5 shadow-card">
       <div className="border-b border-border pb-4">
         <h2 className="font-heading text-xl font-bold text-text-primary">
           Ce produit se trouve aussi dans
@@ -2515,7 +2577,7 @@ function BundleParentsReadonly({ products }: { products: SearchProduct[] }) {
               href={`/admin/produits/${p.id}/modifier`}
               target="_blank"
               rel="noopener noreferrer"
-              className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-xl overflow-hidden group/card hover:border-bg-dark transition-colors"
+              className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-none overflow-hidden group/card hover:border-bg-dark transition-colors"
             >
               <div className="relative">
                 {p.image ? (
