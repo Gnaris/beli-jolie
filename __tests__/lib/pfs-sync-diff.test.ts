@@ -38,6 +38,7 @@ function makeSnapshot(overrides: Partial<PfsSyncSnapshot> = {}): PfsSyncSnapshot
       SILVER: { "1": "/uploads/products/c.webp" },
     },
     status: "READY_FOR_SALE",
+    isBestSeller: false,
     ...overrides,
   };
 }
@@ -283,6 +284,7 @@ describe("diffIsEmpty", () => {
         imagesToUpload: [],
         imagesToDelete: [],
         statusChanged: false,
+        bestSellerChanged: false,
       }),
     ).toBe(true);
   });
@@ -296,7 +298,80 @@ describe("diffIsEmpty", () => {
         imagesToUpload: [],
         imagesToDelete: [],
         statusChanged: false,
+        bestSellerChanged: false,
       }),
     ).toBe(false);
+  });
+
+  it("returns false when only bestSellerChanged is true", () => {
+    expect(
+      diffIsEmpty({
+        productChanged: false,
+        defaultColorChanged: false,
+        variantsChanged: [],
+        imagesToUpload: [],
+        imagesToDelete: [],
+        statusChanged: false,
+        bestSellerChanged: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+const baseSnap = (): PfsSyncSnapshot => ({
+  schemaVersion: PFS_SNAPSHOT_VERSION,
+  product: {
+    reference: "ABC",
+    nameSource: "n",
+    descSource: "d",
+    dimensions: "",
+    composition: [],
+    country: "",
+    season: "",
+    brand: "",
+    gender: "",
+    category: null,
+    family: null,
+    sizeDetailsTu: null,
+  },
+  defaultColor: null,
+  variants: {},
+  images: {},
+  status: "READY_FOR_SALE",
+  isBestSeller: false,
+});
+
+describe("diffSnapshots — bestSellerChanged", () => {
+  it("renvoie bestSellerChanged=false quand identique", () => {
+    const prev = baseSnap();
+    const next = baseSnap();
+    const diff = diffSnapshots(prev, next);
+    expect(diff.bestSellerChanged).toBe(false);
+  });
+
+  it("détecte le passage false → true", () => {
+    const prev = baseSnap();
+    const next = { ...baseSnap(), isBestSeller: true };
+    const diff = diffSnapshots(prev, next);
+    expect(diff.bestSellerChanged).toBe(true);
+  });
+
+  it("détecte le passage true → false", () => {
+    const prev = { ...baseSnap(), isBestSeller: true };
+    const next = baseSnap();
+    const diff = diffSnapshots(prev, next);
+    expect(diff.bestSellerChanged).toBe(true);
+  });
+
+  it("premier sync (prev=null) avec isBestSeller=true → bestSellerChanged=true", () => {
+    const next = { ...baseSnap(), isBestSeller: true };
+    const diff = diffSnapshots(null, next);
+    expect(diff.bestSellerChanged).toBe(true);
+  });
+
+  it("premier sync (prev=null) avec isBestSeller=false → bestSellerChanged=false", () => {
+    const next = baseSnap();
+    const diff = diffSnapshots(null, next);
+    expect(diff.bestSellerChanged).toBe(false);
   });
 });

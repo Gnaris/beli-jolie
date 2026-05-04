@@ -43,6 +43,7 @@ export interface PfsSyncSnapshot {
   variants: { [pfsVariantId: string]: PfsVariantSnapshot };
   images: PfsImagesSnapshot;
   status: string;
+  isBestSeller: boolean;
 }
 
 export interface PfsSyncDiff {
@@ -52,6 +53,7 @@ export interface PfsSyncDiff {
   imagesToUpload: { colorRef: string; slot: number; path: string }[];
   imagesToDelete: { colorRef: string; slot: number }[];
   statusChanged: boolean;
+  bestSellerChanged: boolean;
 }
 
 function arraysEqualBy<T>(a: T[], b: T[], key: (x: T) => string): boolean {
@@ -118,12 +120,14 @@ export function diffSnapshots(
       imagesToUpload,
       imagesToDelete: [],
       statusChanged: true,
+      bestSellerChanged: next.isBestSeller, // STAR si coché, REMOVE_STAR inutile (PFS crée sans étoile)
     };
   }
 
   const productChanged = !productFieldsEqual(prev.product, next.product);
   const defaultColorChanged = prev.defaultColor !== next.defaultColor;
   const statusChanged = prev.status !== next.status;
+  const bestSellerChanged = prev.isBestSeller !== next.isBestSeller;
 
   // Variants : seules celles présentes dans `next` peuvent être patchées.
   // Celles présentes dans `prev` mais plus dans `next` sont gérées séparément
@@ -167,6 +171,7 @@ export function diffSnapshots(
     imagesToUpload,
     imagesToDelete,
     statusChanged,
+    bestSellerChanged,
   };
 }
 
@@ -179,6 +184,7 @@ export function diffIsEmpty(diff: PfsSyncDiff): boolean {
     !diff.productChanged &&
     !diff.defaultColorChanged &&
     !diff.statusChanged &&
+    !diff.bestSellerChanged &&
     diff.variantsChanged.length === 0 &&
     diff.imagesToUpload.length === 0 &&
     diff.imagesToDelete.length === 0
