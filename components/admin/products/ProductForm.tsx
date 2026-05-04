@@ -1359,6 +1359,14 @@ export default function ProductForm({
 
     // Minimal validation: DB non-nullable constraints
     if (!reference.trim()) return setError("La référence est requise.");
+
+    // Re-check PFS avant de soumettre (force=true pour forcer même si déjà checké).
+    const pfsCheck = await runPfsRefCheck(reference, { force: true });
+    if (pfsCheck === "exists") {
+      setError("Cette référence est déjà utilisée sur Paris Fashion Shop. Choisissez-en une autre.");
+      return;
+    }
+
     if (!name.trim()) return setError("Le nom est requis.");
     if (!categoryId) return setError("Veuillez choisir une catégorie.");
     if (hasTailleUnique && !sizeDetailsTu.trim()) {
