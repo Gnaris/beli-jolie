@@ -17,6 +17,7 @@ import FeaturedProduct from "@/components/home/FeaturedProduct";
 import TrustBand from "@/components/home/TrustBand";
 import CategoryGrid from "@/components/home/CategoryGrid";
 import CtaBanner from "@/components/home/CtaBanner";
+import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -44,6 +45,7 @@ type PrismaProduct = {
   name: string;
   reference: string;
   discountPercent: number | null;
+  primaryColorId: string | null;
   category: { name: string };
   colors: {
     id: string;
@@ -66,6 +68,10 @@ function computeDiscountedPrice(unitPrice: number, discountPercent: number | nul
 function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string, string>>): CarouselProduct[] {
   return products.map((p) => {
     const productDiscountPercent = p.discountPercent != null ? Number(p.discountPercent) : null;
+    const primaryColorId = getProductPrimaryColorId({
+      primaryColorId: p.primaryColorId,
+      colors: p.colors,
+    });
 
     // Group variants by color (using colorId as groupKey)
     const colorMap = new Map<string, {
@@ -81,6 +87,7 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
       const price = Number(c.unitPrice);
       const discounted = computeDiscountedPrice(price, productDiscountPercent);
       const hasDsc = discounted < price;
+      const isPrimaryColor = primaryColorId != null && c.colorId === primaryColorId;
 
       const variant = {
         id: c.id,
@@ -94,7 +101,7 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
       const existing = colorMap.get(groupKey);
       if (existing) {
         existing.variants.push(variant);
-        if (c.isPrimary) existing.isPrimary = true;
+        if (isPrimaryColor) existing.isPrimary = true;
         if (discounted < existing.discountedPrice) {
           existing.unitPrice = price;
           existing.discountedPrice = discounted;
@@ -107,7 +114,7 @@ function toCarousel(products: PrismaProduct[], imageMap: Map<string, Map<string,
           hex: c.color?.hex ?? null,
           patternImage: c.color?.patternImage ?? null,
           name: c.color?.name ?? "",
-          isPrimary: c.isPrimary,
+          isPrimary: isPrimaryColor,
           unitPrice: price,
           discountedPrice: discounted,
           hasDiscount: hasDsc,
@@ -143,6 +150,7 @@ function serializeProducts(products: Array<Record<string, unknown>>): PrismaProd
   return products.map((p: any) => ({
     ...p,
     discountPercent: p.discountPercent != null ? Number(p.discountPercent) : null,
+    primaryColorId: p.primaryColorId ?? null,
     colors: p.colors.map((c: any) => ({
       ...c,
       unitPrice: Number(c.unitPrice),
@@ -165,7 +173,7 @@ const COLOR_INCLUDE = {
   },
 };
 
-const PRODUCT_SELECT = { id: true, name: true, reference: true, discountPercent: true, category: { select: { name: true } }, ...COLOR_INCLUDE };
+const PRODUCT_SELECT = { id: true, name: true, reference: true, discountPercent: true, primaryColorId: true, category: { select: { name: true } }, ...COLOR_INCLUDE };
 
 // ─────────────────────────────────────────────
 // Reassort fetcher (needs userId)

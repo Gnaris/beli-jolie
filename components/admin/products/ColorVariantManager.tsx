@@ -90,6 +90,10 @@ interface Props {
   variantErrors?: Map<string, Set<string>>;
   productReference?: string;
   sizeDetailsTu?: string;
+  /** Couleur principale du produit (refonte : portée par Product, plus par la variante). */
+  primaryColorId: string | null;
+  /** Callback pour changer la couleur principale via la modale d'images. */
+  onChangePrimaryColorId: (colorId: string) => void;
 }
 
 // ─────────────────────────────────────────────
@@ -851,14 +855,17 @@ function ImageGalleryModal({ open, onClose, images, colorName, colorHex }: {
 // ─────────────────────────────────────────────
 // ImageManagerModal
 // ─────────────────────────────────────────────
-function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, onSetPrimary }: {
+function ImageManagerModal({ open, onClose, colorImages, onChange, variants, availableColors, primaryColorId, onChangePrimaryColorId }: {
   open: boolean;
   onClose: () => void;
   colorImages: ColorImageState[];
   onChange: (updated: ColorImageState[]) => void;
   variants: VariantState[];
   availableColors: AvailableColor[];
-  onSetPrimary: (variantTempId: string) => void;
+  /** Couleur principale du produit (refonte : Product.primaryColorId). */
+  primaryColorId: string | null;
+  /** Callback pour changer la couleur principale du produit. */
+  onChangePrimaryColorId: (colorId: string) => void;
 }) {
   const { confirm: confirmDialog } = useConfirm();
   const backdrop = useBackdropClose(onClose);
@@ -1003,15 +1010,19 @@ function ImageManagerModal({ open, onClose, colorImages, onChange, variants, ava
               <p className="text-xs font-semibold text-text-primary uppercase tracking-wider font-body mb-3">Couleur principale</p>
               <div className="flex flex-wrap gap-2">
                 {colorImages.map((cimg) => {
-                  const variant = findVariantByGroupKey(cimg.groupKey);
-                  const isPrimary = variant?.isPrimary ?? false;
+                  // Refonte : la couleur principale est désormais portée par le produit
+                  // (Product.primaryColorId), pas par la variante. La sélection est faite
+                  // directement par colorId — y compris pour les couleurs qui n'apparaissent
+                  // que dans des pack-lines (résolution du bug Orange).
+                  const isPrimary = !!cimg.colorId && cimg.colorId === primaryColorId;
                   const seg = getSwatch(cimg.groupKey);
                   return (
                     <button key={cimg.groupKey} type="button"
-                      onClick={() => { const v = findVariantByGroupKey(cimg.groupKey); if (v) onSetPrimary(v.tempId); }}
+                      onClick={() => { if (cimg.colorId) onChangePrimaryColorId(cimg.colorId); }}
+                      disabled={!cimg.colorId}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all font-body ${
                         isPrimary ? "border-bg-dark bg-bg-secondary shadow-sm" : "border-border hover:border-text-muted bg-bg-primary"
-                      }`}
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                       <ColorSwatch hex={seg.hex} patternImage={seg.patternImage} size={16} rounded="full" />
                       <span className={`text-xs font-medium ${isPrimary ? "text-text-primary" : "text-text-secondary"}`}>{cimg.colorName}</span>
@@ -1596,6 +1607,7 @@ export default function ColorVariantManager({
   variants, colorImages, availableColors, availableSizes, pfsSizes = [],
   onChange, onChangeImages, onQuickCreateColor, onColorAdded, onSizeAdded,
   variantErrors, productReference, sizeDetailsTu,
+  primaryColorId, onChangePrimaryColorId,
 }: Props) {
   /** Formate "Taille Unique"/"TU" → "TU 52-56" si sizeDetailsTu renseigné */
   const fmtSize = (name: string) => {
@@ -1659,6 +1671,14 @@ export default function ColorVariantManager({
     onChange(variants.map((v) => v.tempId === tempId ? { ...v, ...patch } : v));
   }
 
+  /**
+   * @deprecated Refonte couleurs : la couleur principale est désormais portée
+   * par Product.primaryColorId, pas par la variante. Cette fonction n'est plus
+   * appelée — la sélection passe par `onChangePrimaryColorId` (prop).
+   * Conservée temporairement pour compat (champ `isPrimary` toujours présent dans
+   * VariantState pour rétro-compat avec produits non encore migrés).
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function setPrimary(tempId: string) {
     onChange(variants.map((v) => ({ ...v, isPrimary: v.tempId === tempId })));
   }
@@ -2992,7 +3012,8 @@ export default function ColorVariantManager({
         onChange={onChangeImages}
         variants={variants}
         availableColors={availableColors}
-        onSetPrimary={(variantTempId) => setPrimary(variantTempId)}
+        primaryColorId={primaryColorId}
+        onChangePrimaryColorId={onChangePrimaryColorId}
       />
 
       {sizeModalVariant && (

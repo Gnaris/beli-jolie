@@ -341,6 +341,7 @@ export default async function ModifierProduitPage({
             discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
             sizeDetailsTu: product.sizeDetailsTu ?? "",
             pfsProductId: product.pfsProductId,
+            primaryColorId: product.primaryColorId ?? null,
           }}
         />
       </div>
@@ -486,6 +487,7 @@ export default async function ModifierProduitPage({
           discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
           sizeDetailsTu: product.sizeDetailsTu ?? "",
           pfsProductId: product.pfsProductId,
+          primaryColorId: product.primaryColorId ?? null,
         }}
       />
     </ProductEditWrapper>

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 /**
  * GET /api/products/[id]/live — fetch a single product in the same shape as the listing API.
@@ -43,6 +44,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     }
   }
 
+  // Determine the primary color via helper (Product.primaryColorId + fallback)
+  const primaryColorId = getProductPrimaryColorId({
+    primaryColorId: product.primaryColorId,
+    colors: product.colors,
+  });
+
   // Group variants by groupKey
   const colorMap = new Map<string, Record<string, unknown>>();
   for (const v of product.colors) {
@@ -54,7 +61,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         groupKey: gk, colorId: v.colorId, name: v.color?.name,
         hex: v.color?.hex, patternImage: v.color?.patternImage,
         firstImage: imageByVariant.get(v.id) ?? null,
-        unitPrice: Number(v.unitPrice), isPrimary: v.isPrimary, totalStock: 0,
+        unitPrice: Number(v.unitPrice),
+        isPrimary: primaryColorId != null && v.colorId === primaryColorId,
+        totalStock: 0,
         variants: [],
       });
     }
@@ -62,7 +71,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (!cd.firstImage) cd.firstImage = imageByVariant.get(v.id) ?? null;
     cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
     cd.totalStock += v.stock ?? 0;
-    if (v.isPrimary) cd.isPrimary = true;
+    if (primaryColorId != null && v.colorId === primaryColorId) cd.isPrimary = true;
     cd.variants.push({
       id: v.id, saleType: v.saleType, packQuantity: v.packQuantity,
       sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })),

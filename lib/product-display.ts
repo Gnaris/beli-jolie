@@ -165,6 +165,7 @@ const CAROUSEL_SELECT = {
   name: true,
   reference: true,
   discountPercent: true,
+  primaryColorId: true,
   category: { select: { name: true } },
   colors: {
     where: { disabled: false },
@@ -190,6 +191,7 @@ type CarouselPrismaProduct = {
   name: string;
   reference: string;
   discountPercent: number | Decimal | null;
+  primaryColorId: string | null;
   category: { name: string };
   colors: {
     id: string;

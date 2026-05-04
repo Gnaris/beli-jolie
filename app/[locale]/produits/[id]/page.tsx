@@ -13,6 +13,7 @@ import { buildAlternates, getSiteUrl } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
+import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 interface PageProps {
   params: Promise<{ id: string; locale: string }>;
@@ -223,6 +224,12 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     ? product.colors
     : product.colors.filter((pc) => pc.stock > 0);
 
+  // Couleur principale via helper (Product.primaryColorId + fallback isPrimary).
+  const primaryColorIdResolved = getProductPrimaryColorId({
+    primaryColorId: product.primaryColorId,
+    colors: product.colors,
+  });
+
   // Build variant group keys: colorId
   const pcGroupKeys = new Map<string, string>();
   for (const pc of filteredColors) {
@@ -267,7 +274,9 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   }
 
   // JSON-LD structured data for SEO
-  const primaryColor = filteredColors.find((c) => c.isPrimary) ?? filteredColors[0];
+  const primaryColor = (primaryColorIdResolved
+    ? filteredColors.find((c) => c.colorId === primaryColorIdResolved)
+    : null) ?? filteredColors.find((c) => c.isPrimary) ?? filteredColors[0];
   const minPrice = filteredColors.length > 0
     ? Math.min(...filteredColors.map((c) => Number(c.unitPrice)))
     : 0;
@@ -344,7 +353,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                 unitPrice:     Number(pc.unitPrice),
                 weight:        pc.weight,
                 stock:         pc.stock,
-                isPrimary:     pc.isPrimary,
+                isPrimary:     primaryColorIdResolved != null && pc.colorId === primaryColorIdResolved,
                 saleType:      pc.saleType,
                 packQuantity:  pc.packQuantity,
                 sizes:         (pc.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity, pricePerUnit: vs.pricePerUnit != null ? Number(vs.pricePerUnit) : undefined })),

@@ -107,6 +107,8 @@ interface ProductFormProps {
     sizeDetailsTu?: string;
     /** ID marketplace — présent = déjà publié sur cette marketplace */
     pfsProductId?: string | null;
+    /** Couleur principale du produit (refonte : ne dépend plus de la variante isPrimary) */
+    primaryColorId?: string | null;
   };
 }
 
@@ -426,6 +428,10 @@ export default function ProductForm({
   const [colorImages, setColorImages] = useState<ColorImageState[]>(
     initialData?.colorImages ?? []
   );
+  // Couleur principale du produit (refonte : portée par Product, plus par la variante).
+  // Auto-assignée au 1er ajout de couleur, et auto-réassignée si la couleur courante
+  // disparaît de l'union (variantes + pack-lines).
+  const [primaryColorId, setPrimaryColorId] = useState<string | null>(initialData?.primaryColorId ?? null);
   const [compositions, setCompositions] = useState<CompositionItem[]>(initialData?.compositions ?? []);
   const [similarProductIds, setSimilarProductIds] = useState<string[]>(initialData?.similarProductIds ?? []);
   const [bundleChildIds, setBundleChildIds] = useState<string[]>(initialData?.bundleChildIds ?? []);
@@ -522,8 +528,8 @@ export default function ProductForm({
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
     compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus,
-    manufacturingCountryId, seasonId, sizeDetailsTu,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu]);
+    manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId,
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, productStatus, manufacturingCountryId, seasonId, sizeDetailsTu, primaryColorId]);
 
   // Détecte si au moins une variante utilise "Taille Unique" / "TU"
   const hasTailleUnique = useMemo(() => {
@@ -680,6 +686,23 @@ export default function ProductForm({
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variantColorKey]);
+
+  // ── Couleur principale : auto-assignation et réassignation ───────────
+  // - À la 1ʳᵉ couleur disponible si rien n'est encore défini (création)
+  // - Réassignation auto à la 1ʳᵉ couleur restante si la couleur principale
+  //   actuelle n'est plus dans l'union des couleurs (variantes + pack-lines)
+  useEffect(() => {
+    const availableColorIds = colorImages.map((ci) => ci.colorId).filter((id): id is string => !!id);
+    if (primaryColorId === null) {
+      if (availableColorIds.length > 0) {
+        setPrimaryColorId(availableColorIds[0]);
+      }
+      return;
+    }
+    if (!availableColorIds.includes(primaryColorId)) {
+      setPrimaryColorId(availableColorIds[0] ?? null);
+    }
+  }, [colorImages, primaryColorId]);
 
   // ── Composition picker state ─────────────────────────────────────────
   const [newCompId, setNewCompId] = useState("");
@@ -1165,30 +1188,18 @@ export default function ProductForm({
           };
         }),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
+      // Refonte : 1 entrée d'images par couleur du produit (productId × colorId).
+      // Fini la duplication par variante.
       imagePaths: colorImages.flatMap((ci) => {
         if (ci.uploadedPaths.length === 0) return [];
-        // Only match against valid draft variants
-        const matching = draftVariants
-          .map((vr) => ({ vr, idx: variants.indexOf(vr) }))
-          .filter(({ vr }) => {
-            if (imageGroupKeyFromVariant(vr) === ci.groupKey) return true;
-            // Multi-color pack: match if the image color is one of the pack line colors
-            if (isMultiColorPack(vr)) {
-              return vr.packLines.some((l) => l.colorId === ci.groupKey);
-            }
-            return false;
-          });
-        if (matching.length === 0) return [];
-        // Ensure the image colorId is valid
         if (!ci.colorId || !validColorIds.has(ci.colorId)) return [];
-        return matching.map(({ vr, idx }) => ({
+        return [{
           colorId: ci.colorId,
-          variantDbId: vr.dbId ?? undefined,
-          variantIndex: idx,
           paths: ci.uploadedPaths,
           orders: ci.orders,
-        }));
+        }];
       }),
+      primaryColorId,
       compositions: compositions.map((c) => ({
         compositionId: c.compositionId,
         percentage:    parseFloat(c.percentage) || 0,
@@ -1385,27 +1396,18 @@ export default function ProductForm({
         };
       }),
       discountPercent: discountPercent ? parseFloat(String(discountPercent)) : null,
+      // Refonte : 1 entrée d'images par couleur du produit (productId × colorId).
+      // Fini la duplication par variante.
       imagePaths: colorImages.flatMap((ci) => {
         if (ci.uploadedPaths.length === 0) return [];
-        const matching = variants
-          .map((vr, idx) => ({ vr, idx }))
-          .filter(({ vr }) => {
-            if (imageGroupKeyFromVariant(vr) === ci.groupKey) return true;
-            // Multi-color pack: match if the image color is one of the pack line colors
-            if (isMultiColorPack(vr)) {
-              return vr.packLines.some((l) => l.colorId === ci.groupKey);
-            }
-            return false;
-          });
-        if (matching.length === 0) return [];
-        return matching.map(({ vr, idx }) => ({
+        if (!ci.colorId) return [];
+        return [{
           colorId: ci.colorId,
-          variantDbId: vr.dbId ?? undefined,
-          variantIndex: idx,
           paths: ci.uploadedPaths,
           orders: ci.orders,
-        }));
+        }];
       }),
+      primaryColorId,
       compositions: compositions.map((c) => ({
         compositionId: c.compositionId,
         percentage:    parseFloat(c.percentage) || 0,
@@ -2033,6 +2035,8 @@ export default function ProductForm({
             variantErrors={variantErrors}
             productReference={reference}
             sizeDetailsTu={sizeDetailsTu}
+            primaryColorId={primaryColorId}
+            onChangePrimaryColorId={setPrimaryColorId}
           />
         </section>
 

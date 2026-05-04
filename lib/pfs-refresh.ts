@@ -41,6 +41,7 @@ import { applyMarketplaceMarkup, loadMarketplaceMarkupConfigs, type MarkupConfig
 import sharp from "sharp";
 import { revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
+import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { emitProductEvent } from "@/lib/product-events";
 
 export interface PfsRefreshProgress {
@@ -100,6 +101,7 @@ interface FullProduct {
   name: string;
   description: string;
   status: string;
+  primaryColorId: string | null;
   dimensionLength: number | null;
   dimensionWidth: number | null;
   dimensionHeight: number | null;
@@ -107,6 +109,7 @@ interface FullProduct {
   dimensionCircumference: number | null;
   category: { id: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null; pfsFamilyName: string | null; pfsCategoryName: string | null };
   colors: FullVariant[];
+  colorImages: { path: string; order: number; colorId: string }[];
   compositions: {
     percentage: number | { toString(): string };
     composition: { pfsCompositionRef: string | null };
@@ -188,6 +191,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       status: true,
+      primaryColorId: true,
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
@@ -227,6 +231,10 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           },
         },
         orderBy: { createdAt: "asc" as const },
+      },
+      colorImages: {
+        select: { path: true, order: true, colorId: true },
+        orderBy: { order: "asc" as const },
       },
       compositions: {
         select: { percentage: true, composition: { select: { pfsCompositionRef: true } } },
@@ -617,16 +625,16 @@ export async function pfsRefreshProduct(
       }
     }
 
-    // Group images by their actual colorId (not the variant's main color)
-    for (const variant of product.colors) {
-      for (const img of variant.images) {
-        const colorRef = colorIdToPfsRef.get(img.colorId);
-        if (!colorRef) continue;
-        if (!imagesByColor.has(colorRef)) {
-          imagesByColor.set(colorRef, []);
-        }
-        imagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
-      }
+    // Group images by their colorId — source = product.colorImages (level produit, dédupliqué)
+    const seenImageKeys = new Set<string>();
+    for (const img of product.colorImages) {
+      const colorRef = colorIdToPfsRef.get(img.colorId);
+      if (!colorRef) continue;
+      const dedupKey = `${colorRef}::${img.order}::${img.path}`;
+      if (seenImageKeys.has(dedupKey)) continue;
+      seenImageKeys.add(dedupKey);
+      if (!imagesByColor.has(colorRef)) imagesByColor.set(colorRef, []);
+      imagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
     }
 
     let totalImages = 0;
@@ -656,9 +664,18 @@ export async function pfsRefreshProduct(
       }
     }
 
-    // Set default_color on new product
-    const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
-    const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant, colorRefMap) : null;
+    // Set default_color on new product — Product.primaryColorId (avec fallback isPrimary).
+    const primaryColorIdResolved = getProductPrimaryColorId({
+      primaryColorId: product.primaryColorId,
+      colors: product.colors.map((v) => ({
+        colorId: v.colorId,
+        isPrimary: v.isPrimary,
+        packLines: v.packLines.map((pl) => ({ colorId: pl.colorId })),
+      })),
+    });
+    const primaryColorRef = primaryColorIdResolved
+      ? colorIdToPfsRef.get(primaryColorIdResolved) ?? null
+      : null;
     if (primaryColorRef) {
       try {
         await pfsUpdateProduct(newPfsProductId, { default_color: primaryColorRef });

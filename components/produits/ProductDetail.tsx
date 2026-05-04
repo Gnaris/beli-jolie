@@ -469,9 +469,6 @@ export default function ProductDetail({
                       rounded="full"
                       border={false}
                     />
-                    {selectedGroupKey === c.groupKey && (
-                      <span className="absolute inset-[-4px] rounded-full border-2 border-accent/30 animate-pulse-ring pointer-events-none" />
-                    )}
                   </button>
                 ))}
               </div>

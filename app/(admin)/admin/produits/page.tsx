@@ -232,7 +232,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     subCategoryName: p.subCategories[0]?.name ?? null,
     createdAt:       p.createdAt.toISOString(),
     lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
-    firstImage:      pickFirstImage(p.colors, colorImagePath),
+    firstImage:      pickFirstImage({ primaryColorId: p.primaryColorId, colors: p.colors }, colorImagePath),
     pfsProductId:    p.pfsProductId,
     colors:          p.colors.map((c) => ({
       id:            c.id,

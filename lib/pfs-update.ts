@@ -46,6 +46,7 @@ import {
   type PfsImagesSnapshot,
   type PfsVariantSnapshot,
 } from "@/lib/pfs-sync-diff";
+import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 export type PfsUpdateResult =
   | { success: true; archived: boolean }
@@ -89,6 +90,7 @@ interface FullProduct {
   name: string;
   description: string;
   status: string;
+  primaryColorId: string | null;
   pfsProductId: string | null;
   pfsLastSyncSnapshot: unknown;
   dimensionLength: number | null;
@@ -105,6 +107,7 @@ interface FullProduct {
     pfsCategoryName: string | null;
   };
   colors: FullVariant[];
+  colorImages: { path: string; order: number; colorId: string }[];
   compositions: {
     percentage: number | { toString(): string };
     composition: { pfsCompositionRef: string | null };
@@ -123,6 +126,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       status: true,
+      primaryColorId: true,
       pfsProductId: true,
       pfsLastSyncSnapshot: true,
       dimensionLength: true,
@@ -174,6 +178,10 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           },
         },
         orderBy: { createdAt: "asc" as const },
+      },
+      colorImages: {
+        select: { path: true, order: true, colorId: true },
+        orderBy: { order: "asc" as const },
       },
       compositions: {
         select: { percentage: true, composition: { select: { pfsCompositionRef: true } } },
@@ -429,16 +437,19 @@ function buildImagesSnapshot(
   colorIdToPfsRef: Map<string, string>,
 ): PfsImagesSnapshot {
   const out: PfsImagesSnapshot = {};
-  // Pour chaque couleur (au sens couleur PFS), trier les images par order
-  // et leur attribuer un slot 1-indexé.
+  // Source unique : product.colorImages (level produit, dédupliqué).
+  // On groupe par colorRef PFS, on dédupe par (path,order) au cas où des doublons
+  // historiques resteraient en base, on trie, et on attribue les slots 1-indexés.
   const byColor = new Map<string, { path: string; order: number }[]>();
-  for (const variant of product.colors) {
-    for (const img of variant.images) {
-      const colorRef = colorIdToPfsRef.get(img.colorId);
-      if (!colorRef) continue;
-      if (!byColor.has(colorRef)) byColor.set(colorRef, []);
-      byColor.get(colorRef)!.push({ path: img.path, order: img.order });
-    }
+  const seen = new Set<string>();
+  for (const img of product.colorImages) {
+    const colorRef = colorIdToPfsRef.get(img.colorId);
+    if (!colorRef) continue;
+    const dedupKey = `${colorRef}::${img.order}::${img.path}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    if (!byColor.has(colorRef)) byColor.set(colorRef, []);
+    byColor.get(colorRef)!.push({ path: img.path, order: img.order });
   }
   for (const [colorRef, list] of byColor) {
     const sorted = [...list].sort((a, b) => a.order - b.order);
@@ -522,8 +533,18 @@ export async function pfsUpdateProductInPlace(
         ? "READY_FOR_SALE"
         : "DRAFT";
 
-    const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
-    const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant, colorRefMap) : null;
+    // Couleur principale = Product.primaryColorId (avec fallback isPrimary pour les produits non migrés).
+    const primaryColorIdResolved = getProductPrimaryColorId({
+      primaryColorId: product.primaryColorId,
+      colors: product.colors.map((v) => ({
+        colorId: v.colorId,
+        isPrimary: v.isPrimary,
+        packLines: v.packLines.map((pl) => ({ colorId: pl.colorId })),
+      })),
+    });
+    const primaryColorRef = primaryColorIdResolved
+      ? colorIdToPfsRef.get(primaryColorIdResolved) ?? null
+      : null;
 
     // ── Construction du snapshot cible (ce qu'on veut que PFS reflète) ──
     const nextProductSnap = buildProductFieldsSnapshot(product, brandName);

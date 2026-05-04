@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getCachedShopName } from "@/lib/cached-data";
 import CatalogPageClient from "@/components/catalogue/CatalogPageClient";
+import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import type { Metadata } from "next";
 
 interface Props {
@@ -66,19 +67,28 @@ export default async function PublicCatalogPage({ params }: Props) {
     favoriteProductIds = favs.map((f) => f.productId);
   }
 
-  const serializedProducts = catalog.products.map(({ product, selectedColorId, selectedImagePath }) => ({
-    product: {
-      ...product,
-      colors: product.colors.map((c) => ({
-        ...c,
-        unitPrice: Number(c.unitPrice),
-        stock: Number(c.stock),
-        packQuantity: c.packQuantity != null ? Number(c.packQuantity) : null,
-      })),
-    },
-    selectedColorId,
-    selectedImagePath,
-  }));
+  const serializedProducts = catalog.products.map(({ product, selectedColorId, selectedImagePath }) => {
+    // Recalcule isPrimary par variante depuis Product.primaryColorId (avec
+    // fallback sur ProductColor.isPrimary pour les produits non encore migrés).
+    const primaryColorId = getProductPrimaryColorId({
+      primaryColorId: product.primaryColorId,
+      colors: product.colors,
+    });
+    return {
+      product: {
+        ...product,
+        colors: product.colors.map((c) => ({
+          ...c,
+          isPrimary: primaryColorId != null && c.colorId === primaryColorId,
+          unitPrice: Number(c.unitPrice),
+          stock: Number(c.stock),
+          packQuantity: c.packQuantity != null ? Number(c.packQuantity) : null,
+        })),
+      },
+      selectedColorId,
+      selectedImagePath,
+    };
+  });
 
   return (
     <CatalogPageClient

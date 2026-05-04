@@ -85,6 +85,7 @@ function mkProduct(overrides: Partial<Record<string, unknown>> = {}) {
     name: "T-shirt",
     description: "Description longue du produit qui dépasse les 30 caractères.",
     status: "ONLINE",
+    primaryColorId: "color-noir",
     dimensionLength: null,
     dimensionWidth: null,
     dimensionHeight: null,
@@ -101,11 +102,13 @@ function mkProduct(overrides: Partial<Record<string, unknown>> = {}) {
         saleType: "UNIT",
         packQuantity: null,
         variantSizes: [{ size: { name: "M", pfsSizeRef: "M" }, quantity: 1 }],
-        color: { name: "Noir" },
+        colorId: "color-noir",
+        color: { id: "color-noir", name: "Noir", pfsColorRef: null },
         packLines: [],
-        images: [{ path: "/uploads/products/a.webp", order: 0 }],
+        images: [{ path: "/uploads/products/a.webp", order: 0, colorId: "color-noir" }],
       },
     ],
+    colorImages: [{ path: "/uploads/products/a.webp", order: 0, colorId: "color-noir" }],
     compositions: [{ percentage: 100, composition: { pfsCompositionRef: "COTON" } }],
     manufacturingCountry: { isoCode: "CN", pfsCountryRef: "CN" },
     season: { pfsRef: "PE2026" },
@@ -209,11 +212,13 @@ describe("pfsRefreshProduct", () => {
           saleType: "UNIT",
           packQuantity: null,
           variantSizes: [{ size: { name: "M", pfsSizeRef: "M" }, quantity: 1 }],
-          color: { name: "Noir" },
+          colorId: "color-noir",
+          color: { id: "color-noir", name: "Noir", pfsColorRef: null },
           packLines: [],
           images: [],
         },
       ],
+      colorImages: [],
     });
     mockProductFindUnique.mockResolvedValue(product);
     pfsCheckReferenceSpy.mockResolvedValue({
@@ -257,11 +262,13 @@ describe("pfsRefreshProduct", () => {
             { size: { name: "S", pfsSizeRef: "S" }, quantity: 2 },
             { size: { name: "M", pfsSizeRef: "M" }, quantity: 2 },
           ], // somme = 4 (≠ packQuantity)
-          color: { name: "Noir" },
+          colorId: "color-noir",
+          color: { id: "color-noir", name: "Noir", pfsColorRef: null },
           packLines: [],
           images: [],
         },
       ],
+      colorImages: [],
     });
     mockProductFindUnique.mockResolvedValue(product);
     pfsCheckReferenceSpy.mockResolvedValue({

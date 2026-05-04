@@ -180,16 +180,17 @@ model SubCategoryTranslation {
 
 // Bibliothèque de couleurs réutilisables entre produits
 model Color {
-  id             String              @id @default(cuid())
-  name           String              @unique
-  hex            String?
-  patternImage   String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
-  pfsColorRef    String?             // Référence PFS (ex: "GOLDEN", "SILVER") — utilisée pour publish/refresh
-  createdAt      DateTime            @default(now())
-  productColors  ProductColor[]
-  colorImages    ProductColorImage[]
-  translations   ColorTranslation[]
-  packLineUsages PackColorLine[] // Utilisations dans un PACK multi-couleurs
+  id                 String              @id @default(cuid())
+  name               String              @unique
+  hex                String?
+  patternImage       String? // Image motif (léopard, camouflage, carreaux…) — prioritaire sur hex
+  pfsColorRef        String?             // Référence PFS (ex: "GOLDEN", "SILVER") — utilisée pour publish/refresh
+  createdAt          DateTime            @default(now())
+  productColors      ProductColor[]
+  colorImages        ProductColorImage[]
+  translations       ColorTranslation[]
+  packLineUsages     PackColorLine[] // Utilisations dans un PACK multi-couleurs
+  primaryForProducts Product[]           @relation("ProductPrimaryColor") // Produits dont cette couleur est la principale
 }
 
 model ColorTranslation {
@@ -346,6 +347,10 @@ model Product {
   manufacturingCountry   ManufacturingCountry? @relation(fields: [manufacturingCountryId], references: [id], onDelete: SetNull)
   seasonId               String?
   season                 Season?               @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  // Couleur principale du produit (vue par défaut côté boutique + default_color PFS).
+  // Pointe vers une couleur de la liste des variantes OU des packLines.
+  primaryColorId         String?
+  primaryColor           Color?                @relation("ProductPrimaryColor", fields: [primaryColorId], references: [id], onDelete: SetNull)
   lowStockThreshold      Int?
   discountPercent        Decimal?              @db.Decimal(5, 2) // Remise en % (ex: 15.00 = -15%). null = pas de remise
   views                  ProductView[]
@@ -376,6 +381,7 @@ model Product {
   @@index([manufacturingCountryId]) // country filter
   @@index([seasonId]) // season filter
   @@index([pfsProductId])
+  @@index([primaryColorId])
 }
 
 // Traductions automatiques des produits
@@ -548,6 +554,9 @@ model ProductColorImage {
   order          Int           @default(0)
   createdAt      DateTime      @default(now())
 
+  // Garde-fou : 1 seule image par (productId, colorId, order). Empêche
+  // toute future réintroduction de doublons (cf. refonte couleurs niveau produit).
+  @@unique([productId, colorId, order])
   @@index([productId, colorId])
   @@index([productColorId])
 }

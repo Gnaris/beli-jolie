@@ -12,6 +12,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import {
   pfsCreateProduct,
   pfsUpdateProduct,
@@ -78,6 +79,7 @@ interface FullProduct {
   name: string;
   description: string;
   status: string;
+  primaryColorId: string | null;
   dimensionLength: number | null;
   dimensionWidth: number | null;
   dimensionHeight: number | null;
@@ -85,6 +87,7 @@ interface FullProduct {
   dimensionCircumference: number | null;
   category: { id: string; pfsCategoryId: string | null; pfsGender: string | null; pfsFamilyId: string | null; pfsFamilyName: string | null; pfsCategoryName: string | null };
   colors: FullVariant[];
+  colorImages: { path: string; order: number; colorId: string }[];
   compositions: {
     percentage: number | { toString(): string };
     composition: { pfsCompositionRef: string | null };
@@ -172,6 +175,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       status: true,
+      primaryColorId: true,
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
@@ -211,6 +215,10 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
           },
         },
         orderBy: { createdAt: "asc" as const },
+      },
+      colorImages: {
+        select: { path: true, order: true, colorId: true },
+        orderBy: { order: "asc" as const },
       },
       compositions: {
         select: { percentage: true, composition: { select: { pfsCompositionRef: true } } },
@@ -579,16 +587,16 @@ export async function pfsPublishProduct(
       }
     }
 
-    // Group images by their actual colorId (not the variant's main color)
-    for (const variant of product.colors) {
-      for (const img of variant.images) {
-        const colorRef = colorIdToPfsRef.get(img.colorId);
-        if (!colorRef) continue;
-        if (!imagesByColor.has(colorRef)) {
-          imagesByColor.set(colorRef, []);
-        }
-        imagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
-      }
+    // Group images by their colorId — source = product.colorImages (level produit, dédupliqué)
+    const seenImageKeys = new Set<string>();
+    for (const img of product.colorImages) {
+      const colorRef = colorIdToPfsRef.get(img.colorId);
+      if (!colorRef) continue;
+      const dedupKey = `${colorRef}::${img.order}::${img.path}`;
+      if (seenImageKeys.has(dedupKey)) continue;
+      seenImageKeys.add(dedupKey);
+      if (!imagesByColor.has(colorRef)) imagesByColor.set(colorRef, []);
+      imagesByColor.get(colorRef)!.push({ path: img.path, order: img.order });
     }
 
     let totalImages = 0;
@@ -619,8 +627,18 @@ export async function pfsPublishProduct(
     }
 
     // ── Step 4 : Default color ──
-    const primaryVariant = product.colors.find((c) => c.isPrimary) ?? product.colors[0];
-    const primaryColorRef = primaryVariant ? getEffectiveColorRef(primaryVariant, colorRefMap) : null;
+    // Source : Product.primaryColorId (avec fallback sur isPrimary variant pour les produits non migrés)
+    const primaryColorIdResolved = getProductPrimaryColorId({
+      primaryColorId: product.primaryColorId,
+      colors: product.colors.map((v) => ({
+        colorId: v.colorId,
+        isPrimary: v.isPrimary,
+        packLines: v.packLines.map((pl) => ({ colorId: pl.colorId })),
+      })),
+    });
+    const primaryColorRef = primaryColorIdResolved
+      ? colorIdToPfsRef.get(primaryColorIdResolved) ?? null
+      : null;
     if (primaryColorRef) {
       try {
         await pfsUpdateProduct(createdPfsProductId, { default_color: primaryColorRef });

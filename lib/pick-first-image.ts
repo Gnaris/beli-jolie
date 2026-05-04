@@ -2,29 +2,28 @@
  * Choisit l'image principale à afficher dans la liste admin des produits.
  *
  * L'image étant rattachée au couple (Produit × Couleur), toutes les variantes
- * qui partagent la même couleur principale verront automatiquement la même
- * image — peu importe qu'elles soient UNIT ou PACK, ou qu'il y ait plusieurs
- * variantes pour la même couleur.
+ * qui partagent la même couleur verront automatiquement la même image — peu
+ * importe qu'elles soient UNIT ou PACK, ou qu'il y ait plusieurs variantes
+ * pour la même couleur.
  *
- * Stratégie en 2 niveaux :
- *  1) Image de la couleur de la variante marquée principale.
- *     En cas de plusieurs principales (séquelle d'un ancien bug), on prend
- *     la plus récente — c'est le choix actif de l'utilisateur.
+ * Stratégie :
+ *  1) Image de la couleur principale du produit (`Product.primaryColorId`).
+ *     Avec fallback sur la 1ʳᵉ variante `isPrimary=true` pour les produits
+ *     non encore migrés (cf. helper `getProductPrimaryColorId`).
  *  2) Sinon : image de la 1ʳᵉ couleur (parmi les variantes triées) qui en a une.
  */
+import { getProductPrimaryColorId, type ProductWithColors } from "@/lib/product-primary-color";
+
 export function pickFirstImage(
-  colors: { isPrimary: boolean; colorId: string | null }[],
+  product: ProductWithColors,
   imagePathByColorId: (colorId: string | null) => string | null,
 ): string | null {
-  let primary: { colorId: string | null } | null = null;
-  for (let i = colors.length - 1; i >= 0; i--) {
-    if (colors[i].isPrimary) { primary = colors[i]; break; }
-  }
-  if (primary) {
-    const path = imagePathByColorId(primary.colorId);
+  const primaryColorId = getProductPrimaryColorId(product);
+  if (primaryColorId) {
+    const path = imagePathByColorId(primaryColorId);
     if (path) return path;
   }
-  for (const c of colors) {
+  for (const c of product.colors) {
     const path = imagePathByColorId(c.colorId);
     if (path) return path;
   }

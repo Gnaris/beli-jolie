@@ -280,6 +280,7 @@ export default async function DupliquerProduitPage({
           manufacturingCountryId: product.manufacturingCountryId ?? "",
           seasonId: product.seasonId ?? "",
           discountPercent: product.discountPercent != null ? String(product.discountPercent) : "",
+          primaryColorId: product.primaryColorId ?? null,
         }}
       />
     </div>

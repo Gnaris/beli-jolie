@@ -15,6 +15,7 @@ import { getImagePaths } from "@/lib/image-utils";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
 import { findMissingImageCoverage } from "@/lib/variant-image-coverage";
+import { resolvePrimaryColorId, listAvailableColorIds } from "@/lib/product-primary-color";
 import {
   validateVariants,
   isMultiColorPackInput,
@@ -128,7 +129,12 @@ export interface ProductInput {
   categoryId: string;
   subCategoryIds: string[];
   colors: ColorInput[];
-  imagePaths?: { colorId: string; variantDbId?: string; variantIndex?: number; paths: string[]; orders?: number[] }[]; // images grouped per variant
+  // Couleur principale du produit (déterminée au niveau Product). Si null/undefined,
+  // auto-assignation par le serveur depuis la 1ʳᵉ couleur disponible.
+  primaryColorId?: string | null;
+  // Images : 1 entrée par couleur (productId × colorId). Les champs variantDbId
+  // et variantIndex sont conservés pour rétro-compatibilité mais ignorés.
+  imagePaths?: { colorId: string; variantDbId?: string; variantIndex?: number; paths: string[]; orders?: number[] }[];
   compositions: CompositionInput[];
   similarProductIds: string[];
   bundleChildIds: string[];
@@ -261,6 +267,19 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     })
   );
 
+  // ── Couleur principale au niveau produit ──
+  // L'union des colorId disponibles = colorId des variantes + colorId des packLines
+  // (pour permettre de désigner principale une couleur n'apparaissant qu'en pack).
+  const availableColorIds = listAvailableColorIds({
+    colors: input.colors.map((c) => ({
+      colorId: isMultiColorPackInput(c)
+        ? (c.packLines?.[0]?.colorId ?? c.colorId ?? null)
+        : (c.colorId ?? null),
+      packLines: (c.packLines ?? []).map((pl) => ({ colorId: pl.colorId })),
+    })),
+  });
+  const resolvedPrimaryColorId = resolvePrimaryColorId(input.primaryColorId, availableColorIds);
+
   const product = await prisma.product.create({
     data: {
       reference:             input.reference.trim().toUpperCase(),
@@ -270,6 +289,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       isBestSeller:  input.isBestSeller,
       status:        input.status,
       isIncomplete:  input.isIncomplete ?? false,
+      primaryColorId: resolvedPrimaryColorId,
       subCategories: { connect: input.subCategoryIds.map((id) => ({ id })) },
       tags:          { create: tagRecords.map((t) => ({ tagId: t.id })) },
       dimensionLength:       input.dimensionLength,
@@ -347,34 +367,22 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   // Assign SKUs to all newly created variants
   await assignVariantSkus(product.id, input.reference);
 
-  // Images: create ProductColorImage entries linked to specific ProductColor variant
+  // Images : 1 entrée par (productId, colorId, order) — couleur attachée AU PRODUIT,
+  // pas à une variante (productColorId reste NULL). Une couleur partagée par plusieurs
+  // variantes ne génère donc qu'un seul jeu d'images.
   if (input.imagePaths && input.imagePaths.length > 0) {
-    const imageData: { productId: string; colorId: string; productColorId: string; path: string; order: number }[] = [];
-    const usedVariantIds = new Set<string>();
+    const imageData: { productId: string; colorId: string; productColorId: null; path: string; order: number }[] = [];
+    const seen = new Set<string>(); // dédup par (colorId, order, path)
     for (const group of input.imagePaths) {
       if (group.paths.length === 0) continue;
-      let matched: { id: string; colorId: string | null } | undefined;
-      // Try match by variantIndex first (reliable for PACK and new variants)
-      if (group.variantIndex != null && createdVariants[group.variantIndex]) {
-        matched = createdVariants[group.variantIndex];
-      }
-      // Fallback: match by colorId
-      if (!matched && group.colorId) {
-        for (let i = 0; i < input.colors.length; i++) {
-          const cv = createdVariants[i];
-          if (!cv || usedVariantIds.has(cv.id)) continue;
-          if (cv.colorId !== group.colorId) continue;
-          matched = cv;
-          break;
-        }
-      }
-      if (!matched) continue;
-      usedVariantIds.add(matched.id);
-      const effectiveColorId = group.colorId || matched.colorId || "";
-      if (!effectiveColorId) continue; // Cannot create image without a colorId FK
+      const colorId = group.colorId;
+      if (!colorId) continue;
       group.paths.forEach((path, idx) => {
         const order = group.orders?.[idx] ?? idx;
-        imageData.push({ productId: product.id, colorId: effectiveColorId, productColorId: matched!.id, path, order });
+        const key = `${colorId}::${order}::${path}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        imageData.push({ productId: product.id, colorId, productColorId: null, path, order });
       });
     }
     if (imageData.length > 0) {
@@ -733,46 +741,51 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     // ── Assign/update SKUs for all variants ──────────
     await assignVariantSkus(id, input.reference, tx);
 
-    // ── Images: full replace linked to specific ProductColor variant ──────────
+    // ── Images : full replace, 1 entrée par (productId, colorId, order) ──
+    // Couleur attachée au produit (productColorId = NULL). Plus de matching variante.
     if (input.imagePaths && input.imagePaths.length > 0) {
-      // Delete all existing images for this product then recreate
-      await tx.productColorImage.deleteMany({
-        where: { productId: id },
-      });
+      await tx.productColorImage.deleteMany({ where: { productId: id } });
 
-      const currentVariants = await tx.productColor.findMany({
-        where: { productId: id },
-        select: { id: true, colorId: true },
-      });
-
-      const imageData: { productId: string; colorId: string; productColorId: string; path: string; order: number }[] = [];
-      const usedVariantIds = new Set<string>();
+      const imageData: { productId: string; colorId: string; productColorId: null; path: string; order: number }[] = [];
+      const seen = new Set<string>(); // dédup par (colorId, order, path)
       for (const group of input.imagePaths) {
         if (group.paths.length === 0) continue;
-        let variant: { id: string; colorId: string | null } | undefined;
-        variant = group.variantDbId
-          ? currentVariants.find((v) => v.id === group.variantDbId)
-          : undefined;
-        if (!variant && group.variantIndex != null && variantIdMap[group.variantIndex]) {
-          const mappedId = variantIdMap[group.variantIndex].variantId;
-          variant = currentVariants.find((v) => v.id === mappedId);
-        }
-        if (!variant && group.colorId) {
-          variant = currentVariants.find((v) => !usedVariantIds.has(v.id) && v.colorId === group.colorId);
-        }
-        if (!variant) continue;
-        usedVariantIds.add(variant.id);
-        const effectiveColorId = group.colorId || variant.colorId || "";
-        if (!effectiveColorId) continue; // Cannot create image without a colorId FK
+        const colorId = group.colorId;
+        if (!colorId) continue;
         group.paths.forEach((path, idx) => {
           const order = group.orders?.[idx] ?? idx;
-          imageData.push({ productId: id, colorId: effectiveColorId, productColorId: variant!.id, path, order });
+          const key = `${colorId}::${order}::${path}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          imageData.push({ productId: id, colorId, productColorId: null, path, order });
         });
       }
       if (imageData.length > 0) {
         await tx.productColorImage.createMany({ data: imageData });
       }
     }
+
+    // ── Couleur principale (Product.primaryColorId) ──
+    // L'union se calcule depuis les variantes effectivement présentes en BDD
+    // après le bloc variantes (toDelete + create + update).
+    const variantsAfter = await tx.productColor.findMany({
+      where: { productId: id },
+      select: {
+        colorId: true,
+        packLines: { select: { colorId: true } },
+      },
+    });
+    const availableColorIdsAfter = listAvailableColorIds({
+      colors: variantsAfter.map((v) => ({
+        colorId: v.colorId,
+        packLines: v.packLines.map((pl) => ({ colorId: pl.colorId })),
+      })),
+    });
+    const resolvedPrimaryAfter = resolvePrimaryColorId(input.primaryColorId, availableColorIdsAfter);
+    await tx.product.update({
+      where: { id },
+      data: { primaryColorId: resolvedPrimaryAfter },
+    });
 
     // Produits similaires — bidirectionnel, reconstruction complète
     await tx.productSimilar.deleteMany({

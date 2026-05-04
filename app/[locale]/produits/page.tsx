@@ -10,6 +10,7 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import SearchFilters from "@/components/produits/SearchFilters";
 import ProductsInfiniteScroll from "@/components/produits/ProductsInfiniteScroll";
+import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -59,6 +60,11 @@ interface PageProps {
 function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, string>>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return rawProducts.map((p: any) => {
+    // Couleur principale via helper (Product.primaryColorId + fallback isPrimary).
+    const primaryColorId = getProductPrimaryColorId({
+      primaryColorId: p.primaryColorId,
+      colors: p.colors,
+    });
     const colorMap = new Map<string, {
       groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null;
       firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
@@ -71,7 +77,10 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
         colorMap.set(gk, {
           groupKey: gk, colorId: v.colorId, name: v.color?.name, hex: v.color?.hex, patternImage: v.color?.patternImage,
           firstImage: imageMap.get(p.id)?.get(v.id) ?? null,
-          unitPrice: Number(v.unitPrice), isPrimary: v.isPrimary, totalStock: 0, variants: [],
+          unitPrice: Number(v.unitPrice),
+          isPrimary: primaryColorId != null && v.colorId === primaryColorId,
+          totalStock: 0,
+          variants: [],
         });
       }
       const cd = colorMap.get(gk)!;
@@ -79,7 +88,7 @@ function shapeProducts(rawProducts: any[], imageMap: Map<string, Map<string, str
       if (!cd.firstImage) cd.firstImage = imageMap.get(p.id)?.get(v.id) ?? null;
       cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
       cd.totalStock += v.stock ?? 0;
-      if (v.isPrimary) cd.isPrimary = true;
+      if (primaryColorId != null && v.colorId === primaryColorId) cd.isPrimary = true;
       cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
     }
     return { ...p, colors: [...colorMap.values()] };

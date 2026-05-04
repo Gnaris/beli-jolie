@@ -9,6 +9,7 @@ import { buildAlternates, getSiteUrl } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/produits/ProductCard";
+import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 interface PageProps {
   params: Promise<{ id: string; locale: string }>;
@@ -58,6 +59,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
     where:   { id },
     include: {
       products: {
+        where: { product: { status: "ONLINE" } },
         orderBy: { position: "asc" },
         include: {
           product: {
@@ -148,6 +150,12 @@ export default async function CollectionDetailPage({ params }: PageProps) {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 md:gap-5">
               {collection.products.map((cp) => {
                 const p = cp.product;
+                // Couleur principale du produit (override par la collection si fourni)
+                const productPrimaryColorId = getProductPrimaryColorId({
+                  primaryColorId: p.primaryColorId,
+                  colors: p.colors,
+                });
+                const effectivePrimaryColorId = cp.colorId ?? productPrimaryColorId;
 
                 // Group variants by color group key (colorId)
                 const colorMap = new Map<string, {
@@ -158,12 +166,13 @@ export default async function CollectionDetailPage({ params }: PageProps) {
                 for (const v of p.colors) {
                   if (!v.colorId) continue;
                   const gk = v.colorId;
+                  const isPrimaryColor = effectivePrimaryColorId != null && v.colorId === effectivePrimaryColorId;
                   if (!colorMap.has(gk)) {
                     colorMap.set(gk, {
                       groupKey: gk, colorId: v.colorId, name: v.color?.name ?? "", hex: v.color?.hex ?? null, patternImage: (v.color as any)?.patternImage,
                       firstImage: colImageMap.get(p.id)?.get(v.id) ?? null,
                       unitPrice: Number(v.unitPrice),
-                      isPrimary: cp.colorId ? v.colorId === cp.colorId : v.isPrimary,
+                      isPrimary: isPrimaryColor,
                       totalStock: 0,
                       variants: [],
                     });
@@ -172,7 +181,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
                   if (!cd.firstImage) cd.firstImage = colImageMap.get(p.id)?.get(v.id) ?? null;
                   cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
                   cd.totalStock += v.stock ?? 0;
-                  if (cp.colorId ? v.colorId === cp.colorId : v.isPrimary) cd.isPrimary = true;
+                  if (isPrimaryColor) cd.isPrimary = true;
                   cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: ((v as any).variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
                 }
                 const colors = [...colorMap.values()];
