@@ -10,6 +10,7 @@ import {
 } from "@/lib/pfs-sync-diff";
 
 const baseProduct: PfsProductFieldsSnapshot = {
+  reference: "TEST-REF",
   nameSource: "Bague étoile",
   descSource: "Belle bague",
   dimensions: "",
@@ -80,6 +81,16 @@ describe("productFieldsEqual", () => {
       composition: [{ id: "OR", value: 80 }],
     };
     expect(productFieldsEqual(a, b)).toBe(false);
+  });
+
+  it("returns true when references are identical", () => {
+    expect(productFieldsEqual(baseProduct, { ...baseProduct })).toBe(true);
+  });
+
+  it("returns false when reference differs", () => {
+    expect(
+      productFieldsEqual(baseProduct, { ...baseProduct, reference: "OTHER-REF" }),
+    ).toBe(false);
   });
 });
 

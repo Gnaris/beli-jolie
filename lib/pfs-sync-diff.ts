@@ -11,6 +11,7 @@
 export const PFS_SNAPSHOT_VERSION = 1 as const;
 
 export interface PfsProductFieldsSnapshot {
+  reference: string;
   nameSource: string;
   descSource: string;
   dimensions: string;
@@ -66,6 +67,7 @@ export function productFieldsEqual(
   b: PfsProductFieldsSnapshot,
 ): boolean {
   return (
+    a.reference === b.reference &&
     a.nameSource === b.nameSource &&
     a.descSource === b.descSource &&
     a.dimensions === b.dimensions &&
