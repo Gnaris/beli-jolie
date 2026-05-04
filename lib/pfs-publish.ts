@@ -79,6 +79,7 @@ interface FullProduct {
   name: string;
   description: string;
   status: string;
+  isBestSeller: boolean;
   primaryColorId: string | null;
   dimensionLength: number | null;
   dimensionWidth: number | null;
@@ -175,6 +176,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
       name: true,
       description: true,
       status: true,
+      isBestSeller: true,
       primaryColorId: true,
       dimensionLength: true,
       dimensionWidth: true,
@@ -651,16 +653,20 @@ export async function pfsPublishProduct(
 
     // ── Step 5 : Status ──
     // Mapping local → PFS :
-    //   ONLINE  → READY_FOR_SALE (en vente)
-    //   sinon   → DRAFT          (brouillon — jamais ARCHIVED, qui sortirait
-    //                             le produit de la liste de travail PFS)
-    const targetPfsStatus: "READY_FOR_SALE" | "DRAFT" =
-      product.status === "ONLINE" && !allVariantsOutOfStock
-        ? "READY_FOR_SALE"
-        : "DRAFT";
+    //   ONLINE (avec stock) → READY_FOR_SALE
+    //   ARCHIVED            → ARCHIVED
+    //   OFFLINE / pas stock → DRAFT
+    const targetPfsStatus: "READY_FOR_SALE" | "DRAFT" | "ARCHIVED" =
+      product.status === "ARCHIVED"
+        ? "ARCHIVED"
+        : product.status === "ONLINE" && !allVariantsOutOfStock
+          ? "READY_FOR_SALE"
+          : "DRAFT";
 
     if (targetPfsStatus === "READY_FOR_SALE") {
       report("Mise en ligne...");
+    } else if (targetPfsStatus === "ARCHIVED") {
+      report("Archivage sur PFS...");
     } else {
       report("Mise en brouillon sur PFS...");
     }
@@ -671,6 +677,19 @@ export async function pfsPublishProduct(
       allVariantsOutOfStock,
     });
     await pfsUpdateStatus([{ id: createdPfsProductId, status: targetPfsStatus }]);
+
+    // Si la case best-seller est cochée, poser l'étoile sur PFS
+    if (product.isBestSeller && targetPfsStatus !== "ARCHIVED") {
+      report("Mise en avant sur PFS...");
+      try {
+        await pfsUpdateStatus([{ id: createdPfsProductId, status: "STAR" }]);
+        logger.info("[PFS Publish] Best-seller star applied", { pfsProductId: createdPfsProductId });
+      } catch (err) {
+        logger.warn("[PFS Publish] Failed to STAR product (non-critical)", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     // ── Step 6 : Local DB ──
     report("Mise à jour locale...");
