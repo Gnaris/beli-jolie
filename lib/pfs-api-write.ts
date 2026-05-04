@@ -473,6 +473,20 @@ export async function pfsUpdateStatus(
 }
 
 // ─────────────────────────────────────────────
+// 7b. Remove star (single product, dedicated endpoint, no body)
+// ─────────────────────────────────────────────
+
+export async function pfsRemoveStar(pfsProductId: string): Promise<void> {
+  const headers = await getPfsHeaders();
+  const url = `${PFS_BASE_URL}/catalog/products/${encodeURIComponent(pfsProductId)}/updateStatus/REMOVE_STAR`;
+  const res = await fetchWithRetry(url, { method: "PATCH", headers });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`PFS remove star failed (${res.status}): ${text.slice(0, 300)}`);
+  }
+}
+
+// ─────────────────────────────────────────────
 // 8. Fetch attribute lists (for mapping UI)
 // ─────────────────────────────────────────────
 
