@@ -402,6 +402,7 @@ function buildProductFieldsSnapshot(
     composition.push({ id: "ACIERINOXYDABLE", value: 100 });
   }
   return {
+    reference: product.reference,
     nameSource: product.name,
     descSource: product.description,
     dimensions: buildDimensionsSuffix(product),
@@ -610,6 +611,7 @@ export async function pfsUpdateProductInPlace(
       const compositionArray = nextProductSnap.composition;
 
       const updateData: PfsProductUpdateData = {
+        reference_code: nextProductSnap.reference,
         label: translated.productName,
         description: translated.productDescription,
         material_composition: compositionArray,
