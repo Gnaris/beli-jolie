@@ -22,11 +22,7 @@ function getStripePromise() {
       .then((r) => r.json())
       .then((data) => {
         if (data.publishableKey) {
-          // En mode Stripe Connect, passer le compte connecté
-          const opts = data.connectAccountId
-            ? { stripeAccount: data.connectAccountId as string }
-            : undefined;
-          return loadStripe(data.publishableKey, opts);
+          return loadStripe(data.publishableKey);
         }
         return null;
       })
@@ -87,6 +83,7 @@ interface UserInfo {
   phone: string;
   siret: string;
   vatNumber: string | null;
+  vatExempt: boolean;
 }
 
 interface ClientDiscount {
@@ -107,45 +104,24 @@ interface Carrier {
 // Constantes TVA
 // ─────────────────────────────────────────────
 
-const EU_COUNTRIES = new Set([
-  "AT","BE","BG","CY","CZ","DE","DK","EE","ES","FI","FR",
-  "GR","HR","HU","IE","IT","LT","LU","LV","MT","NL","PL",
-  "PT","RO","SE","SI","SK",
-]);
+import { resolveVatRate, isDomTom, isEuNonFrance, EU_COUNTRIES } from "@/lib/vat";
 
-/** Code postaux DOM-TOM français */
-function isDOMTOM(zipCode: string, country: string): boolean {
-  if (country !== "FR") return false;
-  const prefix = parseInt(zipCode.slice(0, 3));
-  return prefix >= 971 && prefix <= 989;
-}
-
-function computeTvaRate(address: Address, vatNumber: string | null): number {
-  if (!address) return 0.20;
-  const { country, zipCode } = address;
-  if (country === "FR") {
-    if (isDOMTOM(zipCode, country)) return 0; // DOM-TOM
-    return 0.20; // France métropolitaine
+function getTvaLabel(rate: number, address: Address | null, isPickup: boolean, vatExempt: boolean): string {
+  if (!address) {
+    // Pas d'adresse renseignée : seul le retrait permet de fixer un taux (20 % FR).
+    if (isPickup) return "20 %";
+    return "Calculée après sélection de l'adresse";
   }
-  if (EU_COUNTRIES.has(country)) {
-    if (vatNumber && vatNumber.trim()) return 0; // Autoliquidation
-    return 0.20; // EU sans n° TVA
-  }
-  return 0; // Export hors UE
-}
-
-function getTvaLabel(rate: number, address: Address | null, vatNumber: string | null): string {
-  if (!address) return "Calculée après saisie de l'adresse";
+  const country = address.country;
   if (rate === 0) {
-    if (!address) return "—";
-    if (address.country === "FR" && isDOMTOM(address.zipCode, address.country))
-      return "0% (DOM-TOM)";
-    if (!EU_COUNTRIES.has(address.country))
-      return "0% (exportation hors UE)";
-    if (vatNumber)
-      return "0% (autoliquidation — n° TVA fourni)";
+    if (isDomTom(country)) return "0 % (DOM-TOM)";
+    if (isEuNonFrance(country) && vatExempt) return "0 % (auto-liquidation — TVA validée)";
+    if (!EU_COUNTRIES.has(country)) return "0 % (exportation hors UE)";
   }
-  return `${(rate * 100).toFixed(0)}%`;
+  if (rate > 0 && isEuNonFrance(country) && !vatExempt) {
+    return "20 % (TVA non encore validée par notre équipe)";
+  }
+  return `${(rate * 100).toFixed(0)} %`;
 }
 
 // ─────────────────────────────────────────────
@@ -690,10 +666,17 @@ export default function CheckoutClient({
     ? { id: "pickup_store", name: "Retrait en boutique", price: 0, delay: "" }
     : (carriers.find((c) => c.id === selectedCarrierId) ?? null);
 
-  // TVA
-  const vatNumber = user.vatNumber;
-  const tvaRate   = selectedAddr ? computeTvaRate(selectedAddr, vatNumber) : 0;
-  const tvaLabel  = getTvaLabel(tvaRate, selectedAddr, vatNumber);
+  // TVA — règles unifiées (lib/vat) :
+  // France → 20 %, DOM-TOM → 0 %,
+  // UE hors France + admin a validé l'exonération → 0 % sinon 20 %, hors UE → 0 %.
+  // Le retrait en boutique n'écrase plus l'exonération B2B intracom validée.
+  const isPickup = deliveryMode === "pickup";
+  const tvaRate = resolveVatRate({
+    countryCode: selectedAddr?.country ?? null,
+    isPickup,
+    vatExempt: user.vatExempt,
+  });
+  const tvaLabel = getTvaLabel(tvaRate, selectedAddr, isPickup, user.vatExempt);
 
   // Totaux
   const subtotalHT = cart.items.reduce(
@@ -844,12 +827,13 @@ export default function CheckoutClient({
       const res = await fetch("/api/payments/create-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // tvaRate n'est plus envoyé : le serveur le recalcule depuis l'adresse
+        // de livraison + le mode (livraison/retrait) + le flag vatExempt admin.
         body: JSON.stringify({
           addressId:    selectedAddr!.id,
           carrierId:    selectedCarrier!.id,
           carrierName:  selectedCarrier!.name,
           carrierPrice: effectiveCarrierPrice,
-          tvaRate,
         }),
       });
       const data = await res.json();
@@ -885,7 +869,6 @@ export default function CheckoutClient({
           transactionId,
           carrierName:           selectedCarrier!.name,
           carrierPrice:          effectiveCarrierPrice,
-          tvaRate,
           stripePaymentIntentId: piId,
           cgvAcceptedAt:         new Date().toISOString(),
         });
@@ -986,7 +969,7 @@ export default function CheckoutClient({
                   <InfoLine label="Email"     value={billingInfo.email} />
                   <InfoLine label="Telephone" value={billingInfo.phone} />
                   <InfoLine label="SIRET"     value={user.siret} mono />
-                  {vatNumber && <InfoLine label="N° TVA" value={vatNumber} mono />}
+                  {user.vatNumber && <InfoLine label="N° TVA" value={user.vatNumber} mono />}
                 </div>
                 {billingInfo.address1 && (
                   <div className="border-t border-border pt-3">

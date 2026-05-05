@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { reinstateStockForOrder } from "@/lib/stock";
+import { resolveVatRate } from "@/lib/vat";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -54,7 +55,7 @@ export async function cancelOrder(orderId: string): Promise<void> {
 }
 import { generateOrderPDF, type OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
-import { getStripeInstance, getConnectedAccountId } from "@/lib/stripe";
+import { getStripeInstance } from "@/lib/stripe";
 import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notifications";
 
 // ─────────────────────────────────────────────
@@ -67,7 +68,6 @@ export interface PlaceOrderInput {
   transactionId: string;   // transactionId retourné par /api/carriers
   carrierName:   string;
   carrierPrice:  number;
-  tvaRate:       number;
   stripePaymentIntentId: string; // pi_xxx retourné par Stripe
   cgvAcceptedAt?: string; // ISO date when client accepted CGV
 }
@@ -132,6 +132,7 @@ export async function placeOrder(
       select: {
         firstName: true, lastName: true, company: true,
         email: true, phone: true, siret: true, vatNumber: true,
+        vatExempt: true, addressCountry: true,
         discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true,
         freeShipping: true, shippingDiscountType: true, shippingDiscountValue: true,
       },
@@ -195,9 +196,7 @@ export async function placeOrder(
   let paymentIntent;
   try {
     const stripe = await getStripeInstance();
-    const connectAccountId = await getConnectedAccountId();
-    const connectOpts = connectAccountId ? { stripeAccount: connectAccountId } : undefined;
-    paymentIntent = await stripe.paymentIntents.retrieve(input.stripePaymentIntentId, connectOpts);
+    paymentIntent = await stripe.paymentIntents.retrieve(input.stripePaymentIntentId);
   } catch (err) {
     logger.error("[placeOrder] Erreur retrieve PI", { error: err instanceof Error ? err.message : String(err) });
     return { success: false, error: "Payment Intent introuvable." };
@@ -276,7 +275,16 @@ export async function placeOrder(
     return input.carrierPrice;
   })();
 
-  const tvaAmount = subtotalAfterDiscount * input.tvaRate;
+  // Taux de TVA recalculé côté serveur (jamais confiance à l'input client) :
+  // exonération B2B intracom appliquée même en retrait si l'admin a validé.
+  const isPickup = input.carrierId === "pickup_store";
+  const tvaRate = resolveVatRate({
+    countryCode: address.country,
+    isPickup,
+    vatExempt: user.vatExempt,
+  });
+
+  const tvaAmount = subtotalAfterDiscount * tvaRate;
   const totalTTC  = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
 
   // ── Vérifier que le montant payé par Stripe correspond bien au total recalculé.
@@ -447,7 +455,7 @@ export async function placeOrder(
       // CGV
       cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
       // TVA
-      tvaRate:    input.tvaRate,
+      tvaRate,
       subtotalHT: subtotalAfterDiscount,
       tvaAmount,
       totalTTC,
@@ -566,7 +574,7 @@ export async function placeOrder(
       promoCode:       order.promoCode ?? null,
       promoDiscount:   Number(order.promoDiscount ?? 0),
       creditApplied:   Number(order.creditApplied ?? 0),
-      tvaRate:         input.tvaRate,
+      tvaRate,
       subtotalHT,
       tvaAmount,
       totalTTC,

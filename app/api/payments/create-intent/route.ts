@@ -1,21 +1,19 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getStripeInstance, getConnectedAccountId, getCommissionRate, isStripeConnectReady } from "@/lib/stripe";
+import { getStripeInstance, isStripeConfigured } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { getCachedShopName } from "@/lib/cached-data";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
+import { resolveVatRate } from "@/lib/vat";
 
 const CreateIntentSchema = z.object({
   addressId: z.string().min(1),
   carrierId: z.string().min(1),
   carrierName: z.string().min(1),
   carrierPrice: z.number().min(0),
-  tvaRate: z.number().refine((v) => [0, 0.2].includes(v), {
-    message: "Taux de TVA invalide.",
-  }),
 });
 
 /**
@@ -38,7 +36,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
-  const { addressId, carrierId, carrierName, carrierPrice, tvaRate } = parsed.data;
+  const { addressId, carrierId, carrierName, carrierPrice } = parsed.data;
 
   const userId = session.user.id;
 
@@ -63,7 +61,7 @@ export async function POST(req: Request) {
     prisma.shippingAddress.findFirst({ where: { id: addressId, userId } }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { company: true, email: true, discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true, freeShipping: true, shippingDiscountType: true, shippingDiscountValue: true },
+      select: { company: true, email: true, vatExempt: true, discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true, freeShipping: true, shippingDiscountType: true, shippingDiscountValue: true },
     }),
   ]);
 
@@ -117,6 +115,15 @@ export async function POST(req: Request) {
     return carrierPrice;
   })();
 
+  // Taux TVA recalculé côté serveur (jamais l'input client) :
+  // exonération B2B intracom appliquée même en retrait si l'admin a validé.
+  const isPickup = carrierId === "pickup_store";
+  const tvaRate = resolveVatRate({
+    countryCode: address.country,
+    isPickup,
+    vatExempt: user?.vatExempt ?? false,
+  });
+
   const tvaAmount = subtotalAfterDiscount * tvaRate;
   const totalTTC = subtotalAfterDiscount + tvaAmount + effectiveCarrierPrice;
 
@@ -128,10 +135,8 @@ export async function POST(req: Request) {
 
   const shopName = await getCachedShopName();
 
-  // Vérifier que Stripe Connect est prêt
-  const connectReady = await isStripeConnectReady();
-  if (!connectReady) {
-    return NextResponse.json({ error: "Paiement indisponible. Le compte Stripe n'est pas encore relié." }, { status: 503 });
+  if (!isStripeConfigured()) {
+    return NextResponse.json({ error: "Paiement indisponible. Stripe n'est pas configuré." }, { status: 503 });
   }
 
   let stripe;
@@ -141,18 +146,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Stripe non configuré. Contactez l'administrateur." }, { status: 503 });
   }
 
-  const connectAccountId = await getConnectedAccountId();
-
   try {
-    // Calculer la commission plateforme
-    const commissionRate = await getCommissionRate();
-    const applicationFeeAmount = Math.round(amountCents * commissionRate);
-
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "eur",
       payment_method_types: ["card"],
-      application_fee_amount: applicationFeeAmount > 0 ? applicationFeeAmount : undefined,
       metadata: {
         userId,
         addressId,
@@ -163,7 +161,7 @@ export async function POST(req: Request) {
       },
       receipt_email: user?.email ?? undefined,
       description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${(totalTTC).toFixed(2)} € TTC`,
-    }, { stripeAccount: connectAccountId! });
+    });
 
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,
