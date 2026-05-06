@@ -1,0 +1,176 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const {
+  mockFindUnique,
+  mockCompanyFindFirst,
+  mockProductUpdate,
+  pfsTranslateSpy,
+  pfsUpdateProductSpy,
+  pfsGetCategoriesSpy,
+  pfsGetFamiliesSpy,
+  pfsGetColorsSpy,
+  pfsGetVariantsSpy,
+  pfsCreateVariantsSpy,
+  pfsPatchVariantsSpy,
+  pfsDeleteVariantSpy,
+  pfsUploadImageSpy,
+  pfsDeleteImageSpy,
+  pfsUpdateStatusSpy,
+  pfsRemoveStarSpy,
+  loadMarkupSpy,
+  storageReadFileSpy,
+  sharpInstanceMock,
+} = vi.hoisted(() => {
+  const sharpJpeg = vi.fn().mockReturnThis();
+  const sharpToBuffer = vi.fn().mockResolvedValue(Buffer.from("jpg"));
+  const sharpInstanceMock = { jpeg: sharpJpeg, toBuffer: sharpToBuffer };
+  return {
+    mockFindUnique: vi.fn(),
+    mockCompanyFindFirst: vi.fn().mockResolvedValue({ shopName: "MaBoutique" }),
+    mockProductUpdate: vi.fn().mockResolvedValue({}),
+    pfsTranslateSpy: vi.fn().mockResolvedValue({ en: "n", de: "n", es: "n", it: "n" }),
+    pfsUpdateProductSpy: vi.fn().mockResolvedValue({}),
+    pfsGetCategoriesSpy: vi.fn().mockResolvedValue([]),
+    pfsGetFamiliesSpy: vi.fn().mockResolvedValue([]),
+    pfsGetColorsSpy: vi.fn().mockResolvedValue([]),
+    pfsGetVariantsSpy: vi.fn().mockResolvedValue([]),
+    pfsCreateVariantsSpy: vi.fn().mockResolvedValue([]),
+    pfsPatchVariantsSpy: vi.fn().mockResolvedValue({}),
+    pfsDeleteVariantSpy: vi.fn().mockResolvedValue({}),
+    pfsUploadImageSpy: vi.fn().mockResolvedValue({}),
+    pfsDeleteImageSpy: vi.fn().mockResolvedValue({}),
+    pfsUpdateStatusSpy: vi.fn().mockResolvedValue({}),
+    pfsRemoveStarSpy: vi.fn().mockResolvedValue({}),
+    loadMarkupSpy: vi.fn().mockResolvedValue({ pfs: undefined }),
+    storageReadFileSpy: vi.fn().mockResolvedValue(Buffer.from("img")),
+    sharpInstanceMock,
+  };
+});
+
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    product: {
+      findUnique: (...a: unknown[]) => mockFindUnique(...a),
+      update: (...a: unknown[]) => mockProductUpdate(...a),
+    },
+    companyInfo: {
+      findFirst: (...a: unknown[]) => mockCompanyFindFirst(...a),
+    },
+  },
+}));
+vi.mock("@/lib/pfs-api-write", () => ({
+  pfsTranslate: pfsTranslateSpy,
+  pfsUpdateProduct: pfsUpdateProductSpy,
+  pfsGetCategories: pfsGetCategoriesSpy,
+  pfsGetFamilies: pfsGetFamiliesSpy,
+  pfsGetColors: pfsGetColorsSpy,
+  pfsCreateVariants: pfsCreateVariantsSpy,
+  pfsPatchVariants: pfsPatchVariantsSpy,
+  pfsDeleteVariant: pfsDeleteVariantSpy,
+  pfsUploadImage: pfsUploadImageSpy,
+  pfsDeleteImage: pfsDeleteImageSpy,
+  pfsUpdateStatus: pfsUpdateStatusSpy,
+  pfsRemoveStar: pfsRemoveStarSpy,
+}));
+vi.mock("@/lib/pfs-api", () => ({
+  pfsGetVariants: pfsGetVariantsSpy,
+}));
+vi.mock("@/lib/marketplace-pricing", () => ({
+  loadMarketplaceMarkupConfigs: loadMarkupSpy,
+  applyMarketplaceMarkup: (price: number) => price,
+}));
+vi.mock("@/lib/storage", () => ({
+  readFile: storageReadFileSpy,
+  keyFromDbPath: (p: string) => p,
+}));
+vi.mock("sharp", () => ({
+  default: () => sharpInstanceMock,
+}));
+vi.mock("@/lib/logger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
+
+import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+function buildProductRow(snapshot: unknown) {
+  return {
+    id: "p-1",
+    reference: "REF-1",
+    name: "Mon produit",
+    description: "Desc",
+    status: "ONLINE",
+    primaryColorId: "col-1",
+    pfsProductId: "PFS-1",
+    pfsLastSyncSnapshot: snapshot,
+    isBestSeller: false,
+    dimensionLength: null,
+    dimensionWidth: null,
+    dimensionHeight: null,
+    dimensionDiameter: null,
+    dimensionCircumference: null,
+    sizeDetailsTu: null,
+    category: {
+      id: "c-1",
+      pfsCategoryId: "PFS-CAT",
+      pfsGender: "WOMAN",
+      pfsFamilyId: "PFS-FAM",
+      pfsFamilyName: "Famille",
+      pfsCategoryName: "Cat",
+    },
+    colors: [
+      {
+        id: "v-1",
+        pfsVariantId: "PFS-V1",
+        unitPrice: 10,
+        weight: 1000,
+        stock: 5,
+        isPrimary: true,
+        saleType: "UNIT",
+        packQuantity: null,
+        variantSizes: [{ size: { name: "M", pfsSizeRef: "M" }, quantity: 5 }],
+        colorId: "col-1",
+        color: { id: "col-1", name: "Rouge", pfsColorRef: "RED" },
+        packLines: [],
+        images: [],
+      },
+    ],
+    colorImages: [],
+    compositions: [],
+    manufacturingCountry: { isoCode: "FR", pfsCountryRef: "FR" },
+    season: null,
+  };
+}
+
+describe("pfsUpdateProductInPlace forceFullSync", () => {
+  it("sans forceFullSync : si le snapshot DB est identique à l'état cible, pfsUpdateProduct n'est pas rappelé", async () => {
+    mockFindUnique.mockResolvedValueOnce(buildProductRow(null));
+    await pfsUpdateProductInPlace("p-1");
+    const savedSnapshot = mockProductUpdate.mock.calls[0][0].data.pfsLastSyncSnapshot;
+    pfsUpdateProductSpy.mockClear();
+
+    mockFindUnique.mockResolvedValueOnce(buildProductRow(savedSnapshot));
+    const res = await pfsUpdateProductInPlace("p-1");
+
+    expect(res.success).toBe(true);
+    expect(pfsUpdateProductSpy).not.toHaveBeenCalled();
+  });
+
+  it("avec forceFullSync=true : pfsUpdateProduct est appelé même si le snapshot est identique", async () => {
+    mockFindUnique.mockResolvedValueOnce(buildProductRow(null));
+    await pfsUpdateProductInPlace("p-1");
+    const savedSnapshot = mockProductUpdate.mock.calls[0][0].data.pfsLastSyncSnapshot;
+    pfsUpdateProductSpy.mockClear();
+
+    mockFindUnique.mockResolvedValueOnce(buildProductRow(savedSnapshot));
+    const res = await pfsUpdateProductInPlace("p-1", undefined, { forceFullSync: true });
+
+    expect(res.success).toBe(true);
+    expect(pfsUpdateProductSpy).toHaveBeenCalled();
+  });
+});

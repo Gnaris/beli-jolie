@@ -478,7 +478,7 @@ function readPreviousSnapshot(raw: unknown): PfsSyncSnapshot | null {
 export async function pfsUpdateProductInPlace(
   productId: string,
   onProgress?: ProgressCallback,
-  options?: { skipRevalidation?: boolean },
+  options?: { skipRevalidation?: boolean; forceFullSync?: boolean },
 ): Promise<PfsUpdateResult> {
   const product = await loadProductFull(productId);
   if (!product) return { success: false, error: "Produit introuvable en base" };
@@ -573,7 +573,9 @@ export async function pfsUpdateProductInPlace(
     };
 
     // ── Diff vs snapshot précédent ──
-    const prevSnapshot = readPreviousSnapshot(product.pfsLastSyncSnapshot);
+    const prevSnapshot = options?.forceFullSync
+      ? null
+      : readPreviousSnapshot(product.pfsLastSyncSnapshot);
     const diff = diffSnapshots(prevSnapshot, nextSnapshot);
 
     // committedSnapshot accumule ce qui a réussi côté PFS — initialisé sur prev
