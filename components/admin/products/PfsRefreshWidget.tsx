@@ -249,7 +249,13 @@ export function PfsRefreshWidget() {
                     </p>
                   )}
                   {item.status === "in_progress" && (
-                    <p className="text-[10px] font-body text-[#4F46E5] mt-0.5">En cours...</p>
+                    <p className="text-[10px] font-body text-[#4F46E5] mt-0.5">
+                      {item.mode === "resync"
+                        ? "Resynchronisation..."
+                        : item.mode === "publish"
+                          ? "Publication..."
+                          : "Rafraîchissement..."}
+                    </p>
                   )}
                 </div>
                 <MainStatusIcon item={item} />
