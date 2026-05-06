@@ -217,7 +217,7 @@ function TagsDropdown({
   }
 
   return (
-    <div className="bg-bg-primary border border-border rounded-none p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+    <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-text-primary font-heading">Mots clés & Tags</p>
         <button type="button" onClick={onCreateClick}
@@ -250,7 +250,7 @@ function TagsDropdown({
           aria-expanded={open}
           aria-haspopup="listbox"
           aria-label="Sélectionner des mots-clés"
-          className={`w-full flex items-center justify-between px-3 py-2.5 border rounded-none text-sm font-body transition-colors ${
+          className={`w-full flex items-center justify-between px-3 py-2.5 border rounded-lg text-sm font-body transition-colors ${
             open ? "border-[#1A1A1A] ring-1 ring-[#1A1A1A]" : "border-border hover:border-[#CBCBCB]"
           }`}
         >
@@ -265,7 +265,7 @@ function TagsDropdown({
         </button>
 
         {open && (
-          <div className="absolute z-30 mt-1 w-full bg-bg-primary border border-border rounded-none shadow-lg overflow-hidden">
+          <div className="absolute z-30 mt-1 w-full bg-bg-primary border border-border rounded-xl shadow-lg overflow-hidden">
             {/* Search input */}
             <div className="p-2 border-b border-border-light">
               <input
@@ -274,7 +274,7 @@ function TagsDropdown({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Rechercher un mot-clé…"
-                className="w-full px-2.5 py-2 text-sm border border-border rounded-none font-body focus:outline-none focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]"
+                className="w-full px-2.5 py-2 text-sm border border-border rounded-md font-body focus:outline-none focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]"
               />
             </div>
 
@@ -299,7 +299,7 @@ function TagsDropdown({
                       selected ? "text-text-primary font-medium" : "text-text-secondary"
                     }`}
                   >
-                    <span className={`flex items-center justify-center w-4 h-4 rounded-none border text-[10px] ${
+                    <span className={`flex items-center justify-center w-4 h-4 rounded border text-[10px] ${
                       selected
                         ? "bg-bg-dark border-[#1A1A1A] text-text-inverse"
                         : "border-[#D1D5DB] bg-bg-primary"
@@ -1631,7 +1631,7 @@ export default function ProductForm({
           <div id="section-info" className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4 scroll-mt-24">
 
             {/* ── BLOC PRINCIPAL ── */}
-            <div className="bg-bg-primary border border-border rounded-none p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+            <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
 
               {/* Header: titre + langue tabs + bouton IA */}
               <div className="flex flex-wrap items-center gap-3">
@@ -1655,7 +1655,7 @@ export default function ProductForm({
                   type="button"
                   onClick={handleTranslateAll}
                   disabled={translateLoading || (!name.trim() && !description.trim())}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-[#E5E5E5] text-text-primary border border-border text-xs font-medium rounded-none transition-colors disabled:opacity-50 font-body shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-secondary hover:bg-[#E5E5E5] text-text-primary border border-border text-xs font-medium rounded-lg transition-colors disabled:opacity-50 font-body shrink-0"
                 >
                   {translateLoading ? (
                     <span className="w-3.5 h-3.5 border-2 border-[#1A1A1A]/30 border-t-[#1A1A1A] rounded-full animate-spin" />
@@ -1670,18 +1670,18 @@ export default function ProductForm({
               </div>
 
               {translateError && (
-                <p className="text-xs text-[#DC2626] font-body bg-[#FEF2F2] px-3 py-2 rounded-none">
+                <p className="text-xs text-[#DC2626] font-body bg-[#FEF2F2] px-3 py-2 rounded-lg">
                   {translateError}
                 </p>
               )}
               {translateSuccess && (
-                <p className="text-xs text-[#15803D] font-body bg-[#F0FDF4] px-3 py-2 rounded-none">
+                <p className="text-xs text-[#15803D] font-body bg-[#F0FDF4] px-3 py-2 rounded-lg">
                   {translateSuccess}
                 </p>
               )}
 
               {/* Mini légende : ce qui se traduit ou non — toujours visible */}
-              <p className="text-[11px] text-text-muted font-body bg-bg-secondary/60 border border-border-light rounded-none px-2.5 py-1.5">
+              <p className="text-[11px] text-text-muted font-body bg-bg-secondary/60 border border-border-light rounded-md px-2.5 py-1.5">
                 Seuls le <strong>nom</strong> et la <strong>description</strong> changent selon la langue.
                 Les autres champs (catégorie, mots-clés, composition, couleurs…) restent en français.
               </p>
@@ -1731,12 +1731,12 @@ export default function ProductForm({
               {/* Non-FR hint + missing translation warning */}
               {activeLocale !== "fr" && (
                 <div className="space-y-2">
-                  <div className="bg-bg-secondary border border-border rounded-none px-3 py-2 text-xs text-text-secondary font-body">
+                  <div className="bg-bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-text-secondary font-body">
                     Langue active : <strong>{LOCALE_LABELS[activeLocale]}</strong> — le nom et la description seront sauvegardés en tant que traduction.
                     Les champs Catégorie, Sous-catégories, Tags, Composition et Couleurs restent en français.
                   </div>
                   {missingDbLocales?.has(activeLocale) && (
-                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-none px-3 py-2 text-xs text-amber-800 font-body">
+                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-body">
                       <span className="text-base leading-none mt-0.5">⚠️</span>
                       <span>
                         <strong>Traduction manquante</strong> — Aucune traduction enregistrée en <strong>{LOCALE_LABELS[activeLocale]}</strong>.
@@ -1780,7 +1780,7 @@ export default function ProductForm({
                       className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
                     >+ Créer</button>
                   </div>
-                  <div className={!categoryId ? "rounded-none ring-1 ring-[#EF4444]" : ""}>
+                  <div className={!categoryId ? "rounded-lg ring-1 ring-[#EF4444]" : ""}>
                     <CustomSelect
                       value={categoryId}
                       onChange={(v) => { setCategoryId(v); setSubCategoryIds([]); }}
@@ -1821,7 +1821,7 @@ export default function ProductForm({
                         const selected = subCategoryIds.includes(sub.id);
                         return (
                           <button key={sub.id} type="button" onClick={() => toggleSubCategory(sub.id)}
-                            className={`px-3 py-1.5 text-sm border rounded-none transition-colors font-body ${
+                            className={`px-3 py-1.5 text-sm border rounded-lg transition-colors font-body ${
                               selected ? "bg-bg-dark text-text-inverse border-[#1A1A1A]" : "bg-bg-primary text-text-secondary border-border hover:border-bg-dark"
                             }`}
                           >{sub.name}</button>
@@ -1941,7 +1941,7 @@ export default function ProductForm({
           <div id="section-details" className="grid grid-cols-1 lg:grid-cols-2 gap-4 scroll-mt-24">
 
             {/* ── BLOC DIMENSIONS ── */}
-            <div className="bg-bg-primary border border-border rounded-none p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+            <div className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
               <div>
                 <p className="text-sm font-semibold text-text-primary font-heading">Dimensions</p>
                 <p className="text-xs text-text-muted font-body mt-0.5">
@@ -1983,7 +1983,7 @@ export default function ProductForm({
             </div>
 
             {/* ── BLOC COMPOSITION ── */}
-            <div className={`bg-bg-primary border rounded-none p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
+            <div className={`bg-bg-primary border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
               compositions.length === 0 || Math.abs(totalPct - 100) > 0.5 ? "border-[#EF4444]" : "border-border"
             }`}>
               <div className="flex items-center justify-between">
@@ -2016,7 +2016,7 @@ export default function ProductForm({
                   />
                 </div>
                 <button type="button" onClick={addComposition} disabled={!newCompId}
-                  className="px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-medium rounded-none hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-body"
+                  className="px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-medium rounded-lg hover:bg-[#000000] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 font-body"
                 >Ajouter</button>
               </div>
 
@@ -2040,7 +2040,7 @@ export default function ProductForm({
                       Total : {totalPct.toFixed(1)} %{Math.abs(totalPct - 100) <= 0.5 ? " ✓" : " ≠ 100%"}
                     </span>
                   </div>
-                  <ul className="divide-y divide-[#E5E5E5] border border-border rounded-none overflow-hidden">
+                  <ul className="divide-y divide-[#E5E5E5] border border-border rounded-xl overflow-hidden">
                     {compositions.map((item) => {
                       const comp = localCompositions.find((c) => c.id === item.compositionId);
                       return (
@@ -2068,7 +2068,7 @@ export default function ProductForm({
         </div>
 
         {/* ── Variantes couleur ── */}
-        <section id="section-variants" className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-none p-8 space-y-5 shadow-card scroll-mt-24`}>
+        <section id="section-variants" className={`bg-bg-primary border ${mode === "create" && variants.length === 0 ? "border-[#EF4444]" : "border-border"} rounded-2xl p-8 space-y-5 shadow-card scroll-mt-24`}>
           <div className="flex items-center justify-between border-b border-border pb-4">
             <h2 className="font-heading text-xl font-bold text-text-primary">
               Variantes{mode === "create" ? " *" : ""}
@@ -2104,7 +2104,7 @@ export default function ProductForm({
 
         <div id="section-links" className="space-y-8 scroll-mt-24">
         {/* ── Produits similaires ── */}
-        <section className="bg-bg-primary border border-border rounded-none p-8 space-y-5 shadow-card">
+        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
           <div className="border-b border-border pb-4">
             <h2 className="font-heading text-xl font-bold text-text-primary">
               Produits similaires
@@ -2123,7 +2123,7 @@ export default function ProductForm({
         </section>
 
         {/* ── Composition (ensemble → sous-produits) ── */}
-        <section className="bg-bg-primary border border-border rounded-none p-8 space-y-5 shadow-card">
+        <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
           <div className="border-b border-border pb-4">
             <h2 className="font-heading text-xl font-bold text-text-primary">
               Contenu de l&apos;ensemble
@@ -2149,16 +2149,16 @@ export default function ProductForm({
 
         {(error || onlineErrors.length > 0 || isSyncLocked || mode !== "edit" || hasUnsavedChanges) && (
         <div className="sticky bottom-0 z-10 flex justify-center py-4">
-          <div className="bg-bg-primary rounded-none px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-border space-y-3 w-fit max-w-full">
+          <div className="bg-bg-primary rounded-2xl px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-border space-y-3 w-fit max-w-full">
             {/* ── Erreurs ── */}
             {error && (
-              <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-none">
+              <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-xl">
                 {error}
               </div>
             )}
 
             {onlineErrors.length > 0 && (
-              <div className="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-none space-y-2">
+              <div className="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-xl space-y-2">
                 <p className="font-semibold font-heading">
                   Ce produit ne peut pas être mis en ligne :
                 </p>
@@ -2177,7 +2177,7 @@ export default function ProductForm({
 
             {/* ── Sync lock indicator ── */}
             {isSyncLocked && (
-              <div className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#FFF7ED] border border-[#FED7AA] rounded-none text-[#C2410C] text-sm font-medium font-body">
+              <div className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#FFF7ED] border border-[#FED7AA] rounded-xl text-[#C2410C] text-sm font-medium font-body">
                 <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -2237,7 +2237,7 @@ export default function ProductForm({
                   type="button"
                   disabled={isPending || isSyncLocked}
                   onClick={() => handleSaveDraft()}
-                  className="flex items-center justify-center gap-2 h-14 min-w-[260px] px-6 py-0 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-none border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
+                  className="flex items-center justify-center gap-2 h-14 min-w-[260px] px-6 py-0 bg-bg-secondary hover:bg-[#F0F0F0] text-text-secondary text-sm font-semibold rounded-xl border border-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-body"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
@@ -2392,7 +2392,7 @@ function SimilarProductPicker({
       </div>
 
       {search.trim().length >= 1 && (
-        <div className="border border-border rounded-none overflow-hidden max-h-80 overflow-y-auto">
+        <div className="border border-border rounded-xl overflow-hidden max-h-80 overflow-y-auto">
           {filteredResults.length === 0 ? (
             <p className="px-4 py-3 text-sm text-text-muted font-body">
               {loading ? "Recherche…" : "Aucun résultat."}
@@ -2407,9 +2407,9 @@ function SimilarProductPicker({
               >
                 {product.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={getImageSrc(product.image, "thumb")} alt="" className="w-10 h-10 object-cover rounded-none border border-border" />
+                  <img src={getImageSrc(product.image, "thumb")} alt="" className="w-10 h-10 object-cover rounded-lg border border-border" />
                 ) : (
-                  <div className="w-10 h-10 rounded-none bg-[#F0F0F0] flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-lg bg-[#F0F0F0] flex items-center justify-center shrink-0">
                     <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
                     </svg>
@@ -2464,7 +2464,7 @@ function SimilarProductPicker({
               {selectedProducts.map((p) => (
                 <div
                   key={p.id}
-                  className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-none overflow-hidden group/card hover:border-bg-dark transition-colors"
+                  className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-xl overflow-hidden group/card hover:border-bg-dark transition-colors"
                 >
                   <button
                     type="button"
@@ -2536,7 +2536,7 @@ function BundleParentsReadonly({ products }: { products: SearchProduct[] }) {
   }
 
   return (
-    <section className="bg-bg-primary border border-border rounded-none p-8 space-y-5 shadow-card">
+    <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-5 shadow-card">
       <div className="border-b border-border pb-4">
         <h2 className="font-heading text-xl font-bold text-text-primary">
           Ce produit se trouve aussi dans
@@ -2579,7 +2579,7 @@ function BundleParentsReadonly({ products }: { products: SearchProduct[] }) {
               href={`/admin/produits/${p.id}/modifier`}
               target="_blank"
               rel="noopener noreferrer"
-              className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-none overflow-hidden group/card hover:border-bg-dark transition-colors"
+              className="relative flex-shrink-0 w-48 bg-bg-secondary border border-border rounded-xl overflow-hidden group/card hover:border-bg-dark transition-colors"
             >
               <div className="relative">
                 {p.image ? (
