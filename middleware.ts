@@ -39,8 +39,12 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
     return maintenanceCache.value;
   }
   try {
+    // `cache: "no-store"` : on évite la Data Cache de Next.js (sur disque)
+    // qui peut survivre aux rebuilds et garder une vieille réponse "maintenance"
+    // pendant 60s. On garde uniquement le cache mémoire `maintenanceCache`
+    // ci-dessus, qui est réinitialisé à chaque redémarrage du process.
     const res = await fetch(new URL("/api/site-status", requestUrl).toString(), {
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
     if (!res.ok) {
       // Fail-safe : on retourne true SANS cacher, pour retenter au prochain hit.
