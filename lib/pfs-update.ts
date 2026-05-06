@@ -573,16 +573,16 @@ export async function pfsUpdateProductInPlace(
     };
 
     // ── Diff vs snapshot précédent ──
-    const prevSnapshot = options?.forceFullSync
-      ? null
-      : readPreviousSnapshot(product.pfsLastSyncSnapshot);
+    // Diff target — null forces a full diff when forceFullSync is on.
+    const realPrevSnapshot = readPreviousSnapshot(product.pfsLastSyncSnapshot);
+    const prevSnapshot = options?.forceFullSync ? null : realPrevSnapshot;
     const diff = diffSnapshots(prevSnapshot, nextSnapshot);
 
-    // committedSnapshot accumule ce qui a réussi côté PFS — initialisé sur prev
-    // pour préserver l'état connu en cas de crash partiel sur les sections que
-    // l'on n'a pas re-synchronisées.
-    const committedSnapshot: PfsSyncSnapshot = prevSnapshot
-      ? { ...prevSnapshot }
+    // committedSnapshot accumule ce qui a réussi côté PFS — initialisé sur le
+    // vrai snapshot précédent (même en mode force) pour préserver l'état connu
+    // en cas de crash partiel.
+    const committedSnapshot: PfsSyncSnapshot = realPrevSnapshot
+      ? { ...realPrevSnapshot }
       : {
           schemaVersion: PFS_SNAPSHOT_VERSION,
           product: nextProductSnap,

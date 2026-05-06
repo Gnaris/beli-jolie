@@ -96,6 +96,7 @@ import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockCompanyFindFirst.mockResolvedValue({ shopName: "MaBoutique" });
 });
 
 function buildProductRow(snapshot: unknown) {
@@ -172,5 +173,29 @@ describe("pfsUpdateProductInPlace forceFullSync", () => {
 
     expect(res.success).toBe(true);
     expect(pfsUpdateProductSpy).toHaveBeenCalled();
+  });
+
+  it("avec forceFullSync=true et un crash mi-sync : le snapshot DB préserve l'état connu précédent", async () => {
+    // 1re sync pour capturer un snapshot DB sain.
+    mockFindUnique.mockResolvedValueOnce(buildProductRow(null));
+    await pfsUpdateProductInPlace("p-1");
+    const savedSnapshot = mockProductUpdate.mock.calls[0][0].data.pfsLastSyncSnapshot;
+    mockProductUpdate.mockClear();
+
+    // 2e sync forcée mais qui crashe sur la mise à jour produit.
+    pfsUpdateProductSpy.mockRejectedValueOnce(new Error("PFS down"));
+    mockFindUnique.mockResolvedValueOnce(buildProductRow(savedSnapshot));
+
+    const res = await pfsUpdateProductInPlace("p-1", undefined, { forceFullSync: true });
+
+    expect(res.success).toBe(false);
+
+    // Le snapshot persisté ne doit PAS être réduit au fallback vide :
+    // il doit refléter le savedSnapshot précédent (au moins schemaVersion + variants connus).
+    if (mockProductUpdate.mock.calls.length > 0) {
+      const persisted = mockProductUpdate.mock.calls[0][0].data.pfsLastSyncSnapshot;
+      expect(persisted).toBeTruthy();
+      expect(persisted.variants).toEqual(savedSnapshot.variants);
+    }
   });
 });
