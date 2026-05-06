@@ -34,7 +34,7 @@ B2B SaaS e-commerce platform — generic wholesale for any product type. Next.js
 | `(client)` | `/espace-pro/*`, `/panier/*`, `/commandes/*`, `/favoris` | CLIENT (APPROVED) |
 | *(direct)* | `/produits/*`, `/collections/*`, `/categories` | Public / guest (`bj_access_code` cookie) |
 
-Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middleware also handles maintenance mode (60s module-level cache, fail-safe: assumes maintenance on fetch error) and admin preview (`bj_admin_preview=1` cookie).
+Protection: `middleware.ts` (edge) + group `layout.tsx` (server fallback). Middleware also handles maintenance mode (60s module-level cache **only on success** — errors are not cached so a transient fetch failure at app startup doesn't lock the site in maintenance for 1 minute) and admin preview (`bj_admin_preview=1` cookie).
 
 ### Key layers
 
@@ -251,3 +251,57 @@ Autres : Stripe 20.4.1, Recharts, bcryptjs (12 rounds), pdfkit, exceljs, playwri
 ### Logging
 - **Never use `console.log/warn/error`** in server-side code — use `import { logger } from "@/lib/logger"` instead
 - Logger outputs JSON in production (for log aggregators), human-readable format in development
+
+### Auth redirects
+- **Login → /admin** : `LoginForm.redirectAfterLogin()` utilise `window.location.href = "/admin"` (full reload), **pas** `router.push("/admin")`. Le router de `@/i18n/navigation` ajoute le préfixe locale → produit `/fr/admin` qui est un 404 (admin est hors i18n). Le full reload contourne le router localisé proprement.
+
+---
+
+## Production (`https://beliandjolie.com`)
+
+Le site est en production sur un VPS Hostinger (Ubuntu 24.04 LTS). Tout le code vit dans `/var/www/beliandjolie` côté serveur.
+
+### Stack serveur
+
+| Composant | Version | Rôle |
+|-----------|---------|------|
+| Ubuntu | 24.04 LTS | OS |
+| Node.js | 20 LTS (NodeSource) | Runtime Next.js |
+| MySQL | 8 | Base de données (`beliandjolie`, user dédié) |
+| Nginx | 1.24 | Reverse proxy `127.0.0.1:3000` + sert `/uploads/` et `/_next/static/` directement |
+| PM2 | 7 | Process manager, géré par systemd via `pm2-root.service` (autostart au boot) |
+| Certbot | 2.9 | HTTPS Let's Encrypt, renouvellement auto via systemd timer |
+
+### Fichiers de config production
+
+- **`/etc/nginx/sites-available/beliandjolie`** — vhost (HTTP→HTTPS redirect géré par certbot, `client_max_body_size 50M` pour les uploads)
+- **`/var/www/beliandjolie/.env`** — secrets (DATABASE_URL, NEXTAUTH_SECRET, ENCRYPTION_KEY). Permissions `0666` pour permettre l'édition via le lecteur SSHFS-Win monté côté admin. ⚠️ **Lu uniquement au démarrage du site** : restart PM2 obligatoire après modif.
+- **PM2 dump** : `/root/.pm2/dump.pm2` (généré par `pm2 save`, restauré au boot par `pm2-root.service`)
+
+### Sécurité serveur
+
+- **UFW** : seuls les ports 22 (SSH), 80 (HTTP), 443 (HTTPS) sont ouverts en entrée
+- **SSH** : `PasswordAuthentication no` + `PermitRootLogin prohibit-password` → clé uniquement
+- **Mot de passe root** changé après l'installation initiale (sert seulement pour le panneau VPS du registrar)
+- Le poste admin se connecte avec une clé `~/.ssh/id_ed25519` côté Windows, pas de mot de passe à taper
+
+### Workflow de déploiement (mise à jour du code)
+
+Quand un commit doit partir en prod :
+1. `git push origin master` (depuis le poste de la cliente, ou depuis Claude pour son compte)
+2. SSH au serveur : `cd /var/www/beliandjolie && git fetch origin master && git reset --hard origin/master`
+3. `npm install --no-audit --no-fund` (si dépendances changées)
+4. `npx prisma generate && npx prisma db push --skip-generate` (si schema changé)
+5. `NODE_OPTIONS='--max-old-space-size=4096' npm run build`
+6. `pm2 restart beliandjolie`
+
+### Accès administrateur côté cliente
+
+- Lecteur réseau Windows **`V:`** monté via SSHFS-Win (`\\sshfs.kr\root@72.61.106.128\var\www\beliandjolie`) avec auto-mount au login (tâche planifiée `Mount-VPS-Beliandjolie`)
+- Script de mount : `~/Documents/mount-vps.ps1` côté Windows. Options clés : `IdentityFile=/cygdrive/c/Users/Admin/.ssh/id_ed25519`, `idmap=user`, `cache=no`
+- Permet l'édition directe du `.env` et des fichiers du site, drag-and-drop des photos vers `V:\public\uploads\products\`
+
+### Pas dans le repo
+
+- `scripts/deploy/` (gitignoré) — contient les helpers de déploiement local + secrets éventuels (mots de passe DB et root générés à l'install). Toute manipulation prod doit être faite via SSH ou via le lecteur V:, jamais via des secrets commités.
+- `public/uploads/` (gitignoré) — vit uniquement sur le VPS, pas répliqué. **Penser à organiser une sauvegarde régulière** de ce dossier (rsync/cron à mettre en place).
