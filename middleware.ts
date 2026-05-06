@@ -38,22 +38,24 @@ async function getMaintenanceStatus(requestUrl: string): Promise<boolean> {
   if (maintenanceCache && now - maintenanceCache.timestamp < CACHE_TTL_MS) {
     return maintenanceCache.value;
   }
+  const fetchUrl = new URL("/api/site-status", requestUrl).toString();
   try {
     // `cache: "no-store"` : on évite la Data Cache de Next.js (sur disque)
     // qui peut survivre aux rebuilds et garder une vieille réponse "maintenance"
     // pendant 60s. On garde uniquement le cache mémoire `maintenanceCache`
     // ci-dessus, qui est réinitialisé à chaque redémarrage du process.
-    const res = await fetch(new URL("/api/site-status", requestUrl).toString(), {
-      cache: "no-store",
-    });
+    const res = await fetch(fetchUrl, { cache: "no-store" });
     if (!res.ok) {
+      console.error(`[mw] site-status fetch !ok status=${res.status} url=${fetchUrl}`);
       // Fail-safe : on retourne true SANS cacher, pour retenter au prochain hit.
       return true;
     }
     const data = (await res.json()) as { maintenance: boolean };
+    console.log(`[mw] site-status ok maintenance=${data.maintenance} url=${fetchUrl}`);
     maintenanceCache = { value: !!data.maintenance, timestamp: now };
     return maintenanceCache.value;
-  } catch {
+  } catch (err) {
+    console.error(`[mw] site-status fetch threw: ${err instanceof Error ? err.message : String(err)} url=${fetchUrl}`);
     // Idem : pas de cache sur l'erreur, on retentera.
     return true;
   }
